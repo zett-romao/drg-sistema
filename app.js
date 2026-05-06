@@ -2002,7 +2002,7 @@ Regras importantes:
 - Retorne APENAS o JSON, sem markdown, sem explicação, sem texto adicional`;
 
   const resp=await fetch(
-    `https://generativelanguage.googleapis.com/v1/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
     {
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -2011,7 +2011,11 @@ Regras importantes:
           {text:prompt},
           {inline_data:{mime_type:mimeType, data:base64Data}}
         ]}],
-        generationConfig:{temperature:0.1, maxOutputTokens:512}
+        generationConfig:{
+          temperature:0.1,
+          maxOutputTokens:4096,
+          responseMimeType:'application/json'
+        }
       })
     }
   );
@@ -2021,9 +2025,16 @@ Regras importantes:
   }
   const data=await resp.json();
   const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
-  const jsonMatch=text.match(/\{[\s\S]*\}/);
-  if(!jsonMatch) throw new Error('Resposta da IA não reconhecida');
-  return JSON.parse(jsonMatch[0]);
+  console.log('Gemini raw response:', text);
+  // Tenta parse direto (quando responseMimeType=application/json funciona)
+  try {
+    return JSON.parse(text);
+  } catch(e) {
+    // Fallback: extrai JSON do texto se vier com markdown ou outro wrapper
+    const jsonMatch=text.match(/\{[\s\S]*\}/);
+    if(!jsonMatch) throw new Error('Resposta da IA não reconhecida: '+text.substring(0,200));
+    return JSON.parse(jsonMatch[0]);
+  }
 }
 
 async function processPdf(){

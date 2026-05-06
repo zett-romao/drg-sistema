@@ -4025,7 +4025,7 @@ function renderPerfisTable(){
   const tbody=document.getElementById('perfis-tbody'); if(!tbody) return;
   const systemPerfis=[
     {nome:'Master',desc:'Acesso total ao sistema',tipo:'Sistema'},
-    {nome:'Gestor',desc:'Colaboradores + Folha + Relatórios',tipo:'Sistema'},
+    {nome:'Gestor',desc:'Colaboradores + Folha + Relatórios + Postos + Contratos',tipo:'Sistema'},
     {nome:'Operador',desc:'Folha de Ponto + Relatórios',tipo:'Sistema'}
   ];
   let rows=systemPerfis.map(p=>`<tr>

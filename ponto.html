@@ -250,7 +250,7 @@
 <!-- Firebase SDK -->
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-<script src="firebase-config.js"></script>
+<script src="firebase-config.js?v=20260506e"></script>
 
 <script>
 'use strict';
@@ -323,13 +323,12 @@ async function doLogin() {
   btn.disabled    = true;
 
   try {
-    // Busca por matrícula como número
+    // Busca por matrícula como número (sem filtro de status — verificamos em JS depois)
     let snap = await db.collection('employees')
       .where('registro', '==', parseInt(mat))
-      .where('status',   '!=', 'inativo')
       .limit(1).get();
 
-    // Fallback: busca como string
+    // Fallback: busca como string (caso registro tenha sido salvo como texto)
     if (snap.empty) {
       snap = await db.collection('employees')
         .where('registro', '==', mat)
@@ -337,12 +336,19 @@ async function doLogin() {
     }
 
     if (snap.empty) {
-      erro.textContent   = 'Matrícula não encontrada ou colaborador inativo.';
+      erro.textContent   = 'Matrícula não encontrada.';
       erro.style.display = 'block';
       return;
     }
 
     const emp = { id: snap.docs[0].id, ...snap.docs[0].data() };
+
+    // Verifica se o colaborador está ativo
+    if ((emp.status || 'ativo') === 'inativo') {
+      erro.textContent   = 'Colaborador inativo. Procure o gestor.';
+      erro.style.display = 'block';
+      return;
+    }
 
     // Valida PIN: campo pin customizado ou 4 últimos dígitos do CPF
     const cpfClean    = (emp.cpf || '').replace(/\D/g, '');
@@ -364,8 +370,17 @@ async function doLogin() {
     await carregarHome();
 
   } catch (e) {
-    console.error(e);
-    erro.textContent   = 'Erro de conexão. Verifique sua internet.';
+    console.error('Erro no login:', e);
+    // Mensagem mais específica conforme o tipo de erro
+    if (e && e.code === 'failed-precondition') {
+      erro.textContent = 'Configuração do banco precisa de ajuste. Avise o gestor.';
+    } else if (e && e.code === 'permission-denied') {
+      erro.textContent = 'Sem permissão para acessar. Avise o gestor.';
+    } else if (!navigator.onLine) {
+      erro.textContent = 'Sem conexão com a internet.';
+    } else {
+      erro.textContent = 'Erro: ' + (e?.message || 'desconhecido') + '. Tente novamente.';
+    }
     erro.style.display = 'block';
   } finally {
     btn.textContent = 'Entrar';

@@ -1356,6 +1356,9 @@ function openEmployeeModal(id=null){
     setVal('emp-posto',emp.posto||'');
     setVal('emp-setor',emp.setor||'');
     setVal('emp-exame-vencimento',emp.exameVencimento||'');
+    setVal('emp-insalubridade',emp.insalubridade||0);
+    const acumChk=document.getElementById('emp-acumulo-funcao');
+    if(acumChk) acumChk.checked=!!(emp.acumuloFuncao);
     const chk=document.getElementById('emp-turno-noturno'); if(chk) chk.checked=!!(emp.turnoNoturno);
     onEscalaChange();
     // Histórico de salário
@@ -1383,7 +1386,9 @@ function openEmployeeModal(id=null){
     renderHistoricoSalario([]);
     renderHistoricoPostos(null);
     setVal('emp-estado','SP'); setVal('emp-status','ativo'); setVal('emp-escala','5x2A');
+    setVal('emp-insalubridade',0);
     const chk=document.getElementById('emp-turno-noturno'); if(chk) chk.checked=false;
+    const acumChk=document.getElementById('emp-acumulo-funcao'); if(acumChk) acumChk.checked=false;
     onEscalaChange();
     document.getElementById('doc-list').innerHTML=`<div class="empty-state small"><i class="fa-solid fa-folder-open"></i><p>Salve o colaborador antes de enviar documentos</p></div>`;
   }
@@ -1425,6 +1430,8 @@ async function saveEmployee(){
     horarioSaida:val('emp-horario-saida'),
     turnoNoturno:chk?chk.checked:false,
     salarioBase:numVal('emp-salario-base'),
+    insalubridade:numVal('emp-insalubridade')||0,
+    acumuloFuncao:!!(document.getElementById('emp-acumulo-funcao')?.checked),
     updatedAt:new Date().toISOString()
   };
   if(!State.editingEmployeeId){
@@ -1721,6 +1728,36 @@ function recalculate(){
     }
   }
 
+  // --- Acúmulo de Função (+20% sobre salário base) ---
+  const acumuloCard=document.getElementById('acumulo-card');
+  if(emp&&emp.acumuloFuncao&&salBase>0){
+    if(acumuloCard) acumuloCard.classList.remove('hidden');
+    const acumuloVal=salBase*0.20;
+    setVal('payroll-acumulo',acumuloVal.toFixed(2));
+  } else {
+    if(acumuloCard) acumuloCard.classList.add('hidden');
+    setVal('payroll-acumulo','');
+  }
+
+  // --- Insalubridade (20% / 40% / 60% sobre salário mínimo nacional) ---
+  const insalubCard=document.getElementById('insalubridade-card');
+  const insalubGrau=document.getElementById('insalubridade-grau');
+  const insalubPerc=emp?(emp.insalubridade||0):0;
+  if(insalubPerc>0){
+    if(insalubCard) insalubCard.classList.remove('hidden');
+    const salMin=(State.cct&&State.cct.salarioMinimo)||1518;
+    const insalubVal=salMin*(insalubPerc/100);
+    setVal('payroll-insalubridade',insalubVal.toFixed(2));
+    if(insalubGrau){
+      const grauLabel=insalubPerc===20?'(Mínimo 20%)':insalubPerc===40?'(Médio 40%)':'(Máximo 60%)';
+      insalubGrau.textContent=grauLabel;
+    }
+  } else {
+    if(insalubCard) insalubCard.classList.add('hidden');
+    setVal('payroll-insalubridade','');
+    if(insalubGrau) insalubGrau.textContent='';
+  }
+
   // --- Jornada & Horas Extras ---
   const tEntrada  = timeToMinutes(val('payroll-entrada'));
   const tSaida    = timeToMinutes(val('payroll-saida'));
@@ -1818,6 +1855,8 @@ function loadPayrollRecord(id){
   setVal('payroll-vr-total',p.valeRefeicao); setVal('payroll-va-total',p.valeAlimentacaoTotal||'');
   setVal('payroll-va-liquido',p.valeAlimentacaoLiquido||''); setVal('payroll-bonus',p.bonificacao||'');
   setVal('payroll-noturno',p.adNoturno||'');
+  setVal('payroll-acumulo',p.acumuloFuncao||'');
+  setVal('payroll-insalubridade',p.insalubridade||'');
   setVal('payroll-atraso-min',p.minutosAtraso||'');
   setVal('payroll-desconto-atraso',p.descontoAtraso||'');
   setVal('payroll-adiantamento-ativo',p.adiantamentoAtivo?'sim':'nao');
@@ -1876,6 +1915,8 @@ async function savePayroll(){
     valeAlimentacaoLiquido:numVal('payroll-va-liquido'),
     bonificacao:totalFaltas===0?numVal('payroll-bonus'):0,
     adNoturno:numVal('payroll-noturno'),
+    acumuloFuncao:numVal('payroll-acumulo')||0,
+    insalubridade:numVal('payroll-insalubridade')||0,
     minutosAtraso:numVal('payroll-atraso-min')||0,
     descontoAtraso:numVal('payroll-desconto-atraso')||0,
     adiantamentoAtivo:val('payroll-adiantamento-ativo')==='sim',
@@ -2848,10 +2889,12 @@ function openCctModal(){
     setVal('cct-vt-diario',cct.vtDiario||''); setVal('cct-vr-diario',cct.vrDiario||'');
     setVal('cct-va-mensal',cct.vaMensal||''); setVal('cct-bonificacao',cct.bonificacao||'');
     setVal('cct-plr',cct.plr||''); setVal('cct-adicional-noturno',cct.percentualAdNoturno||20);
+    setVal('cct-salario-minimo',cct.salarioMinimo||1518);
   } else {
     infoEl.style.display='none';
     ['cct-vigencia','cct-salario-base','cct-vt-diario','cct-vr-diario','cct-va-mensal','cct-bonificacao','cct-plr'].forEach(id=>setVal(id,''));
     setVal('cct-adicional-noturno',20);
+    setVal('cct-salario-minimo',1518);
   }
 }
 
@@ -2867,6 +2910,7 @@ async function saveCct(){
     bonificacao:numVal('cct-bonificacao'),
     plr:numVal('cct-plr'),
     percentualAdNoturno:numVal('cct-adicional-noturno')||20,
+    salarioMinimo:numVal('cct-salario-minimo')||1518,
     updatedAt:new Date().toISOString()
   };
   const btn=document.querySelector('#modal-cct .btn-primary');
@@ -3302,9 +3346,11 @@ function printFolhaPonto(){
   const heTotal=heTotalHoras>0?minutesToStr(Math.round(heTotalHoras*60)):'0';
   const heValor=numVal('payroll-he-valor')||0;
   const adNoturno=numVal('payroll-noturno')||0;
+  const acumulo=numVal('payroll-acumulo')||0;
+  const insalubridade=numVal('payroll-insalubridade')||0;
   const adiantamento=numVal('payroll-adiantamento-valor')||0;
   const descontoAtraso=numVal('payroll-desconto-atraso')||0;
-  const totalLiquido=remuneracao+heValor+adNoturno+bonificacao+vtTotal+vrTotal+vaLiquido-adiantamento-descontoAtraso;
+  const totalLiquido=remuneracao+heValor+adNoturno+acumulo+insalubridade+bonificacao+vtTotal+vrTotal+vaLiquido-adiantamento-descontoAtraso;
 
   // Posto do colaborador
   const posto=State.postos.find(p=>p.id===emp.posto)||{razaoSocial:'—', endereco:'—'};
@@ -3446,6 +3492,8 @@ function printFolhaPonto(){
     <tr><td class="fin-label">Remuneração do Período</td><td class="fin-value">${fmtMoney(remuneracao)}</td></tr>
     <tr><td class="fin-label">Horas Extras (${heTotal})</td><td class="fin-value">${fmtMoney(heValor)}</td></tr>
     ${adNoturno>0?`<tr><td class="fin-label">Adicional Noturno</td><td class="fin-value">${fmtMoney(adNoturno)}</td></tr>`:''}
+    ${acumulo>0?`<tr><td class="fin-label">Acúmulo de Função (+20%)</td><td class="fin-value">${fmtMoney(acumulo)}</td></tr>`:''}
+    ${insalubridade>0?`<tr><td class="fin-label">Insalubridade</td><td class="fin-value">${fmtMoney(insalubridade)}</td></tr>`:''}
     ${bonificacao>0?`<tr><td class="fin-label">Bonificação</td><td class="fin-value">${fmtMoney(bonificacao)}</td></tr>`:''}
     ${vtTotal>0?`<tr><td class="fin-label">Vale Transporte</td><td class="fin-value">${fmtMoney(vtTotal)}</td></tr>`:''}
     ${vrTotal>0?`<tr><td class="fin-label">Vale Refeição</td><td class="fin-value">${fmtMoney(vrTotal)}</td></tr>`:''}

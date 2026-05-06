@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>D.R. Global Multi Services — Sistema de Gestão de Colaboradores</title>
   <link rel="icon" href="logo.png" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20260506f">
+  <link rel="stylesheet" href="styles.css?v=20260506g">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -13,7 +13,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-  <script src="firebase-config.js?v=20260506f"></script>
+  <script src="firebase-config.js?v=20260506g"></script>
 </head>
 <body>
 
@@ -593,6 +593,32 @@
                     </div>
                   </div>
                   <div class="va-note hidden" id="va-note"></div>
+                </div>
+
+                <!-- Acúmulo de Função — aparece se o colaborador tiver flag ativa -->
+                <div class="benefit-card hidden" id="acumulo-card" style="background:#E3F2FD;border-color:#1976D2">
+                  <div class="benefit-label">
+                    <i class="fa-solid fa-user-tie" style="color:#1976D2"></i>
+                    <span>Acúmulo de Função (+20%)</span>
+                    <span class="benefit-platform">pago em folha</span>
+                  </div>
+                  <div class="form-group">
+                    <label>Valor do Acúmulo: R$</label>
+                    <input type="number" id="payroll-acumulo" min="0" step="0.01" placeholder="0,00" readonly class="input-readonly">
+                  </div>
+                </div>
+
+                <!-- Insalubridade — aparece se o colaborador tiver grau definido -->
+                <div class="benefit-card hidden" id="insalubridade-card" style="background:#F3E5F5;border-color:#7B1FA2">
+                  <div class="benefit-label">
+                    <i class="fa-solid fa-layer-group" style="color:#7B1FA2"></i>
+                    <span>Insalubridade <span id="insalubridade-grau" style="font-size:12px;color:#7B1FA2"></span></span>
+                    <span class="benefit-platform">pago em folha</span>
+                  </div>
+                  <div class="form-group">
+                    <label>Valor da Insalubridade: R$</label>
+                    <input type="number" id="payroll-insalubridade" min="0" step="0.01" placeholder="0,00" readonly class="input-readonly">
+                  </div>
                 </div>
 
                 <!-- Adicional Noturno — aparece só para escala 12x36 com turno noturno -->
@@ -1389,6 +1415,27 @@
             <input type="date" id="emp-exame-vencimento">
           </div>
         </div>
+        <!-- Adicionais: Acúmulo de Função e Insalubridade -->
+        <div class="form-row">
+          <div class="form-group">
+            <label><i class="fa-solid fa-layer-group" style="color:#7B1FA2"></i> Insalubridade</label>
+            <select id="emp-insalubridade">
+              <option value="0">Não tem insalubridade</option>
+              <option value="20">Grau Mínimo — 20% sobre salário mínimo</option>
+              <option value="40">Grau Médio — 40% sobre salário mínimo</option>
+              <option value="60">Grau Máximo — 60% sobre salário mínimo</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>&nbsp;</label>
+            <div class="checkbox-group" style="padding:9px 0">
+              <input type="checkbox" id="emp-acumulo-funcao">
+              <label for="emp-acumulo-funcao" style="font-size:14px;font-weight:600;color:var(--text);cursor:pointer">
+                <i class="fa-solid fa-user-tie" style="color:#1976D2"></i> Acúmulo de Função (+20% sobre salário base)
+              </label>
+            </div>
+          </div>
+        </div>
         <!-- Histórico de salário -->
         <div id="historico-salario-wrap" style="display:none">
           <div class="divider" style="margin:12px 0 8px"><span>Histórico de Salário</span></div>
@@ -1764,6 +1811,13 @@
           <input type="number" id="cct-adicional-noturno" min="0" step="0.01" placeholder="20" value="20">
         </div>
       </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label><i class="fa-solid fa-coins" style="color:#43A047"></i> Salário Mínimo Nacional (R$)</label>
+          <input type="number" id="cct-salario-minimo" min="0" step="0.01" placeholder="1518,00">
+          <span style="font-size:11px;color:var(--text-muted);margin-top:4px;display:block">Usado como base para cálculo da Insalubridade (20%, 40% ou 60%)</span>
+        </div>
+      </div>
       <div class="divider"><span>Aplicar a Colaboradores</span></div>
       <div class="info-banner" style="background:#FFF3E0;color:#E65100">
         <i class="fa-solid fa-triangle-exclamation"></i>
@@ -2137,6 +2191,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260506f"></script>
+<script src="app.js?v=20260506g"></script>
 </body>
 </html>

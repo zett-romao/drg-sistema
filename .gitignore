@@ -1,0 +1,30 @@
+# ============================================
+# DRG Sistema — Arquivos ignorados pelo Git
+# ============================================
+
+# Backups automáticos do sistema (contêm dados pessoais — LGPD)
+DRGlobal_autobackup_*.json
+*backup*.json
+*Backup*.json
+
+# Pasta de trabalho do Claude Code (não faz parte do projeto)
+.claude/
+
+# Arquivos de IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+
+# Dependências (se algum dia adicionar Node)
+node_modules/

@@ -1964,7 +1964,7 @@ function formatBytes(b){ if(b<1024) return b+' B'; if(b<1048576) return (b/1024)
 // ============================================
 // LEITURA DE FOLHA DE PONTO COM GEMINI AI
 // ============================================
-const GEMINI_API_KEY = 'AIzaSyBG59rYT4YboxbGF1FcWW2sJ9m94UAwcs0';
+const GEMINI_API_KEY = 'AIzaSyAgXsJAKaHkXTbibx-qAoFkm1XAqQlLqts';
 const GEMINI_MODEL   = 'gemini-2.0-flash';
 
 // Converte arquivo para base64

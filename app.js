@@ -1967,7 +1967,7 @@ function formatBytes(b){ if(b<1024) return b+' B'; if(b<1048576) return (b/1024)
 // LEITURA DE FOLHA DE PONTO COM GEMINI AI
 // ============================================
 const GEMINI_API_KEY = 'AIzaSyBG59rYT4YboxbGF1FcWW2sJ9m94UAwcs0';
-const GEMINI_MODEL   = 'gemini-1.5-flash';
+const GEMINI_MODEL   = 'gemini-2.0-flash';
 
 // Converte arquivo para base64
 async function fileToBase64(file){
@@ -2004,7 +2004,7 @@ Regras importantes:
 - Retorne APENAS o JSON, sem markdown, sem explicação, sem texto adicional`;
 
   const resp=await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+    `https://generativelanguage.googleapis.com/v1/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
     {
       method:'POST',
       headers:{'Content-Type':'application/json'},

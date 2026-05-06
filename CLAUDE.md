@@ -135,14 +135,22 @@ O app do colaborador é instalável como PWA (tem `manifest.json` + service work
 
 ## Pendências conhecidas
 
-### Segurança
-- **Firebase Auth** — atualmente usa hash SHA-256 sem salt. Plano: implementar Anonymous Auth ("Caminho A") como camada e endurecer regras Firestore de `if true` para `if request.auth != null`. (Decisão pendente do usuário.)
-- **Regras Firestore/Storage** abertas (`if true`) — vinculado ao item acima.
-- **API key Gemini** — RESOLVIDO via Worker.
+### Limpeza / Operacional
+- **Apagar pasta `Netlify/` local** — só tem `netlify.toml` antigo, projeto não é mais usado.
+- **Apagar projeto Netlify online** (`effervescent-lollipop-d43f31`) — já está pausado pelo Netlify por exceder limite de crédito; antes de excluir, conferir Forms e Domain management (espera-se vazios).
+- **Renomear pasta `Software/`** para algo mais descritivo (ex: `DRG_Sistema/`). Antes de tentar: fechar Claude Code, fechar editores, fechar Explorer, **pausar Google Drive Sync**, depois renomear pelo Explorer. Reabrir Claude Code no caminho novo depois.
+- **Mover ou criptografar `Backup_DR_Global/`** — contém dados pessoais (CPF/RG/salário/PIX) e está dentro do Google Drive sincronizado. Risco de LGPD se a conta Drive vazar. Mover para HD externo ou pasta criptografada (BitLocker/Veracrypt).
+- **Apagar `.claude/`** (opcional) — pasta de trabalho da IA, recriada automaticamente.
 
-### Funcional
-- Testar leitura de IA com escalas 5x2A, 5x2B, 6x1A, 6x1B (12x36 já validado)
-- Migração eventual pra Firebase Auth completo (Caminho B) — em outro turno, é refactor grande
+### Testes pendentes
+- Validar destravamento do PWA no celular após fix do Service Worker (network-first). Se ainda persistir bug "Cannot access 'db' before initialization", seguir o protocolo "PWA / Debug" deste arquivo.
+- Testar leitura de IA com escalas 5x2A, 5x2B, 6x1A, 6x1B (apenas 12x36 foi validado).
+
+### Segurança / Refactor
+- **Firebase Auth — Caminho A (Anonymous Auth)** — implementar `firebase.auth().signInAnonymously()` após login do sistema próprio, e endurecer regras Firestore de `if true` para `if request.auth != null`. Esforço estimado: ~30 min, sem disrupção pra usuários. Decisão do usuário em pausa.
+- **Firebase Auth — Caminho B (Migração completa)** — substituir o módulo `Auth` atual (SHA-256 sem salt) por Firebase Auth real (e-mail + senha). Implica migrar usuários existentes (envio de reset de senha) e reescrever regras do Firestore com `request.auth.uid`. Esforço: 4-5h em outro turno.
+- **Regras Firestore/Storage abertas** (`if true`) — vinculado ao Firebase Auth. Endurecer assim que o Caminho A ou B estiver em vigor.
+- **API key Gemini** — RESOLVIDO via Cloudflare Worker (chave nunca mais em código público).
 
 ---
 

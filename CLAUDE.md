@@ -45,6 +45,11 @@ Sistema de gestão de colaboradores para a empresa **D.R. Global Multi Services*
 ### Cache busting
 Todos os assets locais (`app.js`, `styles.css`, `firebase-config.js`) são referenciados em `index.html` (e `ponto.html`) com query string `?v=YYYYMMDDX` (ex: `?v=20260506k`). **Sempre que mexer em qualquer um deles, bumpe a letra final** (k → l → m...) ou a data, em ambos os HTMLs. Sem isso, o navegador serve versão velha mesmo após push.
 
+### Service Worker (PWA do `ponto.html`)
+O `ponto-sw.js` usa estratégia **network-first** para HTML/JS/CSS/JSON (sempre tenta rede primeiro, cache só se offline) e **cache-first** para imagens. **Sempre que mudar a estratégia de cache ou os assets cacheados, bumpe a constante `CACHE` no início do arquivo** (ex: `'drg-ponto-v3-20260506'` → `'drg-ponto-v4-...'`). Isso força o `activate` hook a apagar caches antigos.
+
+**Atenção:** mesmo com SW novo, o celular pode segurar a versão velha por uma sessão. Usuário precisa fechar e reabrir o app ao menos uma vez (idealmente duas) pra novo SW assumir. Em casos extremos, pode precisar limpar cache do Chrome ou desinstalar/reinstalar o PWA. Documentado em "PWA / Debug" abaixo.
+
 ### Modelo de dados (Firestore)
 - `employees` — colaboradores (campos relevantes recentemente adicionados: `acumuloFuncao` boolean, `insalubridade` 0/20/40/60, `bonificacaoSemprePagar` boolean)
 - `payrolls` — folhas de ponto mensais
@@ -115,6 +120,19 @@ Tem `ESCALA_RULES` por escala de trabalho (5x2A, 5x2B, 6x1A, 6x1B, 12x36) com re
 
 ---
 
+## PWA / Debug (`ponto.html`)
+
+O app do colaborador é instalável como PWA (tem `manifest.json` + service worker). Cuidados:
+
+- **Cache pode prender versão velha** mesmo após deploy. Sintoma: usuário vê erro JS antigo que já foi corrigido no código atual.
+- **Para destravar no celular:**
+  1. **Caminho fácil:** fechar PWA totalmente nos "apps recentes" → reabrir → fechar de novo → reabrir. (2 ciclos: 1º detecta SW novo, 2º aplica.)
+  2. **Caminho nuclear:** Chrome → 3 pontos → Configurações → Privacidade → Limpar dados de navegação (Cookies + Cache, "Última hora"). Desinstalar PWA da tela inicial e reinstalar.
+- **Para forçar update via código:** bumpar `CACHE` em `ponto-sw.js` E mudar/bumpar query string em `<script src="firebase-config.js?v=...">` em `ponto.html`.
+- **Erros silenciosos no login:** o catch em `doLogin()` agora mostra mensagem específica (`failed-precondition`, `permission-denied`, `!navigator.onLine`, etc.) — não envolver o erro real em "Erro de conexão" genérico, que esconde bugs reais.
+
+---
+
 ## Pendências conhecidas
 
 ### Segurança
@@ -148,11 +166,13 @@ git push origin main
 
 ## Histórico de decisões importantes
 
-- **2026-05-06**: Migração Gemini direto → Cloudflare Worker proxy (Google revogou chave por leak no repo público).
+- **2026-05-06**: Migração Gemini direto → Cloudflare Worker proxy (Google revogou chave por leak no repo público). Worker em `https://drg-gemini-proxy.zett-romao.workers.dev`, chave `GEMINI_API_KEY` como Secret. Conta Cloudflare em `zett.romao@gmail.com`.
 - **2026-05-06**: Implementadas features Acúmulo de Função, Insalubridade, Bonificação Boa Permanência (com flag de exceção), PLR completo (parametrização + alertas no dashboard).
 - **2026-05-06**: Corrigido bug Firestore login no `ponto.html` (query `!=` exigia índice composto não criado).
 - **2026-05-06**: Corrigido `firebase-config.js` para chamar `initializeApp` (ponto.html não inicializava Firebase).
+- **2026-05-06**: `ponto-sw.js` migrado de cache-first para network-first em HTML/JS/CSS/JSON. Cache name bumpado para `drg-ponto-v3-20260506` para invalidar caches antigos. Bug "Cannot access 'db' before initialization" no celular era resultado de SW servindo `firebase-config.js` velho do cache.
 - **2026-05-06**: Branch `master` órfão deletado, padronizado em `main`.
+- **2026-05-06**: Restrições da chave Firebase (`Browser key auto created by Firebase`) limpas de URL antiga do Netlify; mantidas apenas `zett-romao.github.io/*`, `localhost/*`, `127.0.0.1/*`.
 
 ---
 

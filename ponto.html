@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#1a3a6b">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="DRG Ponto">
+  <link rel="manifest" href="ponto-manifest.json">
+  <link rel="apple-touch-icon" href="logo.png">
+  <title>D.R. Global — Ponto Eletrônico</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f0f4ff;min-height:100vh;color:#1e293b}
+
+    /* TELAS */
+    .screen{display:none;min-height:100vh;flex-direction:column}
+    .screen.active{display:flex}
+
+    /* HEADER */
+    .app-header{background:linear-gradient(135deg,#1a3a6b,#2563eb);color:white;padding:20px 16px 28px;text-align:center}
+    .app-logo{width:64px;height:64px;border-radius:16px;margin-bottom:10px;box-shadow:0 4px 12px rgba(0,0,0,.2)}
+    .app-title{font-size:20px;font-weight:700}
+    .app-subtitle{font-size:13px;opacity:.8;margin-top:3px}
+
+    /* LOGIN */
+    .login-body{flex:1;padding:28px 20px;display:flex;flex-direction:column;gap:18px;max-width:420px;margin:0 auto;width:100%}
+    .field-label{font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+    .field-input{width:100%;padding:15px 16px;border:2px solid #e2e8f0;border-radius:14px;font-size:18px;background:white;transition:border-color .2s;outline:none;letter-spacing:2px}
+    .field-input:focus{border-color:#2563eb}
+    .btn-login{background:linear-gradient(135deg,#2563eb,#1d4ed8);color:white;border:none;border-radius:14px;padding:17px;font-size:16px;font-weight:700;width:100%;cursor:pointer;transition:opacity .2s;box-shadow:0 4px 14px rgba(37,99,235,.4)}
+    .btn-login:active{opacity:.85}
+    .btn-login:disabled{opacity:.6}
+    .error-msg{background:#fef2f2;color:#dc2626;border-radius:10px;padding:12px 14px;font-size:13px;display:none;text-align:center}
+    .hint-msg{font-size:12px;color:#94a3b8;text-align:center;line-height:1.5}
+
+    /* HEADER COMPACTO (home) */
+    .app-header-sm{background:linear-gradient(135deg,#1a3a6b,#2563eb);color:white;display:flex;align-items:center;gap:12px;padding:12px 16px;flex-shrink:0}
+    .app-header-sm img{width:36px;height:36px;border-radius:8px}
+    .app-header-sm .title{flex:1;font-size:15px;font-weight:700}
+    .app-header-sm .sub{font-size:11px;opacity:.75}
+    .logout-btn{background:rgba(255,255,255,.15);border:none;color:white;font-size:12px;font-weight:600;padding:6px 10px;border-radius:8px;cursor:pointer}
+    .logout-btn:active{background:rgba(255,255,255,.25)}
+
+    /* BODY HOME */
+    .home-body{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:12px;max-width:500px;margin:0 auto;width:100%}
+
+    /* CARDS */
+    .card{background:white;border-radius:18px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,.07)}
+
+    /* COLABORADOR */
+    .emp-row{display:flex;align-items:center;gap:12px}
+    .emp-avatar{width:52px;height:52px;border-radius:50%;background:#dbeafe;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:#2563eb;flex-shrink:0;overflow:hidden}
+    .emp-avatar img{width:100%;height:100%;object-fit:cover}
+    .emp-name{font-size:16px;font-weight:700;color:#1e293b}
+    .emp-sub{font-size:12px;color:#64748b;margin-top:2px}
+
+    /* RELÓGIO */
+    .clock-display{text-align:center;padding:6px 0}
+    .clock-time{font-size:48px;font-weight:700;color:#1e293b;font-variant-numeric:tabular-nums;letter-spacing:-1px}
+    .clock-date{font-size:13px;color:#64748b;margin-top:4px}
+
+    /* REGISTROS DO DIA */
+    .card-label{font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.6px;margin-bottom:12px}
+    .punch-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .punch-item{background:#f8fafc;border-radius:12px;padding:10px 12px;transition:background .2s}
+    .punch-item.done{background:#f0fdf4}
+    .punch-label{font-size:10px;color:#94a3b8;font-weight:600;text-transform:uppercase}
+    .punch-time{font-size:22px;font-weight:700;color:#cbd5e1;margin-top:2px}
+    .punch-item.done .punch-time{color:#16a34a}
+
+    /* BOTÃO DE PONTO */
+    .punch-btn-wrap{display:flex;justify-content:center;padding:4px 0}
+    .punch-btn{width:170px;height:170px;border-radius:50%;border:none;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:white;transition:transform .12s,box-shadow .2s}
+    .punch-btn:active{transform:scale(.94)}
+    .punch-btn:disabled{opacity:.6;cursor:default}
+    .punch-btn.entrada{background:linear-gradient(145deg,#2563eb,#1d4ed8);box-shadow:0 10px 28px rgba(37,99,235,.45)}
+    .punch-btn.intIni{background:linear-gradient(145deg,#f59e0b,#d97706);box-shadow:0 10px 28px rgba(245,158,11,.45)}
+    .punch-btn.intFim{background:linear-gradient(145deg,#10b981,#059669);box-shadow:0 10px 28px rgba(16,185,129,.45)}
+    .punch-btn.saida{background:linear-gradient(145deg,#8b5cf6,#6d28d9);box-shadow:0 10px 28px rgba(139,92,246,.45)}
+    .punch-btn.completo{background:linear-gradient(145deg,#64748b,#475569);box-shadow:0 6px 16px rgba(100,116,139,.3)}
+    .punch-btn-icon{font-size:42px;line-height:1}
+    .punch-btn-text{font-size:13px;font-weight:700;text-align:center;line-height:1.2;max-width:110px}
+
+    /* HISTÓRICO */
+    .hist-day{background:white;border-radius:14px;padding:12px 14px;box-shadow:0 1px 4px rgba(0,0,0,.06);margin-bottom:8px}
+    .hist-day.hoje{border:2px solid #2563eb}
+    .hist-day-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}
+    .hist-dia-num{font-size:14px;font-weight:700;color:#1e293b}
+    .hist-hoje-badge{font-size:10px;font-weight:700;color:#2563eb;background:#dbeafe;padding:2px 7px;border-radius:20px;margin-left:6px}
+    .hist-dia-sem{font-size:11px;color:#94a3b8}
+    .hist-punches{display:flex;gap:6px;flex-wrap:wrap}
+    .hp{border-radius:8px;padding:3px 9px;font-size:11px;font-weight:600}
+    .hp.e{background:#dbeafe;color:#1d4ed8}
+    .hp.s{background:#ede9fe;color:#6d28d9}
+    .hp.i{background:#fef9c3;color:#854d0e}
+    .hp.falta{background:#fee2e2;color:#dc2626}
+    .hp.folga{background:#f1f5f9;color:#94a3b8}
+    .hp.vazio{color:#cbd5e1;font-size:11px}
+
+    /* NAVEGAÇÃO INFERIOR */
+    .bottom-nav{background:white;border-top:1px solid #e2e8f0;display:flex;flex-shrink:0;padding-bottom:max(8px,env(safe-area-inset-bottom))}
+    .nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 8px;border:none;background:none;cursor:pointer;color:#94a3b8;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;transition:color .2s}
+    .nav-btn.active{color:#2563eb}
+    .nav-icon{font-size:22px}
+
+    /* SEÇÕES */
+    .sec{display:none;flex:1;overflow-y:auto}
+    .sec.active{display:block}
+
+    /* TOAST */
+    .toast{position:fixed;top:18px;left:50%;transform:translateX(-50%) translateY(-60px);background:#1e293b;color:white;padding:11px 20px;border-radius:12px;font-size:13px;font-weight:600;z-index:9999;transition:transform .35s cubic-bezier(.34,1.56,.64,1);white-space:nowrap;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,.2)}
+    .toast.show{transform:translateX(-50%) translateY(0)}
+    .toast.success{background:#16a34a}
+    .toast.error{background:#dc2626}
+
+    /* LOADING */
+    .spinner-wrap{text-align:center;padding:40px;color:#94a3b8;font-size:13px}
+    .spinner{width:32px;height:32px;border:3px solid #e2e8f0;border-top-color:#2563eb;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px}
+    @keyframes spin{to{transform:rotate(360deg)}}
+  </style>
+</head>
+<body>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<!-- ============================= TELA LOGIN ============================= -->
+<div class="screen active" id="screen-login">
+  <div class="app-header">
+    <img src="logo.png" class="app-logo" alt="D.R. Global">
+    <div class="app-title">D.R. Global Multi Services</div>
+    <div class="app-subtitle">Ponto Eletrônico</div>
+  </div>
+  <div class="login-body">
+    <div>
+      <div class="field-label">Matrícula</div>
+      <input type="number" id="login-mat" class="field-input" placeholder="0001" inputmode="numeric" autocomplete="off">
+    </div>
+    <div>
+      <div class="field-label">PIN</div>
+      <input type="password" id="login-pin" class="field-input" placeholder="••••" maxlength="4" inputmode="numeric" autocomplete="off">
+    </div>
+    <div class="error-msg" id="login-erro"></div>
+    <button class="btn-login" id="btn-entrar" onclick="doLogin()">Entrar</button>
+    <p class="hint-msg">O PIN são os <strong>4 últimos dígitos do seu CPF</strong>.<br>Em caso de dúvidas, fale com o gestor.</p>
+  </div>
+</div>
+
+<!-- ============================= TELA HOME ============================= -->
+<div class="screen" id="screen-home">
+
+  <!-- Header -->
+  <div class="app-header-sm">
+    <img src="logo.png" alt="">
+    <div>
+      <div class="title">D.R. Global</div>
+      <div class="sub">Ponto Eletrônico</div>
+    </div>
+    <button class="logout-btn" onclick="doLogout()">Sair</button>
+  </div>
+
+  <!-- Conteúdo com seções -->
+  <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+
+    <!-- SEÇÃO: PONTO -->
+    <div class="sec active" id="sec-ponto">
+      <div class="home-body">
+
+        <!-- Colaborador -->
+        <div class="card">
+          <div class="emp-row">
+            <div class="emp-avatar" id="emp-avatar">?</div>
+            <div>
+              <div class="emp-name" id="emp-nome">—</div>
+              <div class="emp-sub" id="emp-info">—</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Relógio -->
+        <div class="card">
+          <div class="clock-display">
+            <div class="clock-time" id="clock-time">00:00:00</div>
+            <div class="clock-date" id="clock-date">—</div>
+          </div>
+        </div>
+
+        <!-- Registros do dia -->
+        <div class="card">
+          <div class="card-label">Registros de Hoje</div>
+          <div class="punch-grid">
+            <div class="punch-item" id="pi-entrada">
+              <div class="punch-label">Entrada</div>
+              <div class="punch-time" id="pt-entrada">—</div>
+            </div>
+            <div class="punch-item" id="pi-intIni">
+              <div class="punch-label">Início Intervalo</div>
+              <div class="punch-time" id="pt-intIni">—</div>
+            </div>
+            <div class="punch-item" id="pi-intFim">
+              <div class="punch-label">Fim Intervalo</div>
+              <div class="punch-time" id="pt-intFim">—</div>
+            </div>
+            <div class="punch-item" id="pi-saida">
+              <div class="punch-label">Saída</div>
+              <div class="punch-time" id="pt-saida">—</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Botão ponto -->
+        <div class="punch-btn-wrap">
+          <button class="punch-btn entrada" id="punch-btn" onclick="baterPonto()">
+            <span class="punch-btn-icon">🟢</span>
+            <span class="punch-btn-text">Bater Entrada</span>
+          </button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- SEÇÃO: HISTÓRICO -->
+    <div class="sec" id="sec-historico">
+      <div class="home-body">
+        <div class="card" style="padding-bottom:8px">
+          <div class="card-label" id="hist-titulo">Histórico do Mês</div>
+          <div id="hist-lista">
+            <div class="spinner-wrap"><div class="spinner"></div>Carregando...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Navegação inferior -->
+  <div class="bottom-nav">
+    <button class="nav-btn active" id="nav-ponto" onclick="navTo('ponto')">
+      <span class="nav-icon">⏱️</span>Ponto
+    </button>
+    <button class="nav-btn" id="nav-historico" onclick="navTo('historico')">
+      <span class="nav-icon">📋</span>Histórico
+    </button>
+  </div>
+
+</div>
+
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
+
+<script>
+'use strict';
+
+// ─── CONSTANTES ───────────────────────────────────────────────────────────────
+const db      = firebase.firestore();
+const DIAS    = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+const MESES   = ['','Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+                  'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+
+const PUNCH_CFG = {
+  entrada:  { label:'Bater Entrada',       icon:'🟢', cls:'entrada' },
+  intIni:   { label:'Início Intervalo',    icon:'🟡', cls:'intIni'  },
+  intFim:   { label:'Fim Intervalo',       icon:'🟠', cls:'intFim'  },
+  saida:    { label:'Bater Saída',         icon:'🔵', cls:'saida'   },
+  completo: { label:'Ponto Completo',      icon:'✅', cls:'completo'},
+};
+
+// ─── ESTADO ───────────────────────────────────────────────────────────────────
+let currentEmp     = null;
+let currentPayroll = null;
+let clockInterval  = null;
+
+// ─── SERVICE WORKER (PWA) ────────────────────────────────────────────────────
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('ponto-sw.js').catch(() => {});
+  });
+}
+
+// ─── RELÓGIO ──────────────────────────────────────────────────────────────────
+function startClock() {
+  updateClock();
+  clockInterval = setInterval(updateClock, 1000);
+}
+function updateClock() {
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  const tEl = document.getElementById('clock-time');
+  if (tEl) tEl.textContent = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  const dEl = document.getElementById('clock-date');
+  if (dEl) dEl.textContent = `${DIAS[now.getDay()]}, ${now.getDate()} de ${MESES[now.getMonth()+1]} de ${now.getFullYear()}`;
+}
+
+// ─── TOAST ────────────────────────────────────────────────────────────────────
+let _toastTimer;
+function toast(msg, type='') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className   = 'toast show' + (type ? ' '+type : '');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.classList.remove('show'), 3200);
+}
+
+// ─── LOGIN ────────────────────────────────────────────────────────────────────
+async function doLogin() {
+  const mat  = document.getElementById('login-mat').value.trim();
+  const pin  = document.getElementById('login-pin').value.trim();
+  const erro = document.getElementById('login-erro');
+  const btn  = document.getElementById('btn-entrar');
+
+  erro.style.display = 'none';
+  if (!mat || !pin) {
+    erro.textContent   = 'Preencha a matrícula e o PIN.';
+    erro.style.display = 'block';
+    return;
+  }
+
+  btn.textContent = 'Verificando...';
+  btn.disabled    = true;
+
+  try {
+    // Busca por matrícula como número
+    let snap = await db.collection('employees')
+      .where('registro', '==', parseInt(mat))
+      .where('status',   '!=', 'inativo')
+      .limit(1).get();
+
+    // Fallback: busca como string
+    if (snap.empty) {
+      snap = await db.collection('employees')
+        .where('registro', '==', mat)
+        .limit(1).get();
+    }
+
+    if (snap.empty) {
+      erro.textContent   = 'Matrícula não encontrada ou colaborador inativo.';
+      erro.style.display = 'block';
+      return;
+    }
+
+    const emp = { id: snap.docs[0].id, ...snap.docs[0].data() };
+
+    // Valida PIN: campo pin customizado ou 4 últimos dígitos do CPF
+    const cpfClean    = (emp.cpf || '').replace(/\D/g, '');
+    const pinEsperado = emp.pin || (cpfClean.length >= 4 ? cpfClean.slice(-4) : '0000');
+
+    if (pin !== pinEsperado) {
+      erro.textContent   = 'PIN incorreto. Use os 4 últimos dígitos do seu CPF.';
+      erro.style.display = 'block';
+      return;
+    }
+
+    // Salva sessão leve
+    currentEmp = emp;
+    sessionStorage.setItem('drg_ponto_emp', JSON.stringify({
+      id: emp.id, nome: emp.nome, registro: emp.registro,
+      cpf: emp.cpf, cargo: emp.cargo, posto: emp.posto, foto: emp.foto || ''
+    }));
+
+    await carregarHome();
+
+  } catch (e) {
+    console.error(e);
+    erro.textContent   = 'Erro de conexão. Verifique sua internet.';
+    erro.style.display = 'block';
+  } finally {
+    btn.textContent = 'Entrar';
+    btn.disabled    = false;
+  }
+}
+
+document.getElementById('login-pin').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+
+// Restaura sessão ao abrir o app
+window.addEventListener('load', () => {
+  const saved = sessionStorage.getItem('drg_ponto_emp');
+  if (saved) {
+    try { currentEmp = JSON.parse(saved); carregarHome(); }
+    catch (e) { sessionStorage.removeItem('drg_ponto_emp'); }
+  }
+});
+
+// ─── HOME ─────────────────────────────────────────────────────────────────────
+async function carregarHome() {
+  mostrarTela('home');
+  startClock();
+  renderEmp();
+  await carregarPayroll();
+  renderHoje();
+  renderBotao();
+}
+
+function renderEmp() {
+  const emp = currentEmp;
+  document.getElementById('emp-nome').textContent = emp.nome || '—';
+  const reg = emp.registro ? String(emp.registro).padStart(4,'0') : '—';
+  document.getElementById('emp-info').textContent = `Reg. ${reg} · ${emp.cargo || '—'}`;
+  const av = document.getElementById('emp-avatar');
+  if (emp.foto) {
+    av.innerHTML = `<img src="${emp.foto}" alt="">`;
+  } else {
+    av.textContent = (emp.nome || '?').split(' ').map(n => n[0]).slice(0,2).join('').toUpperCase();
+  }
+}
+
+async function carregarPayroll() {
+  const now = new Date();
+  const mes = now.getMonth() + 1;
+  const ano = now.getFullYear();
+  try {
+    const snap = await db.collection('payrolls')
+      .where('employeeId', '==', currentEmp.id)
+      .where('mes', '==', mes)
+      .where('ano', '==', ano)
+      .limit(1).get();
+    currentPayroll = snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() };
+  } catch (e) {
+    console.error(e);
+    currentPayroll = null;
+  }
+}
+
+function getDiaHoje() {
+  const dia = new Date().getDate();
+  return (currentPayroll?.pontoManualDias || []).find(d => d.dia === dia) || {};
+}
+
+function renderHoje() {
+  const p = getDiaHoje();
+  ['entrada','intIni','intFim','saida'].forEach(k => {
+    const el   = document.getElementById('pt-' + k);
+    const wrap = document.getElementById('pi-' + k);
+    if (!el || !wrap) return;
+    const v = p[k] || '';
+    el.textContent = v || '—';
+    if (v) { el.style.color = ''; wrap.classList.add('done'); }
+    else   { el.style.color = '#cbd5e1'; wrap.classList.remove('done'); }
+  });
+}
+
+function getProxima() {
+  const p = getDiaHoje();
+  if (!p.entrada) return 'entrada';
+  if (!p.intIni)  return 'intIni';
+  if (!p.intFim)  return 'intFim';
+  if (!p.saida)   return 'saida';
+  return 'completo';
+}
+
+function renderBotao() {
+  const prox = getProxima();
+  const cfg  = PUNCH_CFG[prox];
+  const btn  = document.getElementById('punch-btn');
+  btn.className = 'punch-btn ' + cfg.cls;
+  btn.innerHTML = `<span class="punch-btn-icon">${cfg.icon}</span><span class="punch-btn-text">${cfg.label}</span>`;
+  btn.disabled  = prox === 'completo';
+}
+
+// ─── BATER PONTO ──────────────────────────────────────────────────────────────
+async function baterPonto() {
+  const prox = getProxima();
+  if (prox === 'completo') { toast('Todos os registros do dia já foram feitos! ✅'); return; }
+
+  const now  = new Date();
+  const pad  = n => String(n).padStart(2,'0');
+  const hora = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  const mes  = now.getMonth() + 1;
+  const ano  = now.getFullYear();
+  const dia  = now.getDate();
+  const dsem = now.getDay();
+
+  const btn = document.getElementById('punch-btn');
+  btn.disabled  = true;
+  btn.innerHTML = '<span class="punch-btn-icon">⏳</span><span class="punch-btn-text">Salvando...</span>';
+
+  try {
+    // Copia array de dias
+    const dias   = [...(currentPayroll?.pontoManualDias || [])];
+    let dayEntry = dias.find(d => d.dia === dia);
+    if (!dayEntry) {
+      dayEntry = { dia, diaSem: dsem, entrada:'', saida:'', intIni:'', intFim:'' };
+      dias.push(dayEntry);
+    }
+    dayEntry[prox] = hora;
+
+    // Prepara record
+    const id = currentPayroll?.id || (Date.now().toString(36) + Math.random().toString(36).substr(2));
+    const record = {
+      ...(currentPayroll || {}),
+      id,
+      employeeId: currentEmp.id,
+      mes, ano,
+      pontoManualDias: dias,
+      updatedAt: new Date().toISOString(),
+      createdAt: currentPayroll?.createdAt || new Date().toISOString(),
+    };
+
+    await db.collection('payrolls').doc(id).set(record, { merge: true });
+    currentPayroll = record;
+
+    const nomes = { entrada:'Entrada', intIni:'Início do intervalo', intFim:'Fim do intervalo', saida:'Saída' };
+    toast(`✅ ${nomes[prox]} registrada às ${hora}`, 'success');
+    renderHoje();
+    renderBotao();
+
+  } catch (e) {
+    console.error(e);
+    toast('Erro ao registrar. Verifique sua conexão.', 'error');
+    renderBotao();
+  }
+}
+
+// ─── HISTÓRICO ────────────────────────────────────────────────────────────────
+function renderHistorico() {
+  const now     = new Date();
+  const mes     = now.getMonth() + 1;
+  const ano     = now.getFullYear();
+  const nDias   = new Date(ano, mes, 0).getDate();
+  const hoje    = now.getDate();
+  const lista   = document.getElementById('hist-lista');
+  document.getElementById('hist-titulo').textContent = `${MESES[mes]} / ${ano}`;
+
+  const dias = currentPayroll?.pontoManualDias || [];
+  let html   = '';
+
+  for (let d = nDias; d >= 1; d--) {
+    const dow   = new Date(ano, mes-1, d).getDay();
+    const isWk  = dow === 0 || dow === 6;
+    const ehHj  = d === hoje;
+    const p     = dias.find(x => x.dia === d) || {};
+    let itens   = '';
+
+    if (p.entrada) itens += `<span class="hp e">E: ${p.entrada}</span>`;
+    if (p.intIni)  itens += `<span class="hp i">↓ ${p.intIni}</span>`;
+    if (p.intFim)  itens += `<span class="hp i">↑ ${p.intFim}</span>`;
+    if (p.saida)   itens += `<span class="hp s">S: ${p.saida}</span>`;
+
+    if (!p.entrada && !p.saida) {
+      if (isWk) itens = `<span class="hp folga">Folga</span>`;
+      else if (d < hoje) itens = `<span class="hp falta">Sem registro</span>`;
+      else itens = `<span class="hp vazio">—</span>`;
+    }
+
+    html += `<div class="hist-day${ehHj?' hoje':''}">
+      <div class="hist-day-header">
+        <div class="hist-dia-num">${String(d).padStart(2,'0')}${ehHj?'<span class="hist-hoje-badge">HOJE</span>':''}</div>
+        <div class="hist-dia-sem">${DIAS[dow]}</div>
+      </div>
+      <div class="hist-punches">${itens}</div>
+    </div>`;
+  }
+
+  lista.innerHTML = html;
+}
+
+// ─── NAVEGAÇÃO ────────────────────────────────────────────────────────────────
+function navTo(sec) {
+  ['ponto','historico'].forEach(s => {
+    document.getElementById('sec-' + s).classList.toggle('active', s === sec);
+    document.getElementById('nav-' + s).classList.toggle('active', s === sec);
+  });
+  if (sec === 'historico') renderHistorico();
+}
+
+function mostrarTela(nome) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + nome).classList.add('active');
+}
+
+// ─── LOGOUT ───────────────────────────────────────────────────────────────────
+function doLogout() {
+  sessionStorage.removeItem('drg_ponto_emp');
+  currentEmp     = null;
+  currentPayroll = null;
+  clearInterval(clockInterval);
+  mostrarTela('login');
+  document.getElementById('login-mat').value = '';
+  document.getElementById('login-pin').value = '';
+}
+</script>
+</body>
+</html>

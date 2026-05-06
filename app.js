@@ -1359,6 +1359,8 @@ function openEmployeeModal(id=null){
     setVal('emp-insalubridade',emp.insalubridade||0);
     const acumChk=document.getElementById('emp-acumulo-funcao');
     if(acumChk) acumChk.checked=!!(emp.acumuloFuncao);
+    const bonifChk=document.getElementById('emp-bonificacao-sempre-pagar');
+    if(bonifChk) bonifChk.checked=!!(emp.bonificacaoSemprePagar);
     const chk=document.getElementById('emp-turno-noturno'); if(chk) chk.checked=!!(emp.turnoNoturno);
     onEscalaChange();
     // Histórico de salário
@@ -1389,6 +1391,7 @@ function openEmployeeModal(id=null){
     setVal('emp-insalubridade',0);
     const chk=document.getElementById('emp-turno-noturno'); if(chk) chk.checked=false;
     const acumChk=document.getElementById('emp-acumulo-funcao'); if(acumChk) acumChk.checked=false;
+    const bonifChk=document.getElementById('emp-bonificacao-sempre-pagar'); if(bonifChk) bonifChk.checked=false;
     onEscalaChange();
     document.getElementById('doc-list').innerHTML=`<div class="empty-state small"><i class="fa-solid fa-folder-open"></i><p>Salve o colaborador antes de enviar documentos</p></div>`;
   }
@@ -1432,6 +1435,7 @@ async function saveEmployee(){
     salarioBase:numVal('emp-salario-base'),
     insalubridade:numVal('emp-insalubridade')||0,
     acumuloFuncao:!!(document.getElementById('emp-acumulo-funcao')?.checked),
+    bonificacaoSemprePagar:!!(document.getElementById('emp-bonificacao-sempre-pagar')?.checked),
     updatedAt:new Date().toISOString()
   };
   if(!State.editingEmployeeId){
@@ -1683,15 +1687,33 @@ function recalculate(){
   setVal('payroll-vt-total',(numVal('payroll-vt-dia')*dias).toFixed(2));
   setVal('payroll-vr-total',(numVal('payroll-vr-dia')*dias).toFixed(2));
 
-  // --- Bonificação: bloqueada se qualquer falta ---
+  // --- Bonificação de Boa Permanência ---
+  // Regra padrão: qualquer falta zera o benefício
+  // Exceção: se o colaborador tem flag "bonificacaoSemprePagar", paga mesmo com falta
   const bonusCard=document.getElementById('bonus-card');
   const bonusInput=document.getElementById('payroll-bonus');
   const bonusAlert=document.getElementById('bonus-alert');
-  if(totalFaltas>0){
+  const bonusAlertMsg=document.getElementById('bonus-alert-msg');
+  const sempreP=!!(emp&&emp.bonificacaoSemprePagar);
+  if(totalFaltas>0 && !sempreP){
+    // Caso 1: tem falta E flag desligada -> bloqueia
     bonusCard.classList.add('locked'); bonusInput.disabled=true;
     setVal('payroll-bonus',''); bonusAlert.classList.remove('hidden');
+    if(bonusAlertMsg) bonusAlertMsg.textContent='Colaborador possui faltas — bonificação não aplicável (qualquer falta elimina o benefício). Para alterar essa regra, ative a opção "Pagar bonificação mesmo com faltas" no cadastro do colaborador.';
   } else {
-    bonusCard.classList.remove('locked'); bonusInput.disabled=false; bonusAlert.classList.add('hidden');
+    bonusCard.classList.remove('locked'); bonusInput.disabled=false;
+    if(totalFaltas>0 && sempreP){
+      // Caso 2: tem falta MAS flag ligada -> permite e avisa
+      bonusAlert.classList.remove('hidden');
+      if(bonusAlertMsg) bonusAlertMsg.innerHTML='<strong>Bonificação liberada por configuração</strong> — colaborador marcado para receber bonificação mesmo com faltas. Edite o valor abaixo.';
+    } else {
+      // Caso 3: sem falta -> liberado normalmente
+      bonusAlert.classList.add('hidden');
+    }
+    // Auto-preenche da CCT se o campo está vazio
+    if(!val('payroll-bonus') && State.cct && State.cct.bonificacao>0){
+      setVal('payroll-bonus', State.cct.bonificacao.toFixed(2));
+    }
   }
 
   // --- VA proporcional / integral (CCT: perde se >3 faltas injustificadas) ---
@@ -1913,7 +1935,13 @@ async function savePayroll(){
     vrDia, valeRefeicao:vrDia*dias,
     valeAlimentacaoTotal:numVal('payroll-va-total'),
     valeAlimentacaoLiquido:numVal('payroll-va-liquido'),
-    bonificacao:totalFaltas===0?numVal('payroll-bonus'):0,
+    // Bonificação: zera só se houver falta E o colaborador NÃO tem flag de "sempre pagar"
+    bonificacao:(function(){
+      const empRec=State.employees.find(e=>e.id===empId);
+      const sempreP=!!(empRec&&empRec.bonificacaoSemprePagar);
+      if(totalFaltas>0 && !sempreP) return 0;
+      return numVal('payroll-bonus')||0;
+    })(),
     adNoturno:numVal('payroll-noturno'),
     acumuloFuncao:numVal('payroll-acumulo')||0,
     insalubridade:numVal('payroll-insalubridade')||0,

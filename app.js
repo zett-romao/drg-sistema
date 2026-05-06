@@ -3225,7 +3225,7 @@ async function applyPontoManual(){
   setVal('payroll-dias',diasTrabalhados);
   setVal('payroll-faltas-injustificadas',faltas);
   setVal('payroll-faltas-justificadas',0);
-  if(totalHEmin>0) setVal('payroll-he-total',minutesToStr(totalHEmin));
+  if(totalHEmin>0) setVal('payroll-he-total',(totalHEmin/60).toFixed(2));
   recalculate();
   closeModal('modal-ponto-manual');
   toast(`Aplicado: ${diasTrabalhados} dias trabalhados / ${faltas} falta(s)${totalHEmin>0?' / '+minutesToStr(totalHEmin)+' HE':''}.`);

@@ -2063,8 +2063,10 @@ function formatBytes(b){ if(b<1024) return b+' B'; if(b<1048576) return (b/1024)
 // ============================================
 // LEITURA DE FOLHA DE PONTO COM GEMINI AI
 // ============================================
-const GEMINI_API_KEY = 'AIzaSyAgXsJAKaHkXTbibx-qAoFkm1XAqQlLqts';
-const GEMINI_MODEL   = 'gemini-2.5-flash';
+// Usa Cloudflare Worker como proxy: a chave Gemini fica em segredo no
+// servidor e nunca aparece no código público (LGPD/segurança).
+const GEMINI_PROXY_URL = 'https://drg-gemini-proxy.zett-romao.workers.dev';
+const GEMINI_MODEL     = 'gemini-2.5-flash';
 
 // Converte arquivo para base64
 async function fileToBase64(file){
@@ -2117,27 +2119,19 @@ Sanidade obrigatória: diasTrabalhados + faltas + folgas + atestados + férias �
 
 Retorne APENAS o JSON, sem markdown, sem comentários, sem explicação. Se um valor não puder ser determinado, use null (texto) ou 0 (números).`;
 
-  const resp=await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-    {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        contents:[{parts:[
-          {text:prompt},
-          {inline_data:{mime_type:mimeType, data:base64Data}}
-        ]}],
-        generationConfig:{
-          temperature:0.1,
-          maxOutputTokens:4096,
-          responseMimeType:'application/json'
-        }
-      })
-    }
-  );
+  const resp=await fetch(GEMINI_PROXY_URL, {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      model: GEMINI_MODEL,
+      prompt: prompt,
+      mimeType: mimeType,
+      base64Data: base64Data
+    })
+  });
   if(!resp.ok){
-    const err=await resp.json();
-    throw new Error(err.error?.message||'Erro na API Gemini');
+    const err=await resp.json().catch(()=>({error:'Resposta inválida do servidor'}));
+    throw new Error(err.error?.message||err.error||'Erro na chamada Gemini via proxy');
   }
   const data=await resp.json();
   const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'';

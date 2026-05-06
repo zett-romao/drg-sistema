@@ -25,6 +25,13 @@ const FIREBASE_CONFIG = {
   appId:             "1:763740165429:web:6dc8a6aa8a873d95f9287c"
 };
 
+// Inicializa o Firebase imediatamente (idempotente — só inicializa se ainda não foi).
+// Necessário para páginas como ponto.html que usam firebase.firestore() direto,
+// sem passar pelo DB.init() do app.js.
+if (typeof firebase !== 'undefined' && firebase.apps && !firebase.apps.length) {
+  firebase.initializeApp(FIREBASE_CONFIG);
+}
+
 // ================================================================
 //  REGRAS DE SEGURANÇA DO FIRESTORE
 // ================================================================

@@ -1,0 +1,2141 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>D.R. Global Multi Services — Sistema de Gestão de Colaboradores</title>
+  <link rel="icon" href="logo.png" type="image/png">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+  <script src="firebase-config.js"></script>
+</head>
+<body>
+
+<!-- ===== TELA DE CARREGAMENTO / SETUP ===== -->
+<div id="loading-screen">
+  <div class="loading-card">
+    <img src="logo.png" alt="D.R. Global Multi Services" class="loading-logo"
+         onerror="this.style.display='none'">
+    <div class="loading-spinner"></div>
+    <p class="loading-msg" id="loading-msg">Conectando ao banco de dados...</p>
+  </div>
+</div>
+
+<div id="setup-screen" class="hidden">
+  <div class="setup-card">
+    <img src="logo.png" alt="D.R. Global Multi Services" class="loading-logo"
+         onerror="this.style.display='none'">
+    <h2>Configuração necessária</h2>
+    <p>O sistema ainda não está conectado ao banco de dados Firebase.</p>
+    <div class="setup-steps">
+      <div class="step"><span class="step-num">1</span><span>Acesse <strong>console.firebase.google.com</strong> e crie um projeto</span></div>
+      <div class="step"><span class="step-num">2</span><span>Ative o <strong>Firestore Database</strong> (modo produção)</span></div>
+      <div class="step"><span class="step-num">3</span><span>Em Configurações → Seus apps → Web, copie as credenciais</span></div>
+      <div class="step"><span class="step-num">4</span><span>Abra o arquivo <code>firebase-config.js</code> e cole os valores</span></div>
+      <div class="step"><span class="step-num">5</span><span>Recarregue esta página</span></div>
+    </div>
+    <button class="btn btn-primary" onclick="location.reload()">
+      <i class="fa-solid fa-rotate-right"></i> Tentar novamente
+    </button>
+  </div>
+</div>
+
+<!-- ===== TELA DE LOGIN ===== -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-logo-wrap">
+      <img src="logo.png" alt="D.R. Global Multi Services" class="login-logo-img"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div class="login-logo-fallback" style="display:none">DRG</div>
+    </div>
+    <div class="login-brand">
+      <h1>D.R. Global Multi Services</h1>
+      <p>Sistema de Gestão de Colaboradores</p>
+    </div>
+    <form id="login-form" onsubmit="doLogin(event)" autocomplete="off">
+      <div class="form-group">
+        <label><i class="fa-solid fa-user"></i> Usuário</label>
+        <input type="text" id="login-username" placeholder="Nome de usuário" autocomplete="username" autofocus>
+      </div>
+      <div class="form-group">
+        <label><i class="fa-solid fa-lock"></i> Senha</label>
+        <div class="pass-wrap">
+          <input type="password" id="login-password" placeholder="Senha" autocomplete="current-password">
+          <button type="button" class="btn-show-pass" onclick="togglePassVisibility('login-password', this)">
+            <i class="fa-solid fa-eye"></i>
+          </button>
+        </div>
+      </div>
+      <div class="login-error hidden" id="login-error">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        <span id="login-error-msg"></span>
+      </div>
+      <button type="submit" class="btn btn-primary w-full" id="login-btn">
+        <i class="fa-solid fa-right-to-bracket"></i> Entrar
+      </button>
+    </form>
+    <div class="login-footer">Gestão de Colaboradores &mdash; Versão 5.0</div>
+    <button type="button" onclick="openRecoveryModal()"
+      style="margin-top:12px;background:none;border:none;color:#94A3B8;font-size:12px;cursor:pointer;text-decoration:underline">
+      <i class="fa-solid fa-key"></i> Recuperar acesso
+    </button>
+  </div>
+</div>
+
+<!-- ===== MODAL: RECUPERAR ACESSO ===== -->
+<div class="modal-overlay hidden" id="modal-recovery" style="z-index:9999">
+  <div class="modal-dialog" style="max-width:400px">
+    <div class="modal-header" style="background:linear-gradient(135deg,#1A237E,#283593)">
+      <h3 style="color:#fff"><i class="fa-solid fa-key"></i> Recuperar Acesso Master</h3>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">
+        Digite o código de recuperação para criar um novo acesso master.
+        O código foi definido na configuração do sistema.
+      </p>
+      <div class="form-group">
+        <label>Código de Recuperação</label>
+        <input type="password" id="recovery-code" placeholder="••••••••••" autocomplete="off">
+      </div>
+      <div id="recovery-error" class="hidden" style="background:#FFF3F3;border:1px solid #FFCDD2;border-radius:6px;padding:10px;font-size:13px;color:#B71C1C;margin-top:8px">
+        <i class="fa-solid fa-triangle-exclamation"></i> <span id="recovery-error-msg"></span>
+      </div>
+      <div id="recovery-success" class="hidden" style="background:#F1F8E9;border:1px solid #A5D6A7;border-radius:8px;padding:14px;margin-top:8px">
+        <div style="font-size:13px;font-weight:700;color:#1B5E20;margin-bottom:8px"><i class="fa-solid fa-circle-check"></i> Acesso restaurado!</div>
+        <div style="font-size:13px;color:#2E7D32">
+          <div>Usuário: <strong id="recovery-new-user"></strong></div>
+          <div>Senha: <strong id="recovery-new-pass"></strong></div>
+          <div style="margin-top:8px;font-size:12px;color:#558B2F">⚠️ Altere a senha imediatamente após entrar.</div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-recovery')">Fechar</button>
+      <button class="btn btn-primary" id="recovery-btn" onclick="doRecovery()">
+        <i class="fa-solid fa-unlock"></i> Restaurar Acesso
+      </button>
+    </div>
+  </div>
+</div>
+
+<div id="app">
+  <!-- Sidebar -->
+  <nav class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-logo-wrap">
+        <img src="logo.png" alt="Logo" class="brand-logo-img"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+        <div class="brand-logo" style="display:none">DRG</div>
+      </div>
+      <div class="brand-info">
+        <span class="brand-name">D.R. Global<br><span style="font-weight:500;font-size:12px;opacity:.85">Multi Services</span></span>
+        <span class="brand-sub">Gestão de Colaboradores</span>
+      </div>
+    </div>
+
+    <ul class="sidebar-nav">
+      <li>
+        <a class="nav-link active" id="nav-dashboard" onclick="showSection('dashboard')">
+          <i class="fa-solid fa-gauge-high"></i>
+          <span>Dashboard</span>
+        </a>
+      </li>
+      <li id="nav-employees-li">
+        <a class="nav-link" id="nav-employees" onclick="showSection('employees')">
+          <i class="fa-solid fa-users"></i>
+          <span>Colaboradores</span>
+        </a>
+      </li>
+      <li>
+        <a class="nav-link" id="nav-payroll" onclick="showSection('payroll')">
+          <i class="fa-solid fa-file-invoice-dollar"></i>
+          <span>Folha de Ponto</span>
+        </a>
+      </li>
+      <li>
+        <a class="nav-link" id="nav-reports" onclick="showSection('reports')">
+          <i class="fa-solid fa-chart-bar"></i>
+          <span>Relatórios</span>
+        </a>
+      </li>
+      <li id="nav-postos-li">
+        <a class="nav-link" id="nav-postos" onclick="showSection('postos')">
+          <i class="fa-solid fa-building"></i>
+          <span>Postos de Trabalho</span>
+        </a>
+      </li>
+      <li id="nav-contratos-li" class="hidden">
+        <a class="nav-link" id="nav-contratos" onclick="showSection('contratos')">
+          <i class="fa-solid fa-file-signature"></i>
+          <span>Contratos</span>
+        </a>
+      </li>
+      <li id="nav-users-li" class="hidden">
+        <a class="nav-link" id="nav-users" onclick="showSection('users')">
+          <i class="fa-solid fa-user-shield"></i>
+          <span>Usuários & Acessos</span>
+        </a>
+      </li>
+    </ul>
+
+    <!-- Sidebar: usuário logado -->
+    <div class="sidebar-user" id="sidebar-user">
+      <div class="su-avatar" id="su-avatar">?</div>
+      <div class="su-info">
+        <span class="su-name" id="su-name">—</span>
+        <span class="su-role" id="su-role">—</span>
+      </div>
+      <button class="su-logout" onclick="doLogout()" title="Sair">
+        <i class="fa-solid fa-right-from-bracket"></i>
+      </button>
+    </div>
+
+    <div class="sidebar-db">
+      <div class="sidebar-db-title db-panel-toggle" onclick="toggleDbPanel()" title="Expandir / recolher">
+        <i class="fa-solid fa-database"></i>
+        <span>Banco de Dados</span>
+        <i class="fa-solid fa-chevron-down" id="db-chevron" style="margin-left:auto;font-size:9px;transition:transform .25s"></i>
+      </div>
+      <button class="db-btn db-btn-auto" id="btn-auto-backup" onclick="setupAutoBackup()" title="Configurar backup automático a cada 5 min">
+        <i class="fa-solid fa-rotate"></i>
+        <span id="auto-backup-label">Auto-backup: desligado</span>
+      </button>
+      <div class="auto-backup-status hidden" id="auto-backup-status">
+        <span class="ab-dot"></span>
+        <span id="ab-next-label">Próximo em 5:00</span>
+      </div>
+      <div id="db-panel-extra" style="display:none">
+        <button class="db-btn db-btn-cct" onclick="openCctModal()" title="Convenção Coletiva de Trabalho">
+          <i class="fa-solid fa-file-contract"></i>
+          <span>Importar CCT</span>
+        </button>
+        <button class="db-btn db-btn-export" onclick="exportDatabase()" title="Salvar backup agora">
+          <i class="fa-solid fa-file-arrow-down"></i>
+          <span>Exportar backup</span>
+        </button>
+        <label class="db-btn db-btn-import" title="Carregar banco de dados salvo">
+          <i class="fa-solid fa-file-arrow-up"></i>
+          <span>Importar backup</span>
+          <input type="file" id="import-file" accept=".json" onchange="importDatabase(event)" style="display:none">
+        </label>
+      </div>
+      <div class="db-info" id="db-info"></div>
+    </div>
+
+    <div class="sidebar-footer">
+      <i class="fa-solid fa-circle-info"></i>
+      <span>Versão 3.0</span>
+      <div class="sidebar-dev">Dev. Donizete Romão &amp; Claude Code</div>
+    </div>
+  </nav>
+
+  <!-- Overlay mobile para fechar o menu -->
+  <div id="sidebar-overlay" onclick="closeSidebarMobile()"></div>
+
+  <!-- Main -->
+  <div class="main-wrapper" id="main-wrapper">
+    <!-- Topbar -->
+    <header class="topbar">
+      <button class="btn-toggle-sidebar" onclick="toggleSidebar()">
+        <i class="fa-solid fa-bars"></i>
+      </button>
+      <h1 class="topbar-title" id="topbar-title">Dashboard</h1>
+      <div class="topbar-right">
+        <span class="topbar-date" id="topbar-date"></span>
+        <div class="topbar-user">
+          <i class="fa-solid fa-user-tie"></i>
+          <span>Gestor</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Content -->
+    <main class="page-content">
+
+      <!-- ===== DASHBOARD ===== -->
+      <section id="section-dashboard" class="section active">
+        <div class="page-header">
+          <h2>Visão Geral</h2>
+          <p>Bem-vindo ao sistema de gestão de colaboradores D.R. Global Multi Services</p>
+        </div>
+        <div class="stats-grid" id="dashboard-stats"></div>
+        <div class="dashboard-cards">
+          <div class="card">
+            <div class="card-header">
+              <h3><i class="fa-solid fa-clock-rotate-left"></i> Últimos Lançamentos</h3>
+            </div>
+            <div class="card-body" id="recent-payrolls">
+              <div class="empty-state small">
+                <i class="fa-solid fa-file-circle-xmark"></i>
+                <p>Nenhum lançamento recente</p>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h3><i class="fa-solid fa-bolt"></i> Ações Rápidas</h3>
+            </div>
+            <div class="card-body">
+              <div class="quick-actions">
+                <button class="quick-btn" onclick="showSection('employees'); openEmployeeModal()">
+                  <i class="fa-solid fa-user-plus"></i>
+                  <span>Novo Colaborador</span>
+                </button>
+                <button class="quick-btn" onclick="showSection('payroll')">
+                  <i class="fa-solid fa-file-arrow-up"></i>
+                  <span>Lançar Ponto</span>
+                </button>
+                <button class="quick-btn" onclick="showSection('reports')">
+                  <i class="fa-solid fa-print"></i>
+                  <span>Gerar Relatório</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Linha 2 do dashboard: aniversariantes + alertas -->
+        <div class="dashboard-cards" style="margin-top:0">
+          <div class="card">
+            <div class="card-header">
+              <h3><i class="fa-solid fa-cake-candles" style="color:#E91E63"></i> Aniversariantes do Mês</h3>
+            </div>
+            <div class="card-body" id="dashboard-birthdays">
+              <div class="empty-state small"><i class="fa-solid fa-cake-candles"></i><p>Nenhum aniversariante</p></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h3><i class="fa-solid fa-triangle-exclamation" style="color:#FF6F00"></i> Alertas</h3>
+            </div>
+            <div class="card-body" id="dashboard-alerts">
+              <div class="empty-state small"><i class="fa-solid fa-circle-check" style="color:var(--success)"></i><p>Nenhum alerta</p></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== COLABORADORES ===== -->
+      <section id="section-employees" class="section">
+        <div class="page-header">
+          <div>
+            <h2>Colaboradores</h2>
+            <p>Cadastro e gerenciamento de colaboradores</p>
+          </div>
+          <button class="btn btn-primary" onclick="openEmployeeModal()">
+            <i class="fa-solid fa-user-plus"></i> Novo Colaborador
+          </button>
+        </div>
+
+        <div class="card">
+          <div class="card-toolbar">
+            <div class="search-box">
+              <i class="fa-solid fa-magnifying-glass"></i>
+              <input type="text" id="employee-search" placeholder="Buscar por nome, CPF, RG, registro, posto..." oninput="renderEmployeeTable()">
+            </div>
+            <div class="status-filter-btns">
+              <button class="status-filter-btn active" data-filter="all" onclick="setEmployeeFilter('all')">Todos</button>
+              <button class="status-filter-btn" data-filter="ativo" onclick="setEmployeeFilter('ativo')">Ativos</button>
+              <button class="status-filter-btn" data-filter="inativo" onclick="setEmployeeFilter('inativo')">Inativos</button>
+              <button class="status-filter-btn" data-filter="afastado" onclick="setEmployeeFilter('afastado')">Afastados INSS</button>
+            </div>
+            <span class="count-badge" id="employee-count">0 colaboradores</span>
+          </div>
+          <div class="card-body p0">
+            <div class="table-responsive">
+              <table class="data-table" id="employee-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Nome</th>
+                    <th>Status</th>
+                    <th>Escala</th>
+                    <th>Posto</th>
+                    <th>Admissão</th>
+                    <th>CPF</th>
+                    <th>Chave PIX</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="employee-tbody"></tbody>
+              </table>
+            </div>
+            <div class="empty-state" id="employee-empty">
+              <i class="fa-solid fa-users-slash"></i>
+              <h3>Nenhum colaborador cadastrado</h3>
+              <p>Clique em "Novo Colaborador" para começar</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== FOLHA DE PONTO ===== -->
+      <section id="section-payroll" class="section">
+        <div class="page-header">
+          <div>
+            <h2>Folha de Ponto</h2>
+            <p>Processamento de folha de ponto e cálculo de benefícios</p>
+          </div>
+        </div>
+
+        <div class="payroll-layout">
+          <!-- Left: form -->
+          <div class="payroll-form-col">
+            <div class="card">
+              <div class="card-header">
+                <h3><i class="fa-solid fa-sliders"></i> Dados do Lançamento</h3>
+              </div>
+              <div class="card-body">
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Colaborador <span class="required">*</span></label>
+                    <select id="payroll-employee" onchange="onPayrollEmployeeChange()">
+                      <option value="">— Selecione —</option>
+                    </select>
+                  </div>
+                  <div class="form-group form-group-sm">
+                    <label>Mês <span class="required">*</span></label>
+                    <select id="payroll-mes">
+                      <option value="1">Janeiro</option>
+                      <option value="2">Fevereiro</option>
+                      <option value="3">Março</option>
+                      <option value="4">Abril</option>
+                      <option value="5">Maio</option>
+                      <option value="6">Junho</option>
+                      <option value="7">Julho</option>
+                      <option value="8">Agosto</option>
+                      <option value="9">Setembro</option>
+                      <option value="10">Outubro</option>
+                      <option value="11">Novembro</option>
+                      <option value="12">Dezembro</option>
+                    </select>
+                  </div>
+                  <div class="form-group form-group-sm">
+                    <label>Ano <span class="required">*</span></label>
+                    <input type="number" id="payroll-ano" value="2025" min="2020" max="2100">
+                  </div>
+                </div>
+
+                <!-- Upload Folha (PDF ou Imagem) -->
+                <div class="form-group">
+                  <label><i class="fa-solid fa-robot" style="color:var(--primary)"></i> Folha de Ponto — Leitura por IA <span style="font-size:11px;color:var(--text-muted)">(PDF ou foto da folha)</span></label>
+                  <div class="pdf-upload-area" id="pdf-upload-area" onclick="document.getElementById('pdf-input').click()" ondragover="handleDragOver(event)" ondrop="handleDrop(event)">
+                    <input type="file" id="pdf-input" accept=".pdf,.jpg,.jpeg,.png,.webp" style="display:none" onchange="handlePdfSelected(event)">
+                    <div id="pdf-placeholder">
+                      <i class="fa-solid fa-file-arrow-up"></i>
+                      <p>Clique ou arraste o PDF ou foto da folha de ponto</p>
+                      <span style="font-size:11px;color:var(--text-muted)">Aceita: PDF escaneado, JPG, PNG — inclusive folha preenchida à mão</span>
+                    </div>
+                    <div id="pdf-selected" class="hidden">
+                      <i class="fa-solid fa-file-check pdf-ready"></i>
+                      <div>
+                        <p class="pdf-name" id="pdf-file-name"></p>
+                        <span class="pdf-size" id="pdf-file-size"></span>
+                      </div>
+                      <button class="btn-icon btn-danger-icon" onclick="clearPdf(event)" title="Remover arquivo">
+                        <i class="fa-solid fa-xmark"></i>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div style="display:flex;gap:8px">
+                  <button class="btn btn-accent" style="flex:1" id="btn-process-pdf" onclick="processPdf()" disabled>
+                    <i class="fa-solid fa-robot"></i> Analisar com IA
+                  </button>
+                  <button class="btn btn-outline" style="flex:1" onclick="openPontoManual()">
+                    <i class="fa-solid fa-keyboard"></i> Preencher Manualmente
+                  </button>
+                </div>
+
+                <div class="divider"><span>Dados da Folha</span></div>
+
+                <!-- Info do colaborador selecionado -->
+                <div id="payroll-emp-info" class="payroll-emp-info hidden"></div>
+
+                <div class="form-row">
+                  <div class="form-group">
+                    <label><i class="fa-solid fa-calendar-check text-success"></i> Dias Trabalhados</label>
+                    <input type="number" id="payroll-dias" min="0" max="31" placeholder="0" oninput="recalculate()">
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label><i class="fa-solid fa-notes-medical text-primary"></i> Faltas Justificadas <small>(c/ atestado)</small></label>
+                    <input type="number" id="payroll-faltas-justificadas" min="0" max="31" placeholder="0" oninput="recalculate()">
+                  </div>
+                  <div class="form-group">
+                    <label><i class="fa-solid fa-calendar-xmark text-danger"></i> Faltas Injustificadas</label>
+                    <input type="number" id="payroll-faltas-injustificadas" min="0" max="31" placeholder="0" oninput="recalculate()">
+                  </div>
+                  <div class="form-group form-group-sm">
+                    <label><i class="fa-solid fa-sigma text-muted"></i> Total Faltas</label>
+                    <input type="number" id="payroll-faltas" min="0" max="31" placeholder="0" readonly class="input-readonly">
+                  </div>
+                </div>
+
+                <!-- Atrasos -->
+                <div class="form-row" style="margin-top:8px">
+                  <div class="form-group">
+                    <label><i class="fa-solid fa-clock text-warning"></i> Atrasos acumulados no mês <small>(minutos)</small></label>
+                    <input type="number" id="payroll-atraso-min" min="0" placeholder="0" oninput="recalculate()"
+                      title="CLT Art.58: tolerância de 5min/batida, máx 10min/dia. Informe os minutos que excedem a tolerância.">
+                  </div>
+                  <div class="form-group">
+                    <label><i class="fa-solid fa-circle-info text-muted"></i> Desconto por atraso: R$</label>
+                    <input type="number" id="payroll-desconto-atraso" min="0" step="0.01" placeholder="0,00" readonly class="input-readonly">
+                  </div>
+                </div>
+                <div class="form-group" style="font-size:11px;color:var(--text-muted);margin-top:-8px;margin-bottom:8px">
+                  <i class="fa-solid fa-scale-balanced"></i> CLT Art. 58 — Tolerância: 5 min por batida, máx 10 min/dia. Se exceder, desconta os minutos integralmente.
+                </div>
+
+                <div class="divider"><span>Jornada & Intervalo</span></div>
+
+                <div class="form-row">
+                  <div class="form-group">
+                    <label><i class="fa-solid fa-right-to-bracket text-success"></i> Entrada</label>
+                    <input type="time" id="payroll-entrada" oninput="recalculate()">
+                  </div>
+                  <div class="form-group">
+                    <label><i class="fa-solid fa-right-from-bracket text-danger"></i> Saída</label>
+                    <input type="time" id="payroll-saida" oninput="recalculate()">
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label><i class="fa-solid fa-utensils text-warning"></i> Início do intervalo</label>
+                    <input type="time" id="payroll-intervalo-inicio" oninput="recalculate()">
+                  </div>
+                  <div class="form-group">
+                    <label><i class="fa-solid fa-utensils text-warning"></i> Fim do intervalo</label>
+                    <input type="time" id="payroll-intervalo-fim" oninput="recalculate()">
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group form-group-sm">
+                    <label><i class="fa-solid fa-hourglass-half text-muted"></i> Jornada líquida/dia</label>
+                    <input type="text" id="payroll-horas-liquidas" readonly class="input-readonly" placeholder="—">
+                  </div>
+                  <div class="form-group form-group-sm">
+                    <label><i class="fa-solid fa-clock-rotate-left text-warning"></i> Horas extras/dia</label>
+                    <input type="text" id="payroll-horas-extras-dia" readonly class="input-readonly" placeholder="—">
+                  </div>
+                </div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:-8px;margin-bottom:12px">
+                  <i class="fa-solid fa-circle-info"></i> Pré-preenchido do cadastro. Intervalo = intrajornada (almoço/refeição). Horas extras calculadas vs jornada contratada.
+                </div>
+
+                <div class="form-group">
+                  <label><i class="fa-solid fa-money-bill-wave text-success"></i> Remuneração (Pagamento em Espécie) R$</label>
+                  <input type="number" id="payroll-remuneracao" min="0" step="0.01" placeholder="0,00" oninput="recalculate()">
+                  <small style="color:var(--text-muted);font-size:11px">Calculada automaticamente: Salário base − descontos de faltas − descontos de atraso</small>
+                </div>
+
+                <div class="divider"><span>Benefícios</span></div>
+
+                <div class="benefit-card vt" id="payroll-vt-card">
+                  <div class="benefit-label">
+                    <i class="fa-solid fa-bus" id="payroll-vt-icon"></i>
+                    <span id="payroll-vt-label">Vale Transporte</span>
+                    <span class="benefit-platform" id="payroll-vt-platform">creditado na plataforma</span>
+                  </div>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label id="payroll-vt-dia-label">Valor diário do VT: R$</label>
+                      <input type="number" id="payroll-vt-dia" min="0" step="0.01" placeholder="0,00" oninput="recalculate()">
+                    </div>
+                    <div class="form-group">
+                      <label id="payroll-vt-total-label">Total Vale Transporte: R$</label>
+                      <input type="number" id="payroll-vt-total" min="0" step="0.01" placeholder="0,00" readonly class="input-readonly">
+                    </div>
+                  </div>
+                </div>
+
+                <div class="benefit-card vr">
+                  <div class="benefit-label">
+                    <i class="fa-solid fa-utensils"></i>
+                    <span>Vale Refeição</span>
+                    <span class="benefit-platform">creditado na plataforma</span>
+                  </div>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label>Valor diário do VR: R$</label>
+                      <input type="number" id="payroll-vr-dia" min="0" step="0.01" placeholder="0,00" oninput="recalculate()">
+                    </div>
+                    <div class="form-group">
+                      <label>Total Vale Refeição: R$</label>
+                      <input type="number" id="payroll-vr-total" min="0" step="0.01" placeholder="0,00" readonly class="input-readonly">
+                    </div>
+                  </div>
+                </div>
+
+                <div class="benefit-card va">
+                  <div class="benefit-label">
+                    <i class="fa-solid fa-basket-shopping"></i>
+                    <span>Vale Alimentação</span>
+                    <span class="benefit-platform">creditado na plataforma</span>
+                  </div>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label>Valor total do VA: R$</label>
+                      <input type="number" id="payroll-va-total" min="0" step="0.01" placeholder="0,00">
+                    </div>
+                    <div class="form-group">
+                      <label>Valor líquido do VA: R$</label>
+                      <input type="number" id="payroll-va-liquido" min="0" step="0.01" placeholder="0,00">
+                    </div>
+                  </div>
+                  <div class="va-note hidden" id="va-note"></div>
+                </div>
+
+                <!-- Adicional Noturno — aparece só para escala 12x36 com turno noturno -->
+                <div class="benefit-card noturno hidden" id="noturno-card">
+                  <div class="benefit-label">
+                    <i class="fa-solid fa-moon"></i>
+                    <span>Adicional Noturno</span>
+                    <span class="benefit-platform">pago em espécie / folha</span>
+                  </div>
+                  <div class="form-group">
+                    <label>Valor do Adicional Noturno: R$</label>
+                    <input type="number" id="payroll-noturno" min="0" step="0.01" placeholder="0,00">
+                  </div>
+                </div>
+
+                <!-- Horas Extras -->
+                <div class="benefit-card horas-extras" id="horas-extras-card">
+                  <div class="benefit-label">
+                    <i class="fa-solid fa-clock-rotate-left"></i>
+                    <span>Horas Extras</span>
+                    <span class="benefit-platform">pago em espécie / folha</span>
+                  </div>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label>Total horas extras no mês</label>
+                      <input type="number" id="payroll-he-total" min="0" step="0.25" placeholder="0" oninput="recalculate()">
+                    </div>
+                    <div class="form-group">
+                      <label>% adicional</label>
+                      <select id="payroll-he-perc" onchange="recalculate()">
+                        <option value="50">50% — dias úteis</option>
+                        <option value="100">100% — domingo/feriado</option>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label>Valor horas extras: R$</label>
+                      <input type="number" id="payroll-he-valor" min="0" step="0.01" placeholder="0,00" readonly class="input-readonly">
+                    </div>
+                  </div>
+                  <div style="font-size:11px;color:#5E35B1;margin-top:4px">
+                    <i class="fa-solid fa-calculator"></i> Calculado automaticamente pelos horários. Ajuste o total manualmente se necessário.
+                  </div>
+                </div>
+
+                <div class="benefit-card bonus" id="bonus-card">
+                  <div class="benefit-label">
+                    <i class="fa-solid fa-star"></i>
+                    <span>Bonificação de Boa Permanência</span>
+                    <span class="benefit-platform" id="bonus-platform-label">creditado conforme definido</span>
+                  </div>
+                  <div class="form-group">
+                    <label>Valor da Bonificação: R$</label>
+                    <input type="number" id="payroll-bonus" min="0" step="0.01" placeholder="0,00">
+                  </div>
+                  <div class="bonus-alert hidden" id="bonus-alert">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                    Colaborador possui faltas — bonificação não aplicável (qualquer falta elimina o benefício)
+                  </div>
+                </div>
+
+                <!-- Adiantamento Quinzenal -->
+                <div class="benefit-card adiantamento">
+                  <div class="benefit-label">
+                    <i class="fa-solid fa-hand-holding-dollar"></i>
+                    <span>Adiantamento Quinzenal</span>
+                    <span class="benefit-platform">descontado do líquido</span>
+                  </div>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label>Aderiu ao adiantamento?</label>
+                      <select id="payroll-adiantamento-ativo" onchange="recalculate()">
+                        <option value="nao">Não</option>
+                        <option value="sim">Sim</option>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label>Percentual do adiantamento</label>
+                      <select id="payroll-adiantamento-perc" onchange="recalculate()">
+                        <option value="10">10%</option>
+                        <option value="20">20%</option>
+                        <option value="30">30%</option>
+                        <option value="40" selected>40% (padrão)</option>
+                        <option value="50">50%</option>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label>Valor do adiantamento: R$</label>
+                      <input type="number" id="payroll-adiantamento-valor" min="0" step="0.01" placeholder="0,00" readonly class="input-readonly">
+                    </div>
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label><i class="fa-brands fa-pix" style="color:#00bfa5"></i> Chave PIX</label>
+                  <input type="text" id="payroll-pix" placeholder="CPF, e-mail, telefone ou chave aleatória" readonly class="input-readonly pix-key">
+                </div>
+
+                <div class="form-actions">
+                  <button class="btn btn-outline" onclick="clearPayrollForm()">
+                    <i class="fa-solid fa-eraser"></i> Limpar
+                  </button>
+                  <button class="btn btn-outline" onclick="printFolhaPonto()" style="color:var(--success);border-color:var(--success)">
+                    <i class="fa-solid fa-print"></i> Imprimir Folha
+                  </button>
+                  <button class="btn btn-primary" onclick="savePayroll()">
+                    <i class="fa-solid fa-floppy-disk"></i> Salvar Lançamento
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right: history -->
+          <div class="payroll-history-col">
+            <div class="card">
+              <div class="card-header">
+                <h3><i class="fa-solid fa-history"></i> Histórico do Colaborador</h3>
+              </div>
+              <div class="card-body" id="payroll-history">
+                <div class="empty-state small">
+                  <i class="fa-solid fa-user-clock"></i>
+                  <p>Selecione um colaborador para ver o histórico</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== RELATÓRIOS ===== -->
+      <section id="section-reports" class="section">
+        <div class="page-header">
+          <div>
+            <h2>Relatórios</h2>
+            <p>Selecione o tipo de relatório desejado</p>
+          </div>
+        </div>
+
+        <!-- Tipo de relatório -->
+        <div class="card" id="report-type-card">
+          <div class="card-body">
+            <div class="report-type-grid">
+              <button class="report-type-btn active" data-type="financeiro" onclick="selectReportType('financeiro')">
+                <i class="fa-solid fa-money-bill-wave"></i>
+                <span>Financeiro Mensal</span>
+                <small>Salário + benefícios por mês</small>
+              </button>
+              <button class="report-type-btn" data-type="cadastral" onclick="selectReportType('cadastral')">
+                <i class="fa-solid fa-id-card"></i>
+                <span>Cadastral Completo</span>
+                <small>Todos os dados dos colaboradores</small>
+              </button>
+              <button class="report-type-btn" data-type="contatos" onclick="selectReportType('contatos')">
+                <i class="fa-solid fa-address-book"></i>
+                <span>Contatos</span>
+                <small>Telefone, e-mail e endereço</small>
+              </button>
+              <button class="report-type-btn" data-type="ferias-marcadas" onclick="selectReportType('ferias-marcadas')">
+                <i class="fa-solid fa-umbrella-beach"></i>
+                <span>Férias Marcadas</span>
+                <small>Colaboradores com férias programadas</small>
+              </button>
+              <button class="report-type-btn" data-type="ferias-pendentes" onclick="selectReportType('ferias-pendentes')">
+                <i class="fa-solid fa-calendar-xmark"></i>
+                <span>Férias Pendentes</span>
+                <small>Sem férias programadas</small>
+              </button>
+              <button class="report-type-btn" data-type="afastados" onclick="selectReportType('afastados')">
+                <i class="fa-solid fa-user-clock"></i>
+                <span>Afastados INSS</span>
+                <small>Colaboradores afastados</small>
+              </button>
+              <button class="report-type-btn" data-type="setor" onclick="selectReportType('setor')">
+                <i class="fa-solid fa-sitemap"></i>
+                <span>Por Setor</span>
+                <small>Portaria, Limpeza, Manutenção...</small>
+              </button>
+              <button class="report-type-btn" data-type="posto" onclick="selectReportType('posto')">
+                <i class="fa-solid fa-building"></i>
+                <span>Por Posto</span>
+                <small>Filtrar por local de trabalho</small>
+              </button>
+              <button class="report-type-btn" data-type="individual" onclick="selectReportType('individual')">
+                <i class="fa-solid fa-file-invoice"></i>
+                <span>Individual</span>
+                <small>Ficha completa do colaborador</small>
+              </button>
+              <button class="report-type-btn" data-type="postos-cadastro" onclick="selectReportType('postos-cadastro')">
+                <i class="fa-solid fa-building-user"></i>
+                <span>Postos Cadastrados</span>
+                <small>Lista de postos e colaboradores alocados</small>
+              </button>
+              <button class="report-type-btn" data-type="contratos-rel" onclick="selectReportType('contratos-rel')">
+                <i class="fa-solid fa-file-signature"></i>
+                <span>Contratos</span>
+                <small>Contratos ativos, valores e reajustes</small>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Filtros dinâmicos -->
+        <div class="card" id="report-filters-card">
+          <div class="card-body">
+            <div class="report-filters" id="report-filters-area">
+              <!-- Financeiro -->
+              <div class="report-filter-group" id="filter-financeiro">
+                <div class="form-group">
+                  <label>Mês</label>
+                  <select id="report-mes">
+                    <option value="1">Janeiro</option><option value="2">Fevereiro</option>
+                    <option value="3">Março</option><option value="4">Abril</option>
+                    <option value="5">Maio</option><option value="6">Junho</option>
+                    <option value="7">Julho</option><option value="8">Agosto</option>
+                    <option value="9">Setembro</option><option value="10">Outubro</option>
+                    <option value="11">Novembro</option><option value="12">Dezembro</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Ano</label>
+                  <input type="number" id="report-ano" value="2026" min="2020" max="2100">
+                </div>
+                <div class="form-group">
+                  <label>Status</label>
+                  <select id="report-status-filter">
+                    <option value="all">Todos</option>
+                    <option value="ativo">Ativos</option>
+                    <option value="inativo">Inativos</option>
+                    <option value="afastado">Afastados</option>
+                  </select>
+                </div>
+              </div>
+              <!-- Cadastral / Contatos -->
+              <div class="report-filter-group hidden" id="filter-cadastral">
+                <div class="form-group">
+                  <label>Status</label>
+                  <select id="report-cad-status">
+                    <option value="all">Todos</option>
+                    <option value="ativo">Ativos</option>
+                    <option value="inativo">Inativos</option>
+                    <option value="afastado">Afastados</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Setor</label>
+                  <select id="report-cad-setor">
+                    <option value="all">Todos</option>
+                    <option value="Portaria">Portaria</option>
+                    <option value="Limpeza">Limpeza</option>
+                    <option value="Manutenção">Manutenção</option>
+                    <option value="Zeladoria">Zeladoria</option>
+                    <option value="Administrativo">Administrativo</option>
+                    <option value="Outros">Outros</option>
+                  </select>
+                </div>
+              </div>
+              <!-- Setor -->
+              <div class="report-filter-group hidden" id="filter-setor">
+                <div class="form-group">
+                  <label>Setor</label>
+                  <select id="report-setor-val">
+                    <option value="Portaria">Portaria</option>
+                    <option value="Limpeza">Limpeza</option>
+                    <option value="Manutenção">Manutenção</option>
+                    <option value="Zeladoria">Zeladoria</option>
+                    <option value="Administrativo">Administrativo</option>
+                    <option value="Outros">Outros</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Status</label>
+                  <select id="report-setor-status">
+                    <option value="all">Todos</option>
+                    <option value="ativo">Ativos</option>
+                    <option value="inativo">Inativos</option>
+                  </select>
+                </div>
+              </div>
+              <!-- Posto -->
+              <div class="report-filter-group hidden" id="filter-posto">
+                <div class="form-group form-group-2">
+                  <label>Posto de Trabalho</label>
+                  <input type="text" id="report-posto-val" placeholder="Digite parte do nome do posto...">
+                </div>
+              </div>
+              <!-- Individual -->
+              <div class="report-filter-group hidden" id="filter-individual">
+                <div class="form-group">
+                  <label>Colaborador</label>
+                  <select id="report-individual-emp"></select>
+                </div>
+                <div class="form-group form-group-sm">
+                  <label>Mês</label>
+                  <select id="report-individual-mes">
+                    <option value="0">Todos</option>
+                    <option value="1">Janeiro</option><option value="2">Fevereiro</option>
+                    <option value="3">Março</option><option value="4">Abril</option>
+                    <option value="5">Maio</option><option value="6">Junho</option>
+                    <option value="7">Julho</option><option value="8">Agosto</option>
+                    <option value="9">Setembro</option><option value="10">Outubro</option>
+                    <option value="11">Novembro</option><option value="12">Dezembro</option>
+                  </select>
+                </div>
+                <div class="form-group form-group-sm">
+                  <label>Ano</label>
+                  <input type="number" id="report-individual-ano" value="2026" min="2020" max="2100">
+                </div>
+              </div>
+              <!-- Postos Cadastrados -->
+              <div class="report-filter-group hidden" id="filter-postos-cadastro">
+                <div class="form-group">
+                  <label>Mostrar</label>
+                  <select id="report-postos-detalhe">
+                    <option value="resumo">Resumo dos postos</option>
+                    <option value="colaboradores">Com colaboradores alocados</option>
+                  </select>
+                </div>
+              </div>
+              <!-- Contratos -->
+              <div class="report-filter-group hidden" id="filter-contratos-rel">
+                <div class="form-group">
+                  <label>Status</label>
+                  <select id="report-contratos-status">
+                    <option value="ativos">Contratos ativos</option>
+                    <option value="inativos">Contratos inativos</option>
+                    <option value="todos">Todos</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Reajuste em</label>
+                  <select id="report-contratos-reajuste">
+                    <option value="todos">Qualquer data</option>
+                    <option value="30">Próximos 30 dias</option>
+                    <option value="60">Próximos 60 dias</option>
+                    <option value="90">Próximos 90 dias</option>
+                  </select>
+                </div>
+              </div>
+              <!-- Botões sempre visíveis -->
+              <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+                <button class="btn btn-primary" onclick="generateReportNew()">
+                  <i class="fa-solid fa-magnifying-glass-chart"></i> Gerar Relatório
+                </button>
+                <button class="btn btn-success" onclick="printReport()" id="btn-print" style="display:none">
+                  <i class="fa-solid fa-print"></i> Imprimir / PDF
+                </button>
+                <button class="btn btn-outline" onclick="exportReportCsv()" id="btn-export-csv" style="display:none">
+                  <i class="fa-solid fa-file-csv"></i> Exportar CSV
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Saída do relatório -->
+        <div id="report-output" class="hidden">
+          <div id="report-printable">
+            <div class="report-header">
+              <div class="report-logo-block">
+                <img src="logo.png" alt="Logo" class="report-logo-img"
+                     onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+                <div class="report-logo-text" style="display:none">DRG</div>
+                <div>
+                  <div class="report-company">D.R. Global Multi Services</div>
+                  <div class="report-subtitle" id="report-subtitle">Relatório</div>
+                </div>
+              </div>
+              <div class="report-period" id="report-period-label"></div>
+            </div>
+            <div class="report-summary-cards" id="report-summary"></div>
+            <div id="report-body-area"></div>
+            <div class="report-footer">
+              <p>Documento gerado em <span id="report-gen-date"></span></p>
+              <p>D.R. Global Multi Services — Sistema de Gestão de Colaboradores</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== POSTOS DE TRABALHO ===== -->
+      <section id="section-postos" class="section">
+        <div class="page-header">
+          <div>
+            <h2>Postos de Trabalho</h2>
+            <p>Cadastro de locais e clientes onde os colaboradores são alocados</p>
+          </div>
+          <button class="btn btn-primary" onclick="openPostoModal()">
+            <i class="fa-solid fa-plus"></i> Novo Posto
+          </button>
+        </div>
+
+        <div class="card">
+          <div class="card-body">
+            <div class="search-bar">
+              <i class="fa-solid fa-magnifying-glass"></i>
+              <input type="text" id="postos-search" placeholder="Buscar por razão social, CNPJ ou cidade..." oninput="renderPostosTable()">
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-body" style="padding:0">
+            <table class="data-table" id="postos-table">
+              <thead>
+                <tr>
+                  <th>Razão Social / Fantasia</th>
+                  <th>CNPJ</th>
+                  <th>Cidade / Estado</th>
+                  <th>Telefone</th>
+                  <th>E-mail</th>
+                  <th>Colaboradores</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="postos-tbody">
+                <tr><td colspan="7" class="empty-row"><i class="fa-solid fa-spinner fa-spin"></i> Carregando...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== CONTRATOS ===== -->
+      <section id="section-contratos" class="section">
+        <div class="page-header">
+          <div>
+            <h2>Contratos</h2>
+            <p>Gestão de contratos com postos de trabalho</p>
+          </div>
+          <button class="btn btn-primary" onclick="openContratoModal()">
+            <i class="fa-solid fa-plus"></i> Novo Contrato
+          </button>
+        </div>
+
+        <!-- Tabs -->
+        <div class="contrato-tabs">
+          <button class="contrato-tab active" id="tab-contratos-ativos" onclick="switchContratoTab('ativos')">
+            <i class="fa-solid fa-circle-check"></i> Ativos <span class="tab-count" id="count-contratos-ativos">0</span>
+          </button>
+          <button class="contrato-tab" id="tab-contratos-inativos" onclick="switchContratoTab('inativos')">
+            <i class="fa-solid fa-circle-xmark"></i> Inativos <span class="tab-count" id="count-contratos-inativos">0</span>
+          </button>
+        </div>
+
+        <div class="card" style="margin-top:0;border-radius:0 var(--radius) var(--radius) var(--radius)">
+          <div class="card-toolbar">
+            <div class="search-box">
+              <i class="fa-solid fa-magnifying-glass"></i>
+              <input type="text" id="contratos-search" placeholder="Buscar por posto, objeto..." oninput="renderContratosTable()">
+            </div>
+          </div>
+          <div class="card-body p0">
+            <table class="data-table" id="contratos-table">
+              <thead>
+                <tr>
+                  <th>Posto / Cliente</th>
+                  <th>Objeto</th>
+                  <th>Valor Mensal</th>
+                  <th>Início</th>
+                  <th>Reajuste</th>
+                  <th>Término</th>
+                  <th>Arquivo</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="contratos-tbody">
+                <tr><td colspan="8" class="empty-row"><i class="fa-solid fa-spinner fa-spin"></i> Carregando...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== USUÁRIOS & ACESSOS ===== -->
+      <section id="section-users" class="section">
+        <div class="page-header">
+          <div>
+            <h2>Usuários & Acessos</h2>
+            <p>Gerenciamento de usuários do sistema e log de acessos</p>
+          </div>
+          <button class="btn btn-primary" onclick="openUserModal()">
+            <i class="fa-solid fa-user-plus"></i> Novo Usuário
+          </button>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3><i class="fa-solid fa-users-gear"></i> Usuários do Sistema</h3>
+          </div>
+          <div class="card-body p0">
+            <table class="data-table" id="users-table">
+              <thead>
+                <tr>
+                  <th>Usuário</th>
+                  <th>Perfil</th>
+                  <th>Último acesso</th>
+                  <th>Status</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="users-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Perfis Customizáveis -->
+        <div class="card">
+          <div class="card-header">
+            <h3><i class="fa-solid fa-id-badge"></i> Perfis de Acesso</h3>
+            <button class="btn btn-primary" onclick="openPerfilModal()">
+              <i class="fa-solid fa-plus"></i> Novo Perfil
+            </button>
+          </div>
+          <div class="card-body p0">
+            <table class="data-table" id="perfis-table">
+              <thead>
+                <tr><th>Nome do Perfil</th><th>Módulos</th><th>Tipo</th><th>Ações</th></tr>
+              </thead>
+              <tbody id="perfis-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3><i class="fa-solid fa-list-check"></i> Log de Acessos</h3>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-outline" onclick="exportLog()">
+                <i class="fa-solid fa-file-csv"></i> Exportar Log
+              </button>
+              <button class="btn btn-outline" style="color:var(--danger);border-color:var(--danger)" onclick="confirmClearLog()">
+                <i class="fa-solid fa-trash"></i> Limpar
+              </button>
+            </div>
+          </div>
+          <div class="card-body p0">
+            <div class="table-responsive">
+              <table class="data-table" id="log-table">
+                <thead>
+                  <tr>
+                    <th>Data / Hora</th>
+                    <th>Usuário</th>
+                    <th>Evento</th>
+                    <th>Detalhes</th>
+                  </tr>
+                </thead>
+                <tbody id="log-tbody"></tbody>
+              </table>
+            </div>
+            <div class="empty-state hidden" id="log-empty">
+              <i class="fa-solid fa-clipboard-list"></i>
+              <p>Nenhum evento registrado</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<!-- ===== MODAL: COLABORADOR ===== -->
+<div class="modal-overlay hidden" id="modal-employee" onclick="closeModal('modal-employee', event)">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-header">
+      <h3 id="modal-employee-title"><i class="fa-solid fa-user-plus"></i> Novo Colaborador</h3>
+      <button class="modal-close" onclick="closeModal('modal-employee')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="emp-id">
+      <div class="modal-tabs">
+        <button class="modal-tab active" data-tab-id="tab-pessoal" onclick="switchTab('tab-pessoal')">
+          <i class="fa-solid fa-id-card"></i> Dados Pessoais
+        </button>
+        <button class="modal-tab" data-tab-id="tab-endereco" onclick="switchTab('tab-endereco')">
+          <i class="fa-solid fa-map-location-dot"></i> Endereço
+        </button>
+        <button class="modal-tab" data-tab-id="tab-contrato" onclick="switchTab('tab-contrato')">
+          <i class="fa-solid fa-briefcase"></i> Contrato & Trabalho
+        </button>
+        <button class="modal-tab" data-tab-id="tab-beneficios" onclick="switchTab('tab-beneficios')">
+          <i class="fa-solid fa-hand-holding-dollar"></i> Benefícios & PIX
+        </button>
+        <button class="modal-tab" data-tab-id="tab-documentos" onclick="switchTab('tab-documentos')">
+          <i class="fa-solid fa-folder-open"></i> Documentos
+        </button>
+        <button class="modal-tab" data-tab-id="tab-ferias" onclick="switchTab('tab-ferias')">
+          <i class="fa-solid fa-umbrella-beach"></i> Férias
+        </button>
+      </div>
+
+      <!-- Tab: Dados Pessoais -->
+      <div class="tab-pane active" id="tab-pessoal">
+        <div class="form-row">
+          <div class="form-group form-group-sm">
+            <label><i class="fa-solid fa-hashtag" style="color:var(--primary)"></i> Nº Registro</label>
+            <input type="text" id="emp-registro" readonly class="input-readonly" placeholder="—" style="font-weight:700;font-size:16px;color:var(--primary)">
+          </div>
+          <div class="form-group form-group-2">
+            <label>Nome Completo <span class="required">*</span></label>
+            <input type="text" id="emp-nome" placeholder="Nome completo do colaborador">
+          </div>
+          <div class="form-group">
+            <label>RG <span class="required">*</span></label>
+            <input type="text" id="emp-rg" placeholder="00.000.000-0">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>CPF <span class="required">*</span></label>
+            <input type="text" id="emp-cpf" placeholder="000.000.000-00" oninput="maskCpf(this)">
+          </div>
+          <div class="form-group">
+            <label>Título de Eleitor</label>
+            <input type="text" id="emp-titulo" placeholder="0000 0000 0000">
+          </div>
+          <div class="form-group">
+            <label>PIS / NIT <span class="required">*</span></label>
+            <input type="text" id="emp-pis" placeholder="000.00000.00-0">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>CTPS — Número</label>
+            <input type="text" id="emp-ctps-numero" placeholder="0000000">
+          </div>
+          <div class="form-group form-group-sm">
+            <label>CTPS — Série</label>
+            <input type="text" id="emp-ctps-serie" placeholder="0000">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Data de Nascimento</label>
+            <input type="date" id="emp-nascimento">
+          </div>
+          <div class="form-group">
+            <label>E-mail</label>
+            <input type="email" id="emp-email" placeholder="colaborador@email.com">
+          </div>
+          <div class="form-group">
+            <label>Celular</label>
+            <input type="tel" id="emp-celular" placeholder="(00) 00000-0000" oninput="maskPhone(this)">
+          </div>
+        </div>
+
+        <!-- Foto do colaborador -->
+        <div class="photo-upload-area">
+          <div class="photo-preview-wrap">
+            <div class="photo-avatar" id="emp-photo-preview"><i class="fa-solid fa-user"></i></div>
+            <div class="photo-upload-info">
+              <p style="font-weight:600;margin:0 0 4px">Foto do Colaborador</p>
+              <p style="font-size:12px;color:var(--text-muted);margin:0">JPG ou PNG, máx. 2MB</p>
+              <label class="btn btn-outline" style="margin-top:8px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:13px">
+                <i class="fa-solid fa-camera"></i> Selecionar Foto
+                <input type="file" id="emp-photo-file" accept="image/jpeg,image/png" style="display:none" onchange="previewEmployeePhoto(this)">
+              </label>
+              <button class="btn btn-outline" style="margin-top:8px;font-size:12px;color:var(--danger);border-color:var(--danger)" onclick="removeEmployeePhoto()" id="btn-remove-photo" style="display:none">
+                <i class="fa-solid fa-trash"></i> Remover
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Endereço -->
+      <div class="tab-pane" id="tab-endereco">
+        <div class="form-row">
+          <div class="form-group form-group-sm">
+            <label>CEP</label>
+            <input type="text" id="emp-cep" placeholder="00000-000" oninput="maskCep(this)" onblur="buscarCep(this.value)">
+            <span id="cep-status" style="font-size:11px;margin-top:3px;display:block;min-height:14px"></span>
+          </div>
+          <div class="form-group form-group-2">
+            <label>Logradouro (Rua / Av.)</label>
+            <input type="text" id="emp-endereco" placeholder="Rua, Avenida, etc.">
+          </div>
+          <div class="form-group form-group-sm">
+            <label>Número</label>
+            <input type="text" id="emp-numero" placeholder="Nº">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Complemento</label>
+            <input type="text" id="emp-complemento" placeholder="Apto, Bloco, etc.">
+          </div>
+          <div class="form-group">
+            <label>Bairro</label>
+            <input type="text" id="emp-bairro" placeholder="Bairro">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group form-group-2">
+            <label>Cidade</label>
+            <input type="text" id="emp-cidade" placeholder="Cidade">
+          </div>
+          <div class="form-group form-group-sm">
+            <label>Estado</label>
+            <select id="emp-estado">
+              <option value="">UF</option>
+              <option>AC</option><option>AL</option><option>AP</option><option>AM</option>
+              <option>BA</option><option>CE</option><option>DF</option><option>ES</option>
+              <option>GO</option><option>MA</option><option>MT</option><option>MS</option>
+              <option>MG</option><option>PA</option><option>PB</option><option>PR</option>
+              <option>PE</option><option>PI</option><option>RJ</option><option>RN</option>
+              <option>RS</option><option>RO</option><option>RR</option><option>SC</option>
+              <option selected>SP</option><option>SE</option><option>TO</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Contrato & Trabalho -->
+      <div class="tab-pane" id="tab-contrato">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Data de Admissão <span class="required">*</span></label>
+            <input type="date" id="emp-data-admissao">
+          </div>
+          <div class="form-group">
+            <label>Data de Demissão</label>
+            <input type="date" id="emp-data-demissao" onchange="onDemissaoChange()">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Status do Colaborador</label>
+            <select id="emp-status">
+              <option value="ativo">Ativo</option>
+              <option value="inativo">Inativo</option>
+              <option value="afastado">Afastado INSS</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Escala de Trabalho</label>
+            <select id="emp-escala" onchange="onEscalaChange()">
+              <option value="5x2A">5x2 — Variante A (08h–18h / Sex 08h–16h)</option>
+              <option value="5x2B">5x2 — Variante B (07h–17h / Sex 07h–16h)</option>
+              <option value="6x1A">6x1 — Variante A (07h–16h / Sáb 07h–11h)</option>
+              <option value="6x1B">6x1 — Variante B (08h–16h20 / todos os dias)</option>
+              <option value="12x36">12x36 (Doze por Trinta e Seis)</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Horário de Entrada</label>
+            <input type="time" id="emp-horario-entrada" placeholder="08:00">
+          </div>
+          <div class="form-group">
+            <label>Horário de Saída</label>
+            <input type="time" id="emp-horario-saida" placeholder="17:00">
+          </div>
+        </div>
+        <div class="form-row" id="turno-noturno-row" style="display:none">
+          <div class="form-group">
+            <label>&nbsp;</label>
+            <div class="checkbox-group">
+              <input type="checkbox" id="emp-turno-noturno">
+              <label for="emp-turno-noturno" style="font-size:14px;font-weight:600;color:var(--text)">
+                <i class="fa-solid fa-moon" style="color:#5C6BC0"></i> Inclui Turno Noturno (22h-05h) — Adicional Noturno
+              </label>
+            </div>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label><i class="fa-solid fa-sitemap" style="color:var(--primary)"></i> Setor</label>
+            <select id="emp-setor">
+              <option value="">— Selecione —</option>
+              <option value="Portaria">Portaria</option>
+              <option value="Limpeza">Limpeza</option>
+              <option value="Manutenção">Manutenção</option>
+              <option value="Zeladoria">Zeladoria</option>
+              <option value="Administrativo">Administrativo</option>
+              <option value="Outros">Outros</option>
+            </select>
+          </div>
+          <div class="form-group form-group-2">
+            <label><i class="fa-solid fa-building" style="color:var(--primary)"></i> Posto de Trabalho / Local</label>
+            <select id="emp-posto">
+              <option value="">— Selecione o posto —</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label><i class="fa-solid fa-money-bill-wave text-success"></i> Salário Base (R$)</label>
+            <input type="number" id="emp-salario-base" min="0" step="0.01" placeholder="0,00">
+          </div>
+          <div class="form-group">
+            <label><i class="fa-solid fa-stethoscope" style="color:#00ACC1"></i> Exame Médico — Vencimento</label>
+            <input type="date" id="emp-exame-vencimento">
+          </div>
+        </div>
+        <!-- Histórico de salário -->
+        <div id="historico-salario-wrap" style="display:none">
+          <div class="divider" style="margin:12px 0 8px"><span>Histórico de Salário</span></div>
+          <div id="historico-salario-list" style="font-size:13px;color:var(--text-muted)"></div>
+        </div>
+
+        <!-- Histórico de Postos -->
+        <div class="divider" style="margin:16px 0 8px">
+          <span>Histórico de Postos</span>
+          <button class="btn btn-outline" style="font-size:12px;padding:4px 12px;margin-left:12px"
+            onclick="openTransferenciaModal()" id="btn-transferir-posto">
+            <i class="fa-solid fa-right-left"></i> Registrar Transferência
+          </button>
+        </div>
+        <div id="historico-postos-list">
+          <div class="empty-state small" style="padding:12px">
+            <i class="fa-solid fa-building"></i>
+            <p style="font-size:13px">Nenhuma transferência registrada</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Benefícios & PIX -->
+      <div class="tab-pane" id="tab-beneficios">
+        <div class="info-banner">
+          <i class="fa-solid fa-circle-info"></i>
+          Os valores diários de VT/AM e VR são os valores padrão usados no cálculo dos benefícios na Folha de Ponto. Podem ser ajustados por lançamento.
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label><i class="fa-solid fa-bus" style="color:#4fc3f7"></i> Modalidade de Transporte</label>
+            <select id="emp-tipo-transporte" onchange="onTipoTransporteChange()">
+              <option value="vt">VT — Vale Transporte (creditado na plataforma)</option>
+              <option value="am">AM — Auxílio Mobilidade (pago em espécie / PIX)</option>
+              <option value="nao">Não optante</option>
+            </select>
+          </div>
+          <div class="form-group" id="emp-vt-dia-wrap">
+            <label><i class="fa-solid fa-bus" style="color:#4fc3f7"></i> Valor Diário VT/AM (R$)</label>
+            <input type="number" id="emp-vt-dia" min="0" step="0.01" placeholder="0,00">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label><i class="fa-solid fa-utensils" style="color:#ff8a65"></i> Valor Diário do VR (R$)</label>
+            <input type="number" id="emp-vr-dia" min="0" step="0.01" placeholder="0,00">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label><i class="fa-solid fa-basket-shopping" style="color:#2E7D32"></i> Valor Mensal do VA (R$)</label>
+            <input type="number" id="emp-va-mensal" min="0" step="0.01" placeholder="0,00">
+          </div>
+        </div>
+        <div class="form-group">
+          <label><i class="fa-brands fa-pix" style="color:#00bfa5"></i> Chave PIX</label>
+          <input type="text" id="emp-pix" placeholder="CPF, e-mail, telefone ou chave aleatória">
+        </div>
+      </div>
+
+      <!-- Tab: Férias -->
+      <div class="tab-pane" id="tab-ferias">
+        <div class="info-banner">
+          <i class="fa-solid fa-umbrella-beach"></i>
+          Registre os períodos de férias do colaborador. O direito a férias é adquirido após 12 meses de trabalho.
+        </div>
+        <div class="form-row" style="align-items:flex-end">
+          <div class="form-group">
+            <label>Início das Férias</label>
+            <input type="date" id="ferias-inicio">
+          </div>
+          <div class="form-group">
+            <label>Fim das Férias</label>
+            <input type="date" id="ferias-fim">
+          </div>
+          <div class="form-group form-group-sm">
+            <label>Dias</label>
+            <input type="number" id="ferias-dias" min="1" max="30" placeholder="30" readonly class="input-readonly">
+          </div>
+          <div class="form-group">
+            <label>Tipo</label>
+            <select id="ferias-tipo">
+              <option value="Férias">Férias Regulares</option>
+              <option value="Abono">Abono Pecuniário (10 dias)</option>
+              <option value="Coletivas">Férias Coletivas</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row" style="align-items:flex-end">
+          <div class="form-group form-group-2">
+            <label>Observação</label>
+            <input type="text" id="ferias-obs" placeholder="Opcional">
+          </div>
+          <div>
+            <button class="btn btn-primary" onclick="addFerias()">
+              <i class="fa-solid fa-plus"></i> Registrar Férias
+            </button>
+          </div>
+        </div>
+        <div class="divider"><span>Histórico de Férias</span></div>
+        <div id="ferias-list">
+          <div class="empty-state small"><i class="fa-solid fa-umbrella-beach"></i><p>Nenhum período registrado</p></div>
+        </div>
+      </div>
+
+      <!-- Tab: Documentos -->
+      <div class="tab-pane" id="tab-documentos">
+        <div class="info-banner" id="doc-storage-banner">
+          <i class="fa-solid fa-cloud-arrow-up"></i>
+          Os documentos são armazenados no Firebase Storage e ficam vinculados a este colaborador.
+        </div>
+        <div id="doc-storage-error" class="bonus-alert hidden" style="margin-bottom:12px">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+          Firebase Storage não disponível. Verifique a configuração.
+        </div>
+        <div class="doc-upload-area">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Tipo de Documento</label>
+              <select id="doc-tipo">
+                <option value="RG">RG</option>
+                <option value="CPF">CPF</option>
+                <option value="Comprovante de Residência">Comprovante de Residência</option>
+                <option value="Contrato de Trabalho">Contrato de Trabalho</option>
+                <option value="Outros">Outros</option>
+              </select>
+            </div>
+            <div class="form-group form-group-2">
+              <label>Arquivo <span class="required">*</span></label>
+              <input type="file" id="doc-file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx">
+            </div>
+          </div>
+          <button class="btn btn-primary" onclick="uploadDocument()" id="btn-upload-doc">
+            <i class="fa-solid fa-cloud-arrow-up"></i> Enviar Documento
+          </button>
+        </div>
+        <div class="divider" style="display:flex;align-items:center;justify-content:space-between">
+          <span>Documentos Enviados</span>
+          <button class="btn btn-outline" id="btn-download-all-docs" onclick="downloadAllDocuments()" style="font-size:12px;padding:5px 12px;display:none">
+            <i class="fa-solid fa-file-zipper"></i> Baixar Todos (.zip)
+          </button>
+        </div>
+        <div id="doc-list">
+          <div class="empty-state small">
+            <i class="fa-solid fa-folder-open"></i>
+            <p>Nenhum documento enviado</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-employee')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveEmployee()">
+        <i class="fa-solid fa-floppy-disk"></i> Salvar Colaborador
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: PDF EXTRACTOR ===== -->
+<div class="modal-overlay hidden" id="modal-pdf" onclick="closeModal('modal-pdf', event)">
+  <div class="modal-dialog modal-md">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-wand-magic-sparkles"></i> Dados Extraídos do PDF</h3>
+      <button class="modal-close" onclick="closeModal('modal-pdf')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="extraction-status" id="extraction-status">
+        <div class="spinner"></div>
+        <span>Analisando folha de ponto...</span>
+      </div>
+      <div id="extraction-result" class="hidden">
+        <div class="extraction-info" id="extraction-info"></div>
+        <div class="form-group">
+          <label>Dias Trabalhados</label>
+          <input type="number" id="ext-dias" min="0" max="31">
+        </div>
+        <div class="form-group">
+          <label>Faltas (serão tratadas como injustificadas)</label>
+          <input type="number" id="ext-faltas" min="0" max="31">
+        </div>
+        <div class="form-group">
+          <label>Remuneração / Salário (R$)</label>
+          <input type="number" id="ext-remuneracao" min="0" step="0.01">
+        </div>
+        <details class="pdf-raw-text">
+          <summary><i class="fa-solid fa-file-lines"></i> Ver texto extraído do PDF</summary>
+          <pre id="ext-raw-text"></pre>
+        </details>
+      </div>
+    </div>
+    <div class="modal-footer hidden" id="modal-pdf-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-pdf')">Cancelar</button>
+      <button class="btn btn-primary" onclick="applyExtraction()">
+        <i class="fa-solid fa-check"></i> Aplicar Dados
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: CONFIRM DELETE ===== -->
+<div class="modal-overlay hidden" id="modal-confirm" onclick="closeModal('modal-confirm', event)">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-triangle-exclamation text-danger"></i> Confirmar Exclusão</h3>
+      <button class="modal-close" onclick="closeModal('modal-confirm')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <p id="confirm-message">Tem certeza que deseja excluir este registro?</p>
+      <p class="text-muted">Esta ação não pode ser desfeita.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-confirm')">Cancelar</button>
+      <button class="btn btn-danger" id="confirm-ok-btn">
+        <i class="fa-solid fa-trash"></i> Excluir
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: NOVO/EDITAR USUÁRIO ===== -->
+<div class="modal-overlay hidden" id="modal-user" onclick="closeModal('modal-user', event)">
+  <div class="modal-dialog modal-md">
+    <div class="modal-header">
+      <h3 id="modal-user-title"><i class="fa-solid fa-user-plus"></i> Novo Usuário</h3>
+      <button class="modal-close" onclick="closeModal('modal-user')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="usr-id">
+      <div class="form-group">
+        <label>Nome de usuário <span class="required">*</span></label>
+        <input type="text" id="usr-username" placeholder="Ex: joao.silva" autocomplete="off">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Perfil <span class="required">*</span></label>
+          <select id="usr-role">
+            <option value="operador">Operador — só Folha de Ponto e Relatórios</option>
+            <option value="gestor">Gestor — Colaboradores + Folha + Relatórios</option>
+            <option value="master">Master — Acesso Total</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select id="usr-active">
+            <option value="true">Ativo</option>
+            <option value="false">Inativo</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group" id="usr-pass-group">
+        <label>Senha <span class="required">*</span></label>
+        <div class="pass-wrap">
+          <input type="password" id="usr-password" placeholder="Mínimo 6 caracteres" autocomplete="new-password">
+          <button type="button" class="btn-show-pass" onclick="togglePassVisibility('usr-password', this)">
+            <i class="fa-solid fa-eye"></i>
+          </button>
+        </div>
+      </div>
+      <div class="form-group" id="usr-pass-confirm-group">
+        <label>Confirmar senha <span class="required">*</span></label>
+        <div class="pass-wrap">
+          <input type="password" id="usr-password-confirm" placeholder="Repita a senha" autocomplete="new-password">
+          <button type="button" class="btn-show-pass" onclick="togglePassVisibility('usr-password-confirm', this)">
+            <i class="fa-solid fa-eye"></i>
+          </button>
+        </div>
+      </div>
+      <div class="info-banner" id="usr-edit-note" style="display:none">
+        <i class="fa-solid fa-circle-info"></i>
+        Deixe a senha em branco para manter a senha atual.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-user')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveUser()">
+        <i class="fa-solid fa-floppy-disk"></i> Salvar
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: ALTERAR MINHA SENHA ===== -->
+<div class="modal-overlay hidden" id="modal-change-pass" onclick="closeModal('modal-change-pass', event)">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-key"></i> Alterar Senha</h3>
+      <button class="modal-close" id="change-pass-close" onclick="closeModal('modal-change-pass')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="info-banner" id="change-pass-warn" style="display:none;background:#FFF3E0;color:#E65100">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        Você está usando a senha padrão. Por segurança, altere-a agora.
+      </div>
+      <div class="form-group">
+        <label>Senha atual</label>
+        <div class="pass-wrap">
+          <input type="password" id="cp-current" placeholder="Senha atual" autocomplete="current-password">
+          <button type="button" class="btn-show-pass" onclick="togglePassVisibility('cp-current', this)"><i class="fa-solid fa-eye"></i></button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Nova senha <span class="required">*</span></label>
+        <div class="pass-wrap">
+          <input type="password" id="cp-new" placeholder="Mínimo 6 caracteres" autocomplete="new-password">
+          <button type="button" class="btn-show-pass" onclick="togglePassVisibility('cp-new', this)"><i class="fa-solid fa-eye"></i></button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Confirmar nova senha <span class="required">*</span></label>
+        <div class="pass-wrap">
+          <input type="password" id="cp-confirm" placeholder="Repita a nova senha" autocomplete="new-password">
+          <button type="button" class="btn-show-pass" onclick="togglePassVisibility('cp-confirm', this)"><i class="fa-solid fa-eye"></i></button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="change-pass-cancel-btn" onclick="closeModal('modal-change-pass')">Cancelar</button>
+      <button class="btn btn-primary" onclick="changePassword()">
+        <i class="fa-solid fa-key"></i> Alterar Senha
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: CCT ===== -->
+<div class="modal-overlay hidden" id="modal-cct" onclick="closeModal('modal-cct', event)">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-file-contract"></i> Convenção Coletiva de Trabalho (CCT)</h3>
+      <button class="modal-close" onclick="closeModal('modal-cct')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="info-banner" id="cct-current-info" style="display:none">
+        <i class="fa-solid fa-circle-check"></i>
+        <span id="cct-current-text"></span>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Vigência (data de início) <span class="required">*</span></label>
+          <input type="date" id="cct-vigencia">
+        </div>
+        <div class="form-group">
+          <label>Salário Base (R$)</label>
+          <input type="number" id="cct-salario-base" min="0" step="0.01" placeholder="0,00">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>VT Diário (R$)</label>
+          <input type="number" id="cct-vt-diario" min="0" step="0.01" placeholder="0,00">
+        </div>
+        <div class="form-group">
+          <label>VR Diário (R$)</label>
+          <input type="number" id="cct-vr-diario" min="0" step="0.01" placeholder="0,00">
+        </div>
+        <div class="form-group">
+          <label>VA Mensal (R$)</label>
+          <input type="number" id="cct-va-mensal" min="0" step="0.01" placeholder="0,00">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Bonificação (R$)</label>
+          <input type="number" id="cct-bonificacao" min="0" step="0.01" placeholder="0,00">
+        </div>
+        <div class="form-group">
+          <label>PLR (R$)</label>
+          <input type="number" id="cct-plr" min="0" step="0.01" placeholder="0,00">
+        </div>
+        <div class="form-group">
+          <label>% Adicional Noturno</label>
+          <input type="number" id="cct-adicional-noturno" min="0" step="0.01" placeholder="20" value="20">
+        </div>
+      </div>
+      <div class="divider"><span>Aplicar a Colaboradores</span></div>
+      <div class="info-banner" style="background:#FFF3E0;color:#E65100">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        Ao aplicar, os campos de Salário Base, VT/dia, VR/dia e VA Mensal de TODOS os colaboradores ativos serão atualizados com os valores da CCT.
+      </div>
+      <div style="display:flex;gap:12px;margin-top:8px">
+        <button class="btn btn-success" onclick="applyCctToAll()">
+          <i class="fa-solid fa-users-gear"></i> Aplicar CCT a todos os colaboradores ativos
+        </button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-cct')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveCct()">
+        <i class="fa-solid fa-floppy-disk"></i> Salvar CCT
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: PONTO MANUAL ===== -->
+<div class="modal-overlay hidden" id="modal-ponto-manual" onclick="closeModal('modal-ponto-manual', event)">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-header">
+      <h3 id="ponto-manual-titulo"><i class="fa-solid fa-keyboard"></i> Ponto Manual</h3>
+      <button class="modal-close" onclick="closeModal('modal-ponto-manual')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body" style="padding:16px;max-height:70vh;overflow-y:auto">
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px">
+        <i class="fa-solid fa-circle-info"></i>
+        Preencha Entrada e Saída dos dias trabalhados. Dias úteis sem preenchimento = falta. Sáb/Dom vazios = folga.
+      </p>
+      <div id="ponto-manual-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:6px"></div>
+      <div id="ponto-manual-resumo" style="margin-top:14px;padding:12px;background:var(--primary-light);border-radius:8px;display:none;display:flex;gap:20px;flex-wrap:wrap;align-items:center">
+        <span><i class="fa-solid fa-calendar-check" style="color:var(--success)"></i> <strong id="ponto-resumo-dias">0</strong> dias trabalhados</span>
+        <span><i class="fa-solid fa-circle-xmark" style="color:var(--danger)"></i> <strong id="ponto-resumo-faltas">0</strong> falta(s)</span>
+        <span><i class="fa-solid fa-clock" style="color:var(--warning)"></i> <strong id="ponto-resumo-he">0h</strong> extras</span>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-ponto-manual')">Fechar</button>
+      <button class="btn btn-outline" id="btn-salvar-rascunho-ponto" onclick="savePontoManualRascunho()" style="color:var(--warning);border-color:var(--warning)">
+        <i class="fa-solid fa-floppy-disk"></i> Salvar Rascunho
+      </button>
+      <button class="btn btn-outline" onclick="printFolhaPonto()" style="color:var(--success);border-color:var(--success)">
+        <i class="fa-solid fa-print"></i> Imprimir Folha
+      </button>
+      <button class="btn btn-primary" onclick="applyPontoManual()">
+        <i class="fa-solid fa-check"></i> Aplicar na Folha
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: RELATÓRIO INDIVIDUAL ===== -->
+<div class="modal-overlay hidden" id="modal-relatorio-individual" onclick="closeModal('modal-relatorio-individual', event)">
+  <div class="modal-box modal-lg">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-file-invoice"></i> Relatório Individual</h3>
+      <button class="modal-close" onclick="closeModal('modal-relatorio-individual')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body" id="modal-relatorio-individual-body" style="padding:24px;overflow-y:auto;max-height:75vh"></div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-relatorio-individual')">Fechar</button>
+      <button class="btn btn-primary" onclick="window.print()">
+        <i class="fa-solid fa-print"></i> Imprimir
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: TRANSFERÊNCIA DE POSTO ===== -->
+<div class="modal-overlay hidden" id="modal-transferencia" onclick="closeModal('modal-transferencia', event)">
+  <div class="modal-dialog modal-md">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-right-left"></i> Registrar Transferência de Posto</h3>
+      <button class="modal-close" onclick="closeModal('modal-transferencia')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="info-banner" id="transferencia-posto-atual-info">
+        <i class="fa-solid fa-location-dot"></i>
+        <span id="transferencia-posto-atual-texto">Posto atual: —</span>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Data de saída do posto atual <span class="required">*</span></label>
+          <input type="date" id="transf-data-saida">
+        </div>
+        <div class="form-group">
+          <label>Data de entrada no novo posto <span class="required">*</span></label>
+          <input type="date" id="transf-data-entrada">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Novo Posto de Trabalho <span class="required">*</span></label>
+        <select id="transf-novo-posto">
+          <option value="">— Selecione o posto —</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Observação <small style="color:var(--text-muted)">(opcional)</small></label>
+        <input type="text" id="transf-obs" placeholder="Ex: Transferência a pedido do cliente, remanejamento...">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-transferencia')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveTransferencia()">
+        <i class="fa-solid fa-floppy-disk"></i> Confirmar Transferência
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: POSTO DE TRABALHO ===== -->
+<div class="modal-overlay hidden" id="modal-posto" onclick="closeModal('modal-posto', event)">
+  <div class="modal-dialog modal-md">
+    <div class="modal-header">
+      <h3 id="modal-posto-title"><i class="fa-solid fa-building"></i> Novo Posto</h3>
+      <button class="modal-close" onclick="closeModal('modal-posto')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="posto-id">
+      <div class="form-group">
+        <label>Razão Social <span class="required">*</span></label>
+        <input type="text" id="posto-razao" placeholder="Nome da empresa/condomínio">
+      </div>
+      <div class="form-group">
+        <label>CNPJ <span style="font-size:11px;color:var(--text-muted);font-weight:400">— preenchimento automático ao digitar</span></label>
+        <div style="position:relative">
+          <input type="text" id="posto-cnpj" placeholder="00.000.000/0000-00" maxlength="18"
+            oninput="maskCnpj(this); if(this.value.replace(/\D/g,'').length===14) lookupCnpjPosto()">
+          <span id="cnpj-lookup-spinner" style="display:none;position:absolute;right:10px;top:50%;transform:translateY(-50%);color:var(--primary)">
+            <i class="fa-solid fa-circle-notch fa-spin"></i>
+          </span>
+        </div>
+        <div id="cnpj-lookup-status" style="display:none;margin-top:6px;padding:8px 12px;border-radius:6px;font-size:12px;line-height:1.4"></div>
+      </div>
+      <div class="form-group">
+        <label>Nome Fantasia</label>
+        <input type="text" id="posto-fantasia" placeholder="Nome comercial (se diferente da razão social)">
+      </div>
+      <div class="form-group">
+        <label>Telefone</label>
+        <input type="text" id="posto-telefone" placeholder="(00) 00000-0000" maxlength="15" oninput="maskTelefone(this)">
+      </div>
+      <div class="form-group">
+        <label>E-mail</label>
+        <input type="email" id="posto-email" placeholder="contato@empresa.com.br">
+      </div>
+      <div class="divider"><span>Endereço</span></div>
+      <div class="form-row">
+        <div class="form-group form-group-sm">
+          <label>CEP</label>
+          <input type="text" id="posto-cep" placeholder="00000-000" maxlength="9"
+            oninput="maskCep(this)" onblur="fetchCepPosto()">
+        </div>
+        <div class="form-group form-group-2">
+          <label>Logradouro</label>
+          <input type="text" id="posto-endereco" placeholder="Rua, Avenida...">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group form-group-sm">
+          <label>Número</label>
+          <input type="text" id="posto-numero" placeholder="Nº">
+        </div>
+        <div class="form-group">
+          <label>Complemento</label>
+          <input type="text" id="posto-complemento" placeholder="Apto, Bloco...">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Bairro</label>
+          <input type="text" id="posto-bairro" placeholder="Bairro">
+        </div>
+        <div class="form-group">
+          <label>Cidade</label>
+          <input type="text" id="posto-cidade" placeholder="Cidade">
+        </div>
+        <div class="form-group form-group-sm">
+          <label>UF</label>
+          <input type="text" id="posto-estado" placeholder="SP" maxlength="2">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-posto')">Cancelar</button>
+      <button class="btn btn-primary" onclick="savePosto()">
+        <i class="fa-solid fa-floppy-disk"></i> Salvar Posto
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: CONTRATO ===== -->
+<div class="modal-overlay hidden" id="modal-contrato" onclick="closeModal('modal-contrato', event)">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-header">
+      <h3 id="modal-contrato-title"><i class="fa-solid fa-file-signature"></i> Novo Contrato</h3>
+      <button class="modal-close" onclick="closeModal('modal-contrato')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="contrato-id">
+      <input type="hidden" id="contrato-arquivo-url">
+      <input type="hidden" id="contrato-arquivo-nome">
+
+      <div class="divider"><span><i class="fa-solid fa-building"></i> Dados do Cliente</span></div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>CNPJ <span style="font-size:11px;color:var(--text-muted);font-weight:400">— preenchimento automático ao digitar</span></label>
+          <div style="position:relative">
+            <input type="text" id="contrato-cnpj" placeholder="00.000.000/0000-00" maxlength="18"
+              oninput="maskCnpj(this); if(this.value.replace(/\D/g,'').length===14) lookupCnpjContrato()">
+            <span id="contrato-cnpj-spinner" style="display:none;position:absolute;right:10px;top:50%;transform:translateY(-50%);color:var(--primary)">
+              <i class="fa-solid fa-circle-notch fa-spin"></i>
+            </span>
+          </div>
+          <div id="contrato-cnpj-status" style="display:none;margin-top:6px;padding:8px 12px;border-radius:6px;font-size:12px;line-height:1.4"></div>
+        </div>
+        <div class="form-group form-group-2">
+          <label>Razão Social <span class="required">*</span></label>
+          <input type="text" id="contrato-razao" placeholder="Nome da empresa / condomínio">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group form-group-2">
+          <label>Endereço completo</label>
+          <input type="text" id="contrato-endereco" placeholder="Rua, nº, bairro, cidade - UF">
+        </div>
+        <div class="form-group">
+          <label>E-mail</label>
+          <input type="email" id="contrato-email" placeholder="contato@empresa.com.br">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group form-group-2">
+          <label><i class="fa-solid fa-user-tie text-primary"></i> Responsável pelo Contrato</label>
+          <input type="text" id="contrato-responsavel" placeholder="Nome completo do responsável">
+        </div>
+        <div class="form-group">
+          <label>CPF do Responsável</label>
+          <input type="text" id="contrato-cpf-responsavel" placeholder="000.000.000-00" maxlength="14" oninput="maskCpf(this)">
+        </div>
+      </div>
+
+      <div class="divider"><span><i class="fa-solid fa-file-signature"></i> Dados do Contrato</span></div>
+
+      <div class="form-row">
+        <div class="form-group form-group-2">
+          <label>Posto / Local <span class="required">*</span></label>
+          <select id="contrato-posto" onchange="onContratoPostoChange()">
+            <option value="">— Selecione o posto cadastrado —</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Valor Mensal (R$)</label>
+          <input type="number" id="contrato-valor" min="0" step="0.01" placeholder="0,00">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Objeto do Contrato <span class="required">*</span></label>
+        <textarea id="contrato-objeto" rows="2" placeholder="Ex: Prestação de serviços de vigilância e portaria 12h×36h"></textarea>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label><i class="fa-solid fa-calendar-day text-primary"></i> Data de Início <span class="required">*</span></label>
+          <input type="date" id="contrato-inicio">
+        </div>
+        <div class="form-group">
+          <label><i class="fa-solid fa-calendar-plus text-warning"></i> Data de Reajuste (Aniversário)</label>
+          <input type="date" id="contrato-reajuste">
+        </div>
+        <div class="form-group">
+          <label><i class="fa-solid fa-calendar-xmark" style="color:var(--danger)"></i> Data de Término</label>
+          <input type="date" id="contrato-fim">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Observações</label>
+        <textarea id="contrato-obs" rows="2" placeholder="Cláusulas especiais, reajuste percentual, etc."></textarea>
+      </div>
+
+      <div class="divider"><span>Arquivo do Contrato</span></div>
+      <div id="contrato-arquivo-area">
+        <div id="contrato-arquivo-atual" class="hidden" style="display:flex;align-items:center;gap:10px;padding:10px;background:#F0F8FF;border-radius:6px;margin-bottom:10px">
+          <i class="fa-solid fa-file-pdf" style="color:#C62828;font-size:20px"></i>
+          <span id="contrato-arquivo-nome-exib" style="flex:1;font-size:13px;font-weight:500"></span>
+          <a id="contrato-arquivo-link" href="#" target="_blank" class="btn btn-outline" style="font-size:12px;padding:4px 10px">
+            <i class="fa-solid fa-eye"></i> Ver
+          </a>
+          <button onclick="removerArquivoContrato()" class="btn" style="font-size:12px;padding:4px 10px;background:#FFEBEE;color:#C62828;border:1px solid #FFCDD2">
+            <i class="fa-solid fa-trash"></i>
+          </button>
+        </div>
+        <label class="btn btn-outline" style="cursor:pointer;width:100%;justify-content:center">
+          <i class="fa-solid fa-file-arrow-up"></i> Selecionar arquivo (PDF, DOC, DOCX)
+          <input type="file" id="contrato-arquivo-input" accept=".pdf,.doc,.docx" style="display:none" onchange="onContratoArquivoChange(event)">
+        </label>
+        <div id="contrato-upload-status" class="hidden" style="margin-top:8px;font-size:12px;color:var(--text-muted);text-align:center">
+          <i class="fa-solid fa-circle-notch fa-spin"></i> Enviando arquivo...
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-contrato')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveContrato()">
+        <i class="fa-solid fa-floppy-disk"></i> Salvar Contrato
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: PERFIS CUSTOMIZÁVEIS ===== -->
+<div class="modal-overlay hidden" id="modal-perfil" onclick="closeModal('modal-perfil', event)">
+  <div class="modal-dialog modal-md">
+    <div class="modal-header">
+      <h3 id="modal-perfil-title"><i class="fa-solid fa-shield-halved"></i> Novo Perfil</h3>
+      <button class="modal-close" onclick="closeModal('modal-perfil')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="perfil-id">
+      <div class="form-group">
+        <label>Nome do perfil <span class="required">*</span></label>
+        <input type="text" id="perfil-nome" placeholder="Ex: Supervisor, Contabilidade, RH...">
+      </div>
+      <div class="form-group">
+        <label>Módulos com acesso <span class="required">*</span></label>
+        <div class="perfil-modulos-grid" id="perfil-modulos">
+          <label class="checkbox-label"><input type="checkbox" name="mod" value="dashboard" checked disabled> <span>Dashboard <small>(sempre visível)</small></span></label>
+          <label class="checkbox-label"><input type="checkbox" name="mod" value="employees"> <span>Colaboradores</span></label>
+          <label class="checkbox-label"><input type="checkbox" name="mod" value="payroll"> <span>Folha de Ponto</span></label>
+          <label class="checkbox-label"><input type="checkbox" name="mod" value="reports"> <span>Relatórios</span></label>
+          <label class="checkbox-label"><input type="checkbox" name="mod" value="users"> <span>Usuários & Acessos</span></label>
+          <label class="checkbox-label"><input type="checkbox" name="mod" value="log"> <span>Log de Acessos</span></label>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-perfil')">Cancelar</button>
+      <button class="btn btn-primary" onclick="savePerfil()">
+        <i class="fa-solid fa-floppy-disk"></i> Salvar Perfil
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== TELA DE LICENÇA BLOQUEADA ===== -->
+<div id="licenca-lock" class="hidden" style="position:fixed;inset:0;background:rgba(15,23,42,.97);display:flex;align-items:center;justify-content:center;z-index:99999">
+  <div style="background:#fff;border-radius:16px;padding:48px 40px;max-width:480px;width:90%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.4)">
+    <div style="width:72px;height:72px;border-radius:50%;background:#FFF3E0;display:flex;align-items:center;justify-content:center;margin:0 auto 20px">
+      <i class="fa-solid fa-lock" style="font-size:32px;color:#E65100"></i>
+    </div>
+    <h2 style="color:#1565C0;margin:0 0 12px;font-size:22px">Sistema Bloqueado</h2>
+    <p id="licenca-msg" style="color:#546E7A;font-size:14px;margin:0 0 28px;line-height:1.6">Entre em contato com o suporte para renovar o acesso.</p>
+    <div style="background:#E3F2FD;border-radius:10px;padding:14px;font-size:13px;color:#1565C0">
+      <i class="fa-solid fa-headset"></i> Suporte: D.R. Global Multi Services
+    </div>
+    <p style="margin-top:16px;font-size:11px;color:#B0BEC5">D.R. Global Multi Services — Sistema de Gestão</p>
+  </div>
+</div>
+
+<!-- ===== TOAST ===== -->
+<div id="toast-container"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

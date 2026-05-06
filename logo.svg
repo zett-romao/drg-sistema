@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <!-- Gradiente do anel externo: azul-marinho para dourado -->
+    <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"   stop-color="#1a1a6e"/>
+      <stop offset="55%"  stop-color="#2a2a8e"/>
+      <stop offset="100%" stop-color="#b8973a"/>
+    </linearGradient>
+    <!-- Gradiente dourado para o arco inferior-direito -->
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"   stop-color="#c9a84c"/>
+      <stop offset="50%"  stop-color="#e8c96e"/>
+      <stop offset="100%" stop-color="#b8973a"/>
+    </linearGradient>
+    <!-- Sombra suave -->
+    <filter id="shadow" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.2"/>
+    </filter>
+  </defs>
+
+  <!-- Anel externo principal (azul-marinho) -->
+  <circle cx="100" cy="100" r="98" fill="#1a1a6e" filter="url(#shadow)"/>
+
+  <!-- Arco dourado (porção inferior-direita) -->
+  <!-- Usando um path de arco para o segmento dourado -->
+  <path d="M 100 2
+            A 98 98 0 0 1 198 100
+            A 98 98 0 0 1 155 183
+            A 98 98 0 0 1 45 183
+            A 98 98 0 0 0 100 2 Z"
+        fill="#b8973a" opacity="0.85"/>
+
+  <!-- Arco dourado mais brilhante (segmento direito) -->
+  <path d="M 155 17
+            A 98 98 0 0 1 198 100
+            A 98 98 0 0 1 170 170
+            L 162 158
+            A 84 84 0 0 0 183 100
+            A 84 84 0 0 0 148 28 Z"
+        fill="url(#goldGrad)"/>
+
+  <!-- Círculo interno branco -->
+  <circle cx="100" cy="100" r="82" fill="white"/>
+
+  <!-- Borda interna fina cinza -->
+  <circle cx="100" cy="100" r="82" fill="none" stroke="#ddd" stroke-width="1"/>
+
+  <!-- Texto "D.R." em cursivo/itálico estilizado -->
+  <text x="100" y="108"
+        font-family="Georgia, 'Times New Roman', serif"
+        font-size="44"
+        font-style="italic"
+        font-weight="bold"
+        fill="#1a1a6e"
+        text-anchor="middle"
+        letter-spacing="2">D.R.</text>
+
+  <!-- Texto "Global" abaixo -->
+  <text x="100" y="138"
+        font-family="Georgia, 'Times New Roman', serif"
+        font-size="22"
+        font-style="normal"
+        font-weight="400"
+        fill="#333"
+        text-anchor="middle"
+        letter-spacing="3">Global</text>
+</svg>

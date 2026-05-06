@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>D.R. Global Multi Services — Sistema de Gestão de Colaboradores</title>
   <link rel="icon" href="logo.png" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20260506h">
+  <link rel="stylesheet" href="styles.css?v=20260506i">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -13,7 +13,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-  <script src="firebase-config.js?v=20260506h"></script>
+  <script src="firebase-config.js?v=20260506i"></script>
 </head>
 <body>
 
@@ -1831,6 +1831,64 @@
           <span style="font-size:11px;color:var(--text-muted);margin-top:4px;display:block">Usado como base para cálculo da Insalubridade (20%, 40% ou 60%)</span>
         </div>
       </div>
+
+      <!-- ============== PLR — Parcelas e Lembretes ============== -->
+      <div class="divider" style="margin-top:18px"><span><i class="fa-solid fa-gift" style="color:#7B1FA2"></i> PLR — Participação nos Lucros e Resultados</span></div>
+      <div class="info-banner" style="background:#F3E5F5;color:#4A148C">
+        <i class="fa-solid fa-circle-info"></i>
+        Configure abaixo o valor anual e as parcelas. As datas e o status aparecem como alertas no Dashboard.
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Valor Anual do PLR (R$)</label>
+          <input type="number" id="cct-plr-anual" min="0" step="0.01" placeholder="326,04">
+        </div>
+        <div class="form-group form-group-sm">
+          <label>Avisar quantos dias antes</label>
+          <input type="number" id="cct-plr-aviso-dias" min="1" max="180" step="1" placeholder="30" value="30">
+        </div>
+      </div>
+
+      <!-- Parcela 1 -->
+      <div style="background:#FAFAFA;border:1px solid #E0E0E0;border-radius:8px;padding:12px;margin-top:8px">
+        <div style="font-weight:700;color:#7B1FA2;margin-bottom:8px"><i class="fa-solid fa-1"></i> 1ª Parcela</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Valor (R$)</label>
+            <input type="number" id="cct-plr-p1-valor" min="0" step="0.01" placeholder="163,02">
+          </div>
+          <div class="form-group">
+            <label>Data Limite de Pagamento</label>
+            <input type="date" id="cct-plr-p1-limite">
+          </div>
+          <div class="form-group">
+            <label>Data de Pagamento (efetivo)</label>
+            <input type="date" id="cct-plr-p1-pago">
+            <span style="font-size:11px;color:var(--text-muted);margin-top:4px;display:block">Deixe em branco se ainda não foi pago</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Parcela 2 -->
+      <div style="background:#FAFAFA;border:1px solid #E0E0E0;border-radius:8px;padding:12px;margin-top:8px">
+        <div style="font-weight:700;color:#7B1FA2;margin-bottom:8px"><i class="fa-solid fa-2"></i> 2ª Parcela</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Valor (R$)</label>
+            <input type="number" id="cct-plr-p2-valor" min="0" step="0.01" placeholder="163,02">
+          </div>
+          <div class="form-group">
+            <label>Data Limite de Pagamento</label>
+            <input type="date" id="cct-plr-p2-limite">
+          </div>
+          <div class="form-group">
+            <label>Data de Pagamento (efetivo)</label>
+            <input type="date" id="cct-plr-p2-pago">
+            <span style="font-size:11px;color:var(--text-muted);margin-top:4px;display:block">Deixe em branco se ainda não foi pago</span>
+          </div>
+        </div>
+      </div>
+
       <div class="divider"><span>Aplicar a Colaboradores</span></div>
       <div class="info-banner" style="background:#FFF3E0;color:#E65100">
         <i class="fa-solid fa-triangle-exclamation"></i>
@@ -2204,6 +2262,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260506h"></script>
+<script src="app.js?v=20260506i"></script>
 </body>
 </html>

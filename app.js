@@ -1043,6 +1043,36 @@ function renderAlerts(){
       }
     }
   });
+  // PLR: parcelas com data limite/aviso/atraso
+  if(State.cct){
+    const plrAvisoDias=State.cct.plrAvisoDias||30;
+    [1,2].forEach(idx=>{
+      const valor=State.cct[`plrP${idx}Valor`]||0;
+      const dataLimite=State.cct[`plrP${idx}DataLimite`]||'';
+      const dataPago=State.cct[`plrP${idx}DataPagamento`]||'';
+      if(!valor||!dataLimite) return; // parcela não configurada
+      const limite=new Date(dataLimite+'T00:00:00');
+      const diff=Math.round((limite-hoje)/(1000*60*60*24));
+      const labelParc=idx===1?'1ª Parcela':'2ª Parcela';
+      if(dataPago){
+        // Pago — alerta verde informativo
+        alerts.push(`<div class="alert-item"><div class="alert-icon" style="color:#2E7D32"><i class="fa-solid fa-circle-check"></i></div><div><div class="alert-nome">PLR — ${labelParc}</div><div class="alert-sub" style="color:#2E7D32;font-weight:600">✅ Paga em ${formatDateBr(dataPago)} — ${fmtMoney(valor)}</div></div></div>`);
+      } else if(diff<0){
+        // Vencida e não paga — vermelho
+        alerts.push(`<div class="alert-item"><div class="alert-icon" style="color:var(--danger)"><i class="fa-solid fa-triangle-exclamation"></i></div><div><div class="alert-nome">PLR — ${labelParc}</div><div class="alert-sub" style="color:var(--danger);font-weight:700">⚠️ VENCIDA há ${Math.abs(diff)} dia(s) — ${fmtMoney(valor)} (limite ${formatDateBr(dataLimite)})</div></div><button class="btn-icon btn-success-icon" onclick="markPlrPaid(${idx})" title="Marcar como paga"><i class="fa-solid fa-check"></i></button></div>`);
+      } else if(diff<=plrAvisoDias){
+        // Próxima do vencimento — amarelo
+        const cor=diff<=7?'#E65100':'#F57F17';
+        const txt=diff===0?'Vence HOJE':`Vence em ${diff} dia(s)`;
+        alerts.push(`<div class="alert-item"><div class="alert-icon" style="color:${cor}"><i class="fa-solid fa-gift"></i></div><div><div class="alert-nome">PLR — ${labelParc}</div><div class="alert-sub" style="color:${cor};font-weight:600">${txt} — ${fmtMoney(valor)} (limite ${formatDateBr(dataLimite)})</div></div><button class="btn-icon btn-success-icon" onclick="markPlrPaid(${idx})" title="Marcar como paga"><i class="fa-solid fa-check"></i></button></div>`);
+      }
+    });
+    // Aviso geral: PLR não configurada (parcela 1 sem data ou valor)
+    if(!State.cct.plrP1DataLimite && !State.cct.plrP1Valor && !State.cct.plrP2DataLimite){
+      alerts.push(`<div class="alert-item"><div class="alert-icon" style="color:#5C6BC0"><i class="fa-solid fa-circle-info"></i></div><div><div class="alert-nome">PLR não configurado</div><div class="alert-sub">Acesse o menu de CCT para definir parcelas e datas do PLR.</div></div><button class="btn-icon" onclick="openCctModal()" title="Configurar"><i class="fa-solid fa-arrow-right"></i></button></div>`);
+    }
+  }
+
   // Contratos: reajuste nos próximos 30 dias
   const mods2=getUserModules(Auth.currentUser);
   if(mods2.contratos){
@@ -2918,11 +2948,23 @@ function openCctModal(){
     setVal('cct-va-mensal',cct.vaMensal||''); setVal('cct-bonificacao',cct.bonificacao||'');
     setVal('cct-plr',cct.plr||''); setVal('cct-adicional-noturno',cct.percentualAdNoturno||20);
     setVal('cct-salario-minimo',cct.salarioMinimo||1518);
+    // PLR — parcelas e lembretes
+    setVal('cct-plr-anual',cct.plrValorAnual||cct.plr||'');
+    setVal('cct-plr-aviso-dias',cct.plrAvisoDias||30);
+    setVal('cct-plr-p1-valor',cct.plrP1Valor||'');
+    setVal('cct-plr-p1-limite',cct.plrP1DataLimite||'');
+    setVal('cct-plr-p1-pago',cct.plrP1DataPagamento||'');
+    setVal('cct-plr-p2-valor',cct.plrP2Valor||'');
+    setVal('cct-plr-p2-limite',cct.plrP2DataLimite||'');
+    setVal('cct-plr-p2-pago',cct.plrP2DataPagamento||'');
   } else {
     infoEl.style.display='none';
-    ['cct-vigencia','cct-salario-base','cct-vt-diario','cct-vr-diario','cct-va-mensal','cct-bonificacao','cct-plr'].forEach(id=>setVal(id,''));
+    ['cct-vigencia','cct-salario-base','cct-vt-diario','cct-vr-diario','cct-va-mensal','cct-bonificacao','cct-plr',
+     'cct-plr-anual','cct-plr-p1-valor','cct-plr-p1-limite','cct-plr-p1-pago',
+     'cct-plr-p2-valor','cct-plr-p2-limite','cct-plr-p2-pago'].forEach(id=>setVal(id,''));
     setVal('cct-adicional-noturno',20);
     setVal('cct-salario-minimo',1518);
+    setVal('cct-plr-aviso-dias',30);
   }
 }
 
@@ -2939,6 +2981,15 @@ async function saveCct(){
     plr:numVal('cct-plr'),
     percentualAdNoturno:numVal('cct-adicional-noturno')||20,
     salarioMinimo:numVal('cct-salario-minimo')||1518,
+    // PLR — parcelas e lembretes
+    plrValorAnual:numVal('cct-plr-anual')||0,
+    plrAvisoDias:numVal('cct-plr-aviso-dias')||30,
+    plrP1Valor:numVal('cct-plr-p1-valor')||0,
+    plrP1DataLimite:val('cct-plr-p1-limite')||'',
+    plrP1DataPagamento:val('cct-plr-p1-pago')||'',
+    plrP2Valor:numVal('cct-plr-p2-valor')||0,
+    plrP2DataLimite:val('cct-plr-p2-limite')||'',
+    plrP2DataPagamento:val('cct-plr-p2-pago')||'',
     updatedAt:new Date().toISOString()
   };
   const btn=document.querySelector('#modal-cct .btn-primary');
@@ -2951,6 +3002,30 @@ async function saveCct(){
     renderDashboard();
   } catch(e){ toast('Erro ao salvar CCT.','error'); }
   finally { setBtnLoading(btn,false,'<i class="fa-solid fa-floppy-disk"></i> Salvar CCT'); }
+}
+
+async function markPlrPaid(parcelaIdx){
+  if(!State.cct){ toast('Configure a CCT antes de marcar parcelas.','error'); return; }
+  const today=new Date().toISOString().split('T')[0];
+  const labelParc=parcelaIdx===1?'1ª Parcela':'2ª Parcela';
+  document.getElementById('confirm-message').innerHTML=`Marcar PLR — <strong>${labelParc}</strong> como <strong>paga em ${formatDateBr(today)}</strong>?<br><br>Você poderá editar essa data depois pelo menu CCT, se precisar.`;
+  const btn=document.getElementById('confirm-ok-btn');
+  btn.innerHTML='<i class="fa-solid fa-check"></i> Confirmar Pagamento';
+  btn.onclick=async()=>{
+    setBtnLoading(btn,true,'');
+    try {
+      const cct={...State.cct};
+      cct[`plrP${parcelaIdx}DataPagamento`]=today;
+      cct.updatedAt=new Date().toISOString();
+      await DB.save('cct',cct);
+      State.cct=cct;
+      closeModal('modal-confirm');
+      toast(`PLR — ${labelParc} marcada como paga.`);
+      renderDashboard();
+    } catch(e){ toast('Erro ao registrar pagamento.','error'); console.error(e); }
+    finally { setBtnLoading(btn,false,'<i class="fa-solid fa-check"></i> Confirmar'); }
+  };
+  document.getElementById('modal-confirm').classList.remove('hidden');
 }
 
 async function applyCctToAll(){

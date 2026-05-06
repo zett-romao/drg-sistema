@@ -2078,39 +2078,44 @@ async function fileToBase64(file){
 
 // Regras de falta por tipo de escala de trabalho
 const ESCALA_RULES = {
-  '5x2A': 'Escala 5x2 — Variante A: trabalha SEGUNDA A SEXTA (08h-18h / Sex 08h-16h). Sábados e domingos NÃO são dias de trabalho. Falta = dia útil de Seg a Sex sem registro de entrada nem saída.',
-  '5x2B': 'Escala 5x2 — Variante B: trabalha SEGUNDA A SEXTA (07h-17h / Sex 07h-16h). Sábados e domingos NÃO são dias de trabalho. Falta = dia útil de Seg a Sex sem registro de entrada nem saída.',
-  '6x1A': 'Escala 6x1 — Variante A: trabalha SEGUNDA A SÁBADO (07h-16h / Sáb 07h-11h), folga DOMINGO. Falta = qualquer dia entre Seg e Sáb sem registro de entrada nem saída.',
-  '6x1B': 'Escala 6x1 — Variante B: trabalha TODOS OS DIAS (08h-16h20). Falta = qualquer dia sem registro de entrada nem saída (com 1 folga semanal que aparece marcada como "FOLGA" ou similar).',
-  '12x36': 'Escala 12x36: o colaborador trabalha em DIAS ALTERNADOS (12h trabalho / 36h folga). DIAS SEM REGISTRO PODEM SER FOLGAS PROGRAMADAS — NÃO são faltas automaticamente. Considere FALTA = 0 a menos que a folha explicite uma falta na coluna OBS (ex: "FALTA", "FALTOU", "AUSENTE"). Se houver atestado, conta como justificada e não entra em "faltas".'
+  '5x2A': 'Escala 5x2 — Variante A. Dias de trabalho: SEGUNDA a SEXTA (08h-18h, exceto Sex 08h-16h). Sábado e domingo: FOLGA (não é falta, não soma em "faltas"). FALTA = somente dia entre Segunda e Sexta sem registro de entrada nem saída E sem nenhuma justificativa na OBS.',
+  '5x2B': 'Escala 5x2 — Variante B. Dias de trabalho: SEGUNDA a SEXTA (07h-17h, exceto Sex 07h-16h). Sábado e domingo: FOLGA (não é falta). FALTA = somente dia entre Segunda e Sexta sem registro de entrada nem saída E sem justificativa na OBS.',
+  '6x1A': 'Escala 6x1 — Variante A. Dias de trabalho: SEGUNDA a SÁBADO (07h-16h, exceto Sáb 07h-11h). Domingo: FOLGA (não é falta). FALTA = somente dia entre Segunda e Sábado sem registro de entrada nem saída E sem justificativa na OBS.',
+  '6x1B': 'Escala 6x1 — Variante B. Trabalha 6 dias e folga 1 (a folga roda durante a semana, não é fixa em domingo). O dia de FOLGA aparece marcado como "FOLGA", "DSR" ou linha vazia explicitamente identificada como descanso. FALTA = dia em que era para trabalhar (não marcado como folga/DSR/atestado) e está sem registro.',
+  '12x36': 'Escala 12x36. O colaborador trabalha 12 horas e folga 36 horas (alternado: 1 dia trabalha / 1 dia folga). ATENÇÃO CRÍTICA: dias sem registro são FOLGAS PROGRAMADAS — NÃO são faltas automaticamente. Considere FALTA = 0 (zero) por padrão. Só conte como FALTA se a coluna OBS contiver expressamente "FALTA", "FALTOU", "AUSENTE" ou "F.I." (falta injustificada). Atestado/Férias/Afastamento NÃO são faltas.'
 };
 
 // Chama a API do Gemini com visão
 async function callGemini(base64Data, mimeType, escala){
   const escalaRule=ESCALA_RULES[escala]||ESCALA_RULES['5x2A'];
-  const prompt=`Você é um sistema de leitura de folha de ponto brasileira. Analise a imagem desta folha de ponto e extraia os dados com precisão.
+  const prompt=`Você é um sistema de leitura de folha de ponto brasileira. Analise a imagem desta folha de ponto e extraia os dados com PRECISÃO MÁXIMA.
 
-A folha tem as colunas: DIA | ENTRADA | INÍCIO INTERVALO | RETORNO INTERVALO | SAÍDA | RUBRICA DO EMPREGADO | HORA EXTRA | OBS
+ESTRUTURA DA FOLHA: cada linha representa 1 dia do mês. As colunas geralmente são: DIA | DIA DA SEMANA | ENTRADA | INÍCIO INTERVALO | RETORNO INTERVALO | SAÍDA | RUBRICA | HORA EXTRA | OBS. A ordem pode variar levemente — adapte-se.
 
-ESCALA DO COLABORADOR: ${escalaRule}
+ESCALA DO COLABORADOR (regra crítica de negócio):
+${escalaRule}
 
-Extraia e retorne SOMENTE um JSON válido com este formato exato:
+Retorne SOMENTE um JSON válido com este formato exato:
 {
-  "nome": "nome completo do colaborador ou null se não encontrado",
-  "cargo": "cargo ou função ou null",
-  "ctps": "número da CTPS ou null",
-  "diasTrabalhados": número inteiro de dias com registro de ENTRADA e SAÍDA preenchidos,
-  "faltas": número inteiro de dias contados como FALTA conforme as regras da escala acima,
-  "horasExtras": número decimal total de horas extras (some a coluna HORA EXTRA),
-  "observacoes": "texto das observações relevantes ou null"
+  "nome": "nome completo do colaborador (procure no cabeçalho) ou null",
+  "cargo": "cargo/função (no cabeçalho) ou null",
+  "ctps": "número da CTPS (no cabeçalho) ou null",
+  "diasTrabalhados": <inteiro> dias COM registro de ENTRADA E SAÍDA preenchidos,
+  "faltas": <inteiro> dias contados como FALTA segundo a regra da ESCALA acima (NUNCA conte folgas programadas, sábados/domingos de quem não trabalha neles, atestados ou férias),
+  "horasExtras": <decimal> soma das horas da coluna HORA EXTRA (em horas decimais, ex: 1.5 = 1h30min). Se vazio, 0,
+  "observacoes": "texto das observações relevantes encontradas (resumo curto) ou null"
 }
 
-Regras gerais:
-- Dia trabalhado = linha com horário de ENTRADA e SAÍDA preenchidos
-- Faltas DEVEM seguir a regra específica da ESCALA acima — leia com atenção
-- Se a coluna OBS contiver "FÉRIAS", "ATESTADO", "AFASTAMENTO" ou similar, NÃO conta como falta
-- Se a coluna HORA EXTRA estiver em branco, considere 0
-- Retorne APENAS o JSON, sem markdown, sem explicação, sem texto adicional`;
+ANTI-ENGANO — NUNCA cometa estes erros comuns:
+1. NÃO conte sábado/domingo como falta se a escala for 5x2 — eles são folga.
+2. NÃO conte qualquer linha vazia como falta na escala 12x36 — sem indicação explícita na OBS, falta = 0.
+3. NÃO conte atestados, férias ou afastamentos como falta. Linhas com "ATESTADO", "FÉRIAS", "AFAST.", "INSS", "LICENÇA" são justificadas e ficam fora.
+4. NÃO confunda "DSR" (descanso semanal remunerado) ou "FOLGA" com falta — são folgas programadas.
+5. Se a folha tem campo de TOTAL no rodapé com valor de faltas, ANTES use esse total como referência se for compatível com a escala.
+
+Sanidade obrigatória: diasTrabalhados + faltas + folgas + atestados + férias ≈ total de dias do mês visível na folha.
+
+Retorne APENAS o JSON, sem markdown, sem comentários, sem explicação. Se um valor não puder ser determinado, use null (texto) ou 0 (números).`;
 
   const resp=await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,

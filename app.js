@@ -3099,6 +3099,24 @@ function openPontoManual(){
       if(saiEl) saiEl.value=d.saida||'';
       if(iniEl) iniEl.value=d.intIni||'';
       if(fimEl) fimEl.value=d.intFim||'';
+      // Exibe ícones de localização do app de ponto
+      ['entrada','saida','intIni','intFim'].forEach(k=>{
+        const geo=d[k+'_geo'];
+        if(!geo) return;
+        const sel=k==='entrada'?'.pm-entrada':k==='saida'?'.pm-saida':k==='intIni'?'.pm-int-ini':'.pm-int-fim';
+        const inp=card.querySelector(sel);
+        if(!inp) return;
+        const existing=inp.parentElement.querySelector('.geo-badge');
+        if(existing) existing.remove();
+        const badge=document.createElement('a');
+        badge.className='geo-badge';
+        badge.href=`https://maps.google.com/?q=${geo.lat},${geo.lng}`;
+        badge.target='_blank';
+        badge.title=`Localização registrada pelo app · Precisão: ${geo.acc}m`;
+        badge.innerHTML='📍';
+        badge.style.cssText='font-size:12px;text-decoration:none;cursor:pointer;margin-left:4px';
+        inp.parentElement.appendChild(badge);
+      });
     });
   }
   // Mostrar resumo

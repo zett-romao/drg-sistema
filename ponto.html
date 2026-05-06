@@ -462,6 +462,28 @@ function renderBotao() {
   btn.disabled  = prox === 'completo';
 }
 
+// ─── GEOLOCALIZAÇÃO ───────────────────────────────────────────────────────────
+function getGeolocalizacao() {
+  return new Promise(resolve => {
+    if (!navigator.geolocation) { resolve(null); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        acc: Math.round(pos.coords.accuracy),
+        ts:  new Date().toISOString()
+      }),
+      () => resolve(null),
+      { timeout: 8000, maximumAge: 0, enableHighAccuracy: true }
+    );
+  });
+}
+
+function linkMaps(geo) {
+  if (!geo) return '';
+  return `https://maps.google.com/?q=${geo.lat},${geo.lng}`;
+}
+
 // ─── BATER PONTO ──────────────────────────────────────────────────────────────
 async function baterPonto() {
   const prox = getProxima();
@@ -477,6 +499,11 @@ async function baterPonto() {
 
   const btn = document.getElementById('punch-btn');
   btn.disabled  = true;
+  btn.innerHTML = '<span class="punch-btn-icon">📍</span><span class="punch-btn-text">Obtendo localização...</span>';
+
+  // Captura localização (não bloqueia mesmo se negar)
+  const geo = await getGeolocalizacao();
+
   btn.innerHTML = '<span class="punch-btn-icon">⏳</span><span class="punch-btn-text">Salvando...</span>';
 
   try {
@@ -488,6 +515,8 @@ async function baterPonto() {
       dias.push(dayEntry);
     }
     dayEntry[prox] = hora;
+    // Salva coordenadas junto com o registro
+    if (geo) dayEntry[prox + '_geo'] = geo;
 
     // Prepara record
     const id = currentPayroll?.id || (Date.now().toString(36) + Math.random().toString(36).substr(2));
@@ -505,7 +534,8 @@ async function baterPonto() {
     currentPayroll = record;
 
     const nomes = { entrada:'Entrada', intIni:'Início do intervalo', intFim:'Fim do intervalo', saida:'Saída' };
-    toast(`✅ ${nomes[prox]} registrada às ${hora}`, 'success');
+    const geoMsg = geo ? ` · 📍 ${geo.acc}m de precisão` : ' · 📍 sem localização';
+    toast(`✅ ${nomes[prox]} registrada às ${hora}${geoMsg}`, 'success');
     renderHoje();
     renderBotao();
 
@@ -536,10 +566,14 @@ function renderHistorico() {
     const p     = dias.find(x => x.dia === d) || {};
     let itens   = '';
 
-    if (p.entrada) itens += `<span class="hp e">E: ${p.entrada}</span>`;
-    if (p.intIni)  itens += `<span class="hp i">↓ ${p.intIni}</span>`;
-    if (p.intFim)  itens += `<span class="hp i">↑ ${p.intFim}</span>`;
-    if (p.saida)   itens += `<span class="hp s">S: ${p.saida}</span>`;
+    const geoTag = (key) => {
+      const g = p[key + '_geo'];
+      return g ? `<a href="${linkMaps(g)}" target="_blank" title="Ver no mapa (precisão: ${g.acc}m)" style="text-decoration:none">📍</a>` : '';
+    };
+    if (p.entrada) itens += `<span class="hp e">E: ${p.entrada} ${geoTag('entrada')}</span>`;
+    if (p.intIni)  itens += `<span class="hp i">↓ ${p.intIni} ${geoTag('intIni')}</span>`;
+    if (p.intFim)  itens += `<span class="hp i">↑ ${p.intFim} ${geoTag('intFim')}</span>`;
+    if (p.saida)   itens += `<span class="hp s">S: ${p.saida} ${geoTag('saida')}</span>`;
 
     if (!p.entrada && !p.saida) {
       if (isWk) itens = `<span class="hp folga">Folga</span>`;

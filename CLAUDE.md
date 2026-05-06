@@ -1,4 +1,4 @@
-# DRG Sistema — Notas de Projeto
+# DRG Systems — Notas de Projeto
 
 Este arquivo serve como memória de contexto pro Claude (ou outra IA) que abrir este projeto. Leia antes de fazer mudanças relevantes.
 

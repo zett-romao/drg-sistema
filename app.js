@@ -588,7 +588,6 @@ async function doRecovery(){
 
 function roleLabel(role){
   if(role==='master')  return 'Master';
-  if(role==='gestor')  return 'Gestor (legado)';
   if(role==='operador') return 'Operador';
   if(role && role.startsWith('p_')){
     const perfilId=role.replace('p_','');
@@ -3966,7 +3965,6 @@ const MODULOS_LABELS={
 function getUserModules(user){
   if(!user) return {};
   if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,reports:true,postos:true,contratos:true,users:true,log:true};
-  if(user.role==='gestor')  return {dashboard:true,employees:true,payroll:true,reports:true,postos:true,contratos:true,users:false,log:!!user.showLog}; // legado: usuários antigos com role gestor
   if(user.role==='operador') return {dashboard:true,employees:false,payroll:true,reports:true,postos:false,contratos:false,users:false,log:!!user.showLog};
   if(user.role&&user.role.startsWith('p_')){
     const perfilId=user.role.replace('p_','');

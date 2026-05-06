@@ -1977,11 +1977,23 @@ async function fileToBase64(file){
   });
 }
 
+// Regras de falta por tipo de escala de trabalho
+const ESCALA_RULES = {
+  '5x2A': 'Escala 5x2 — Variante A: trabalha SEGUNDA A SEXTA (08h-18h / Sex 08h-16h). Sábados e domingos NÃO são dias de trabalho. Falta = dia útil de Seg a Sex sem registro de entrada nem saída.',
+  '5x2B': 'Escala 5x2 — Variante B: trabalha SEGUNDA A SEXTA (07h-17h / Sex 07h-16h). Sábados e domingos NÃO são dias de trabalho. Falta = dia útil de Seg a Sex sem registro de entrada nem saída.',
+  '6x1A': 'Escala 6x1 — Variante A: trabalha SEGUNDA A SÁBADO (07h-16h / Sáb 07h-11h), folga DOMINGO. Falta = qualquer dia entre Seg e Sáb sem registro de entrada nem saída.',
+  '6x1B': 'Escala 6x1 — Variante B: trabalha TODOS OS DIAS (08h-16h20). Falta = qualquer dia sem registro de entrada nem saída (com 1 folga semanal que aparece marcada como "FOLGA" ou similar).',
+  '12x36': 'Escala 12x36: o colaborador trabalha em DIAS ALTERNADOS (12h trabalho / 36h folga). DIAS SEM REGISTRO PODEM SER FOLGAS PROGRAMADAS — NÃO são faltas automaticamente. Considere FALTA = 0 a menos que a folha explicite uma falta na coluna OBS (ex: "FALTA", "FALTOU", "AUSENTE"). Se houver atestado, conta como justificada e não entra em "faltas".'
+};
+
 // Chama a API do Gemini com visão
-async function callGemini(base64Data, mimeType){
+async function callGemini(base64Data, mimeType, escala){
+  const escalaRule=ESCALA_RULES[escala]||ESCALA_RULES['5x2A'];
   const prompt=`Você é um sistema de leitura de folha de ponto brasileira. Analise a imagem desta folha de ponto e extraia os dados com precisão.
 
 A folha tem as colunas: DIA | ENTRADA | INÍCIO INTERVALO | RETORNO INTERVALO | SAÍDA | RUBRICA DO EMPREGADO | HORA EXTRA | OBS
+
+ESCALA DO COLABORADOR: ${escalaRule}
 
 Extraia e retorne SOMENTE um JSON válido com este formato exato:
 {
@@ -1989,15 +2001,15 @@ Extraia e retorne SOMENTE um JSON válido com este formato exato:
   "cargo": "cargo ou função ou null",
   "ctps": "número da CTPS ou null",
   "diasTrabalhados": número inteiro de dias com registro de ENTRADA e SAÍDA preenchidos,
-  "faltas": número inteiro de dias da semana (seg-sáb) sem nenhum registro,
+  "faltas": número inteiro de dias contados como FALTA conforme as regras da escala acima,
   "horasExtras": número decimal total de horas extras (some a coluna HORA EXTRA),
   "observacoes": "texto das observações relevantes ou null"
 }
 
-Regras importantes:
+Regras gerais:
 - Dia trabalhado = linha com horário de ENTRADA e SAÍDA preenchidos
-- Falta = linha de dia útil completamente vazia (sem entrada nem saída)
-- Domingos vazios NÃO são faltas
+- Faltas DEVEM seguir a regra específica da ESCALA acima — leia com atenção
+- Se a coluna OBS contiver "FÉRIAS", "ATESTADO", "AFASTAMENTO" ou similar, NÃO conta como falta
 - Se a coluna HORA EXTRA estiver em branco, considere 0
 - Retorne APENAS o JSON, sem markdown, sem explicação, sem texto adicional`;
 
@@ -2056,7 +2068,11 @@ async function processPdf(){
     // Para PDF, usa o tipo do arquivo; para imagem, usa o MIME real
     let mimeType=file.type;
     if(mimeType==='application/pdf') mimeType='application/pdf';
-    const extracted=await callGemini(base64, mimeType);
+    // Pega escala do colaborador selecionado (afeta a regra de faltas)
+    const empId=val('payroll-employee');
+    const emp=State.employees.find(e=>e.id===empId);
+    const escala=emp?.escala||'5x2A';
+    const extracted=await callGemini(base64, mimeType, escala);
     // Preencher campos do resultado
     setVal('ext-dias', extracted.diasTrabalhados||0);
     setVal('ext-faltas', extracted.faltas||0);

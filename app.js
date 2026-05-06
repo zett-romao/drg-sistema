@@ -588,7 +588,7 @@ async function doRecovery(){
 
 function roleLabel(role){
   if(role==='master')  return 'Master';
-  if(role==='gestor')  return 'Gestor';
+  if(role==='gestor')  return 'Gestor (legado)';
   if(role==='operador') return 'Operador';
   if(role && role.startsWith('p_')){
     const perfilId=role.replace('p_','');
@@ -652,7 +652,6 @@ function openUserModal(id=null){
   const roleSelect=document.getElementById('usr-role');
   roleSelect.innerHTML=`
     <option value="operador">Operador — só Folha de Ponto e Relatórios</option>
-    <option value="gestor">Gestor — Colaboradores + Folha + Relatórios</option>
     <option value="master">Master — Acesso Total</option>`;
   (State.perfis||[]).forEach(p=>{
     const opt=document.createElement('option');
@@ -719,7 +718,7 @@ async function saveUser(){
 function renderUsersTable(){
   const tbody=document.getElementById('users-tbody'); if(!tbody) return;
   tbody.innerHTML=Auth.users.map(u=>{
-    const roleCls=u.role==='master'?'badge-master':u.role==='gestor'?'badge-gestor':'badge-operador';
+    const roleCls=u.role==='master'?'badge-master':u.role&&u.role.startsWith('p_')?'badge-gestor':'badge-operador';
     const isMaster=Auth.currentUser?.role==='master';
     const logToggle=u.role!=='master'&&isMaster?`<button class="btn-icon ${u.showLog?'btn-primary-icon':'btn-outline'}" onclick="toggleShowLog('${u.id}')" title="${u.showLog?'Revogar acesso ao log':'Dar acesso ao log'}"><i class="fa-solid fa-list-check"></i></button>`:'';
     return `<tr>
@@ -3967,7 +3966,7 @@ const MODULOS_LABELS={
 function getUserModules(user){
   if(!user) return {};
   if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,reports:true,postos:true,contratos:true,users:true,log:true};
-  if(user.role==='gestor')  return {dashboard:true,employees:true,payroll:true,reports:true,postos:true,contratos:true,users:false,log:!!user.showLog};
+  if(user.role==='gestor')  return {dashboard:true,employees:true,payroll:true,reports:true,postos:true,contratos:true,users:false,log:!!user.showLog}; // legado: usuários antigos com role gestor
   if(user.role==='operador') return {dashboard:true,employees:false,payroll:true,reports:true,postos:false,contratos:false,users:false,log:!!user.showLog};
   if(user.role&&user.role.startsWith('p_')){
     const perfilId=user.role.replace('p_','');
@@ -4025,7 +4024,6 @@ function renderPerfisTable(){
   const tbody=document.getElementById('perfis-tbody'); if(!tbody) return;
   const systemPerfis=[
     {nome:'Master',desc:'Acesso total ao sistema',tipo:'Sistema'},
-    {nome:'Gestor',desc:'Colaboradores + Folha + Relatórios + Postos + Contratos',tipo:'Sistema'},
     {nome:'Operador',desc:'Folha de Ponto + Relatórios',tipo:'Sistema'}
   ];
   let rows=systemPerfis.map(p=>`<tr>

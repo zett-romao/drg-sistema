@@ -423,7 +423,6 @@ function showSection(name){
   if(name==='users'     && !mods.users && !mods.log) return;
   if(name==='employees' && !mods.employees) return;
   if(name==='payroll'   && !mods.payroll)   return;
-  if(name==='reports'   && !mods.reports)   return;
   if(name==='postos'    && !mods.postos)    return;
   if(name==='contratos' && !mods.contratos) return;
   document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
@@ -433,13 +432,13 @@ function showSection(name){
   if(section) section.classList.add('active');
   if(navBtn)  navBtn.classList.add('active');
   const titles={dashboard:'Dashboard',employees:'Colaboradores',payroll:'Folha de Ponto',
-                reports:'Relatórios',users:'Usuários & Acessos',postos:'Postos de Trabalho',contratos:'Contratos'};
+                contabilidade:'Contabilidade',users:'Usuários & Acessos',postos:'Postos de Trabalho',contratos:'Contratos'};
   document.getElementById('topbar-title').textContent=titles[name]||name;
   State.currentSection=name;
   if(name==='employees') renderEmployeeTable();
-  if(name==='payroll')   initPayrollSection();
+  if(name==='payroll')   { initPayrollSection(); renderPayrollStats(); }
   if(name==='dashboard') renderDashboard();
-  if(name==='reports')   initReportIndividualSelect();
+  if(name==='contabilidade') renderContabilidade();
   if(name==='postos')    renderPostosTable();
   if(name==='contratos') { renderContratosTable(); populateContratoPostoSelect(); }
   if(name==='users'){
@@ -904,19 +903,26 @@ function renderDashboard(){
   const stats=document.getElementById('dashboard-stats'); if(!stats) return;
   const cctInfo=State.cct?`<div class="stat-card" style="border-color:#7B1FA2;border-left-width:4px"><div class="stat-icon" style="background:#F3E5F5;color:#7B1FA2"><i class="fa-solid fa-file-contract"></i></div><div><div class="stat-value" style="font-size:14px">CCT vigente</div><div class="stat-label">desde ${formatDateBr(State.cct.vigencia)}</div></div></div>`:'';
   stats.innerHTML=`
-    <div class="stat-card blue"><div class="stat-icon"><i class="fa-solid fa-user-check"></i></div>
+    <div class="stat-card blue" style="cursor:pointer" onclick="showSection('employees');setEmployeeFilter('ativo')" title="Ver colaboradores ativos">
+      <div class="stat-icon"><i class="fa-solid fa-user-check"></i></div>
       <div><div class="stat-value">${ativos}</div><div class="stat-label">Colaboradores ativos</div></div></div>
-    <div class="stat-card teal"><div class="stat-icon"><i class="fa-solid fa-user-clock"></i></div>
+    <div class="stat-card teal" style="cursor:pointer" onclick="showSection('employees');setEmployeeFilter('afastado')" title="Ver afastados INSS">
+      <div class="stat-icon"><i class="fa-solid fa-user-clock"></i></div>
       <div><div class="stat-value">${afastados}</div><div class="stat-label">Afastados INSS</div></div></div>
-    <div class="stat-card" style="border-color:#9E9E9E;border-left-width:4px"><div class="stat-icon" style="background:#F5F5F5;color:#757575"><i class="fa-solid fa-user-slash"></i></div>
+    <div class="stat-card" style="border-color:#9E9E9E;border-left-width:4px;cursor:pointer" onclick="showSection('employees');setEmployeeFilter('inativo')" title="Ver colaboradores inativos">
+      <div class="stat-icon" style="background:#F5F5F5;color:#757575"><i class="fa-solid fa-user-slash"></i></div>
       <div><div class="stat-value">${inativos}</div><div class="stat-label">Colaboradores inativos</div></div></div>
     <div class="stat-card" style="border-color:#1565C0;border-left-width:4px;cursor:pointer" onclick="showSection('postos')" title="Ver postos de trabalho">
       <div class="stat-icon" style="background:#E3F2FD;color:#1565C0"><i class="fa-solid fa-building"></i></div>
       <div><div class="stat-value" style="color:#1565C0">${totalPostos}</div><div class="stat-label">Postos de trabalho</div></div></div>
-    <div class="stat-card green"><div class="stat-icon"><i class="fa-solid fa-file-circle-check"></i></div>
+    <div class="stat-card green" style="cursor:pointer" onclick="showSection('payroll')" title="Ver folha de ponto">
+      <div class="stat-icon"><i class="fa-solid fa-file-circle-check"></i></div>
       <div><div class="stat-value">${payThisMonth.length}</div><div class="stat-label">Folhas lançadas em ${MESES[mes]}</div></div></div>
     <div class="stat-card amber"><div class="stat-icon"><i class="fa-solid fa-money-bill-wave"></i></div>
       <div><div class="stat-value">${fmtMoney(totalEsp)}</div><div class="stat-label">Total remuneração ${MESES[mes]}</div></div></div>
+    <div class="stat-card" style="border-color:#2E7D32;border-left-width:4px;cursor:pointer" onclick="showSection('contratos')" title="Ver contratos">
+      <div class="stat-icon" style="background:#F1F8E9;color:#2E7D32"><i class="fa-solid fa-file-signature"></i></div>
+      <div><div class="stat-value" style="color:#2E7D32">${(State.contratos||[]).filter(c=>!c.status||c.status!=='inativo').length}</div><div class="stat-label">Contratos ativos</div></div></div>
     ${cctInfo}
   `;
   renderBirthdays();
@@ -944,6 +950,232 @@ function formatDateBr(iso){
   // Para datas no formato YYYY-MM-DD sem hora
   if(iso.length===10) { const [y,m,d]=iso.split('-'); return `${d}/${m}/${y}`; }
   return new Date(iso).toLocaleDateString('pt-BR');
+}
+
+// ============================================
+// STATS DA FOLHA DE PONTO
+// ============================================
+function renderPayrollStats(){
+  const grid=document.getElementById('payroll-stats-grid'); if(!grid) return;
+  const mes=currentMes(), ano=currentAno();
+  const payThisMonth=State.payrolls.filter(p=>p.mes==mes&&p.ano==ano);
+  const tR=payThisMonth.reduce((s,p)=>s+(p.remuneracao||0),0);
+  const tVT=payThisMonth.reduce((s,p)=>s+(p.valeTransporte||0),0);
+  const tVR=payThisMonth.reduce((s,p)=>s+(p.valeRefeicao||0),0);
+  const tVA=payThisMonth.reduce((s,p)=>s+(p.valeAlimentacaoLiquido||0),0);
+  const tHE=payThisMonth.reduce((s,p)=>s+(p.horasExtrasValor||0),0);
+  const tB=payThisMonth.reduce((s,p)=>s+(p.bonificacao||0),0);
+  const tAN=payThisMonth.reduce((s,p)=>s+(p.adNoturno||0),0);
+  const tAdiant=payThisMonth.reduce((s,p)=>s+(p.adiantamento||0),0);
+  const tTotal=tR+tVT+tVR+tVA+tHE+tB+tAN;
+  grid.innerHTML=`
+    <div class="stat-card green"><div class="stat-icon"><i class="fa-solid fa-file-circle-check"></i></div>
+      <div><div class="stat-value">${payThisMonth.length}</div><div class="stat-label">Folhas lançadas — ${MESES[mes]}</div></div></div>
+    <div class="stat-card amber"><div class="stat-icon"><i class="fa-solid fa-money-bill-wave"></i></div>
+      <div><div class="stat-value">${fmtMoney(tR)}</div><div class="stat-label">Total Remunerações</div></div></div>
+    <div class="stat-card" style="border-color:#0288D1;border-left-width:4px"><div class="stat-icon" style="background:#E1F5FE;color:#0288D1"><i class="fa-solid fa-bus"></i></div>
+      <div><div class="stat-value" style="font-size:15px">${fmtMoney(tVT)}</div><div class="stat-label">Vale Transporte</div></div></div>
+    <div class="stat-card" style="border-color:#E65100;border-left-width:4px"><div class="stat-icon" style="background:#FBE9E7;color:#E65100"><i class="fa-solid fa-utensils"></i></div>
+      <div><div class="stat-value" style="font-size:15px">${fmtMoney(tVR)}</div><div class="stat-label">Vale Refeição</div></div></div>
+    <div class="stat-card" style="border-color:#2E7D32;border-left-width:4px"><div class="stat-icon" style="background:#E8F5E9;color:#2E7D32"><i class="fa-solid fa-basket-shopping"></i></div>
+      <div><div class="stat-value" style="font-size:15px">${fmtMoney(tVA)}</div><div class="stat-label">Vale Alimentação</div></div></div>
+    <div class="stat-card" style="border-color:#5C6BC0;border-left-width:4px"><div class="stat-icon" style="background:#E8EAF6;color:#5C6BC0"><i class="fa-solid fa-clock-rotate-left"></i></div>
+      <div><div class="stat-value" style="font-size:15px">${fmtMoney(tHE)}</div><div class="stat-label">Horas Extras</div></div></div>
+    <div class="stat-card" style="border-color:#F57C00;border-left-width:4px"><div class="stat-icon" style="background:#FFF3E0;color:#F57C00"><i class="fa-solid fa-star"></i></div>
+      <div><div class="stat-value" style="font-size:15px">${fmtMoney(tB)}</div><div class="stat-label">Bonificação</div></div></div>
+    <div class="stat-card" style="border-color:#00796B;border-left-width:4px"><div class="stat-icon" style="background:#E0F2F1;color:#00796B"><i class="fa-solid fa-hand-holding-dollar"></i></div>
+      <div><div class="stat-value" style="font-size:15px">${fmtMoney(tAdiant)}</div><div class="stat-label">Adiantamentos</div></div></div>
+    <div class="stat-card blue"><div class="stat-icon"><i class="fa-solid fa-calculator"></i></div>
+      <div><div class="stat-value">${fmtMoney(tTotal)}</div><div class="stat-label">Total Geral do Mês</div></div></div>
+  `;
+}
+
+// ============================================
+// CONTABILIDADE
+// ============================================
+function renderContabilidade(){
+  const mes=parseInt(val('cont-mes')||currentMes());
+  const ano=parseInt(val('cont-ano')||currentAno());
+  const statusFilt=val('cont-status-filter')||'ativo';
+
+  let emps=[...State.employees];
+  if(statusFilt!=='all') emps=emps.filter(e=>(e.status||'ativo')===statusFilt);
+  emps.sort((a,b)=>a.nome.localeCompare(b.nome));
+
+  const card=document.getElementById('cont-table-card');
+  const semFolhaCard=document.getElementById('cont-sem-folha-card');
+  const tbody=document.getElementById('cont-tbody');
+  const tfoot=document.getElementById('cont-tfoot');
+  const stats=document.getElementById('cont-stats');
+  const title=document.getElementById('cont-table-title');
+  if(!tbody) return;
+
+  if(emps.length===0){
+    toast('Nenhum colaborador encontrado.','warning'); return;
+  }
+
+  // Mapear folhas do mês
+  const folhasMes=State.payrolls.filter(p=>p.mes===mes&&p.ano===ano);
+  const folhaMap={};
+  folhasMes.forEach(p=>{ folhaMap[p.employeeId]=p; });
+
+  // Totais
+  let tR=0,tVT=0,tVR=0,tVA=0,tHE=0,tB=0,tAN=0,tIns=0,tAcu=0,tAdiant=0,tTotal=0;
+  let semFolha=[];
+
+  const rows=emps.map((e,i)=>{
+    const p=folhaMap[e.id];
+    if(!p){ semFolha.push(e); }
+    const rem=p?p.remuneracao||0:0;
+    const vt=p?p.valeTransporte||0:0;
+    const vr=p?p.valeRefeicao||0:0;
+    const va=p?p.valeAlimentacaoLiquido||0:0;
+    const he=p?p.horasExtrasValor||0:0;
+    const bon=p?p.bonificacao||0:0;
+    const an=p?p.adNoturno||0:0;
+    const ins=p?p.insalubridade||0:0;
+    const acu=p?p.acumulo||0:0;
+    const adiant=p?p.adiantamento||0:0;
+    const totalFaltas=p?('faltasJustificadas' in p?(p.faltasJustificadas||0)+(p.faltasInjustificadas||0):(p.faltas||0)):0;
+    const especie=rem+an+ins+acu+he+bon;
+    tR+=rem; tVT+=vt; tVR+=vr; tVA+=va; tHE+=he; tB+=bon; tAN+=an; tIns+=ins; tAcu+=acu; tAdiant+=adiant;
+    tTotal+=especie+vt+vr+va;
+    const semBg=!p?'background:#FFF3F3;':'';
+    return `<tr style="${semBg}">
+      <td>${i+1}</td>
+      <td>${e.registro?String(e.registro).padStart(4,'0'):'—'}</td>
+      <td><strong>${e.nome}</strong></td>
+      <td style="font-size:11px">${e.cpf||'—'}</td>
+      <td style="font-size:11px">${e.setor||'—'}</td>
+      <td style="font-size:10px;max-width:120px;white-space:normal">${e.posto||'—'}</td>
+      <td style="font-size:11px">${escalaLabel(e.escala||'5x2A')}</td>
+      <td style="font-size:11px">${formatDateBr(e.dataAdmissao)}</td>
+      <td>${e.salarioBase?fmtMoney(e.salarioBase):'—'}</td>
+      <td style="text-align:center">${p?p.diasTrabalhados||0:'—'}</td>
+      <td style="text-align:center;color:${totalFaltas>0?'var(--danger)':'inherit'}">${p?totalFaltas:'—'}</td>
+      <td style="font-weight:700">${p?fmtMoney(rem):'<span style="color:#ccc">S/ folha</span>'}</td>
+      <td>${vt?fmtMoney(vt):'—'}</td>
+      <td>${vr?fmtMoney(vr):'—'}</td>
+      <td>${va?fmtMoney(va):'—'}</td>
+      <td>${he?fmtMoney(he):'—'}</td>
+      <td>${bon?fmtMoney(bon):'—'}</td>
+      <td>${an?fmtMoney(an):'—'}</td>
+      <td>${ins?fmtMoney(ins):'—'}</td>
+      <td>${acu?fmtMoney(acu):'—'}</td>
+      <td>${adiant?fmtMoney(adiant):'—'}</td>
+      <td style="font-weight:700;color:#1B5E20">${p?fmtMoney(especie):'—'}</td>
+      <td style="font-size:11px">${e.chavePix||'—'}</td>
+      <td style="font-size:11px">${p&&p.observacoes?p.observacoes:''}</td>
+    </tr>`;
+  }).join('');
+
+  tbody.innerHTML=rows;
+  tfoot.innerHTML=`<tr style="background:#EEF4FF;font-weight:700">
+    <td colspan="11" style="padding:8px 10px">TOTAIS — ${emps.length} colaborador(es)</td>
+    <td>${fmtMoney(tR)}</td>
+    <td>${fmtMoney(tVT)}</td>
+    <td>${fmtMoney(tVR)}</td>
+    <td>${fmtMoney(tVA)}</td>
+    <td>${fmtMoney(tHE)}</td>
+    <td>${fmtMoney(tB)}</td>
+    <td>${fmtMoney(tAN)}</td>
+    <td>${fmtMoney(tIns)}</td>
+    <td>${fmtMoney(tAcu)}</td>
+    <td>${fmtMoney(tAdiant)}</td>
+    <td style="color:#1B5E20">${fmtMoney(tTotal)}</td>
+    <td colspan="2"></td>
+  </tr>`;
+
+  // Título
+  if(title) title.innerHTML=`<i class="fa-solid fa-table"></i> Planilha de Contabilidade — ${MESES[mes]}/${ano}`;
+  const subEl=document.getElementById('cont-report-subtitle');
+  const dateEl=document.getElementById('cont-report-date');
+  if(subEl) subEl.textContent=`Competência: ${MESES[mes]}/${ano} · ${emps.length} colaborador(es)`;
+  if(dateEl) dateEl.textContent=`Gerado em ${new Date().toLocaleString('pt-BR')}`;
+
+  // Stats
+  if(stats) stats.innerHTML=`
+    <div class="stat-card blue"><div class="stat-icon"><i class="fa-solid fa-users"></i></div>
+      <div><div class="stat-value">${emps.length}</div><div class="stat-label">Colaboradores</div></div></div>
+    <div class="stat-card green"><div class="stat-icon"><i class="fa-solid fa-file-circle-check"></i></div>
+      <div><div class="stat-value">${folhasMes.filter(f=>emps.find(e=>e.id===f.employeeId)).length}</div><div class="stat-label">Com folha lançada</div></div></div>
+    <div class="stat-card amber"><div class="stat-icon"><i class="fa-solid fa-money-bill-wave"></i></div>
+      <div><div class="stat-value">${fmtMoney(tR)}</div><div class="stat-label">Total Remunerações</div></div></div>
+    <div class="stat-card" style="border-color:#1565C0;border-left-width:4px"><div class="stat-icon" style="background:#E3F2FD;color:#1565C0"><i class="fa-solid fa-wallet"></i></div>
+      <div><div class="stat-value" style="font-size:14px">${fmtMoney(tTotal)}</div><div class="stat-label">Total Geral</div></div></div>
+  `;
+
+  if(card) card.style.display='';
+
+  // Colaboradores sem folha
+  if(semFolha.length>0){
+    if(semFolhaCard) semFolhaCard.style.display='';
+    const semFolhaList=document.getElementById('cont-sem-folha-list');
+    if(semFolhaList) semFolhaList.innerHTML=semFolha.map(e=>`
+      <div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid #f5f5f5">
+        <div style="width:36px;height:36px;border-radius:50%;background:#EEF4FF;display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--primary)">${initials(e.nome)}</div>
+        <div>
+          <div style="font-weight:600">${e.nome}</div>
+          <div style="font-size:12px;color:var(--text-muted)">${e.posto||'—'} · Reg. ${e.registro?String(e.registro).padStart(4,'0'):'—'}</div>
+        </div>
+        <button class="btn btn-outline" style="margin-left:auto;font-size:12px" onclick="showSection('payroll')">
+          <i class="fa-solid fa-file-invoice-dollar"></i> Lançar Folha
+        </button>
+      </div>`).join('');
+  } else {
+    if(semFolhaCard) semFolhaCard.style.display='none';
+  }
+
+  toast(`Planilha de ${MESES[mes]}/${ano} carregada — ${emps.length} colaborador(es).`);
+}
+
+function exportContabilidadeCsv(){
+  const mes=parseInt(val('cont-mes')||currentMes());
+  const ano=parseInt(val('cont-ano')||currentAno());
+  const statusFilt=val('cont-status-filter')||'ativo';
+  let emps=[...State.employees];
+  if(statusFilt!=='all') emps=emps.filter(e=>(e.status||'ativo')===statusFilt);
+  emps.sort((a,b)=>a.nome.localeCompare(b.nome));
+  const folhasMes=State.payrolls.filter(p=>p.mes===mes&&p.ano===ano);
+  const folhaMap={};
+  folhasMes.forEach(p=>{ folhaMap[p.employeeId]=p; });
+
+  const headers=['Nº','Matrícula','Nome','CPF','Setor','Posto','Escala','Admissão','Sal.Base','Dias','Faltas','Remuneração','VT/AM','VR','VA','HE','Bonificação','Ad.Noturno','Insalub.','Acúmulo','Adiantamento','Total Espécie','Chave PIX'];
+  const rows=emps.map((e,i)=>{
+    const p=folhaMap[e.id];
+    const rem=p?p.remuneracao||0:0;
+    const totalFaltas=p?('faltasJustificadas' in p?(p.faltasJustificadas||0)+(p.faltasInjustificadas||0):(p.faltas||0)):0;
+    const especie=rem+(p?p.adNoturno||0:0)+(p?p.insalubridade||0:0)+(p?p.acumulo||0:0)+(p?p.horasExtrasValor||0:0)+(p?p.bonificacao||0:0);
+    return [
+      i+1,
+      e.registro?String(e.registro).padStart(4,'0'):'',
+      e.nome, e.cpf||'', e.setor||'', e.posto||'',
+      escalaLabel(e.escala||'5x2A'), e.dataAdmissao||'',
+      e.salarioBase||0,
+      p?p.diasTrabalhados||0:'', p?totalFaltas:'',
+      rem, p?p.valeTransporte||0:0, p?p.valeRefeicao||0:0, p?p.valeAlimentacaoLiquido||0:0,
+      p?p.horasExtrasValor||0:0, p?p.bonificacao||0:0, p?p.adNoturno||0:0, p?p.insalubridade||0:0, p?p.acumulo||0:0, p?p.adiantamento||0:0,
+      especie, e.chavePix||''
+    ].map(v=>typeof v==='string'&&v.includes(',')? `"${v}"`:v);
+  });
+
+  const csv=[headers,...rows].map(r=>r.join(';')).join('\n');
+  const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=`Contabilidade_${MESES[mes]}_${ano}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('CSV exportado com sucesso!');
+}
+
+function printContabilidade(){
+  const printArea=document.getElementById('cont-printable');
+  const header=printArea?.querySelector('.cont-report-header');
+  if(header) header.style.display='flex';
+  window.print();
+  if(header) header.style.display='none';
 }
 
 // ============================================
@@ -1610,6 +1842,7 @@ function escalaLabel(escala){
     '5x2B':'5x2 — Var. B (07h–17h)',
     '6x1A':'6x1 — Var. A (07h–16h / Sáb 4h)',
     '6x1B':'6x1 — Var. B (08h–16h20)',
+    '6x1C':'6x1 — Var. C (08h–17h / Sáb 4h)',
     '12x36':'12x36'
   };
   return labels[escala]||escala||'5x2A';
@@ -2439,6 +2672,55 @@ function confirmDeleteContrato(id){
 // RELATÓRIOS — NOVO SISTEMA MULTI-TIPO
 // ============================================
 let _currentReportType = 'financeiro';
+
+// Configuração de todos os tipos de relatório disponíveis
+const _ALL_REPORT_TYPES = [
+  {type:'financeiro',      icon:'fa-money-bill-wave',   label:'Financeiro Mensal',    desc:'Salário + benefícios por mês'},
+  {type:'cadastral',       icon:'fa-id-card',            label:'Cadastral Completo',   desc:'Todos os dados dos colaboradores'},
+  {type:'contatos',        icon:'fa-address-book',       label:'Contatos',             desc:'Telefone, e-mail e endereço'},
+  {type:'ferias-marcadas', icon:'fa-umbrella-beach',     label:'Férias Marcadas',      desc:'Colaboradores com férias programadas'},
+  {type:'ferias-pendentes',icon:'fa-calendar-xmark',     label:'Férias Pendentes',     desc:'Sem férias programadas'},
+  {type:'afastados',       icon:'fa-user-clock',         label:'Afastados INSS',       desc:'Colaboradores afastados'},
+  {type:'setor',           icon:'fa-sitemap',            label:'Por Setor',            desc:'Portaria, Limpeza, Manutenção...'},
+  {type:'posto',           icon:'fa-building',           label:'Por Posto',            desc:'Filtrar por local de trabalho'},
+  {type:'individual',      icon:'fa-file-invoice',       label:'Individual',           desc:'Ficha completa do colaborador'},
+  {type:'postos-cadastro', icon:'fa-building-user',      label:'Postos Cadastrados',   desc:'Lista de postos e colaboradores alocados'},
+  {type:'contratos-rel',   icon:'fa-file-signature',     label:'Contratos',            desc:'Contratos ativos, valores e reajustes'},
+];
+
+function openReportsModal(allowedTypes, title){
+  // Reinicia estado
+  document.getElementById('report-output').classList.add('hidden');
+  const btnPrint=document.getElementById('btn-print');
+  const btnCsv=document.getElementById('btn-export-csv');
+  if(btnPrint) btnPrint.style.display='none';
+  if(btnCsv)   btnCsv.style.display='none';
+
+  // Preenche botões de tipo
+  const grid=document.getElementById('report-type-grid');
+  if(grid){
+    grid.innerHTML=_ALL_REPORT_TYPES
+      .filter(t=>allowedTypes.includes(t.type))
+      .map(t=>`<button class="report-type-btn" data-type="${t.type}" onclick="selectReportType('${t.type}')">
+        <i class="fa-solid ${t.icon}"></i>
+        <span>${t.label}</span>
+        <small>${t.desc}</small>
+      </button>`).join('');
+  }
+
+  // Título
+  const titleEl=document.getElementById('modal-reports-title');
+  if(titleEl) titleEl.innerHTML=`<i class="fa-solid fa-chart-bar"></i> ${title||'Relatórios'}`;
+
+  // Auto-seleciona primeiro
+  if(allowedTypes.length>0) selectReportType(allowedTypes[0]);
+
+  // Popula select de individual (se disponível)
+  initReportIndividualSelect();
+
+  // Abre modal
+  document.getElementById('modal-reports').classList.remove('hidden');
+}
 
 function selectReportType(type){
   _currentReportType = type;
@@ -4159,8 +4441,8 @@ const MODULOS_LABELS={
 // Retorna os módulos permitidos para o usuário
 function getUserModules(user){
   if(!user) return {};
-  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,reports:true,postos:true,contratos:true,users:true,log:true};
-  if(user.role==='operador') return {dashboard:true,employees:false,payroll:true,reports:true,postos:false,contratos:false,users:false,log:!!user.showLog};
+  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,reports:true,contabilidade:true,postos:true,contratos:true,users:true,log:true};
+  if(user.role==='operador') return {dashboard:true,employees:false,payroll:true,reports:true,contabilidade:true,postos:false,contratos:false,users:false,log:!!user.showLog};
   if(user.role&&user.role.startsWith('p_')){
     const perfilId=user.role.replace('p_','');
     const perfil=(State.perfis||[]).find(p=>p.id===perfilId);

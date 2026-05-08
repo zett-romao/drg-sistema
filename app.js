@@ -1117,8 +1117,9 @@ function renderContabilidade(){
     const especie=rem+an+ins+acu+he+bon;
     tR+=rem; tVT+=vt; tVR+=vr; tVA+=va; tHE+=he; tB+=bon; tAN+=an; tIns+=ins; tAcu+=acu; tAdiant+=adiant;
     tTotal+=especie+vt+vr+va;
-    const rowBg=!p?'#FFF0F0':i%2===0?'#ffffff':'#F0F4FF';
-    return `<tr style="background:${rowBg}">
+    const rowBg=i%2===0?'#ffffff':'#EEF2FF';
+    const semFolhaBorder=!p?'border-left:3px solid #EF9A9A':'';
+    return `<tr style="background:${rowBg};${semFolhaBorder}">
       <td>${i+1}</td>
       <td>${e.registro?String(e.registro).padStart(4,'0'):'—'}</td>
       <td><strong>${e.nome}</strong></td>

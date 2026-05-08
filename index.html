@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title id="page-title">D.R. Global Multi Services — Sistema de Gestão de Colaboradores</title>
   <link rel="icon" href="logo.png" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20260508d">
+  <link rel="stylesheet" href="styles.css?v=20260508e">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -13,7 +13,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-  <script src="firebase-config.js?v=20260508d"></script>
+  <script src="firebase-config.js?v=20260508e"></script>
 </head>
 <body>
 
@@ -156,6 +156,12 @@
         <a class="nav-link" id="nav-payroll" onclick="showSection('payroll')">
           <i class="fa-solid fa-file-invoice-dollar"></i>
           <span>Folha de Ponto</span>
+        </a>
+      </li>
+      <li id="nav-pagamentos-li" class="hidden">
+        <a class="nav-link" id="nav-pagamentos" onclick="showSection('pagamentos')">
+          <i class="fa-solid fa-money-bill-wave"></i>
+          <span>Pagamentos</span>
         </a>
       </li>
       <li id="nav-contabilidade-li">
@@ -1055,6 +1061,92 @@
       </section>
 
       <!-- ===== CONTABILIDADE ===== -->
+      <!-- ===== PAGAMENTOS ===== -->
+      <section id="section-pagamentos" class="section">
+        <div class="page-header">
+          <div>
+            <h2>Pagamentos</h2>
+            <p>Visão consolidada dos holerites — encargos, líquidos e status por colaborador</p>
+          </div>
+        </div>
+
+        <!-- Filtros -->
+        <div class="card">
+          <div class="card-body">
+            <div class="form-row" style="align-items:flex-end;flex-wrap:wrap;gap:12px">
+              <div class="form-group form-group-sm">
+                <label>Mês</label>
+                <select id="pag-mes">
+                  <option value="1">Janeiro</option><option value="2">Fevereiro</option>
+                  <option value="3">Março</option><option value="4">Abril</option>
+                  <option value="5">Maio</option><option value="6">Junho</option>
+                  <option value="7">Julho</option><option value="8">Agosto</option>
+                  <option value="9">Setembro</option><option value="10">Outubro</option>
+                  <option value="11">Novembro</option><option value="12">Dezembro</option>
+                </select>
+              </div>
+              <div class="form-group form-group-sm">
+                <label>Ano</label>
+                <input type="number" id="pag-ano" value="2026" min="2020" max="2100">
+              </div>
+              <div class="form-group form-group-sm">
+                <label>Status dos colaboradores</label>
+                <select id="pag-status-filter">
+                  <option value="ativo">Ativos</option>
+                  <option value="all">Todos</option>
+                </select>
+              </div>
+              <div>
+                <button class="btn btn-primary" onclick="renderPagamentos()">
+                  <i class="fa-solid fa-magnifying-glass"></i> Carregar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stats cards -->
+        <div class="stats-grid" id="pag-stats" style="margin-bottom:20px"></div>
+
+        <!-- Tabela de holerites -->
+        <div class="card" id="pag-table-card" style="display:none">
+          <div class="card-header">
+            <h3 id="pag-table-title"><i class="fa-solid fa-money-check-dollar"></i> Holerites do Período</h3>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn btn-outline" onclick="exportPagamentosCsv()">
+                <i class="fa-solid fa-file-csv"></i> Exportar CSV
+              </button>
+              <button class="btn btn-success" onclick="printPagamentos()">
+                <i class="fa-solid fa-print"></i> Imprimir
+              </button>
+            </div>
+          </div>
+          <div class="card-body" style="padding:0;overflow-x:auto">
+            <table class="data-table" id="pag-table" style="min-width:800px">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Reg.</th>
+                  <th>Nome</th>
+                  <th>Cargo</th>
+                  <th>Sal. Base</th>
+                  <th>Total Bruto</th>
+                  <th style="color:#c0392b">(-) INSS</th>
+                  <th style="color:#c0392b">(-) IRRF</th>
+                  <th style="color:#1565C0">FGTS *</th>
+                  <th style="color:var(--success)">Líquido Final</th>
+                  <th>Status</th>
+                  <th>Ação</th>
+                </tr>
+              </thead>
+              <tbody id="pag-tbody"></tbody>
+              <tfoot id="pag-tfoot"></tfoot>
+            </table>
+            <p style="font-size:11px;color:#999;padding:6px 12px">* FGTS é custo do empregador, não descontado do colaborador.</p>
+          </div>
+        </div>
+      </section>
+
       <section id="section-contabilidade" class="section">
         <div class="page-header">
           <div>
@@ -2560,6 +2652,7 @@
           <label class="checkbox-label"><input type="checkbox" name="mod" value="employees"> <span><i class="fa-solid fa-users" style="width:14px;color:var(--primary)"></i> Colaboradores</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="payroll"> <span><i class="fa-solid fa-file-invoice-dollar" style="width:14px;color:var(--primary)"></i> Folha de Ponto</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="reports"> <span><i class="fa-solid fa-chart-bar" style="width:14px;color:var(--primary)"></i> Relatórios</span></label>
+          <label class="checkbox-label"><input type="checkbox" name="mod" value="pagamentos"> <span><i class="fa-solid fa-money-bill-wave" style="width:14px;color:var(--primary)"></i> Pagamentos</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="contabilidade"> <span><i class="fa-solid fa-calculator" style="width:14px;color:var(--primary)"></i> Contabilidade</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="postos"> <span><i class="fa-solid fa-building" style="width:14px;color:var(--primary)"></i> Postos de Trabalho</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="contratos"> <span><i class="fa-solid fa-file-signature" style="width:14px;color:var(--primary)"></i> Contratos</span></label>
@@ -2595,6 +2688,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260508d"></script>
+<script src="app.js?v=20260508e"></script>
 </body>
 </html>

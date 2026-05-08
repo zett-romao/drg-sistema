@@ -538,6 +538,7 @@ function showSection(name){
   if(name==='users'          && !mods.users && !mods.log) return;
   if(name==='employees'      && !mods.employees)    return;
   if(name==='payroll'        && !mods.payroll)      return;
+  if(name==='pagamentos'     && !mods.pagamentos)    return;
   if(name==='contabilidade'  && !mods.contabilidade) return;
   if(name==='postos'         && !mods.postos)       return;
   if(name==='contratos'      && !mods.contratos)    return;
@@ -552,12 +553,13 @@ function showSection(name){
   if(section) section.classList.add('active');
   if(navBtn)  navBtn.classList.add('active');
   const titles={dashboard:'Dashboard',employees:'Colaboradores',payroll:'Folha de Ponto',
-                contabilidade:'Contabilidade',users:'Usuários & Acessos',postos:'Postos de Trabalho',contratos:'Contratos',configuracoes:'Configurações'};
+                pagamentos:'Pagamentos',contabilidade:'Contabilidade',users:'Usuários & Acessos',postos:'Postos de Trabalho',contratos:'Contratos',configuracoes:'Configurações'};
   document.getElementById('topbar-title').textContent=titles[name]||name;
   State.currentSection=name;
   if(name==='employees') renderEmployeeTable();
   if(name==='payroll')   { initPayrollSection(); renderPayrollStats(); }
   if(name==='dashboard') renderDashboard();
+  if(name==='pagamentos')      renderPagamentos();
   if(name==='contabilidade')   renderContabilidade();
   if(name==='configuracoes')  renderConfiguracoes();
   if(name==='postos')    renderPostosTable();
@@ -731,6 +733,8 @@ function applyUserSession(user){
   // Postos de Trabalho: master ou gestor
   const postosLi=document.getElementById('nav-postos-li');
   if(postosLi) postosLi.classList.toggle('hidden', !mods.postos);
+  const pagLi=document.getElementById('nav-pagamentos-li');
+  if(pagLi) pagLi.classList.toggle('hidden', !mods.pagamentos);
   const contLi=document.getElementById('nav-contabilidade-li');
   if(contLi) contLi.classList.toggle('hidden', !mods.contabilidade);
   const contratosLi=document.getElementById('nav-contratos-li');
@@ -1187,6 +1191,168 @@ function showPayrollStatDetail(fieldKey, label, color){
 // ============================================
 // CONTABILIDADE
 // ============================================
+// ============================================================
+// MÓDULO PAGAMENTOS
+// ============================================================
+function renderPagamentos(){
+  const mes=parseInt(val('pag-mes')||currentMes());
+  const ano=parseInt(val('pag-ano')||currentAno());
+  const statusFilt=val('pag-status-filter')||'ativo';
+
+  let emps=[...State.employees];
+  if(statusFilt!=='all') emps=emps.filter(e=>(e.status||'ativo')===statusFilt);
+  emps.sort((a,b)=>a.nome.localeCompare(b.nome));
+  if(emps.length===0){ toast('Nenhum colaborador encontrado.','warning'); return; }
+
+  const mesLabel=MESES[mes]||'';
+  const folhasMes=State.payrolls.filter(p=>p.mes===mes&&p.ano===ano);
+  const folhaMap={};
+  folhasMes.forEach(p=>{ folhaMap[p.employeeId]=p; });
+
+  // Totais
+  let tBruto=0,tINSS=0,tIRRF=0,tFGTS=0,tLiquido=0,comFolha=0,semFolhaCount=0;
+  emps.forEach(e=>{
+    const p=folhaMap[e.id];
+    if(p){
+      comFolha++;
+      tBruto  +=(p.totalBruto||0);
+      tINSS   +=(p.inss||0);
+      tIRRF   +=(p.irrf||0);
+      tFGTS   +=(p.fgts||0);
+      tLiquido+=(p.totalLiquidoFinal||p.remuneracao||0);
+    } else { semFolhaCount++; }
+  });
+
+  // Stats grid
+  const statsEl=document.getElementById('pag-stats');
+  if(statsEl){
+    const scrollToTable=`document.getElementById('pag-table-card').scrollIntoView({behavior:'smooth',block:'start'})`;
+    statsEl.innerHTML=`
+      <div class="stat-card" style="cursor:pointer" onclick="${scrollToTable}">
+        <div class="stat-icon" style="background:rgba(27,94,32,0.1)"><i class="fa-solid fa-sack-dollar" style="color:var(--success)"></i></div>
+        <div class="stat-info"><div class="stat-label">Total da Folha</div><div class="stat-value" style="color:var(--success)">${fmtMoney(tLiquido)}</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(192,57,43,0.1)"><i class="fa-solid fa-building-columns" style="color:#c0392b"></i></div>
+        <div class="stat-info"><div class="stat-label">Total INSS</div><div class="stat-value" style="color:#c0392b">${fmtMoney(tINSS)}</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(192,57,43,0.1)"><i class="fa-solid fa-file-invoice" style="color:#c0392b"></i></div>
+        <div class="stat-info"><div class="stat-label">Total IRRF</div><div class="stat-value" style="color:#c0392b">${fmtMoney(tIRRF)}</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(21,101,192,0.1)"><i class="fa-solid fa-piggy-bank" style="color:#1565C0"></i></div>
+        <div class="stat-info"><div class="stat-label">FGTS Empregador</div><div class="stat-value" style="color:#1565C0">${fmtMoney(tFGTS)}</div></div>
+      </div>
+      <div class="stat-card" style="cursor:pointer" onclick="${scrollToTable}">
+        <div class="stat-icon" style="background:rgba(27,94,32,0.1)"><i class="fa-solid fa-circle-check" style="color:var(--success)"></i></div>
+        <div class="stat-info"><div class="stat-label">Com Holerite</div><div class="stat-value" style="color:var(--success)">${comFolha}</div></div>
+      </div>
+      <div class="stat-card" style="cursor:pointer" onclick="${scrollToTable}">
+        <div class="stat-icon" style="background:rgba(239,83,80,0.1)"><i class="fa-solid fa-circle-xmark" style="color:var(--danger)"></i></div>
+        <div class="stat-info"><div class="stat-label">Sem Holerite</div><div class="stat-value" style="color:${semFolhaCount>0?'var(--danger)':'#999'}">${semFolhaCount}</div></div>
+      </div>
+    `;
+  }
+
+  // Tabela
+  const card=document.getElementById('pag-table-card');
+  const tbody=document.getElementById('pag-tbody');
+  const tfoot=document.getElementById('pag-tfoot');
+  const title=document.getElementById('pag-table-title');
+  if(!tbody) return;
+  if(title) title.innerHTML=`<i class="fa-solid fa-money-check-dollar"></i> Holerites — ${mesLabel} / ${ano} <small style="font-size:12px;font-weight:400;color:#666">(${emps.length} colaborador(es))</small>`;
+
+  const rows=emps.map((e,i)=>{
+    const p=folhaMap[e.id];
+    const bruto   =p?(p.totalBruto||0):0;
+    const inss    =p?(p.inss||0):0;
+    const irrf    =p?(p.irrf||0):0;
+    const fgts    =p?(p.fgts||0):0;
+    const liq     =p?(p.totalLiquidoFinal||p.remuneracao||0):0;
+    const statusStr=p?p.status:'sem folha';
+    const badge=statusStr==='fechada'
+      ?`<span class="badge" style="background:#E8F5E9;color:#1B5E20;border:1px solid #A5D6A7;padding:2px 8px;border-radius:12px;font-size:11px">✓ Fechada</span>`
+      :statusStr==='aberta'
+        ?`<span class="badge" style="background:#FFF3E0;color:#E65100;border:1px solid #FFCC80;padding:2px 8px;border-radius:12px;font-size:11px">⏳ Aberta</span>`
+        :`<span class="badge" style="background:#FFEBEE;color:#c0392b;border:1px solid #FFCDD2;padding:2px 8px;border-radius:12px;font-size:11px">— Sem folha</span>`;
+    const rowBg=i%2===0?'#ffffff':'#EEF2FF';
+    const border=!p?'border-left:3px solid #EF9A9A':'';
+    return `<tr style="background:${rowBg};${border}">
+      <td>${i+1}</td>
+      <td style="font-size:11px">${e.registro?String(e.registro).padStart(4,'0'):'—'}</td>
+      <td><strong>${e.nome}</strong></td>
+      <td style="font-size:11px">${e.cargo||'—'}</td>
+      <td>${e.salarioBase?fmtMoney(e.salarioBase):'—'}</td>
+      <td style="font-weight:600">${bruto?fmtMoney(bruto):'<span style="color:#ccc">—</span>'}</td>
+      <td style="color:#c0392b">${inss?'('+fmtMoney(inss)+')':'—'}</td>
+      <td style="color:#c0392b">${irrf?'('+fmtMoney(irrf)+')':'—'}</td>
+      <td style="color:#1565C0">${fgts?fmtMoney(fgts):'—'}</td>
+      <td style="font-weight:700;color:#1B5E20">${liq?fmtMoney(liq):'<span style="color:#ccc">—</span>'}</td>
+      <td>${badge}</td>
+      <td><button class="btn-icon" onclick="openPayrollForEmployee('${e.id}')" title="Abrir folha de ponto"><i class="fa-solid fa-arrow-up-right-from-square"></i></button></td>
+    </tr>`;
+  }).join('');
+  tbody.innerHTML=rows;
+
+  // Rodapé com totais
+  tfoot.innerHTML=`<tr style="background:#EEF4FF;font-weight:700;font-size:12px">
+    <td colspan="5" style="padding:8px 10px">TOTAIS — ${comFolha} de ${emps.length} com holerite</td>
+    <td>${fmtMoney(tBruto)}</td>
+    <td style="color:#c0392b">(${fmtMoney(tINSS)})</td>
+    <td style="color:#c0392b">(${fmtMoney(tIRRF)})</td>
+    <td style="color:#1565C0">${fmtMoney(tFGTS)}</td>
+    <td style="color:var(--success)">${fmtMoney(tLiquido)}</td>
+    <td colspan="2"></td>
+  </tr>`;
+
+  if(card) card.style.display='';
+}
+
+function exportPagamentosCsv(){
+  const mes=parseInt(val('pag-mes')||currentMes());
+  const ano=parseInt(val('pag-ano')||currentAno());
+  const statusFilt=val('pag-status-filter')||'ativo';
+  const mesLabel=MESES[mes]||'';
+  let emps=[...State.employees];
+  if(statusFilt!=='all') emps=emps.filter(e=>(e.status||'ativo')===statusFilt);
+  emps.sort((a,b)=>a.nome.localeCompare(b.nome));
+  const folhaMap={};
+  State.payrolls.filter(p=>p.mes===mes&&p.ano===ano).forEach(p=>{ folhaMap[p.employeeId]=p; });
+  const header=['#','Registro','Nome','Cargo','Salario Base','Total Bruto','INSS','IRRF','FGTS','Liquido Final','Status'];
+  const rows=emps.map((e,i)=>{
+    const p=folhaMap[e.id];
+    const fmt=v=>v?(v.toFixed(2).replace('.',',')):'-';
+    return [i+1, e.registro||'', e.nome, e.cargo||'', fmt(e.salarioBase),
+      fmt(p?.totalBruto), fmt(p?.inss), fmt(p?.irrf), fmt(p?.fgts),
+      fmt(p?.totalLiquidoFinal||p?.remuneracao), p?p.status:'sem folha'].join(';');
+  });
+  const csv='﻿'+[header.join(';'),...rows].join('\n');
+  const a=document.createElement('a');
+  a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+  a.download=`pagamentos_${mes.toString().padStart(2,'0')}_${ano}.csv`;
+  a.click();
+}
+
+function printPagamentos(){
+  const mes=parseInt(val('pag-mes')||currentMes());
+  const ano=parseInt(val('pag-ano')||currentAno());
+  const mesLabel=MESES[mes]||'';
+  const table=document.getElementById('pag-table');
+  if(!table){ toast('Carregue os dados primeiro.','warning'); return; }
+  const w=window.open('','_blank');
+  w.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+    <title>Pagamentos ${mesLabel}/${ano}</title>
+    <style>body{font-family:Arial,sans-serif;font-size:10px}
+    table{width:100%;border-collapse:collapse}th,td{border:1px solid #ccc;padding:4px 6px}
+    th{background:#1a3a6b;color:#fff}tr:nth-child(even){background:#f5f5f5}
+    h2{color:#1a3a6b}</style></head><body>
+    <h2>${_e('nomeEmpresa')} — Pagamentos ${mesLabel} / ${ano}</h2>
+    ${table.outerHTML}</body></html>`);
+  w.document.close();
+  w.print();
+}
+
 function renderContabilidade(){
   const mes=parseInt(val('cont-mes')||currentMes());
   const ano=parseInt(val('cont-ano')||currentAno());
@@ -5434,6 +5600,7 @@ const MODULOS_LABELS={
   employees:    'Colaboradores',
   payroll:      'Folha de Ponto',
   reports:      'Relatórios',
+  pagamentos:   'Pagamentos',
   contabilidade:'Contabilidade',
   postos:       'Postos de Trabalho',
   contratos:    'Contratos',
@@ -5444,8 +5611,8 @@ const MODULOS_LABELS={
 // Retorna os módulos permitidos para o usuário
 function getUserModules(user){
   if(!user) return {};
-  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,reports:true,contabilidade:true,postos:true,contratos:true,users:true,log:true};
-  if(user.role==='operador') return {dashboard:true,employees:false,payroll:true,reports:true,contabilidade:true,postos:false,contratos:false,users:false,log:!!user.showLog};
+  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,reports:true,pagamentos:true,contabilidade:true,postos:true,contratos:true,users:true,log:true};
+  if(user.role==='operador') return {dashboard:true,employees:false,payroll:true,reports:true,pagamentos:true,contabilidade:true,postos:false,contratos:false,users:false,log:!!user.showLog};
   if(user.role&&user.role.startsWith('p_')){
     const perfilId=user.role.replace('p_','');
     const perfil=(State.perfis||[]).find(p=>p.id===perfilId);

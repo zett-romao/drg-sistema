@@ -1594,6 +1594,12 @@ function onEscalaChange(){
   if(row) row.style.display=(escalaFamilia(escala)==='12x36')?'':'none';
 }
 
+function onEmpStatusChange(){
+  const status=val('emp-status');
+  const rowLic=document.getElementById('row-licenca-maternidade');
+  if(rowLic) rowLic.style.display=(status==='licenca-maternidade')?'':'none';
+}
+
 function getNextRegistro(){
   if(State.employees.length===0) return 1;
   const max=State.employees.reduce((m,e)=>Math.max(m,parseInt(e.registro)||0),0);
@@ -1624,6 +1630,9 @@ function openEmployeeModal(id=null){
     // Contrato & Trabalho
     setVal('emp-data-admissao',emp.dataAdmissao||''); setVal('emp-data-demissao',emp.dataDemissao||'');
     setVal('emp-status',emp.status||'ativo'); setVal('emp-escala',emp.escala||'5x2A');
+    setVal('emp-licenca-inicio',emp.licencaMaternidadeInicio||'');
+    setVal('emp-licenca-termino',emp.licencaMaternidadeTermino||'');
+    onEmpStatusChange();
     setVal('emp-horario-entrada',emp.horarioEntrada||''); setVal('emp-horario-saida',emp.horarioSaida||'');
     setVal('emp-salario-base',emp.salarioBase||'');
     setVal('emp-posto',emp.posto||'');
@@ -1654,7 +1663,8 @@ function openEmployeeModal(id=null){
      'emp-nascimento','emp-email','emp-celular','emp-cep','emp-endereco','emp-numero','emp-complemento',
      'emp-bairro','emp-cidade','emp-vt-dia','emp-vr-dia','emp-va-mensal','emp-pix','emp-tipo-transporte',
      'emp-data-admissao','emp-data-demissao','emp-horario-entrada','emp-horario-saida',
-     'emp-salario-base','emp-posto','emp-setor','emp-exame-vencimento'].forEach(fid=>setVal(fid,''));
+     'emp-salario-base','emp-posto','emp-setor','emp-exame-vencimento',
+     'emp-licenca-inicio','emp-licenca-termino'].forEach(fid=>setVal(fid,''));
     // Resetar foto, férias e histórico de postos
     loadEmployeePhoto(null, null);
     renderFeriasList([]);
@@ -1662,6 +1672,7 @@ function openEmployeeModal(id=null){
     renderHistoricoPostos(null);
     setVal('emp-estado','SP'); setVal('emp-status','ativo'); setVal('emp-escala','5x2A');
     setVal('emp-insalubridade',0);
+    onEmpStatusChange();
     const chk=document.getElementById('emp-turno-noturno'); if(chk) chk.checked=false;
     const acumChk=document.getElementById('emp-acumulo-funcao'); if(acumChk) acumChk.checked=false;
     const bonifChk=document.getElementById('emp-bonificacao-sempre-pagar'); if(bonifChk) bonifChk.checked=false;
@@ -1701,6 +1712,8 @@ async function saveEmployee(){
     dataAdmissao:val('emp-data-admissao'),
     dataDemissao:demissao,
     status,
+    licencaMaternidadeInicio: status==='licenca-maternidade' ? val('emp-licenca-inicio') : '',
+    licencaMaternidadeTermino: status==='licenca-maternidade' ? val('emp-licenca-termino') : '',
     escala:val('emp-escala')||'5x2A',
     horarioEntrada:val('emp-horario-entrada'),
     horarioSaida:val('emp-horario-saida'),

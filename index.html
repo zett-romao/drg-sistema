@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>D.R. Global Multi Services — Sistema de Gestão de Colaboradores</title>
   <link rel="icon" href="logo.png" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20260507d">
+  <link rel="stylesheet" href="styles.css?v=20260507e">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -13,7 +13,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-  <script src="firebase-config.js?v=20260507d"></script>
+  <script src="firebase-config.js?v=20260507e"></script>
 </head>
 <body>
 
@@ -1440,7 +1440,7 @@
         <div class="form-row">
           <div class="form-group">
             <label>Status do Colaborador</label>
-            <select id="emp-status">
+            <select id="emp-status" onchange="onEmpStatusChange()">
               <option value="ativo">Ativo</option>
               <option value="inativo">Inativo</option>
               <option value="afastado">Afastado INSS</option>
@@ -1459,6 +1459,18 @@
             </select>
           </div>
         </div>
+        <!-- Campos de Licença Maternidade — visíveis apenas quando status = licenca-maternidade -->
+        <div class="form-row" id="row-licenca-maternidade" style="display:none">
+          <div class="form-group">
+            <label><i class="fa-solid fa-baby" style="color:#C2185B"></i> Início da Licença</label>
+            <input type="date" id="emp-licenca-inicio">
+          </div>
+          <div class="form-group">
+            <label><i class="fa-solid fa-calendar-check" style="color:#C2185B"></i> Previsão de Retorno</label>
+            <input type="date" id="emp-licenca-termino">
+          </div>
+        </div>
+
         <div class="form-row">
           <div class="form-group">
             <label>Horário de Entrada</label>
@@ -2357,6 +2369,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260507d"></script>
+<script src="app.js?v=20260507e"></script>
 </body>
 </html>

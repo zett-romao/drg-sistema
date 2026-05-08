@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title id="page-title">D.R. Global Multi Services — Sistema de Gestão de Colaboradores</title>
   <link rel="icon" href="logo.png" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20260508g">
+  <link rel="stylesheet" href="styles.css?v=20260508h">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -13,7 +13,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-  <script src="firebase-config.js?v=20260508g"></script>
+  <script src="firebase-config.js?v=20260508h"></script>
 </head>
 <body>
 
@@ -162,6 +162,18 @@
         <a class="nav-link" id="nav-pagamentos" onclick="showSection('pagamentos')">
           <i class="fa-solid fa-money-bill-wave"></i>
           <span>Pagamentos</span>
+        </a>
+      </li>
+      <li id="nav-decimoterceiro-li" class="hidden">
+        <a class="nav-link" id="nav-decimoterceiro" onclick="showSection('decimoterceiro')">
+          <i class="fa-solid fa-gift"></i>
+          <span>13º Salário</span>
+        </a>
+      </li>
+      <li id="nav-ferias-li" class="hidden">
+        <a class="nav-link" id="nav-ferias" onclick="showSection('ferias')">
+          <i class="fa-solid fa-umbrella-beach"></i>
+          <span>Férias</span>
         </a>
       </li>
       <li id="nav-contabilidade-li">
@@ -1150,6 +1162,104 @@
               <tfoot id="pag-tfoot"></tfoot>
             </table>
             <p style="font-size:11px;color:#999;padding:6px 12px">* FGTS é custo do empregador, não descontado do colaborador.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== SEÇÃO 13º SALÁRIO ===== -->
+      <section id="section-decimoterceiro" class="section">
+        <div class="page-header">
+          <div>
+            <h2>13º Salário</h2>
+            <p>Cálculo e controle do décimo terceiro salário dos colaboradores</p>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-outline-primary btn-sm" onclick="printDecimoTerceiroLista()"><i class="fa-solid fa-print"></i> Imprimir</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-body">
+            <div class="form-row" style="align-items:flex-end;flex-wrap:wrap;gap:12px">
+              <div class="form-group" style="min-width:100px">
+                <label>Ano</label>
+                <input type="number" id="dec-ano" class="form-control" style="width:100px" onchange="renderDecimoTerceiro()">
+              </div>
+              <div class="form-group" style="min-width:160px">
+                <label>Status Colaborador</label>
+                <select id="dec-status-filter" class="form-control" onchange="renderDecimoTerceiro()">
+                  <option value="ativo">Ativos</option>
+                  <option value="all">Todos</option>
+                  <option value="inativo">Inativos</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <div class="card-body" style="padding:0;overflow-x:auto">
+            <table class="table" style="min-width:900px">
+              <thead>
+                <tr>
+                  <th>#</th><th>Reg.</th><th>Nome</th>
+                  <th>Meses</th>
+                  <th>Total Bruto</th>
+                  <th>1ª Parc.</th>
+                  <th style="color:#c0392b">(-) INSS</th>
+                  <th style="color:#c0392b">(-) IRRF</th>
+                  <th style="color:#1565C0">FGTS *</th>
+                  <th>2ª Parc. (Líq.)</th>
+                  <th>Status</th>
+                  <th>Ação</th>
+                </tr>
+              </thead>
+              <tbody id="dec-tbody"></tbody>
+              <tfoot id="dec-tfoot"></tfoot>
+            </table>
+            <p style="font-size:11px;color:#999;padding:6px 12px">* FGTS é encargo patronal (8% sobre o bruto), não descontado do colaborador.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== SEÇÃO FÉRIAS ===== -->
+      <section id="section-ferias" class="section">
+        <div class="page-header">
+          <div>
+            <h2>Férias</h2>
+            <p>Controle de períodos aquisitivos e programação de férias dos colaboradores</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-body">
+            <div class="form-row" style="align-items:flex-end;flex-wrap:wrap;gap:12px">
+              <div class="form-group" style="min-width:100px">
+                <label>Ano</label>
+                <input type="number" id="fer-mod-ano" class="form-control" style="width:100px" onchange="renderFeriasModulo()">
+              </div>
+              <div class="form-group" style="min-width:160px">
+                <label>Status Colaborador</label>
+                <select id="fer-mod-status-filter" class="form-control" onchange="renderFeriasModulo()">
+                  <option value="ativo">Ativos</option>
+                  <option value="all">Todos</option>
+                  <option value="inativo">Inativos</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <div class="card-body" style="padding:0;overflow-x:auto">
+            <table class="table" style="min-width:800px">
+              <thead>
+                <tr>
+                  <th>#</th><th>Reg.</th><th>Nome</th><th>Cargo</th>
+                  <th>Período Aquisitivo</th>
+                  <th>Direito</th>
+                  <th>Status</th>
+                  <th>Ação</th>
+                </tr>
+              </thead>
+              <tbody id="fer-mod-tbody"></tbody>
+            </table>
           </div>
         </div>
       </section>
@@ -2174,6 +2284,233 @@
   </div>
 </div>
 
+<!-- ===== MODAL: 13º SALÁRIO ===== -->
+<div class="modal-overlay hidden" id="modal-decimo-terceiro" onclick="closeModal('modal-decimo-terceiro', event)">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-gift"></i> 13º Salário</h3>
+      <button class="modal-close" onclick="closeModal('modal-decimo-terceiro')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="dec-modal-emp-id">
+      <input type="hidden" id="dec-modal-ano">
+      <input type="hidden" id="dec-modal-meses-dir">
+
+      <!-- Dados do colaborador -->
+      <div class="form-row">
+        <div class="form-group flex-2">
+          <label>Colaborador</label>
+          <input type="text" id="dec-modal-nome" class="form-control" readonly style="background:#f5f5f5">
+        </div>
+        <div class="form-group flex-1">
+          <label>Cargo</label>
+          <input type="text" id="dec-modal-cargo" class="form-control" readonly style="background:#f5f5f5">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group flex-1">
+          <label>Admissão</label>
+          <input type="text" id="dec-modal-admissao" class="form-control" readonly style="background:#f5f5f5">
+        </div>
+        <div class="form-group flex-1">
+          <label>Meses Trabalhados</label>
+          <input type="text" id="dec-modal-meses-dir" class="form-control" readonly style="background:#f5f5f5">
+        </div>
+        <div class="form-group flex-1">
+          <label>Sal. Base (R$)</label>
+          <input type="text" id="dec-modal-sal-base" class="form-control" readonly style="background:#f5f5f5">
+        </div>
+      </div>
+
+      <!-- Cálculos -->
+      <div style="background:#f0f4ff;border-radius:8px;padding:14px;margin:12px 0">
+        <h4 style="color:#1a3a6b;margin:0 0 12px 0"><i class="fa-solid fa-calculator"></i> Demonstrativo</h4>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label>Total Bruto (R$)</label>
+            <input type="text" id="dec-modal-bruto" class="form-control" readonly style="background:#e8f0e8;font-weight:600">
+          </div>
+          <div class="form-group flex-1">
+            <label>1ª Parcela — Nov (R$)</label>
+            <input type="text" id="dec-modal-parc1" class="form-control" readonly style="background:#e8f0e8">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label style="color:#c0392b">(-) INSS (R$)</label>
+            <input type="text" id="dec-modal-inss" class="form-control" readonly style="background:#fde8e8">
+          </div>
+          <div class="form-group flex-1">
+            <label style="color:#c0392b">(-) IRRF (R$)</label>
+            <input type="text" id="dec-modal-irrf" class="form-control" readonly style="background:#fde8e8">
+          </div>
+          <div class="form-group flex-1">
+            <label style="color:#1565C0">FGTS Patronal (R$)</label>
+            <input type="text" id="dec-modal-fgts" class="form-control" readonly style="background:#e8f0f8">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label style="font-weight:700">2ª Parcela Líquida — Dez (R$)</label>
+            <input type="text" id="dec-modal-parc2" class="form-control" readonly style="background:#e8f0e8;font-weight:700;font-size:15px">
+          </div>
+          <div class="form-group flex-1">
+            <label style="font-weight:700;color:var(--success)">Total Líquido (R$)</label>
+            <input type="text" id="dec-modal-liquido" class="form-control" readonly style="background:#e8f0e8;font-weight:700;font-size:15px;color:var(--success)">
+          </div>
+        </div>
+      </div>
+
+      <!-- Controle -->
+      <div class="form-row">
+        <div class="form-group flex-1">
+          <label>Data Pgto 1ª Parcela</label>
+          <input type="date" id="dec-modal-parc1-data" class="form-control">
+        </div>
+        <div class="form-group flex-1">
+          <label>Data Pgto 2ª Parcela</label>
+          <input type="date" id="dec-modal-parc2-data" class="form-control">
+        </div>
+        <div class="form-group flex-1">
+          <label>Status</label>
+          <select id="dec-modal-status" class="form-control">
+            <option value="pendente">Pendente</option>
+            <option value="parcial">Parcial (1ª paga)</option>
+            <option value="pago">Pago</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Observações</label>
+        <textarea id="dec-modal-obs" class="form-control" rows="2" placeholder="Observações opcionais..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="printDecimoTerceiro()"><i class="fa-solid fa-print"></i> Imprimir Recibo</button>
+      <button class="btn btn-outline" onclick="closeModal('modal-decimo-terceiro')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveDecimoTerceiro()"><i class="fa-solid fa-floppy-disk"></i> Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: FÉRIAS ===== -->
+<div class="modal-overlay hidden" id="modal-ferias-modulo" onclick="closeModal('modal-ferias-modulo', event)">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-umbrella-beach"></i> Férias</h3>
+      <button class="modal-close" onclick="closeModal('modal-ferias-modulo')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="fer-modal-emp-id">
+      <input type="hidden" id="fer-modal-ano">
+
+      <!-- Dados do colaborador -->
+      <div class="form-row">
+        <div class="form-group flex-2">
+          <label>Colaborador</label>
+          <input type="text" id="fer-modal-nome" class="form-control" readonly style="background:#f5f5f5">
+        </div>
+        <div class="form-group flex-1">
+          <label>Cargo</label>
+          <input type="text" id="fer-modal-cargo" class="form-control" readonly style="background:#f5f5f5">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group flex-1">
+          <label>Admissão</label>
+          <input type="text" id="fer-modal-admissao" class="form-control" readonly style="background:#f5f5f5">
+        </div>
+        <div class="form-group flex-1">
+          <label>Sal. Base (R$)</label>
+          <input type="text" id="fer-modal-sal-base" class="form-control" readonly style="background:#f5f5f5">
+        </div>
+      </div>
+
+      <!-- Período -->
+      <div class="form-row">
+        <div class="form-group flex-1">
+          <label>Início do Gozo</label>
+          <input type="date" id="fer-modal-inicio" class="form-control">
+        </div>
+        <div class="form-group flex-1">
+          <label>Fim do Gozo</label>
+          <input type="date" id="fer-modal-fim" class="form-control">
+        </div>
+        <div class="form-group flex-1">
+          <label>Abono Pecuniário (dias, máx 10)</label>
+          <input type="number" id="fer-modal-abono-dias" class="form-control" min="0" max="10" value="0" oninput="calcFeriasModuloPreview()">
+        </div>
+      </div>
+
+      <!-- Cálculos -->
+      <div style="background:#f0f4ff;border-radius:8px;padding:14px;margin:12px 0">
+        <h4 style="color:#1a3a6b;margin:0 0 12px 0"><i class="fa-solid fa-calculator"></i> Demonstrativo</h4>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label>Dias de Gozo</label>
+            <input type="text" id="fer-modal-dias-gozo" class="form-control" readonly style="background:#f5f5f5">
+          </div>
+          <div class="form-group flex-1">
+            <label>Sal. de Fruição (R$)</label>
+            <input type="text" id="fer-modal-sal-fruicao" class="form-control" readonly style="background:#e8f0e8">
+          </div>
+          <div class="form-group flex-1">
+            <label>1/3 Constitucional (R$)</label>
+            <input type="text" id="fer-modal-terco" class="form-control" readonly style="background:#e8f0e8">
+          </div>
+        </div>
+        <div id="fer-abono-box" class="form-row hidden">
+          <div class="form-group flex-1">
+            <label>Abono Pecuniário (R$)</label>
+            <input type="text" id="fer-modal-abono-val" class="form-control" readonly style="background:#e8f0e8">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label>Total Bruto (R$)</label>
+            <input type="text" id="fer-modal-total-bruto" class="form-control" readonly style="background:#e8f0e8;font-weight:600">
+          </div>
+          <div class="form-group flex-1">
+            <label style="color:#c0392b">(-) INSS (R$)</label>
+            <input type="text" id="fer-modal-inss" class="form-control" readonly style="background:#fde8e8">
+          </div>
+          <div class="form-group flex-1">
+            <label style="color:#c0392b">(-) IRRF (R$)</label>
+            <input type="text" id="fer-modal-irrf" class="form-control" readonly style="background:#fde8e8">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label style="font-weight:700;color:var(--success)">Total Líquido a Receber (R$)</label>
+            <input type="text" id="fer-modal-total-liquido" class="form-control" readonly style="background:#e8f0e8;font-weight:700;font-size:15px;color:var(--success)">
+          </div>
+        </div>
+      </div>
+
+      <!-- Controle -->
+      <div class="form-row">
+        <div class="form-group flex-1">
+          <label>Status</label>
+          <select id="fer-modal-status" class="form-control">
+            <option value="pendente">Pendente</option>
+            <option value="agendadas">Agendadas</option>
+            <option value="gozadas">Gozadas</option>
+          </select>
+        </div>
+        <div class="form-group flex-2">
+          <label>Observações</label>
+          <input type="text" id="fer-modal-obs" class="form-control" placeholder="Observações opcionais...">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="printFeriasModulo()"><i class="fa-solid fa-print"></i> Imprimir Recibo</button>
+      <button class="btn btn-outline" onclick="closeModal('modal-ferias-modulo')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveFeriasModulo()"><i class="fa-solid fa-floppy-disk"></i> Salvar</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== MODAL: ALTERAR MINHA SENHA ===== -->
 <div class="modal-overlay hidden" id="modal-change-pass" onclick="closeModal('modal-change-pass', event)">
   <div class="modal-dialog modal-sm">
@@ -2675,6 +3012,8 @@
           <label class="checkbox-label"><input type="checkbox" name="mod" value="payroll"> <span><i class="fa-solid fa-file-invoice-dollar" style="width:14px;color:var(--primary)"></i> Folha de Ponto</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="reports"> <span><i class="fa-solid fa-chart-bar" style="width:14px;color:var(--primary)"></i> Relatórios</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="pagamentos"> <span><i class="fa-solid fa-money-bill-wave" style="width:14px;color:var(--primary)"></i> Pagamentos</span></label>
+          <label class="checkbox-label"><input type="checkbox" name="mod" value="decimoterceiro"> <span><i class="fa-solid fa-gift" style="width:14px;color:var(--primary)"></i> 13º Salário</span></label>
+          <label class="checkbox-label"><input type="checkbox" name="mod" value="ferias"> <span><i class="fa-solid fa-umbrella-beach" style="width:14px;color:var(--primary)"></i> Férias</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="contabilidade"> <span><i class="fa-solid fa-calculator" style="width:14px;color:var(--primary)"></i> Contabilidade</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="postos"> <span><i class="fa-solid fa-building" style="width:14px;color:var(--primary)"></i> Postos de Trabalho</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="contratos"> <span><i class="fa-solid fa-file-signature" style="width:14px;color:var(--primary)"></i> Contratos</span></label>
@@ -2710,6 +3049,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260508g"></script>
+<script src="app.js?v=20260508h"></script>
 </body>
 </html>

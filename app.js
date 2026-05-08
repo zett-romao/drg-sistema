@@ -132,6 +132,8 @@ const State = {
   contratos: [],
   cct: null,
   empresa: {...EMPRESA_DEFAULTS},
+  decimoTerceiro: [],
+  ferias:         [],
   currentSection: 'dashboard',
   sectionHistory: [],          // pilha de navegação para o botão Voltar
   editingEmployeeId: null,
@@ -594,8 +596,10 @@ function showSection(name){
   if(name==='users'          && !mods.users && !mods.log) return;
   if(name==='employees'      && !mods.employees)    return;
   if(name==='payroll'        && !mods.payroll)      return;
-  if(name==='pagamentos'     && !mods.pagamentos)    return;
-  if(name==='contabilidade'  && !mods.contabilidade) return;
+  if(name==='pagamentos'     && !mods.pagamentos)      return;
+  if(name==='decimoterceiro' && !mods.decimoterceiro)  return;
+  if(name==='ferias'         && !mods.ferias)          return;
+  if(name==='contabilidade'  && !mods.contabilidade)   return;
   if(name==='postos'         && !mods.postos)       return;
   if(name==='contratos'      && !mods.contratos)    return;
   if(name==='configuracoes'  && Auth.currentUser?.role!=='master') return;
@@ -615,14 +619,17 @@ function showSection(name){
   if(section) section.classList.add('active');
   if(navBtn)  navBtn.classList.add('active');
   const titles={dashboard:'Dashboard',employees:'Colaboradores',payroll:'Folha de Ponto',
-                pagamentos:'Pagamentos',contabilidade:'Contabilidade',users:'Usuários & Acessos',postos:'Postos de Trabalho',contratos:'Contratos',configuracoes:'Configurações'};
+                pagamentos:'Pagamentos',decimoterceiro:'13º Salário',ferias:'Férias',
+                contabilidade:'Contabilidade',users:'Usuários & Acessos',postos:'Postos de Trabalho',contratos:'Contratos',configuracoes:'Configurações'};
   document.getElementById('topbar-title').textContent=titles[name]||name;
   State.currentSection=name;
   if(name==='employees') renderEmployeeTable();
   if(name==='payroll')   { initPayrollSection(); renderPayrollStats(); }
   if(name==='dashboard') renderDashboard();
-  if(name==='pagamentos')    { _applyModoBanners(State.empresa?.modoContabilidade||'ambas'); renderPagamentos(); }
-  if(name==='contabilidade') { _applyModoBanners(State.empresa?.modoContabilidade||'ambas'); renderContabilidade(); }
+  if(name==='pagamentos')      { _applyModoBanners(State.empresa?.modoContabilidade||'ambas'); renderPagamentos(); }
+  if(name==='decimoterceiro')  renderDecimoTerceiro();
+  if(name==='ferias')          renderFeriasModulo();
+  if(name==='contabilidade')   { _applyModoBanners(State.empresa?.modoContabilidade||'ambas'); renderContabilidade(); }
   if(name==='configuracoes')  renderConfiguracoes();
   if(name==='postos')    renderPostosTable();
   if(name==='contratos') { renderContratosTable(); populateContratoPostoSelect(); }
@@ -797,6 +804,10 @@ function applyUserSession(user){
   if(postosLi) postosLi.classList.toggle('hidden', !mods.postos);
   const pagLi=document.getElementById('nav-pagamentos-li');
   if(pagLi) pagLi.classList.toggle('hidden', !mods.pagamentos);
+  const decLi=document.getElementById('nav-decimoterceiro-li');
+  if(decLi) decLi.classList.toggle('hidden', !mods.decimoterceiro);
+  const ferLi=document.getElementById('nav-ferias-li');
+  if(ferLi) ferLi.classList.toggle('hidden', !mods.ferias);
   const contLi=document.getElementById('nav-contabilidade-li');
   if(contLi) contLi.classList.toggle('hidden', !mods.contabilidade);
   const contratosLi=document.getElementById('nav-contratos-li');
@@ -1444,6 +1455,396 @@ function printPagamentos(){
     ${table.outerHTML}</body></html>`);
   w.document.close();
   w.print();
+}
+
+// ============================================
+// MÓDULO 13º SALÁRIO
+// ============================================
+function renderDecimoTerceiro(){
+  const ano=parseInt(val('dec-ano')||currentAno());
+  const statusFilt=val('dec-status-filter')||'ativo';
+  let emps=[...State.employees];
+  if(statusFilt!=='all') emps=emps.filter(e=>(e.status||'ativo')===statusFilt);
+  emps.sort((a,b)=>a.nome.localeCompare(b.nome));
+
+  const recMap={};
+  (State.decimoTerceiro||[]).filter(r=>r.ano===ano).forEach(r=>{ recMap[r.employeeId]=r; });
+
+  const tbody=document.getElementById('dec-tbody');
+  if(!tbody) return;
+  if(emps.length===0){ tbody.innerHTML='<tr><td colspan="11" style="text-align:center;padding:20px">Nenhum colaborador.</td></tr>'; return; }
+
+  let totalBruto=0,totalINSS=0,totalIRRF=0,totalFGTS=0,totalLiq=0;
+  const rows=emps.map((emp,i)=>{
+    const admissao=emp.admissao||'';
+    let mesesDir=0;
+    if(admissao){
+      const adm=new Date(admissao.split('/').reverse().join('-'));
+      const anoAdm=adm.getFullYear(), mesAdm=adm.getMonth()+1, diaAdm=adm.getDate();
+      if(anoAdm<ano) mesesDir=12;
+      else if(anoAdm===ano) mesesDir=12-mesAdm+(diaAdm<=15?1:0);
+    }
+    const salBase=parseFloat(emp.salario||0);
+    const bruto=Math.round(salBase*mesesDir/12*100)/100;
+    const parc1=Math.round(bruto/2*100)/100;
+    const inss=calcINSS(bruto);
+    const irrf=calcIRRF(bruto/2,emp.dependentesIRRF||0,emp.pensaoAlimenticia||0,0,inss);
+    const fgts=calcFGTS(bruto);
+    const parc2=Math.round((bruto/2-inss-irrf)*100)/100;
+    const liq=Math.round((bruto-inss-irrf)*100)/100;
+    totalBruto+=bruto; totalINSS+=inss; totalIRRF+=irrf; totalFGTS+=fgts; totalLiq+=liq;
+    const rec=recMap[emp.id]||{};
+    const status=rec.status||'pendente';
+    const badge=status==='pago'?'<span class="badge badge-success">Pago</span>':status==='parcial'?'<span class="badge badge-warning">Parcial</span>':'<span class="badge badge-muted">Pendente</span>';
+    return `<tr>
+      <td>${i+1}</td><td>${emp.registro||'—'}</td><td>${emp.nome}</td>
+      <td style="text-align:center">${mesesDir}/12</td>
+      <td>${fmtMoney(bruto)}</td><td>${fmtMoney(parc1)}</td>
+      <td style="color:#c0392b">(${fmtMoney(inss)})</td>
+      <td style="color:#c0392b">(${fmtMoney(irrf)})</td>
+      <td style="color:#1a3a6b">${fmtMoney(fgts)}</td>
+      <td>${fmtMoney(parc2)}</td><td>${badge}</td>
+      <td><button class="btn btn-sm btn-outline-primary" onclick="openDecimoTerceiro('${emp.id}')"><i class="fa-solid fa-pen-to-square"></i></button></td>
+    </tr>`;
+  });
+  tbody.innerHTML=rows.join('');
+  const tfoot=document.getElementById('dec-tfoot');
+  if(tfoot) tfoot.innerHTML=`<tr style="font-weight:600;background:#f0f4ff">
+    <td colspan="4" style="text-align:right">TOTAIS</td>
+    <td>${fmtMoney(totalBruto)}</td><td>—</td>
+    <td style="color:#c0392b">(${fmtMoney(totalINSS)})</td>
+    <td style="color:#c0392b">(${fmtMoney(totalIRRF)})</td>
+    <td style="color:#1a3a6b">${fmtMoney(totalFGTS)}</td>
+    <td>${fmtMoney(totalLiq)}</td><td colspan="2"></td>
+  </tr>`;
+}
+
+function openDecimoTerceiro(empId){
+  const emp=State.employees.find(e=>e.id===empId); if(!emp) return;
+  const ano=parseInt(val('dec-ano')||currentAno());
+  const rec=(State.decimoTerceiro||[]).find(r=>r.employeeId===empId&&r.ano===ano)||{};
+  const admissao=emp.admissao||'';
+  let mesesDir=0;
+  if(admissao){
+    const adm=new Date(admissao.split('/').reverse().join('-'));
+    const anoAdm=adm.getFullYear(), mesAdm=adm.getMonth()+1, diaAdm=adm.getDate();
+    if(anoAdm<ano) mesesDir=12;
+    else if(anoAdm===ano) mesesDir=12-mesAdm+(diaAdm<=15?1:0);
+  }
+  setVal('dec-modal-emp-id',empId);
+  setVal('dec-modal-ano',ano);
+  setVal('dec-modal-nome',emp.nome);
+  setVal('dec-modal-cargo',emp.cargo||'—');
+  setVal('dec-modal-admissao',emp.admissao||'—');
+  setVal('dec-modal-meses-dir',mesesDir);
+  setVal('dec-modal-sal-base',(parseFloat(emp.salario||0)).toFixed(2));
+  setVal('dec-modal-status',rec.status||'pendente');
+  setVal('dec-modal-obs',rec.obs||'');
+  setVal('dec-modal-parc1-data',rec.parc1Data||'');
+  setVal('dec-modal-parc2-data',rec.parc2Data||'');
+  _calcDecTercPreview(emp,mesesDir);
+  document.getElementById('modal-decimo-terceiro').classList.remove('hidden');
+}
+
+function _calcDecTercPreview(emp,mesesDir){
+  if(!emp){ const id=val('dec-modal-emp-id'); emp=State.employees.find(e=>e.id===id); if(!emp) return; }
+  if(mesesDir===undefined) mesesDir=parseInt(val('dec-modal-meses-dir')||12);
+  const salBase=parseFloat(emp.salario||0);
+  const bruto=Math.round(salBase*mesesDir/12*100)/100;
+  const parc1=Math.round(bruto/2*100)/100;
+  const inss=calcINSS(bruto);
+  const irrf=calcIRRF(bruto/2,emp.dependentesIRRF||0,emp.pensaoAlimenticia||0,0,inss);
+  const fgts=calcFGTS(bruto);
+  const parc2=Math.round((bruto/2-inss-irrf)*100)/100;
+  const liq=Math.round((bruto-inss-irrf)*100)/100;
+  setVal('dec-modal-bruto',bruto.toFixed(2));
+  setVal('dec-modal-parc1',parc1.toFixed(2));
+  setVal('dec-modal-inss',inss.toFixed(2));
+  setVal('dec-modal-irrf',irrf.toFixed(2));
+  setVal('dec-modal-fgts',fgts.toFixed(2));
+  setVal('dec-modal-parc2',parc2.toFixed(2));
+  setVal('dec-modal-liquido',liq.toFixed(2));
+}
+
+async function saveDecimoTerceiro(){
+  const empId=val('dec-modal-emp-id'); if(!empId) return;
+  const emp=State.employees.find(e=>e.id===empId); if(!emp) return;
+  const ano=parseInt(val('dec-modal-ano')||currentAno());
+  const rec={
+    id:`${empId}_${ano}`,
+    employeeId:empId, nomeEmp:emp.nome, ano,
+    status:val('dec-modal-status')||'pendente',
+    obs:val('dec-modal-obs')||'',
+    parc1Data:val('dec-modal-parc1-data')||'',
+    parc2Data:val('dec-modal-parc2-data')||'',
+    bruto:parseFloat(val('dec-modal-bruto')||0),
+    parc1:parseFloat(val('dec-modal-parc1')||0),
+    parc2:parseFloat(val('dec-modal-parc2')||0),
+    inss:parseFloat(val('dec-modal-inss')||0),
+    irrf:parseFloat(val('dec-modal-irrf')||0),
+    fgts:parseFloat(val('dec-modal-fgts')||0),
+    liquido:parseFloat(val('dec-modal-liquido')||0),
+    updatedAt:new Date().toISOString()
+  };
+  const btn=document.querySelector('#modal-decimo-terceiro .btn-primary');
+  setBtnLoading(btn,true,'');
+  try {
+    await DB.save('decimoTerceiro',rec);
+    closeModal('modal-decimo-terceiro');
+    toast('13º Salário salvo!');
+    Auth.log('DEC_TERCEIRO_SAVED',Auth.currentUser.username,`${emp.nome} / ${ano}`);
+  } catch(e){ toast('Erro ao salvar.','error'); }
+  finally{ setBtnLoading(btn,false,'<i class="fa-solid fa-floppy-disk"></i> Salvar'); }
+}
+
+function printDecimoTerceiro(){
+  const empId=val('dec-modal-emp-id'); if(!empId) return;
+  const emp=State.employees.find(e=>e.id===empId); if(!emp) return;
+  const ano=val('dec-modal-ano')||currentAno();
+  const mesesDir=val('dec-modal-meses-dir')||12;
+  const bruto=parseFloat(val('dec-modal-bruto')||0);
+  const parc1=parseFloat(val('dec-modal-parc1')||0);
+  const parc2=parseFloat(val('dec-modal-parc2')||0);
+  const inss=parseFloat(val('dec-modal-inss')||0);
+  const irrf=parseFloat(val('dec-modal-irrf')||0);
+  const fgts=parseFloat(val('dec-modal-fgts')||0);
+  const liq=parseFloat(val('dec-modal-liquido')||0);
+  const p1data=val('dec-modal-parc1-data')||'—';
+  const p2data=val('dec-modal-parc2-data')||'—';
+  const w=window.open('','_blank');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <title>Recibo 13º Salário — ${emp.nome}</title>
+  <style>body{font-family:Arial,sans-serif;font-size:12px;color:#111;padding:20px}
+  h2{color:#1a3a6b;margin-bottom:4px}.empresa{color:#555;font-size:11px;margin-bottom:16px}
+  table{width:100%;border-collapse:collapse;margin-bottom:12px}th,td{border:1px solid #ccc;padding:5px 8px}
+  th{background:#1a3a6b;color:#fff;text-align:left}.prov{color:#1a7a1a}.desc{color:#c0392b}
+  .total-row{font-weight:700;background:#f0f4ff}
+  .assinatura{margin-top:40px;display:flex;justify-content:space-between}
+  .assinatura div{text-align:center;width:45%}.assinatura hr{margin-bottom:4px}
+  @media print{body{padding:10px}}</style></head><body>
+  <h2>RECIBO DE 13º SALÁRIO — ${ano}</h2>
+  <div class="empresa">${_e('nomeEmpresa')} — CNPJ: ${_e('cnpj')||'—'}</div>
+  <table>
+    <tr><th colspan="2">Dados do Colaborador</th></tr>
+    <tr><td><strong>Nome:</strong> ${emp.nome}</td><td><strong>Registro:</strong> ${emp.registro||'—'}</td></tr>
+    <tr><td><strong>Cargo:</strong> ${emp.cargo||'—'}</td><td><strong>Admissão:</strong> ${emp.admissao||'—'}</td></tr>
+    <tr><td><strong>Meses Trabalhados:</strong> ${mesesDir}/12</td><td><strong>Sal. Base:</strong> ${fmtMoney(parseFloat(emp.salario||0))}</td></tr>
+  </table>
+  <table>
+    <tr><th>PARCELA</th><th>VALOR</th><th>DATA PGTO</th></tr>
+    <tr><td>1ª Parcela (50% s/ descontos)</td><td class="prov">${fmtMoney(parc1)}</td><td>${p1data}</td></tr>
+    <tr><td>2ª Parcela (líquido)</td><td class="prov">${fmtMoney(parc2)}</td><td>${p2data}</td></tr>
+    <tr class="total-row"><td>Total Bruto (referência)</td><td>${fmtMoney(bruto)}</td><td>—</td></tr>
+  </table>
+  <table>
+    <tr><th>ENCARGOS</th><th>VALOR</th></tr>
+    <tr><td class="desc">(-) INSS (sobre total bruto)</td><td class="desc">(${fmtMoney(inss)})</td></tr>
+    <tr><td class="desc">(-) IRRF (sobre 2ª parcela)</td><td class="desc">(${fmtMoney(irrf)})</td></tr>
+    <tr><td style="font-size:11px;color:#1a3a6b">(*) FGTS — Encargo Patronal (8%)</td><td style="color:#1a3a6b">${fmtMoney(fgts)}</td></tr>
+    <tr class="total-row"><td>TOTAL LÍQUIDO A RECEBER</td><td>${fmtMoney(liq)}</td></tr>
+  </table>
+  <div class="assinatura">
+    <div><hr>Assinatura do Colaborador<br><small>${emp.nome}</small></div>
+    <div><hr>Responsável / Empresa<br><small>${_e('nomeEmpresa')}</small></div>
+  </div>
+  <p style="text-align:center;font-size:10px;color:#999;margin-top:30px">Gerado por ${APP_VERSION} em ${new Date().toLocaleDateString('pt-BR')}</p>
+  </body></html>`);
+  w.document.close(); w.print();
+}
+
+function printDecimoTerceiroLista(){
+  const ano=val('dec-ano')||currentAno();
+  const table=document.querySelector('#section-decimoterceiro table');
+  if(!table){ toast('Nenhuma tabela para imprimir.','warning'); return; }
+  const w=window.open('','_blank');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <title>13º Salário ${ano}</title>
+  <style>body{font-family:Arial,sans-serif;font-size:10px}
+  table{width:100%;border-collapse:collapse}th,td{border:1px solid #ccc;padding:4px 6px}
+  th{background:#1a3a6b;color:#fff}tr:nth-child(even){background:#f5f5f5}
+  h2{color:#1a3a6b}</style></head><body>
+  <h2>${_e('nomeEmpresa')} — 13º Salário ${ano}</h2>
+  ${table.outerHTML}</body></html>`);
+  w.document.close(); w.print();
+}
+
+// ============================================
+// MÓDULO FÉRIAS
+// ============================================
+function renderFeriasModulo(){
+  const ano=parseInt(val('fer-mod-ano')||currentAno());
+  const statusFilt=val('fer-mod-status-filter')||'ativo';
+  let emps=[...State.employees];
+  if(statusFilt!=='all') emps=emps.filter(e=>(e.status||'ativo')===statusFilt);
+  emps.sort((a,b)=>a.nome.localeCompare(b.nome));
+
+  const recMap={};
+  (State.ferias||[]).filter(r=>r.ano===ano).forEach(r=>{
+    if(!recMap[r.employeeId]) recMap[r.employeeId]=[];
+    recMap[r.employeeId].push(r);
+  });
+
+  const tbody=document.getElementById('fer-mod-tbody');
+  if(!tbody) return;
+  if(emps.length===0){ tbody.innerHTML='<tr><td colspan="8" style="text-align:center;padding:20px">Nenhum colaborador.</td></tr>'; return; }
+
+  const rows=emps.map((emp,i)=>{
+    const recs=recMap[emp.id]||[];
+    const admissao=emp.admissao||'';
+    let periodoAquis='—', direitoAno='—';
+    if(admissao){
+      const adm=new Date(admissao.split('/').reverse().join('-'));
+      const anoAdm=adm.getFullYear(), mesAdm=adm.getMonth(), diaAdm=adm.getDate();
+      const periodos=ano-anoAdm;
+      if(periodos>=1){
+        const ini=new Date(anoAdm+periodos-1,mesAdm,diaAdm);
+        const fim=new Date(anoAdm+periodos,mesAdm,diaAdm-1);
+        periodoAquis=`${ini.toLocaleDateString('pt-BR')} – ${fim.toLocaleDateString('pt-BR')}`;
+        direitoAno=`${anoAdm+periodos}`;
+      }
+    }
+    const rec=recs.length>0?recs[recs.length-1]:{};
+    const status=rec.status||'pendente';
+    const badge=status==='gozadas'?'<span class="badge badge-success">Gozadas</span>':status==='agendadas'?'<span class="badge badge-warning">Agendadas</span>':'<span class="badge badge-muted">Pendente</span>';
+    return `<tr>
+      <td>${i+1}</td><td>${emp.registro||'—'}</td><td>${emp.nome}</td><td>${emp.cargo||'—'}</td>
+      <td style="font-size:11px">${periodoAquis}</td><td style="text-align:center">${direitoAno}</td>
+      <td>${badge}</td>
+      <td><button class="btn btn-sm btn-outline-primary" onclick="openFeriasModulo('${emp.id}')"><i class="fa-solid fa-pen-to-square"></i></button></td>
+    </tr>`;
+  });
+  tbody.innerHTML=rows.join('');
+}
+
+function openFeriasModulo(empId){
+  const emp=State.employees.find(e=>e.id===empId); if(!emp) return;
+  const ano=parseInt(val('fer-mod-ano')||currentAno());
+  const recs=(State.ferias||[]).filter(r=>r.employeeId===empId&&r.ano===ano);
+  const rec=recs.length>0?recs[recs.length-1]:{};
+  setVal('fer-modal-emp-id',empId);
+  setVal('fer-modal-ano',ano);
+  setVal('fer-modal-nome',emp.nome);
+  setVal('fer-modal-cargo',emp.cargo||'—');
+  setVal('fer-modal-admissao',emp.admissao||'—');
+  setVal('fer-modal-sal-base',(parseFloat(emp.salario||0)).toFixed(2));
+  setVal('fer-modal-inicio',rec.inicio||'');
+  setVal('fer-modal-fim',rec.fim||'');
+  setVal('fer-modal-abono-dias',rec.abonoDias||0);
+  setVal('fer-modal-status',rec.status||'pendente');
+  setVal('fer-modal-obs',rec.obs||'');
+  calcFeriasModuloPreview();
+  document.getElementById('modal-ferias-modulo').classList.remove('hidden');
+}
+
+function calcFeriasModuloPreview(){
+  const empId=val('fer-modal-emp-id');
+  const emp=State.employees.find(e=>e.id===empId); if(!emp) return;
+  const salBase=parseFloat(emp.salario||0);
+  const abonoDias=Math.min(10,Math.max(0,parseInt(val('fer-modal-abono-dias')||0)));
+  const diasGozo=30-abonoDias;
+  const abono=Math.round(salBase/30*abonoDias*100)/100;
+  const salFruicao=Math.round(salBase*diasGozo/30*100)/100;
+  const terco=Math.round(salFruicao/3*100)/100;
+  const totalBruto=Math.round((salFruicao+terco+abono)*100)/100;
+  const inss=calcINSS(salFruicao+terco);
+  const irrf=calcIRRF(salFruicao+terco,emp.dependentesIRRF||0,emp.pensaoAlimenticia||0,0,inss);
+  const totalLiq=Math.round((totalBruto-inss-irrf)*100)/100;
+  const abonoBox=document.getElementById('fer-abono-box');
+  if(abonoBox) abonoBox.classList.toggle('hidden',abonoDias===0);
+  setVal('fer-modal-dias-gozo',diasGozo);
+  setVal('fer-modal-sal-fruicao',salFruicao.toFixed(2));
+  setVal('fer-modal-terco',terco.toFixed(2));
+  setVal('fer-modal-abono-val',abono.toFixed(2));
+  setVal('fer-modal-total-bruto',totalBruto.toFixed(2));
+  setVal('fer-modal-inss',inss.toFixed(2));
+  setVal('fer-modal-irrf',irrf.toFixed(2));
+  setVal('fer-modal-total-liquido',totalLiq.toFixed(2));
+}
+
+async function saveFeriasModulo(){
+  const empId=val('fer-modal-emp-id'); if(!empId) return;
+  const emp=State.employees.find(e=>e.id===empId); if(!emp) return;
+  const ano=parseInt(val('fer-modal-ano')||currentAno());
+  const inicio=val('fer-modal-inicio'), fim=val('fer-modal-fim');
+  if(!inicio||!fim){ toast('Informe as datas de início e fim.','error'); return; }
+  const abonoDias=parseInt(val('fer-modal-abono-dias')||0);
+  const rec={
+    id:`${empId}_${ano}_${inicio.replace(/[\/\-]/g,'')}`,
+    employeeId:empId, nomeEmp:emp.nome, ano, inicio, fim, abonoDias,
+    status:val('fer-modal-status')||'pendente',
+    obs:val('fer-modal-obs')||'',
+    salFruicao:parseFloat(val('fer-modal-sal-fruicao')||0),
+    terco:parseFloat(val('fer-modal-terco')||0),
+    abono:parseFloat(val('fer-modal-abono-val')||0),
+    totalBruto:parseFloat(val('fer-modal-total-bruto')||0),
+    inss:parseFloat(val('fer-modal-inss')||0),
+    irrf:parseFloat(val('fer-modal-irrf')||0),
+    totalLiquido:parseFloat(val('fer-modal-total-liquido')||0),
+    updatedAt:new Date().toISOString()
+  };
+  const btn=document.querySelector('#modal-ferias-modulo .btn-primary');
+  setBtnLoading(btn,true,'');
+  try {
+    await DB.save('ferias',rec);
+    closeModal('modal-ferias-modulo');
+    toast('Férias salvas!');
+    Auth.log('FERIAS_SAVED',Auth.currentUser.username,`${emp.nome} / ${inicio}–${fim}`);
+  } catch(e){ toast('Erro ao salvar.','error'); }
+  finally{ setBtnLoading(btn,false,'<i class="fa-solid fa-floppy-disk"></i> Salvar'); }
+}
+
+function printFeriasModulo(){
+  const empId=val('fer-modal-emp-id'); if(!empId) return;
+  const emp=State.employees.find(e=>e.id===empId); if(!emp) return;
+  const ano=val('fer-modal-ano')||currentAno();
+  const inicio=val('fer-modal-inicio')||'—', fim=val('fer-modal-fim')||'—';
+  const abonoDias=val('fer-modal-abono-dias')||0;
+  const diasGozo=val('fer-modal-dias-gozo')||30;
+  const salFruicao=parseFloat(val('fer-modal-sal-fruicao')||0);
+  const terco=parseFloat(val('fer-modal-terco')||0);
+  const abono=parseFloat(val('fer-modal-abono-val')||0);
+  const totalBruto=parseFloat(val('fer-modal-total-bruto')||0);
+  const inss=parseFloat(val('fer-modal-inss')||0);
+  const irrf=parseFloat(val('fer-modal-irrf')||0);
+  const totalLiq=parseFloat(val('fer-modal-total-liquido')||0);
+  const w=window.open('','_blank');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <title>Recibo de Férias — ${emp.nome}</title>
+  <style>body{font-family:Arial,sans-serif;font-size:12px;color:#111;padding:20px}
+  h2{color:#1a3a6b;margin-bottom:4px}.empresa{color:#555;font-size:11px;margin-bottom:16px}
+  table{width:100%;border-collapse:collapse;margin-bottom:12px}th,td{border:1px solid #ccc;padding:5px 8px}
+  th{background:#1a3a6b;color:#fff;text-align:left}.prov{color:#1a7a1a}.desc{color:#c0392b}
+  .total-row{font-weight:700;background:#f0f4ff}.nota{font-size:10px;color:#555;margin-top:4px}
+  .assinatura{margin-top:40px;display:flex;justify-content:space-between}
+  .assinatura div{text-align:center;width:45%}.assinatura hr{margin-bottom:4px}
+  @media print{body{padding:10px}}</style></head><body>
+  <h2>RECIBO DE FÉRIAS — ${ano}</h2>
+  <div class="empresa">${_e('nomeEmpresa')} — CNPJ: ${_e('cnpj')||'—'}</div>
+  <table>
+    <tr><th colspan="2">Dados do Colaborador</th></tr>
+    <tr><td><strong>Nome:</strong> ${emp.nome}</td><td><strong>Registro:</strong> ${emp.registro||'—'}</td></tr>
+    <tr><td><strong>Cargo:</strong> ${emp.cargo||'—'}</td><td><strong>Admissão:</strong> ${emp.admissao||'—'}</td></tr>
+    <tr><td><strong>Período de Gozo:</strong> ${inicio} a ${fim}</td><td><strong>Dias de Gozo:</strong> ${diasGozo} dias</td></tr>
+    ${parseInt(abonoDias)>0?`<tr><td><strong>Abono Pecuniário:</strong> ${abonoDias} dias</td><td><strong>Sal. Base:</strong> ${fmtMoney(parseFloat(emp.salario||0))}</td></tr>`:`<tr><td colspan="2"><strong>Sal. Base:</strong> ${fmtMoney(parseFloat(emp.salario||0))}</td></tr>`}
+  </table>
+  <table>
+    <tr><th>DEMONSTRATIVO FINANCEIRO</th><th>VALOR</th></tr>
+    <tr><td class="prov">(+) Salário de Fruição (${diasGozo} dias)</td><td class="prov">${fmtMoney(salFruicao)}</td></tr>
+    <tr><td class="prov">(+) 1/3 Constitucional</td><td class="prov">${fmtMoney(terco)}</td></tr>
+    ${parseInt(abonoDias)>0?`<tr><td class="prov">(+) Abono Pecuniário (${abonoDias} dias — isento INSS)</td><td class="prov">${fmtMoney(abono)}</td></tr>`:''}
+    <tr class="total-row"><td>Total Bruto</td><td>${fmtMoney(totalBruto)}</td></tr>
+    <tr><td class="desc">(-) INSS</td><td class="desc">(${fmtMoney(inss)})</td></tr>
+    <tr><td class="desc">(-) IRRF</td><td class="desc">(${fmtMoney(irrf)})</td></tr>
+    <tr class="total-row"><td>TOTAL LÍQUIDO A RECEBER</td><td>${fmtMoney(totalLiq)}</td></tr>
+  </table>
+  <p class="nota">* Abono pecuniário não integra base de INSS (art. 144 da CLT). IRRF calculado sobre fruição + 1/3.</p>
+  <div class="assinatura">
+    <div><hr>Assinatura do Colaborador<br><small>${emp.nome}</small></div>
+    <div><hr>Responsável / Empresa<br><small>${_e('nomeEmpresa')}</small></div>
+  </div>
+  <p style="text-align:center;font-size:10px;color:#999;margin-top:30px">Gerado por ${APP_VERSION} em ${new Date().toLocaleDateString('pt-BR')}</p>
+  </body></html>`);
+  w.document.close(); w.print();
 }
 
 function renderContabilidade(){
@@ -5690,22 +6091,24 @@ function confirmDeletePosto(id){
 // PERFIS CUSTOMIZÁVEIS
 // ============================================
 const MODULOS_LABELS={
-  employees:    'Colaboradores',
-  payroll:      'Folha de Ponto',
-  reports:      'Relatórios',
-  pagamentos:   'Pagamentos',
-  contabilidade:'Contabilidade',
-  postos:       'Postos de Trabalho',
-  contratos:    'Contratos',
-  users:        'Usuários & Acessos',
-  log:          'Log de Acessos'
+  employees:       'Colaboradores',
+  payroll:         'Folha de Ponto',
+  reports:         'Relatórios',
+  pagamentos:      'Pagamentos',
+  decimoterceiro:  '13º Salário',
+  ferias:          'Férias',
+  contabilidade:   'Contabilidade',
+  postos:          'Postos de Trabalho',
+  contratos:       'Contratos',
+  users:           'Usuários & Acessos',
+  log:             'Log de Acessos'
 };
 
 // Retorna os módulos permitidos para o usuário
 function getUserModules(user){
   if(!user) return {};
-  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,reports:true,pagamentos:true,contabilidade:true,postos:true,contratos:true,users:true,log:true};
-  if(user.role==='operador') return {dashboard:true,employees:false,payroll:true,reports:true,pagamentos:true,contabilidade:true,postos:false,contratos:false,users:false,log:!!user.showLog};
+  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,reports:true,pagamentos:true,decimoterceiro:true,ferias:true,contabilidade:true,postos:true,contratos:true,users:true,log:true};
+  if(user.role==='operador') return {dashboard:true,employees:false,payroll:true,reports:true,pagamentos:true,decimoterceiro:true,ferias:true,contabilidade:true,postos:false,contratos:false,users:false,log:!!user.showLog};
   if(user.role&&user.role.startsWith('p_')){
     const perfilId=user.role.replace('p_','');
     const perfil=(State.perfis||[]).find(p=>p.id===perfilId);
@@ -5963,6 +6366,14 @@ async function init(){
     if(State.currentSection==='contratos') renderContratosTable();
     if(State.currentSection==='dashboard') renderAlerts();
   });
+  DB.listen('decimoTerceiro', data => {
+    State.decimoTerceiro = data;
+    if(State.currentSection==='decimoterceiro') renderDecimoTerceiro();
+  });
+  DB.listen('ferias', data => {
+    State.ferias = data;
+    if(State.currentSection==='ferias') renderFeriasModulo();
+  });
 
   // 7. Configurar datas na UI
   document.getElementById('topbar-date').textContent =
@@ -5973,6 +6384,10 @@ async function init(){
   document.getElementById('report-ano').value             = currentAno();
   const rIndAno=document.getElementById('report-individual-ano');
   if(rIndAno) rIndAno.value=currentAno();
+  const decAno=document.getElementById('dec-ano');
+  if(decAno) decAno.value=currentAno();
+  const ferModAno=document.getElementById('fer-mod-ano');
+  if(ferModAno) ferModAno.value=currentAno();
 
   // 8. Verificar licença
   const licencaOk = await checkLicenca();

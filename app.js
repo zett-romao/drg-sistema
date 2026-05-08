@@ -6184,13 +6184,21 @@ function _escalaHorariosDia(emp, diaSem){
   const def = ESCALA_HORARIOS_DEFAULT[escala] || ESCALA_HORARIOS_DEFAULT['5x2A'];
   let entrada = emp.horarioEntrada || def.entrada;
   let saida   = emp.horarioSaida   || def.saida;
-  // Refeição: respeita flag "semRefeicao" — sai em branco quando ativa
+  // Refeição: respeita flag "semRefeicao" e diferencia noturno/diurno no default
   let intIni, intFim;
   if(emp.semRefeicao){
     intIni = ''; intFim = '';
+  } else if(emp.horarioRefIni && emp.horarioRefFim){
+    // Cadastro do colaborador tem refeição definida — usa a dele
+    intIni = emp.horarioRefIni;
+    intFim = emp.horarioRefFim;
   } else {
-    intIni = emp.horarioRefIni || '12:00';
-    intFim = emp.horarioRefFim || '13:00';
+    // Sem cadastro: default sensato — noturno janta após meia-noite, diurno almoça
+    if(noturno){
+      intIni = '00:00'; intFim = '01:00';
+    } else {
+      intIni = '12:00'; intFim = '13:00';
+    }
   }
   // Para 12x36 noturno, se não tem horário cadastrado, ajusta default
   if(escala==='12x36' && noturno && !emp.horarioEntrada){

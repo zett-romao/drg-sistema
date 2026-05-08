@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manual de Implantação — DRG-Kronos 3.0</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <style>
+    :root {
+      --primary: #1565C0; --primary-dark: #0D47A1; --primary-light: #E3F2FD;
+      --success: #2E7D32; --success-light: #E8F5E9;
+      --danger: #C62828;  --danger-light: #FFEBEE;
+      --warning: #E65100; --warning-light: #FFF3E0;
+      --purple: #6A1B9A;  --purple-light: #F3E5F5;
+      --teal: #00695C;    --teal-light: #E0F2F1;
+      --border: #CFD8DC; --bg: #F4F6F9; --text: #1A1A2E; --muted: #607D8B;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text); font-size: 15px; line-height: 1.7; }
+
+    .capa {
+      background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 60%, #1976D2 100%);
+      color: white; padding: 60px 40px; text-align: center; position: relative; overflow: hidden;
+    }
+    .capa::before { content:''; position:absolute; top:-60px; right:-60px; width:300px; height:300px; border-radius:50%; background:rgba(255,255,255,.06); }
+    .capa::after  { content:''; position:absolute; bottom:-80px; left:-40px; width:250px; height:250px; border-radius:50%; background:rgba(255,255,255,.04); }
+    .capa-logo { font-size:64px; margin-bottom:16px; opacity:.95; }
+    .capa h1 { font-size:32px; font-weight:800; letter-spacing:-.5px; }
+    .capa h2 { font-size:18px; font-weight:400; opacity:.85; margin-top:8px; }
+    .capa-badge { display:inline-block; margin-top:24px; background:rgba(255,255,255,.15); border:1px solid rgba(255,255,255,.3); padding:8px 24px; border-radius:30px; font-size:13px; font-weight:600; letter-spacing:.5px; }
+    .capa-version { margin-top:12px; font-size:12px; opacity:.6; }
+
+    .container { max-width:920px; margin:0 auto; padding:32px 20px 60px; }
+
+    .toc { background:white; border-radius:12px; padding:28px 32px; border:1px solid var(--border); margin-bottom:36px; box-shadow:0 2px 12px rgba(0,0,0,.06); }
+    .toc h3 { color:var(--primary); font-size:14px; text-transform:uppercase; letter-spacing:.8px; margin-bottom:16px; display:flex; align-items:center; gap:8px; }
+    .toc ol { padding-left:20px; column-count:2; column-gap:32px; }
+    .toc li { margin:6px 0; break-inside:avoid; }
+    .toc a { color:var(--primary); text-decoration:none; font-weight:500; }
+    .toc a:hover { text-decoration:underline; }
+
+    .section { background:white; border-radius:12px; padding:32px; border:1px solid var(--border); margin-bottom:28px; box-shadow:0 2px 12px rgba(0,0,0,.05); }
+    .section-header { display:flex; align-items:center; gap:14px; padding-bottom:18px; border-bottom:2px solid var(--primary-light); margin-bottom:24px; }
+    .section-icon { width:48px; height:48px; border-radius:12px; background:var(--primary); color:white; display:flex; align-items:center; justify-content:center; font-size:20px; flex-shrink:0; }
+    .section-icon.green  { background:var(--success); }
+    .section-icon.orange { background:var(--warning); }
+    .section-icon.red    { background:var(--danger); }
+    .section-icon.purple { background:var(--purple); }
+    .section-icon.teal   { background:var(--teal); }
+    .section-icon.dark   { background:#1B1F23; }
+    .section-icon.pink   { background:#AD1457; }
+    .section-icon.slate  { background:#37474F; }
+    .section h2 { font-size:20px; font-weight:700; color:var(--primary); }
+    .section h3 { font-size:15px; font-weight:700; color:var(--text); margin:22px 0 10px; display:flex; align-items:center; gap:8px; }
+    .section h3 i { color:var(--primary); font-size:14px; }
+    .section p { margin-bottom:12px; color:#374151; }
+
+    .steps { counter-reset:step; list-style:none; padding:0; }
+    .steps li { counter-increment:step; display:flex; gap:14px; margin-bottom:14px; align-items:flex-start; }
+    .steps li::before { content:counter(step); min-width:28px; height:28px; border-radius:50%; background:var(--primary); color:white; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; flex-shrink:0; margin-top:2px; }
+    .steps li .step-content { flex:1; }
+    .steps li strong { display:block; margin-bottom:3px; }
+
+    .alert { display:flex; gap:14px; padding:16px 18px; border-radius:10px; margin:16px 0; align-items:flex-start; }
+    .alert i { font-size:18px; margin-top:2px; flex-shrink:0; }
+    .alert-info    { background:var(--primary-light); color:#0D47A1; }
+    .alert-success { background:var(--success-light); color:var(--success); }
+    .alert-warning { background:var(--warning-light); color:var(--warning); }
+    .alert-danger  { background:var(--danger-light);  color:var(--danger); }
+    .alert-purple  { background:var(--purple-light);  color:var(--purple); }
+    .alert-teal    { background:var(--teal-light);    color:var(--teal); }
+
+    table { width:100%; border-collapse:collapse; margin:16px 0; font-size:14px; }
+    th { background:var(--primary); color:white; padding:10px 14px; text-align:left; font-size:13px; }
+    td { padding:10px 14px; border-bottom:1px solid #EEF2F7; vertical-align:top; }
+    tr:last-child td { border-bottom:none; }
+    tr:nth-child(even) td { background:#F8FAFF; }
+
+    .code-block { background:#1E2A3A; color:#A8D8EA; border-radius:8px; padding:16px 20px; font-family:'Courier New',monospace; font-size:13px; margin:12px 0; overflow-x:auto; border-left:4px solid var(--primary); }
+    .code-block pre { margin:0; white-space:pre; }
+    .code-inline { background:#EEF4FF; color:var(--primary); padding:2px 7px; border-radius:4px; font-family:'Courier New',monospace; font-size:13px; }
+
+    .credential-box { background:#1E2A3A; color:#E0E0E0; border-radius:10px; padding:20px 24px; margin:14px 0; font-family:'Courier New',monospace; }
+    .credential-box .label { color:#78909C; font-size:11px; text-transform:uppercase; letter-spacing:.5px; margin-bottom:2px; }
+    .credential-box .value { color:#64FFDA; font-size:18px; font-weight:700; }
+    .credential-row { margin-bottom:12px; }
+
+    .checklist { list-style:none; padding:0; }
+    .checklist li { display:flex; align-items:flex-start; gap:10px; padding:8px 0; border-bottom:1px solid #F0F4F8; font-size:14px; }
+    .checklist li:last-child { border-bottom:none; }
+    .checklist li i { color:var(--success); margin-top:3px; flex-shrink:0; }
+
+    .checklist-box { list-style:none; padding:0; margin:12px 0; }
+    .checklist-box li { display:flex; align-items:flex-start; gap:12px; padding:10px 0; border-bottom:1px solid #EEF2F7; font-size:14px; }
+    .checklist-box li:last-child { border-bottom:none; }
+    .checklist-box li .check-icon { width:22px; height:22px; border:2px solid #CFD8DC; border-radius:4px; flex-shrink:0; margin-top:2px; }
+
+    .req-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:12px; margin:14px 0; }
+    .req-card { border-radius:10px; padding:16px; border:1px solid var(--border); display:flex; align-items:flex-start; gap:12px; background:white; }
+    .req-card i { font-size:22px; flex-shrink:0; margin-top:2px; }
+    .req-card .rc-title { font-weight:700; font-size:14px; margin-bottom:3px; }
+    .req-card .rc-desc { font-size:12px; color:var(--muted); line-height:1.5; }
+
+    .limit-box { background:#FFF3E0; border:1.5px solid #FFCC80; border-radius:10px; padding:18px 20px; margin:14px 0; }
+    .limit-box .lb-title { font-weight:700; font-size:15px; color:var(--warning); margin-bottom:10px; display:flex; align-items:center; gap:8px; }
+
+    .divider { border:none; border-top:2px dashed var(--border); margin:28px 0; }
+
+    .footer { text-align:center; padding:32px; color:var(--muted); font-size:13px; border-top:1px solid var(--border); margin-top:20px; }
+
+    @media print {
+      .capa,.section-icon,.steps li::before,th { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    }
+    @media (max-width:600px) {
+      .toc ol { column-count:1; }
+      .req-grid { grid-template-columns:1fr; }
+      .capa h1 { font-size:22px; }
+      .section { padding:20px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="capa">
+  <div class="capa-logo">🚀</div>
+  <h1>Manual de Implantação</h1>
+  <h2>DRG-Kronos 3.0 — Guia do Revendedor</h2>
+  <div class="capa-badge"><i class="fa-solid fa-shield-halved"></i> &nbsp;DOCUMENTO INTERNO — PARA REVENDEDORES</div>
+  <div class="capa-version">DRG-Kronos 3.0 &nbsp;·&nbsp; v1.0 &nbsp;·&nbsp; D.R. Global Multi Services &nbsp;·&nbsp; 2026-05-08</div>
+</div>
+
+<div class="container">
+
+  <!-- ÍNDICE -->
+  <div class="toc">
+    <h3><i class="fa-solid fa-list"></i> Índice</h3>
+    <ol>
+      <li><a href="#s1">Pré-Requisitos</a></li>
+      <li><a href="#s2">Criar o Projeto Firebase</a></li>
+      <li><a href="#s3">Obter as Credenciais Firebase</a></li>
+      <li><a href="#s4">Configurar as Regras do Firestore</a></li>
+      <li><a href="#s5">Instalar o Sistema no Computador</a></li>
+      <li><a href="#s6">Configurar os Dados da Empresa</a></li>
+      <li><a href="#s7">Cadastrar o Primeiro Usuário</a></li>
+      <li><a href="#s8">Testar o Sistema</a></li>
+      <li><a href="#s9">Criar Atalho na Área de Trabalho</a></li>
+      <li><a href="#s10">Limitações da Versão Local</a></li>
+      <li><a href="#s11">Informações de Suporte</a></li>
+    </ol>
+  </div>
+
+  <!-- SEÇÃO 1 — PRÉ-REQUISITOS -->
+  <div class="section" id="s1">
+    <div class="section-header">
+      <div class="section-icon"><i class="fa-solid fa-clipboard-check"></i></div>
+      <div>
+        <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:2px;">Seção 1</div>
+        <h2>Pré-Requisitos</h2>
+      </div>
+    </div>
+
+    <p>Antes de começar a instalação, certifique-se de que você tem em mãos tudo o que é necessário. Separe esses itens antes de ir até o cliente.</p>
+
+    <div class="req-grid">
+      <div class="req-card">
+        <i class="fa-brands fa-google" style="color:#EA4335;"></i>
+        <div>
+          <div class="rc-title">Conta Google (Gmail) do cliente</div>
+          <div class="rc-desc">Será usada para criar o projeto Firebase. O cliente precisa fornecer login e senha.</div>
+        </div>
+      </div>
+      <div class="req-card">
+        <i class="fa-brands fa-chrome" style="color:#4285F4;"></i>
+        <div>
+          <div class="rc-title">Chrome ou Edge atualizado</div>
+          <div class="rc-desc">O sistema funciona melhor nesses navegadores. Verifique se está atualizado.</div>
+        </div>
+      </div>
+      <div class="req-card">
+        <i class="fa-solid fa-wifi" style="color:var(--teal);"></i>
+        <div>
+          <div class="rc-title">Acesso à internet</div>
+          <div class="rc-desc">Necessário para criar o Firebase e para o sistema funcionar após a instalação.</div>
+        </div>
+      </div>
+      <div class="req-card">
+        <i class="fa-solid fa-usb" style="color:var(--warning);"></i>
+        <div>
+          <div class="rc-title">Pen drive com os arquivos do sistema</div>
+          <div class="rc-desc">Contém todos os arquivos do DRG-Kronos 3.0, incluindo o <code>firebase-config.js</code> e o <code>ABRIR.bat</code>.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="alert alert-warning">
+      <i class="fa-solid fa-triangle-exclamation"></i>
+      <div><strong>Importante:</strong> Cada cliente precisa de um projeto Firebase próprio. Nunca compartilhe as credenciais de um cliente com outro.</div>
+    </div>
+  </div>
+
+  <!-- SEÇÃO 2 — CRIAR PROJETO FIREBASE -->
+  <div class="section" id="s2">
+    <div class="section-header">
+      <div class="section-icon orange"><i class="fa-solid fa-database"></i></div>
+      <div>
+        <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:2px;">Seção 2</div>
+        <h2>Criar o Projeto Firebase</h2>
+      </div>
+    </div>
+
+    <p>O Firebase é o banco de dados em nuvem onde os dados do sistema ficam armazenados. Você precisa criar um projeto gratuito para cada cliente.</p>
+
+    <ol class="steps">
+      <li>
+        <div class="step-content">
+          <strong>Acesse o console do Firebase</strong>
+          Abra o Chrome e vá para: <span class="code-inline">https://console.firebase.google.com</span>. Entre com a conta Google do cliente.
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>Clique em "Criar um projeto"</strong>
+          Para o nome do projeto, use algo que identifique o cliente, por exemplo: <span class="code-inline">nome-empresa-kronos</span> (sem espaços, sem acentos).
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>Desative o Google Analytics</strong>
+          Na próxima tela, desmarque a opção do Google Analytics — isso simplifica a criação. Clique em "Criar projeto".
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>Aguarde a criação do projeto</strong>
+          O Firebase leva cerca de 30 segundos. Quando aparecer "Seu novo projeto está pronto", clique em "Continuar".
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>No menu lateral, clique em "Firestore Database"</strong>
+          Em seguida clique em "Criar banco de dados".
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>Selecione "Iniciar no modo de produção"</strong>
+          Depois vamos configurar as regras de acesso na Seção 4.
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>Escolha a região: southamerica-east1 (São Paulo)</strong>
+          Essa é a região mais próxima do Brasil, garantindo melhor velocidade. Clique em "Ativar".
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>Aguarde o provisionamento</strong>
+          O banco de dados leva cerca de 1 minuto para ficar disponível. Quando aparecer a tela do Firestore, está pronto.
+        </div>
+      </li>
+    </ol>
+
+    <div class="alert alert-info">
+      <i class="fa-solid fa-circle-info"></i>
+      <div><strong>O Firebase tem plano gratuito.</strong> Para o uso típico do DRG-Kronos com até algumas dezenas de colaboradores, o plano gratuito (Spark) é suficiente. Não é necessário cadastrar cartão de crédito.</div>
+    </div>
+  </div>
+
+  <!-- SEÇÃO 3 — OBTER CREDENCIAIS -->
+  <div class="section" id="s3">
+    <div class="section-header">
+      <div class="section-icon purple"><i class="fa-solid fa-key"></i></div>
+      <div>
+        <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:2px;">Seção 3</div>
+        <h2>Obter as Credenciais Firebase</h2>
+      </div>
+    </div>
+
+    <p>As credenciais são um conjunto de chaves que identificam o projeto Firebase do cliente. Você vai copiá-las e colar no arquivo de configuração do sistema.</p>
+
+    <ol class="steps">
+      <li>
+        <div class="step-content">
+          <strong>Clique na engrenagem ⚙ no topo do menu lateral</strong>
+          Selecione "Configurações do projeto".
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>Role a página até "Seus apps"</strong>
+          Na seção "Seus apps", clique no ícone <strong>&lt;/&gt;</strong> (Web app — aplicativo web).
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>Dê um nome para o app</strong>
+          Digite <span class="code-inline">drg-kronos</span> e clique em "Registrar app". Não é necessário ativar o Firebase Hosting.
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>Copie o objeto <code>firebaseConfig</code></strong>
+          Uma caixa de código aparece na tela com 6 campos (<code>apiKey</code>, <code>authDomain</code>, <code>projectId</code>, <code>storageBucket</code>, <code>messagingSenderId</code>, <code>appId</code>). Copie ou anote todos esses valores.
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>Clique em "Continuar para o console"</strong>
+          As credenciais ficam salvas no projeto — você pode acessá-las novamente pelas Configurações do projeto quando precisar.
+        </div>
+      </li>
+    </ol>
+
+    <div class="alert alert-danger">
+      <i class="fa-solid fa-triangle-exclamation"></i>
+      <div><strong>Guarde as credenciais em local seguro.</strong> O arquivo <code>firebase-config.js</code> de cada cliente é único. Mantenha uma cópia em local seguro para consulta futura.</div>
+    </div>
+  </div>
+
+  <!-- SEÇÃO 4 — REGRAS DO FIRESTORE -->
+  <div class="section" id="s4">
+    <div class="section-header">
+      <div class="section-icon red"><i class="fa-solid fa-shield-halved"></i></div>
+      <div>
+        <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:2px;">Seção 4</div>
+        <h2>Configurar as Regras do Firestore</h2>
+      </div>
+    </div>
+
+    <p>As regras do Firestore controlam quem pode ler e gravar dados no banco. Para o funcionamento inicial do sistema, configure regras abertas conforme descrito abaixo.</p>
+
+    <ol class="steps">
+      <li>
+        <div class="step-content">
+          <strong>No menu lateral do Firebase, clique em "Firestore Database"</strong>
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>Clique na aba "Regras"</strong>
+          No topo da tela do Firestore.
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>Substitua TODO o conteúdo da caixa de texto pelas regras abaixo</strong>
+          Apague o que estiver lá e cole exatamente o seguinte:
+        </div>
+      </li>
+    </ol>
+
+    <div class="code-block"><pre>rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}</pre></div>
+
+    <ol class="steps" style="counter-reset:step 3;">
+      <li>
+        <div class="step-content">
+          <strong>Clique em "Publicar"</strong>
+          As regras são salvas e entram em vigor imediatamente.
+        </div>
+      </li>
+    </ol>
+
+    <div class="alert alert-warning">
+      <i class="fa-solid fa-circle-info"></i>
+      <div><strong>Nota sobre segurança:</strong> As regras abertas acima são suficientes para a implantação inicial. O sistema possui controle de acesso próprio (usuário e senha). Para ambientes que exijam maior segurança, entre em contato com o suporte técnico para configurar regras mais restritas.</div>
+    </div>
+  </div>
+
+  <!-- SEÇÃO 5 — INSTALAR NO COMPUTADOR -->
+  <div class="section" id="s5">
+    <div class="section-header">
+      <div class="section-icon green"><i class="fa-solid fa-computer"></i></div>
+      <div>
+        <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:2px;">Seção 5</div>
+        <h2>Instalar o Sistema no Computador do Cliente</h2>
+      </div>
+    </div>
+
+    <p>Com as credenciais Firebase em mãos, agora é hora de copiar os arquivos do sistema para o computador do cliente e configurar a conexão com o banco de dados.</p>
+
+    <ol class="steps">
+      <li>
+        <div class="step-content">
+          <strong>Conecte o pen drive ao computador do cliente</strong>
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>Crie uma pasta no computador do cliente</strong>
+          Sugestão: <span class="code-inline">C:\DRG-Kronos\</span>. Pode ser em qualquer local, desde que seja de fácil acesso.
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>Copie TODOS os arquivos do pen drive para essa pasta</strong>
+          Selecione tudo (Ctrl+A) na pasta do pen drive e copie para a pasta criada no computador.
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>Abra o arquivo <code>firebase-config.js</code> com o Bloco de Notas</strong>
+          Clique com o botão direito no arquivo → "Abrir com" → "Bloco de Notas".
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>Substitua os valores de configuração</strong>
+          O arquivo contém placeholders como <span class="code-inline">COLE_AQUI_API_KEY</span>, <span class="code-inline">COLE_AQUI_PROJECT_ID</span>, etc. Substitua cada um pelo valor correspondente copiado do Firebase na Seção 3.
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>Salve o arquivo</strong>
+          Pressione Ctrl+S. Feche o Bloco de Notas.
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>Dê um duplo clique em <code>ABRIR.bat</code> para testar</strong>
+          O sistema deve abrir automaticamente no navegador padrão.
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>Verifique se a tela de login aparece corretamente</strong>
+          Se aparecer a tela de login, a instalação básica está concluída.
+        </div>
+      </li>
+    </ol>
+
+    <h3><i class="fa-solid fa-user-lock"></i> Credenciais iniciais do sistema</h3>
+
+    <div class="credential-box">
+      <div class="credential-row">
+        <div class="label">Usuário (login)</div>
+        <div class="value">admin</div>
+      </div>
+      <div class="credential-row">
+        <div class="label">Senha</div>
+        <div class="value">admin@drg123</div>
+      </div>
+      <div class="credential-row" style="margin-bottom:0;">
+        <div class="label">Perfil</div>
+        <div class="value" style="font-size:14px;">master (acesso completo)</div>
+      </div>
+    </div>
+
+    <div class="alert alert-danger">
+      <i class="fa-solid fa-triangle-exclamation"></i>
+      <div><strong>Troque a senha imediatamente no primeiro acesso!</strong> As credenciais acima são padrão e conhecidas. Oriente o cliente a criar um novo usuário master com senha forte e desativar ou excluir o usuário <code>admin</code> padrão.</div>
+    </div>
+  </div>
+
+  <!-- SEÇÃO 6 — CONFIGURAR DADOS DA EMPRESA -->
+  <div class="section" id="s6">
+    <div class="section-header">
+      <div class="section-icon purple"><i class="fa-solid fa-gear"></i></div>
+      <div>
+        <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:2px;">Seção 6</div>
+        <h2>Configurar os Dados da Empresa</h2>
+      </div>
+    </div>
+
+    <p>Após o primeiro login, configure os dados da empresa do cliente para que apareçam corretamente em toda a interface e nos documentos impressos.</p>
+
+    <ol class="steps">
+      <li>
+        <div class="step-content">
+          <strong>Faça login com o usuário <code>admin</code></strong>
+          Use as credenciais da Seção 5.
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>No menu lateral, clique em "⚙ Configurações"</strong>
+          Essa opção aparece apenas para o perfil master.
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>Preencha os campos com os dados da empresa do cliente</strong>
+          <ul style="margin-top:8px;padding-left:18px;color:#374151;font-size:14px;">
+            <li>Nome da empresa</li>
+            <li>CNPJ</li>
+            <li>Ramo de atividade / Descrição</li>
+            <li>URL do logo (opcional — se não tiver, o sistema usa o logo padrão)</li>
+          </ul>
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>Clique em "Salvar Configurações"</strong>
+          O sistema aplica imediatamente as informações em toda a interface.
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>Confira se os dados aparecem corretamente</strong>
+          Verifique na barra lateral, no dashboard e na tela de login.
+        </div>
+      </li>
+    </ol>
+
+    <div class="alert alert-success">
+      <i class="fa-solid fa-lightbulb"></i>
+      <div><strong>Dica:</strong> Use o botão "Pré-visualizar" para ver como ficará antes de salvar. Isso evita erros de digitação que apareceriam para todos os usuários.</div>
+    </div>
+  </div>
+
+  <!-- SEÇÃO 7 — PRIMEIRO USUÁRIO DO CLIENTE -->
+  <div class="section" id="s7">
+    <div class="section-header">
+      <div class="section-icon dark"><i class="fa-solid fa-user-plus"></i></div>
+      <div>
+        <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:2px;">Seção 7</div>
+        <h2>Cadastrar o Primeiro Usuário do Cliente</h2>
+      </div>
+    </div>
+
+    <p>Agora você vai criar o usuário definitivo do cliente — a pessoa que vai administrar o sistema no dia a dia.</p>
+
+    <ol class="steps">
+      <li>
+        <div class="step-content">
+          <strong>No menu lateral, clique em "Usuários &amp; Acessos"</strong>
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>Clique em "Novo Usuário"</strong>
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>Preencha os dados do usuário</strong>
+          Nome, login (e-mail ou usuário) e senha. Defina a role como <strong>master</strong> para que ele tenha acesso completo ao sistema.
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>Salve o usuário</strong>
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>Informe as credenciais ao responsável do cliente</strong>
+          Anote em papel e entregue pessoalmente. Oriente-o a trocar a senha no primeiro acesso.
+        </div>
+      </li>
+    </ol>
+
+    <div class="alert alert-warning">
+      <i class="fa-solid fa-triangle-exclamation"></i>
+      <div><strong>Após criar o usuário definitivo do cliente, exclua ou desative o usuário <code>admin</code> padrão</strong> para garantir a segurança do sistema.</div>
+    </div>
+  </div>
+
+  <!-- SEÇÃO 8 — TESTAR O SISTEMA -->
+  <div class="section" id="s8">
+    <div class="section-header">
+      <div class="section-icon teal"><i class="fa-solid fa-circle-check"></i></div>
+      <div>
+        <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:2px;">Seção 8</div>
+        <h2>Testar o Sistema</h2>
+      </div>
+    </div>
+
+    <p>Antes de encerrar a visita, execute o checklist abaixo para garantir que tudo está funcionando corretamente.</p>
+
+    <ul class="checklist-box">
+      <li>
+        <div class="check-icon"></div>
+        <div>O sistema abre sem erros no navegador ao clicar em <code>ABRIR.bat</code></div>
+      </li>
+      <li>
+        <div class="check-icon"></div>
+        <div>O login funciona com o usuário criado para o cliente</div>
+      </li>
+      <li>
+        <div class="check-icon"></div>
+        <div>O nome e o logo da empresa aparecem corretamente na interface</div>
+      </li>
+      <li>
+        <div class="check-icon"></div>
+        <div>É possível cadastrar um colaborador de teste sem erros</div>
+      </li>
+      <li>
+        <div class="check-icon"></div>
+        <div>A Folha de Ponto carrega e calcula corretamente para o colaborador de teste</div>
+      </li>
+      <li>
+        <div class="check-icon"></div>
+        <div>A impressão da folha de ponto exibe os dados corretos da empresa (nome, CNPJ, ramo de atividade)</div>
+      </li>
+    </ul>
+
+    <div class="alert alert-success">
+      <i class="fa-solid fa-party-horn"></i>
+      <div><strong>Se todos os itens estão marcados, a implantação foi concluída com sucesso!</strong> Lembre-se de excluir o colaborador de teste antes de entregar o sistema ao cliente.</div>
+    </div>
+  </div>
+
+  <!-- SEÇÃO 9 — ATALHO NA ÁREA DE TRABALHO -->
+  <div class="section" id="s9">
+    <div class="section-header">
+      <div class="section-icon slate"><i class="fa-solid fa-desktop"></i></div>
+      <div>
+        <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:2px;">Seção 9</div>
+        <h2>Criar Atalho na Área de Trabalho (opcional)</h2>
+      </div>
+    </div>
+
+    <p>Para facilitar o acesso diário do cliente ao sistema, crie um atalho do <code>ABRIR.bat</code> na área de trabalho.</p>
+
+    <ol class="steps">
+      <li>
+        <div class="step-content">
+          <strong>Abra a pasta onde os arquivos foram instalados</strong>
+          Por exemplo: <span class="code-inline">C:\DRG-Kronos\</span>
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>Clique com o botão direito no arquivo <code>ABRIR.bat</code></strong>
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>Selecione "Enviar para" → "Área de Trabalho (criar atalho)"</strong>
+          Um atalho aparece na área de trabalho.
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <strong>Renomeie o atalho para "DRG-Kronos 3.0"</strong>
+          Clique com o botão direito no atalho → "Renomear". Digite o nome e pressione Enter.
+        </div>
+      </li>
+    </ol>
+
+    <div class="alert alert-info">
+      <i class="fa-solid fa-circle-info"></i>
+      <div>A partir de agora, o cliente pode abrir o sistema com um duplo clique no atalho da área de trabalho — sem precisar navegar pelas pastas.</div>
+    </div>
+  </div>
+
+  <!-- SEÇÃO 10 — LIMITAÇÕES DA VERSÃO LOCAL -->
+  <div class="section" id="s10">
+    <div class="section-header">
+      <div class="section-icon orange"><i class="fa-solid fa-triangle-exclamation"></i></div>
+      <div>
+        <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:2px;">Seção 10</div>
+        <h2>Limitações da Versão Local (Pen Drive / Arquivo)</h2>
+      </div>
+    </div>
+
+    <p>A versão instalada localmente a partir do pen drive funciona muito bem para o uso diário de gestão. Porém, algumas funcionalidades dependem do acesso via internet.</p>
+
+    <div class="limit-box">
+      <div class="lb-title"><i class="fa-solid fa-wifi"></i> Requer conexão com a internet</div>
+      <p style="color:#374151;font-size:14px;">O sistema precisa estar conectado à internet para acessar o Firebase Firestore. Sem internet, nenhum dado é carregado ou salvo. Isso é normal e esperado — o banco de dados fica na nuvem.</p>
+    </div>
+
+    <table>
+      <thead><tr><th>Funcionalidade</th><th>Versão Local</th><th>Solução</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>Gestão de colaboradores, folha de ponto, relatórios</strong></td>
+          <td style="color:var(--success);"><i class="fa-solid fa-check"></i> Funciona normalmente</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td><strong>Leitura de PDF por IA (Gemini)</strong></td>
+          <td style="color:var(--danger);"><i class="fa-solid fa-xmark"></i> Não disponível</td>
+          <td>Funciona apenas na versão hospedada na web (GitHub Pages)</td>
+        </tr>
+        <tr>
+          <td><strong>App de Ponto (ponto.html) pelo celular</strong></td>
+          <td style="color:var(--danger);"><i class="fa-solid fa-xmark"></i> Não funciona via <code>file://</code> no celular</td>
+          <td>O arquivo precisa ser acessado via URL na internet. Hospedar no GitHub Pages resolve (gratuito)</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="alert alert-info">
+      <i class="fa-solid fa-lightbulb"></i>
+      <div><strong>Solução para funcionalidade completa:</strong> Hospedar o sistema no GitHub Pages (gratuito) disponibiliza todas as funcionalidades, incluindo a leitura de PDF por IA e o App de Ponto pelo celular. Para configurar a hospedagem, consulte o suporte técnico da D.R. Global.</div>
+    </div>
+  </div>
+
+  <!-- SEÇÃO 11 — SUPORTE -->
+  <div class="section" id="s11">
+    <div class="section-header">
+      <div class="section-icon green"><i class="fa-solid fa-headset"></i></div>
+      <div>
+        <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:2px;">Seção 11</div>
+        <h2>Informações de Suporte</h2>
+      </div>
+    </div>
+
+    <p>Em caso de dúvidas durante ou após a implantação, entre em contato com a D.R. Global Multi Services.</p>
+
+    <table>
+      <thead><tr><th>Informação</th><th>Detalhe</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>Empresa</strong></td>
+          <td>D.R. Global Multi Services</td>
+        </tr>
+        <tr>
+          <td><strong>E-mail de suporte</strong></td>
+          <td><a href="mailto:zett.romao@gmail.com">zett.romao@gmail.com</a></td>
+        </tr>
+        <tr>
+          <td><strong>Sistema (versão web)</strong></td>
+          <td><a href="https://zett-romao.github.io/drg-sistema" target="_blank">https://zett-romao.github.io/drg-sistema</a></td>
+        </tr>
+        <tr>
+          <td><strong>Arquivo de configuração</strong></td>
+          <td><code>firebase-config.js</code> — único por cliente. Guarde cópia segura.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="alert alert-danger">
+      <i class="fa-solid fa-shield-halved"></i>
+      <div><strong>Confidencialidade:</strong> O arquivo <code>firebase-config.js</code> de cada cliente é único e contém as credenciais de acesso ao banco de dados daquele cliente. Guarde uma cópia segura e <strong>nunca compartilhe as credenciais de um cliente com outro</strong>.</div>
+    </div>
+
+    <div class="alert alert-purple">
+      <i class="fa-solid fa-floppy-disk"></i>
+      <div><strong>Dica de organização:</strong> Crie uma pasta no seu computador para cada cliente com o nome da empresa e guarde dentro dela uma cópia do <code>firebase-config.js</code> configurado. Isso facilita o suporte remoto no futuro.</div>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <div class="footer">
+    <div style="font-size:20px;margin-bottom:8px;">🚀</div>
+    <strong>D.R. Global Multi Services — DRG-Kronos 3.0</strong><br>
+    Manual de Implantação &nbsp;·&nbsp; v1.0 &nbsp;·&nbsp; 2026-05-08<br>
+    <span style="margin-top:6px;display:inline-block;font-size:12px;">
+      Documento interno — para uso exclusivo dos revendedores autorizados da D.R. Global Multi Services
+    </span>
+  </div>
+
+</div>
+</body>
+</html>

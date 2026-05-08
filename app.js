@@ -130,6 +130,7 @@ const State = {
   perfis:    [],
   postos:    [],
   contratos: [],
+  escalas:   [],
   cct: null,
   empresa: {...EMPRESA_DEFAULTS},
   decimoTerceiro: [],
@@ -596,6 +597,7 @@ function showSection(name){
   if(name==='users'          && !mods.users && !mods.log) return;
   if(name==='employees'      && !mods.employees)    return;
   if(name==='payroll'        && !mods.payroll)      return;
+  if(name==='escalas'        && !mods.escalas)      return;
   if(name==='pagamentos'     && !mods.pagamentos)      return;
   if(name==='decimoterceiro' && !mods.decimoterceiro)  return;
   if(name==='ferias'         && !mods.ferias)          return;
@@ -618,13 +620,14 @@ function showSection(name){
   const navBtn=document.getElementById('nav-'+name);
   if(section) section.classList.add('active');
   if(navBtn)  navBtn.classList.add('active');
-  const titles={dashboard:'Dashboard',employees:'Colaboradores',payroll:'Folha de Ponto',
+  const titles={dashboard:'Dashboard',employees:'Colaboradores',payroll:'Folha de Ponto',escalas:'Escalas',
                 pagamentos:'Pagamentos',decimoterceiro:'13º Salário',ferias:'Férias',
                 contabilidade:'Contabilidade',users:'Usuários & Acessos',postos:'Postos de Trabalho',contratos:'Contratos',configuracoes:'Configurações'};
   document.getElementById('topbar-title').textContent=titles[name]||name;
   State.currentSection=name;
   if(name==='employees') renderEmployeeTable();
   if(name==='payroll')   { initPayrollSection(); renderPayrollStats(); }
+  if(name==='escalas')   renderEscalas();
   if(name==='dashboard') renderDashboard();
   if(name==='pagamentos')      { _applyModoBanners(State.empresa?.modoContabilidade||'ambas'); renderPagamentos(); }
   if(name==='decimoterceiro')  renderDecimoTerceiro();
@@ -802,6 +805,8 @@ function applyUserSession(user){
   // Postos de Trabalho: master ou gestor
   const postosLi=document.getElementById('nav-postos-li');
   if(postosLi) postosLi.classList.toggle('hidden', !mods.postos);
+  const escLi=document.getElementById('nav-escalas-li');
+  if(escLi) escLi.classList.toggle('hidden', !mods.escalas);
   const pagLi=document.getElementById('nav-pagamentos-li');
   if(pagLi) pagLi.classList.toggle('hidden', !mods.pagamentos);
   const decLi=document.getElementById('nav-decimoterceiro-li');
@@ -1106,6 +1111,8 @@ function renderDashboard(){
   const afastados=State.employees.filter(e=>(e.status||'ativo')==='afastado').length;
   const licMaternidade=State.employees.filter(e=>(e.status||'ativo')==='licenca-maternidade').length;
   const totalPostos=(State.postos||[]).length;
+  const escalasMes=(State.escalas||[]).filter(es=>es.mes==mes&&es.ano==ano).length;
+  const escalasPend=Math.max(0, ativos-escalasMes);
   const stats=document.getElementById('dashboard-stats'); if(!stats) return;
   const cctInfo=State.cct?`<div class="stat-card" style="border-color:#7B1FA2;border-left-width:4px"><div class="stat-icon" style="background:#F3E5F5;color:#7B1FA2"><i class="fa-solid fa-file-contract"></i></div><div><div class="stat-value" style="font-size:14px">CCT vigente</div><div class="stat-label">desde ${formatDateBr(State.cct.vigencia)}</div></div></div>`:'';
   stats.innerHTML=`
@@ -1124,6 +1131,13 @@ function renderDashboard(){
     <div class="stat-card" style="border-color:#1565C0;border-left-width:4px;cursor:pointer" onclick="showSection('postos')" title="Ver postos de trabalho">
       <div class="stat-icon" style="background:#E3F2FD;color:#1565C0"><i class="fa-solid fa-building"></i></div>
       <div><div class="stat-value" style="color:#1565C0">${totalPostos}</div><div class="stat-label">Postos de trabalho</div></div></div>
+    <div class="stat-card" style="border-color:#6A1B9A;border-left-width:4px;cursor:pointer" onclick="showSection('escalas')" title="Ver escalas do mês">
+      <div class="stat-icon" style="background:#F3E5F5;color:#6A1B9A"><i class="fa-solid fa-calendar-days"></i></div>
+      <div>
+        <div class="stat-value" style="color:#6A1B9A">${escalasMes}</div>
+        <div class="stat-label">Escalas — ${MESES[mes]}/${ano}</div>
+        ${escalasPend>0?`<div style="font-size:10px;color:#E65100;margin-top:2px"><i class="fa-solid fa-triangle-exclamation"></i> ${escalasPend} pendente(s) de revisão</div>`:'<div style="font-size:10px;color:#1B5E20;margin-top:2px"><i class="fa-solid fa-check-circle"></i> Todas projetadas</div>'}
+      </div></div>
     ${(()=>{
       const modo=State.empresa?.modoContabilidade||'ambas';
       const usaInterna=modo==='interna'||modo==='ambas';
@@ -2555,6 +2569,7 @@ function openEmployeeModal(id=null){
     setVal('emp-licenca-termino',emp.licencaMaternidadeTermino||'');
     onEmpStatusChange();
     setVal('emp-horario-entrada',emp.horarioEntrada||''); setVal('emp-horario-saida',emp.horarioSaida||'');
+    setVal('emp-horario-ref-ini',emp.horarioRefIni||''); setVal('emp-horario-ref-fim',emp.horarioRefFim||'');
     setVal('emp-salario-base',emp.salarioBase||'');
     setVal('emp-posto',emp.posto||'');
     setVal('emp-setor',emp.setor||'');
@@ -2591,6 +2606,7 @@ function openEmployeeModal(id=null){
      'emp-nascimento','emp-email','emp-celular','emp-cep','emp-endereco','emp-numero','emp-complemento',
      'emp-bairro','emp-cidade','emp-vt-dia','emp-vr-dia','emp-va-mensal','emp-pix','emp-tipo-transporte',
      'emp-data-admissao','emp-data-demissao','emp-horario-entrada','emp-horario-saida',
+     'emp-horario-ref-ini','emp-horario-ref-fim',
      'emp-salario-base','emp-posto','emp-setor','emp-exame-vencimento',
      'emp-licenca-inicio','emp-licenca-termino'].forEach(fid=>setVal(fid,''));
     // Resetar foto, férias e histórico de postos
@@ -2651,6 +2667,8 @@ async function saveEmployee(){
     escala:val('emp-escala')||'5x2A',
     horarioEntrada:val('emp-horario-entrada'),
     horarioSaida:val('emp-horario-saida'),
+    horarioRefIni:val('emp-horario-ref-ini'),
+    horarioRefFim:val('emp-horario-ref-fim'),
     turnoNoturno:chk?chk.checked:false,
     salarioBase:numVal('emp-salario-base'),
     insalubridade:numVal('emp-insalubridade')||0,
@@ -5266,7 +5284,7 @@ ${isPreview?`<div class="preview-banner">
   <div class="info-item"><div class="info-label">Admissão</div><div class="info-value">${emp.admissao?fmtDate(emp.admissao):'—'}</div></div>
   <div class="info-item"><div class="info-label">Posto de Trabalho</div><div class="info-value">${posto.razaoSocial||'—'}</div></div>
   <div class="info-item"><div class="info-label">Salário Base</div><div class="info-value">${fmtMoney(salarioBase)}</div></div>
-  <div class="info-item"><div class="info-label">Horário Contratual</div><div class="info-value">${emp.horarioEntrada||'—'} – ${emp.horarioSaida||'—'}</div></div>
+  <div class="info-item"><div class="info-label">Horário Contratual</div><div class="info-value">${emp.horarioEntrada||'—'} – ${emp.horarioSaida||'—'}${(emp.horarioRefIni||emp.horarioRefFim)?` <span style="font-size:10px;color:#888">(Ref. ${emp.horarioRefIni||'—'}–${emp.horarioRefFim||'—'})</span>`:''}</div></div>
   <div class="info-item"><div class="info-label">Banco de Horas</div><div class="info-value">${emp.bancoHoras||'—'}</div></div>
   <div class="info-item"><div class="info-label">Status</div><div class="info-value">${(emp.status||'ativo').charAt(0).toUpperCase()+(emp.status||'ativo').slice(1)}</div></div>
 </div>
@@ -5482,7 +5500,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
   <div class="info-item"><div class="info-label">Admissão</div><div class="info-value">${emp.admissao?fmtDate(emp.admissao):'—'}</div></div>
   <div class="info-item"><div class="info-label">Posto de Trabalho</div><div class="info-value">${posto.razaoSocial||'—'}</div></div>
   <div class="info-item"><div class="info-label">Salário Base</div><div class="info-value">${fmtMoney(emp.salarioBase||0)}</div></div>
-  <div class="info-item"><div class="info-label">Horário Contratual</div><div class="info-value">${emp.horarioEntrada||'—'} – ${emp.horarioSaida||'—'}</div></div>
+  <div class="info-item"><div class="info-label">Horário Contratual</div><div class="info-value">${emp.horarioEntrada||'—'} – ${emp.horarioSaida||'—'}${(emp.horarioRefIni||emp.horarioRefFim)?` <span style="font-size:10px;color:#888">(Ref. ${emp.horarioRefIni||'—'}–${emp.horarioRefFim||'—'})</span>`:''}</div></div>
   <div class="info-item"><div class="info-label">Banco de Horas</div><div class="info-value">${emp.bancoHoras||'—'}</div></div>
   <div class="info-item"><div class="info-label">Período</div><div class="info-value">${p.periodoDe||'—'} a ${p.periodoAte||'—'}</div></div>
 </div>
@@ -6132,11 +6150,513 @@ function confirmDeletePosto(id){
 }
 
 // ============================================
+// ESCALAS — Projeção mensal por colaborador
+// ============================================
+// Defaults de horários por escala (usado quando emp não tem horarioEntrada/Saida)
+const ESCALA_HORARIOS_DEFAULT = {
+  '5x2A':  { entrada:'08:00', saida:'18:00' }, // Sex 08-16
+  '5x2B':  { entrada:'07:00', saida:'17:00' }, // Sex 07-16
+  '6x1A':  { entrada:'07:00', saida:'16:00' }, // Sáb 07-11
+  '6x1B':  { entrada:'08:00', saida:'16:20' },
+  '6x1C':  { entrada:'08:00', saida:'17:00' }, // Sáb 08-12
+  '12x36': { entrada:'07:00', saida:'19:00' }
+};
+
+// Retorna horários default para um colaborador num dia da semana específico
+function _escalaHorariosDia(emp, diaSem){
+  const escala = emp.escala || '5x2A';
+  const noturno = !!emp.turnoNoturno;
+  const def = ESCALA_HORARIOS_DEFAULT[escala] || ESCALA_HORARIOS_DEFAULT['5x2A'];
+  let entrada = emp.horarioEntrada || def.entrada;
+  let saida   = emp.horarioSaida   || def.saida;
+  let intIni  = emp.horarioRefIni  || '12:00';
+  let intFim  = emp.horarioRefFim  || '13:00';
+  // Para 12x36 noturno, se não tem horário cadastrado, ajusta default
+  if(escala==='12x36' && noturno && !emp.horarioEntrada){
+    entrada = '19:00'; saida = '07:00';
+  }
+  // Variantes com horário diferenciado em sex/sáb (só aplica se usuário NÃO definiu horário próprio)
+  if(!emp.horarioEntrada){
+    if(diaSem===5 && (escala==='5x2A' || escala==='5x2B')) saida = '16:00';
+    if(diaSem===6 && escala==='6x1A') saida = '11:00';
+    if(diaSem===6 && escala==='6x1C') saida = '12:00';
+  }
+  return { entrada, intIni, intFim, saida };
+}
+
+// Busca dados do mês anterior (escala salva ou pontoManualDias) para projeção 12x36/6x1B
+function _getPrevMonthDias(empId, mes, ano){
+  let pMes = mes - 1, pAno = ano;
+  if(pMes < 1){ pMes = 12; pAno = ano - 1; }
+  // 1) Tenta coleção `escalas` salva
+  const savedEsc = (State.escalas||[]).find(e => e.employeeId===empId && e.mes==pMes && e.ano==pAno);
+  if(savedEsc?.dias?.length) return savedEsc.dias;
+  // 2) Fallback: pontoManualDias da folha de ponto fechada
+  const pay = (State.payrolls||[]).find(p => p.employeeId===empId && p.mes==pMes && p.ano==pAno);
+  if(pay?.pontoManualDias?.length){
+    return pay.pontoManualDias.map(d => ({
+      dia:d.dia, diaSem:d.diaSem,
+      tipo:(d.entrada && d.saida) ? 'trabalho' : 'folga',
+      entrada:d.entrada, intIni:d.intIni, intFim:d.intFim, saida:d.saida
+    }));
+  }
+  return null;
+}
+
+// Projeta a escala completa de um colaborador para um mês
+function _projectEscala(emp, mes, ano, prevDias){
+  const fam = escalaFamilia(emp.escala || '5x2A');
+  if(fam==='5x2')   return _projectEscala5x2(emp, mes, ano);
+  if(fam==='6x1'){
+    if(emp.escala==='6x1B') return _projectEscala6x1B(emp, mes, ano, prevDias);
+    return _projectEscala6x1AC(emp, mes, ano);
+  }
+  if(fam==='12x36') return _projectEscala12x36(emp, mes, ano, prevDias);
+  return _projectEscala5x2(emp, mes, ano);
+}
+
+function _projectEscala5x2(emp, mes, ano){
+  const dias = [];
+  const dpm = new Date(ano, mes, 0).getDate();
+  for(let d=1; d<=dpm; d++){
+    const ds = new Date(ano, mes-1, d).getDay();
+    const isWknd = ds===0 || ds===6;
+    const tipo = isWknd ? 'folga' : 'trabalho';
+    const h = (tipo==='trabalho') ? _escalaHorariosDia(emp, ds) : {entrada:'',intIni:'',intFim:'',saida:''};
+    dias.push({ dia:d, diaSem:ds, tipo, ...h });
+  }
+  return dias;
+}
+
+function _projectEscala6x1AC(emp, mes, ano){
+  const dias = [];
+  const dpm = new Date(ano, mes, 0).getDate();
+  for(let d=1; d<=dpm; d++){
+    const ds = new Date(ano, mes-1, d).getDay();
+    const tipo = (ds===0) ? 'folga' : 'trabalho';
+    const h = (tipo==='trabalho') ? _escalaHorariosDia(emp, ds) : {entrada:'',intIni:'',intFim:'',saida:''};
+    dias.push({ dia:d, diaSem:ds, tipo, ...h });
+  }
+  return dias;
+}
+
+// 6x1B: folga rotativa (1 dia folga a cada 7). Detecta âncora do mês anterior
+function _projectEscala6x1B(emp, mes, ano, prevDias){
+  const dias = [];
+  const dpm = new Date(ano, mes, 0).getDate();
+  let primeiraFolga = null;
+  if(prevDias && prevDias.length){
+    const sorted = [...prevDias].sort((a,b)=>b.dia-a.dia);
+    const lastFolga = sorted.find(d => d.tipo==='folga' || (!d.entrada && !d.saida));
+    if(lastFolga){
+      const prevDpm = new Date(ano, mes-1, 0).getDate();
+      const offsetEnd = prevDpm - lastFolga.dia;
+      // Próxima folga: 7 dias após a última, contando do dia 1 do mês atual
+      primeiraFolga = (7 - (offsetEnd % 7));
+      if(primeiraFolga > dpm) primeiraFolga = null;
+    }
+  }
+  const folgaSet = new Set();
+  if(primeiraFolga !== null){
+    for(let d=primeiraFolga; d<=dpm; d+=7) folgaSet.add(d);
+  }
+  for(let d=1; d<=dpm; d++){
+    const ds = new Date(ano, mes-1, d).getDay();
+    const tipo = folgaSet.has(d) ? 'folga' : 'trabalho';
+    const h = (tipo==='trabalho') ? _escalaHorariosDia(emp, ds) : {entrada:'',intIni:'',intFim:'',saida:''};
+    const obj = { dia:d, diaSem:ds, tipo, ...h };
+    if(primeiraFolga === null) obj.revisao = true; // marcar para revisão manual
+    dias.push(obj);
+  }
+  return dias;
+}
+
+// 12x36: alternância 1 dia trabalho / 1 dia folga
+function _projectEscala12x36(emp, mes, ano, prevDias){
+  const dias = [];
+  const dpm = new Date(ano, mes, 0).getDate();
+  let lastWork = null;
+  if(prevDias && prevDias.length){
+    const sorted = [...prevDias].sort((a,b)=>b.dia-a.dia);
+    const lw = sorted.find(d => d.tipo==='trabalho' || (d.entrada && d.saida));
+    if(lw) lastWork = lw.dia;
+  }
+  let anchor = null;
+  let noPrev = false;
+  if(lastWork !== null){
+    const prevDpm = new Date(ano, mes-1, 0).getDate();
+    const offsetDay1 = (prevDpm - lastWork) + 1; // distância de lastWork até dia 1 do mês atual
+    // lastWork = offset 0 (trabalho). Par = trabalho, ímpar = folga.
+    anchor = (offsetDay1 % 2 === 0) ? 1 : 2;
+  } else {
+    anchor = 1;
+    noPrev = true;
+  }
+  for(let d=1; d<=dpm; d++){
+    const ds = new Date(ano, mes-1, d).getDay();
+    const offset = d - anchor;
+    const tipo = (offset % 2 === 0) ? 'trabalho' : 'folga';
+    const h = (tipo==='trabalho') ? _escalaHorariosDia(emp, ds) : {entrada:'',intIni:'',intFim:'',saida:''};
+    const obj = { dia:d, diaSem:ds, tipo, ...h };
+    if(noPrev) obj.revisao = true;
+    dias.push(obj);
+  }
+  return dias;
+}
+
+// ============================================
+// ESCALAS — Render & UI
+// ============================================
+function renderEscalas(){
+  // Inicializa selects de mês/ano
+  const yearSel = document.getElementById('escala-ano');
+  if(yearSel && !yearSel.options.length){
+    const cur = currentAno();
+    let opts = '';
+    for(let y=cur-1; y<=cur+2; y++) opts += `<option value="${y}">${y}</option>`;
+    yearSel.innerHTML = opts;
+    yearSel.value = cur;
+    document.getElementById('escala-mes').value = currentMes();
+  }
+  // Popula filtros postos / setores
+  const postoSel = document.getElementById('escala-filter-posto');
+  if(postoSel){
+    const sel = postoSel.value;
+    let opts = '<option value="">Todos</option>';
+    (State.postos||[]).forEach(p => { opts += `<option value="${p.id}">${p.razaoSocial||p.nome||'—'}</option>`; });
+    postoSel.innerHTML = opts;
+    postoSel.value = sel;
+  }
+  const setorSel = document.getElementById('escala-filter-setor');
+  if(setorSel){
+    const sel = setorSel.value;
+    const setores = [...new Set((State.employees||[]).map(e=>e.setor).filter(Boolean))].sort();
+    let opts = '<option value="">Todos</option>';
+    setores.forEach(s => { opts += `<option value="${s}">${s}</option>`; });
+    setorSel.innerHTML = opts;
+    setorSel.value = sel;
+  }
+  _renderEscalasCards();
+}
+
+function onEscalaMesChange(){ _renderEscalasCards(); }
+function onEscalaFilterChange(){ _renderEscalasCards(); }
+
+function changeEscalaMes(delta){
+  const mesSel = document.getElementById('escala-mes');
+  const anoSel = document.getElementById('escala-ano');
+  let m = parseInt(mesSel.value) + delta;
+  let a = parseInt(anoSel.value);
+  if(m < 1){ m = 12; a -= 1; }
+  if(m > 12){ m = 1; a += 1; }
+  mesSel.value = m;
+  if(!Array.from(anoSel.options).some(o=>o.value==a)){
+    const opt = document.createElement('option');
+    opt.value = a; opt.textContent = a;
+    anoSel.appendChild(opt);
+  }
+  anoSel.value = a;
+  _renderEscalasCards();
+}
+
+function _renderEscalasCards(){
+  const mes = parseInt(document.getElementById('escala-mes').value || currentMes());
+  const ano = parseInt(document.getElementById('escala-ano').value || currentAno());
+  const fNome   = (document.getElementById('escala-filter-nome').value||'').toLowerCase().trim();
+  const fPosto  = document.getElementById('escala-filter-posto').value||'';
+  const fSetor  = document.getElementById('escala-filter-setor').value||'';
+  const fEscala = document.getElementById('escala-filter-escala').value||'';
+  const fTurno  = document.getElementById('escala-filter-turno').value||'';
+
+  const ativos = (State.employees||[]).filter(e => (e.status||'ativo')==='ativo');
+  const filtered = ativos.filter(e => {
+    if(fNome && !(e.nome||'').toLowerCase().includes(fNome)) return false;
+    if(fPosto && e.posto !== fPosto) return false;
+    if(fSetor && e.setor !== fSetor) return false;
+    if(fEscala && e.escala !== fEscala) return false;
+    if(fTurno){
+      const isNot = !!e.turnoNoturno;
+      if(fTurno==='noturno' && !isNot) return false;
+      if(fTurno==='diurno'  &&  isNot) return false;
+    }
+    return true;
+  }).sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+
+  const container = document.getElementById('escalas-container');
+  if(!container) return;
+  if(!filtered.length){
+    container.innerHTML = '<div class="empty-state"><i class="fa-solid fa-filter-circle-xmark"></i><p>Nenhum colaborador encontrado com os filtros atuais</p></div>';
+    return;
+  }
+  container.innerHTML = filtered.map(emp => _renderEscalaCard(emp, mes, ano)).join('');
+}
+
+function _renderEscalaCard(emp, mes, ano){
+  const saved = (State.escalas||[]).find(e => e.employeeId===emp.id && e.mes==mes && e.ano==ano);
+  let dias;
+  let isProjetada = false;
+  if(saved?.dias?.length){
+    dias = saved.dias;
+  } else {
+    const prevDias = _getPrevMonthDias(emp.id, mes, ano);
+    dias = _projectEscala(emp, mes, ano, prevDias);
+    isProjetada = true;
+  }
+  const fam = escalaFamilia(emp.escala || '5x2A');
+  const posto = (State.postos||[]).find(p=>p.id===emp.posto)?.razaoSocial || '—';
+  const setor = emp.setor || '—';
+  const noturnoBadge = emp.turnoNoturno
+    ? '<span style="background:#E8EAF6;color:#3F51B5;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px"><i class="fa-solid fa-moon"></i> Noturno</span>'
+    : '';
+  const projBadge = isProjetada
+    ? '<span style="background:#FFF3E0;color:#E65100;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px"><i class="fa-solid fa-wand-magic-sparkles"></i> Projetada — não salva</span>'
+    : '<span style="background:#E8F5E9;color:#1B5E20;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px"><i class="fa-solid fa-check"></i> Salva</span>';
+  const rowsHtml = dias.map(d => _renderEscalaRow(d, fam)).join('');
+  return `<div class="card escala-card" data-emp-id="${emp.id}" style="margin-bottom:16px">
+    <div class="card-body" style="padding:14px 18px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+        <div>
+          <div style="font-size:15px;font-weight:700;color:var(--primary)">${emp.nome}${noturnoBadge}${projBadge}</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px"><i class="fa-solid fa-building"></i> ${posto} &middot; <i class="fa-solid fa-sitemap"></i> ${setor} &middot; <strong>${escalaLabel(emp.escala||'5x2A')}</strong></div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn btn-secondary" onclick="resetEscala('${emp.id}')" title="Reprojetar (descarta alterações)"><i class="fa-solid fa-rotate-left"></i> Reprojetar</button>
+          <button class="btn btn-primary" onclick="saveEscala('${emp.id}')"><i class="fa-solid fa-floppy-disk"></i> Salvar</button>
+        </div>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="escala-table" style="width:100%;border-collapse:collapse;font-size:12px;min-width:680px">
+          <thead>
+            <tr style="background:#F5F7FB">
+              <th style="padding:6px 8px;text-align:center;border:1px solid var(--border);width:54px">Dia</th>
+              <th style="padding:6px 8px;text-align:center;border:1px solid var(--border);width:46px">Sem.</th>
+              <th style="padding:6px 8px;text-align:center;border:1px solid var(--border);width:88px">Status</th>
+              <th style="padding:6px 8px;text-align:center;border:1px solid var(--border)">Entrada</th>
+              <th style="padding:6px 8px;text-align:center;border:1px solid var(--border)">Início Refeição</th>
+              <th style="padding:6px 8px;text-align:center;border:1px solid var(--border)">Retorno Refeição</th>
+              <th style="padding:6px 8px;text-align:center;border:1px solid var(--border)">Saída</th>
+            </tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>
+    </div>
+  </div>`;
+}
+
+function _renderEscalaRow(d, fam){
+  const sem = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][d.diaSem];
+  // Cores: 12x36 = duas cores suaves alternadas; demais = sáb/dom diferenciados
+  let bg = '#fff';
+  if(fam==='12x36'){
+    bg = d.tipo==='trabalho' ? '#E3F2FD' : '#FFF8E1'; // azul suave / amarelo suave
+  } else {
+    if(d.diaSem===0)      bg = '#FFEBEE'; // domingo — rosa suave
+    else if(d.diaSem===6) bg = '#FFF9C4'; // sábado — amarelo suave
+  }
+  const tipoLabel = d.tipo==='trabalho'
+    ? '<span style="color:#1B5E20;font-weight:600;font-size:11px"><i class="fa-solid fa-briefcase"></i> Trabalho</span>'
+    : '<span style="color:#E65100;font-weight:600;font-size:11px"><i class="fa-solid fa-umbrella-beach"></i> Folga</span>';
+  const revisao = d.revisao ? ' <span title="Revisar manualmente — sem dados anteriores" style="color:#E65100">⚠</span>' : '';
+  const dis = d.tipo==='folga' ? 'disabled' : '';
+  const opacity = d.tipo==='folga' ? 'opacity:.45' : '';
+  return `<tr style="background:${bg}" data-dia="${d.dia}" data-tipo="${d.tipo}">
+    <td style="padding:4px 6px;text-align:center;border:1px solid var(--border);font-weight:700">${String(d.dia).padStart(2,'0')}${revisao}</td>
+    <td style="padding:4px 6px;text-align:center;border:1px solid var(--border);font-size:11px">${sem}</td>
+    <td style="padding:4px 6px;text-align:center;border:1px solid var(--border)"><span class="esc-tipo-cell" onclick="toggleEscalaTipo(this)" style="cursor:pointer" title="Clique para alternar trabalho/folga">${tipoLabel}</span></td>
+    <td style="padding:2px;border:1px solid var(--border)"><input type="time" class="esc-entrada" value="${d.entrada||''}" ${dis} style="width:100%;${opacity}" onchange="onEscalaCellEdit(this)"></td>
+    <td style="padding:2px;border:1px solid var(--border)"><input type="time" class="esc-int-ini" value="${d.intIni||''}" ${dis} style="width:100%;${opacity}" onchange="onEscalaCellEdit(this)"></td>
+    <td style="padding:2px;border:1px solid var(--border)"><input type="time" class="esc-int-fim" value="${d.intFim||''}" ${dis} style="width:100%;${opacity}" onchange="onEscalaCellEdit(this)"></td>
+    <td style="padding:2px;border:1px solid var(--border)"><input type="time" class="esc-saida" value="${d.saida||''}" ${dis} style="width:100%;${opacity}" onchange="onEscalaCellEdit(this)"></td>
+  </tr>`;
+}
+
+function onEscalaCellEdit(input){
+  // Marcador visual de alterações não salvas (pendente de implementação)
+  const card = input.closest('.escala-card');
+  if(card) card.dataset.dirty = '1';
+}
+
+function toggleEscalaTipo(span){
+  const row = span.closest('tr');
+  if(!row) return;
+  const card = span.closest('.escala-card');
+  const cur = row.dataset.tipo;
+  const novo = cur==='trabalho' ? 'folga' : 'trabalho';
+  row.dataset.tipo = novo;
+  // Habilita/desabilita inputs
+  ['esc-entrada','esc-int-ini','esc-int-fim','esc-saida'].forEach(cls => {
+    const inp = row.querySelector('.'+cls);
+    if(!inp) return;
+    inp.disabled = (novo==='folga');
+    inp.style.opacity = (novo==='folga') ? '.45' : '1';
+    if(novo==='folga') inp.value = '';
+  });
+  // Atualiza badge de status
+  span.innerHTML = novo==='trabalho'
+    ? '<span style="color:#1B5E20;font-weight:600;font-size:11px"><i class="fa-solid fa-briefcase"></i> Trabalho</span>'
+    : '<span style="color:#E65100;font-weight:600;font-size:11px"><i class="fa-solid fa-umbrella-beach"></i> Folga</span>';
+  // Se virou trabalho, pré-preenche horários com defaults do colaborador
+  if(novo==='trabalho' && card){
+    const empId = card.dataset.empId;
+    const emp = State.employees.find(e=>e.id===empId);
+    if(emp){
+      const dia = parseInt(row.dataset.dia);
+      const mes = parseInt(document.getElementById('escala-mes').value);
+      const ano = parseInt(document.getElementById('escala-ano').value);
+      const realDs = new Date(ano, mes-1, dia).getDay();
+      const h = _escalaHorariosDia(emp, realDs);
+      row.querySelector('.esc-entrada').value = h.entrada;
+      row.querySelector('.esc-int-ini').value = h.intIni;
+      row.querySelector('.esc-int-fim').value = h.intFim;
+      row.querySelector('.esc-saida').value = h.saida;
+    }
+  }
+  if(card) card.dataset.dirty = '1';
+}
+
+function _collectEscalaDias(empId){
+  const card = document.querySelector(`.escala-card[data-emp-id="${empId}"]`);
+  if(!card) return null;
+  const mes = parseInt(document.getElementById('escala-mes').value);
+  const ano = parseInt(document.getElementById('escala-ano').value);
+  const rows = card.querySelectorAll('tbody tr[data-dia]');
+  const dias = [];
+  rows.forEach(row => {
+    const dia = parseInt(row.dataset.dia);
+    const ds = new Date(ano, mes-1, dia).getDay();
+    const tipo = row.dataset.tipo || 'trabalho';
+    dias.push({
+      dia, diaSem:ds, tipo,
+      entrada: row.querySelector('.esc-entrada').value,
+      intIni:  row.querySelector('.esc-int-ini').value,
+      intFim:  row.querySelector('.esc-int-fim').value,
+      saida:   row.querySelector('.esc-saida').value
+    });
+  });
+  return dias;
+}
+
+async function saveEscala(empId){
+  const mes = parseInt(document.getElementById('escala-mes').value);
+  const ano = parseInt(document.getElementById('escala-ano').value);
+  const dias = _collectEscalaDias(empId);
+  if(!dias){ toast('Erro: card não encontrado','error'); return; }
+  const existing = (State.escalas||[]).find(e => e.employeeId===empId && e.mes==mes && e.ano==ano);
+  const record = {
+    id:        existing?.id || genId(),
+    employeeId:empId, mes, ano, dias,
+    updatedAt: new Date().toISOString(),
+    createdAt: existing?.createdAt || new Date().toISOString()
+  };
+  const card = document.querySelector(`.escala-card[data-emp-id="${empId}"]`);
+  const btn = card?.querySelector('.btn-primary');
+  if(btn) setBtnLoading(btn, true, '');
+  try {
+    await DB.save('escalas', record);
+    toast('Escala salva!');
+    if(card) delete card.dataset.dirty;
+  } catch(e){
+    console.error(e);
+    toast('Erro ao salvar escala','error');
+  } finally {
+    if(btn) setBtnLoading(btn, false, '<i class="fa-solid fa-floppy-disk"></i> Salvar');
+  }
+}
+
+function resetEscala(empId){
+  const mes = parseInt(document.getElementById('escala-mes').value);
+  const ano = parseInt(document.getElementById('escala-ano').value);
+  const emp = (State.employees||[]).find(e=>e.id===empId);
+  if(!emp) return;
+  // Substitui card sem usar a versão salva
+  const oldEscalas = State.escalas;
+  State.escalas = (oldEscalas||[]).filter(e => !(e.employeeId===empId && e.mes==mes && e.ano==ano));
+  const card = document.querySelector(`.escala-card[data-emp-id="${empId}"]`);
+  if(card) card.outerHTML = _renderEscalaCard(emp, mes, ano);
+  State.escalas = oldEscalas;
+  toast('Escala reprojetada (não salva)');
+}
+
+// ============================================
+// ESCALAS — Exports (Print/Excel/Word)
+// ============================================
+function exportEscalas(format){
+  const mes = parseInt(document.getElementById('escala-mes').value);
+  const ano = parseInt(document.getElementById('escala-ano').value);
+  const cards = document.querySelectorAll('.escala-card');
+  if(!cards.length){ toast('Nenhuma escala visível para exportar','error'); return; }
+  let bodyHtml = '';
+  cards.forEach(card => {
+    const empId = card.dataset.empId;
+    const emp = State.employees.find(e=>e.id===empId);
+    if(!emp) return;
+    const posto = (State.postos||[]).find(p=>p.id===emp.posto)?.razaoSocial || '—';
+    const dias = _collectEscalaDias(empId);
+    const fam = escalaFamilia(emp.escala||'5x2A');
+    bodyHtml += `<h2 style="color:#1a3a6b;font-size:14px;margin:14px 0 4px;page-break-after:avoid">${emp.nome}</h2>
+      <p style="font-size:11px;color:#444;margin:0 0 6px"><strong>Posto:</strong> ${posto} &nbsp;|&nbsp; <strong>Setor:</strong> ${emp.setor||'—'} &nbsp;|&nbsp; <strong>Escala:</strong> ${escalaLabel(emp.escala||'5x2A')}${emp.turnoNoturno?' (Noturno)':''}</p>
+      <table border="1" cellpadding="4" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:11px;margin-bottom:14px;page-break-inside:auto">
+        <thead style="background:#1a3a6b;color:#fff"><tr>
+          <th>Dia</th><th>Sem.</th><th>Status</th><th>Entrada</th><th>Início Ref.</th><th>Retorno Ref.</th><th>Saída</th>
+        </tr></thead><tbody>`;
+    dias.forEach(d => {
+      const sem = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][d.diaSem];
+      let bg = '#fff';
+      if(fam==='12x36') bg = d.tipo==='trabalho' ? '#E3F2FD' : '#FFF8E1';
+      else if(d.diaSem===0) bg = '#FFEBEE';
+      else if(d.diaSem===6) bg = '#FFF9C4';
+      bodyHtml += `<tr style="background:${bg}">
+        <td style="text-align:center"><strong>${String(d.dia).padStart(2,'0')}</strong></td>
+        <td style="text-align:center">${sem}</td>
+        <td style="text-align:center">${d.tipo==='trabalho'?'Trabalho':'Folga'}</td>
+        <td style="text-align:center">${d.entrada||'—'}</td>
+        <td style="text-align:center">${d.intIni||'—'}</td>
+        <td style="text-align:center">${d.intFim||'—'}</td>
+        <td style="text-align:center">${d.saida||'—'}</td>
+      </tr>`;
+    });
+    bodyHtml += `</tbody></table>`;
+  });
+  const titulo = `Escalas — ${MESES[mes]}/${ano}`;
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${titulo}</title>
+<style>body{font-family:Arial,sans-serif;padding:14px;color:#212529}h1{color:#1a3a6b;font-size:18px;margin-bottom:6px}h2{page-break-after:avoid}table{font-size:11px}@media print{h1{font-size:14px}h2{font-size:12px}table{page-break-inside:avoid}}</style>
+</head><body>
+<h1>${_e('nomeEmpresa')} — ${titulo}</h1>
+${bodyHtml}
+<p style="margin-top:18px;font-size:9px;color:#888;text-align:center">Gerado em ${new Date().toLocaleString('pt-BR')} — ${cards.length} colaborador(es)</p>
+</body></html>`;
+  if(format==='print'){
+    const win = window.open('','_blank','width=900,height=700');
+    if(!win){ toast('Permita pop-ups para imprimir','error'); return; }
+    win.document.write(html + '<scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt>');
+    win.document.close();
+  } else if(format==='excel'){
+    const blob = new Blob(['﻿' + html], {type:'application/vnd.ms-excel;charset=utf-8'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `Escalas_${MESES[mes]}_${ano}.xls`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast('Excel gerado!');
+  } else if(format==='word'){
+    const blob = new Blob(['﻿' + html], {type:'application/msword;charset=utf-8'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `Escalas_${MESES[mes]}_${ano}.doc`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast('Word gerado!');
+  }
+}
+
+// ============================================
 // PERFIS CUSTOMIZÁVEIS
 // ============================================
 const MODULOS_LABELS={
   employees:       'Colaboradores',
   payroll:         'Folha de Ponto',
+  escalas:         'Escalas',
   reports:         'Relatórios',
   pagamentos:      'Pagamentos',
   decimoterceiro:  '13º Salário',
@@ -6151,14 +6671,14 @@ const MODULOS_LABELS={
 // Retorna os módulos permitidos para o usuário
 function getUserModules(user){
   if(!user) return {};
-  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,reports:true,pagamentos:true,decimoterceiro:true,ferias:true,contabilidade:true,postos:true,contratos:true,users:true,log:true};
-  if(user.role==='operador') return {dashboard:true,employees:false,payroll:true,reports:true,pagamentos:true,decimoterceiro:true,ferias:true,contabilidade:true,postos:false,contratos:false,users:false,log:!!user.showLog};
+  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,escalas:true,reports:true,pagamentos:true,decimoterceiro:true,ferias:true,contabilidade:true,postos:true,contratos:true,users:true,log:true};
+  if(user.role==='operador') return {dashboard:true,employees:false,payroll:true,escalas:true,reports:true,pagamentos:true,decimoterceiro:true,ferias:true,contabilidade:true,postos:false,contratos:false,users:false,log:!!user.showLog};
   if(user.role&&user.role.startsWith('p_')){
     const perfilId=user.role.replace('p_','');
     const perfil=(State.perfis||[]).find(p=>p.id===perfilId);
     if(perfil) return {dashboard:true,...(perfil.modules||{}),log:!!(perfil.modules?.log||user.showLog)};
   }
-  return {dashboard:true,payroll:true,reports:true};
+  return {dashboard:true,payroll:true,escalas:true,reports:true};
 }
 
 function openPerfilModal(id=null){
@@ -6417,6 +6937,11 @@ async function init(){
   DB.listen('ferias', data => {
     State.ferias = data;
     if(State.currentSection==='ferias') renderFeriasModulo();
+  });
+  DB.listen('escalas', data => {
+    State.escalas = data;
+    if(State.currentSection==='escalas') renderEscalas();
+    if(State.currentSection==='dashboard') renderDashboard();
   });
 
   // 7. Configurar datas na UI

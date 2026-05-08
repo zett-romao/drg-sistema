@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title id="page-title">D.R. Global Multi Services — Sistema de Gestão de Colaboradores</title>
   <link rel="icon" href="logo.png" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20260508i">
+  <link rel="stylesheet" href="styles.css?v=20260508j">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -13,7 +13,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-  <script src="firebase-config.js?v=20260508i"></script>
+  <script src="firebase-config.js?v=20260508j"></script>
 </head>
 <body>
 
@@ -156,6 +156,12 @@
         <a class="nav-link" id="nav-payroll" onclick="showSection('payroll')">
           <i class="fa-solid fa-file-invoice-dollar"></i>
           <span>Folha de Ponto</span>
+        </a>
+      </li>
+      <li id="nav-escalas-li" class="hidden">
+        <a class="nav-link" id="nav-escalas" onclick="showSection('escalas')">
+          <i class="fa-solid fa-calendar-days"></i>
+          <span>Escalas</span>
         </a>
       </li>
       <li id="nav-pagamentos-li" class="hidden">
@@ -1076,6 +1082,72 @@
         </div>
       </section>
 
+      <!-- ===== ESCALAS ===== -->
+      <section id="section-escalas" class="section">
+        <div class="page-header">
+          <div>
+            <h2><i class="fa-solid fa-calendar-days" style="color:var(--primary)"></i> Escalas</h2>
+            <p style="color:var(--text-muted);font-size:13px;margin-top:2px">Projeção mensal por colaborador — edite, salve e exporte</p>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button class="btn btn-secondary" onclick="changeEscalaMes(-1)" title="Mês anterior"><i class="fa-solid fa-chevron-left"></i></button>
+            <select id="escala-mes" onchange="onEscalaMesChange()" style="font-weight:700">
+              <option value="1">Janeiro</option><option value="2">Fevereiro</option><option value="3">Março</option>
+              <option value="4">Abril</option><option value="5">Maio</option><option value="6">Junho</option>
+              <option value="7">Julho</option><option value="8">Agosto</option><option value="9">Setembro</option>
+              <option value="10">Outubro</option><option value="11">Novembro</option><option value="12">Dezembro</option>
+            </select>
+            <select id="escala-ano" onchange="onEscalaMesChange()" style="font-weight:700"></select>
+            <button class="btn btn-secondary" onclick="changeEscalaMes(1)" title="Próximo mês"><i class="fa-solid fa-chevron-right"></i></button>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-body">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;align-items:end">
+              <div>
+                <label style="font-size:11px;color:var(--text-muted);font-weight:600">Buscar nome</label>
+                <input type="text" id="escala-filter-nome" placeholder="Digite o nome..." oninput="onEscalaFilterChange()">
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--text-muted);font-weight:600">Posto</label>
+                <select id="escala-filter-posto" onchange="onEscalaFilterChange()"><option value="">Todos</option></select>
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--text-muted);font-weight:600">Setor</label>
+                <select id="escala-filter-setor" onchange="onEscalaFilterChange()"><option value="">Todos</option></select>
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--text-muted);font-weight:600">Escala</label>
+                <select id="escala-filter-escala" onchange="onEscalaFilterChange()">
+                  <option value="">Todas</option>
+                  <option value="5x2A">5x2 — A</option><option value="5x2B">5x2 — B</option>
+                  <option value="6x1A">6x1 — A</option><option value="6x1B">6x1 — B</option><option value="6x1C">6x1 — C</option>
+                  <option value="12x36">12x36</option>
+                </select>
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--text-muted);font-weight:600">Turno</label>
+                <select id="escala-filter-turno" onchange="onEscalaFilterChange()">
+                  <option value="">Todos</option>
+                  <option value="diurno">Diurno</option>
+                  <option value="noturno">Noturno</option>
+                </select>
+              </div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <button class="btn btn-secondary" onclick="exportEscalas('print')" title="Imprimir / Salvar como PDF"><i class="fa-solid fa-print"></i> Imprimir</button>
+                <button class="btn btn-secondary" onclick="exportEscalas('excel')" title="Exportar Excel (.xls)"><i class="fa-solid fa-file-excel" style="color:#1B5E20"></i> Excel</button>
+                <button class="btn btn-secondary" onclick="exportEscalas('word')" title="Exportar Word (.doc)"><i class="fa-solid fa-file-word" style="color:#1565C0"></i> Word</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="escalas-container">
+          <div class="empty-state"><i class="fa-solid fa-calendar-days"></i><p>Carregando escalas...</p></div>
+        </div>
+      </section>
+
       <!-- ===== CONTABILIDADE ===== -->
       <!-- ===== PAGAMENTOS ===== -->
       <section id="section-pagamentos" class="section">
@@ -1858,6 +1930,16 @@
           <div class="form-group">
             <label>Horário de Saída</label>
             <input type="time" id="emp-horario-saida" placeholder="17:00">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label><i class="fa-solid fa-utensils" style="color:#F59E0B"></i> Início da Refeição</label>
+            <input type="time" id="emp-horario-ref-ini" placeholder="12:00">
+          </div>
+          <div class="form-group">
+            <label><i class="fa-solid fa-utensils" style="color:#F59E0B"></i> Retorno da Refeição</label>
+            <input type="time" id="emp-horario-ref-fim" placeholder="13:00">
           </div>
         </div>
         <div class="form-row" id="turno-noturno-row" style="display:none">
@@ -3049,6 +3131,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260508i"></script>
+<script src="app.js?v=20260508j"></script>
 </body>
 </html>

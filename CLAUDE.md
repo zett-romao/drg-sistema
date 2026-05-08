@@ -6,6 +6,9 @@ Este arquivo serve como memória de contexto pro Claude (ou outra IA) que abrir 
 
 ## O que é
 
+**Nome comercial do software: DRG-Kronos 3.0**
+A versão é controlada pela constante `APP_VERSION` no topo de `app.js` — altere apenas lá, ela alimenta automaticamente a tela de login e o rodapé do sidebar.
+
 Sistema de gestão de colaboradores para a empresa **D.R. Global Multi Services** (portaria/condomínios). Inclui:
 
 - Cadastro de colaboradores (dados pessoais, endereço, contrato, benefícios, férias, documentos)
@@ -13,6 +16,7 @@ Sistema de gestão de colaboradores para a empresa **D.R. Global Multi Services*
 - CCT (Convenção Coletiva de Trabalho) com parametrização global
 - Dashboard com alertas (exames, férias, contratos, PLR)
 - Gestão de postos de trabalho e contratos
+- **Contabilidade**: tabela mensal de 24 colunas com exportação CSV e impressão
 - App separado de **Ponto Eletrônico** mobile (`ponto.html`) pros colaboradores baterem ponto
 
 **Stack:** HTML/CSS/JS puro, Firebase (Firestore + Storage), Cloudflare Worker (proxy de IA), Gemini API.
@@ -50,9 +54,28 @@ O `ponto-sw.js` usa estratégia **network-first** para HTML/JS/CSS/JSON (sempre 
 
 **Atenção:** mesmo com SW novo, o celular pode segurar a versão velha por uma sessão. Usuário precisa fechar e reabrir o app ao menos uma vez (idealmente duas) pra novo SW assumir. Em casos extremos, pode precisar limpar cache do Chrome ou desinstalar/reinstalar o PWA. Documentado em "PWA / Debug" abaixo.
 
+### Relatórios — arquitetura atual
+Os relatórios **não** têm mais seção própria no sidebar. São acessados via botão "Relatórios" dentro de cada módulo, que abre o `modal-reports` dinamicamente via `openReportsModal(allowedTypes, title)`. Os módulos e seus relatórios disponíveis:
+- **Colaboradores**: cadastral, contatos, férias-marcadas, férias-pendentes, afastados, setor, **licenca-mat** (colunas: #, Reg., Nome, Setor, Posto, Admissão, Início Licença, Prev. Retorno, CPF, Celular)
+- **Folha de Ponto**: financeiro, individual, por-posto (+ stats grid com 9 cards do mês)
+- **Postos**: postos-cadastro, posto
+- **Contratos**: contratos-rel
+
+### Escalas de trabalho disponíveis
+5x2, 5x2A, 5x2B, 6x1, 6x1A, 6x1B, **6x1C** (08h–17h dias úteis / Sáb 08h–12h), 12x36
+
+### Status de colaborador disponíveis
+`ativo`, `inativo`, `afastado`, `licenca-maternidade` (novo — badge rosa, card separado no dashboard quando > 0)
+
+### Dashboard — comportamento atual
+- Cards são clicáveis: cada card navega para a aba/filtro correspondente em Colaboradores
+- Card "Licença Maternidade" só aparece se houver colaboradora nesse status
+- Card "Total Remuneração" foi removido
+
 ### Modelo de dados (Firestore)
 - `employees` — colaboradores (campos relevantes recentemente adicionados: `acumuloFuncao` boolean, `insalubridade` 0/20/40/60, `bonificacaoSemprePagar` boolean)
-- `payrolls` — folhas de ponto mensais
+- `payrolls` — folhas de ponto mensais. Campos recentemente adicionados: `periodoDe` (string DD/MM/AAAA), `periodoAte` (string DD/MM/AAAA), `status` (`'aberta'` | `'fechada'`), `fechadoEm` (ISO timestamp)
+- `configuracoes` — coleção nova. Documentos `fechamento_{ano}_{mes}` com estrutura `{ dataFechamento: string, fechado: boolean, fechadoEm: ISO timestamp }`. Controla o fechamento mensal global da Folha de Ponto.
 - `cct` — documento único `id: 'current'`
 - `users` — usuários do sistema (login custom, NÃO Firebase Auth)
 - `accessLog` — log de auditoria
@@ -64,6 +87,36 @@ O `ponto-sw.js` usa estratégia **network-first** para HTML/JS/CSS/JSON (sempre 
 - `cct.plrValorAnual`, `cct.plrAvisoDias`
 - `cct.plrP1Valor`, `cct.plrP1DataLimite`, `cct.plrP1DataPagamento`
 - `cct.plrP2Valor`, `cct.plrP2DataLimite`, `cct.plrP2DataPagamento`
+
+### Folha de Ponto — Fechamento de Período
+
+Feature completa implementada em 2026-05-07. Arquitetura:
+
+**Campos Período De/Até no formulário:** cada folha tem `periodoDe` e `periodoAte` (auto-preenchidos com 1º e último dia do mês, editáveis pelo gestor).
+
+**Painel de Fechamento** (faixa acima do formulário):
+- Exibe o período atual (ex: "Maio / 2026")
+- Campo de data + botão "Salvar" para configurar a data de fechamento global
+- Status dinâmico: "🟢 Período Aberto" ou "🔒 Período Fechado"
+- Botão "🔒 Fechar Todas as Folhas" — fecha todas as folhas do mês com confirmação
+
+**Auto-fechamento:** ao navegar para Folha de Ponto, `checkAutoFechamento()` verifica se `today >= dataFechamento`; se sim, fecha automaticamente todas as folhas abertas do período atual.
+
+**Fechar folha individual:** botão "🔒 Fechar esta Folha" por colaborador (visível quando a folha está aberta e salva). Útil para demissões no meio do mês. Chama `fecharFolhaIndividual()`.
+
+**Reabrir folha:** botão "🔓 Reabrir esta Folha" por colaborador (visível quando fechada). Exige confirmação. Chama `reabrirFolha()`.
+
+**Formulário bloqueado:** quando uma folha está fechada, todos os campos ficam `disabled` e com opacidade reduzida. Função `_lockPayrollForm(lock: boolean)`.
+
+**Funções principais:**
+- `configurarDataFechamento()` — salva a data em `configuracoes/fechamento_{ano}_{mes}`
+- `fecharPeriodo()` — fecha todas as folhas abertas do mês
+- `fecharFolhaIndividual()` — fecha uma folha individual (seta `status='fechada'` e `fechadoEm`)
+- `reabrirFolha()` — reabre uma folha fechada
+- `_lockPayrollForm(lock)` — habilita/desabilita o formulário
+- `_updateFolhaStatusBadge(payroll)` — atualiza o badge visual de status
+- `_updatePainelFechamento(cfg)` — atualiza o painel superior com a config atual
+- `checkAutoFechamento()` — verifica e executa auto-fechamento ao entrar na seção
 
 ### Auth (importante)
 NÃO usa Firebase Auth. Tem módulo próprio (`Auth` em `app.js` linha ~130) com:
@@ -181,6 +234,26 @@ git push origin main
 - **2026-05-06**: `ponto-sw.js` migrado de cache-first para network-first em HTML/JS/CSS/JSON. Cache name bumpado para `drg-ponto-v3-20260506` para invalidar caches antigos. Bug "Cannot access 'db' before initialization" no celular era resultado de SW servindo `firebase-config.js` velho do cache.
 - **2026-05-06**: Branch `master` órfão deletado, padronizado em `main`.
 - **2026-05-06**: Restrições da chave Firebase (`Browser key auto created by Firebase`) limpas de URL antiga do Netlify; mantidas apenas `zett-romao.github.io/*`, `localhost/*`, `127.0.0.1/*`.
+- **2026-05-07**: Software rebatizado como **DRG-Kronos 3.0**. Versão centralizada em `APP_VERSION` no topo de `app.js` — alimenta login e sidebar automaticamente.
+- **2026-05-07**: Relatórios migrados de seção própria para modais contextuais em cada módulo (`openReportsModal(allowedTypes, title)`). Sidebar sem item "Relatórios".
+- **2026-05-07**: Nova seção **Contabilidade** no sidebar — tabela mensal 24 colunas, exportação CSV, impressão.
+- **2026-05-07**: Nova escala **6x1C** (08h–17h dias úteis / Sáb 08h–12h).
+- **2026-05-07**: Novo status de colaborador **Licença Maternidade** — badge rosa, card condicional no Dashboard.
+- **2026-05-07**: Dashboard: todos os cards tornados clicáveis, navegando para filtro correspondente. Card "Total Remuneração" removido.
+- **2026-05-07**: Fix de sincronização: `setEmployeeFilter()` limpa o campo de busca antes de filtrar (bug: busca + filtro de status conflitavam).
+- **2026-05-07**: Licença Maternidade ganhou campos de data: `emp-licenca-inicio` e `emp-licenca-termino` (aparecem/somem via `onEmpStatusChange()` conforme status selecionado). Campos salvos no Firestore como `licencaMaternidadeInicio` e `licencaMaternidadeTermino`.
+- **2026-05-07**: Fix crítico: `savePayroll()` agora preserva `pontoManualDias` existente ao salvar (antes sobrescrevia o documento inteiro apagando os dados do app).
+- **2026-05-07**: `openPontoManual()` virou `async` — faz busca direta no Firestore ao abrir para garantir dados frescos do app de ponto, com fallback para `State.payrolls` em cache.
+- **2026-05-07**: Cards de stats clicáveis na Folha de Ponto — os 9 cards do stats-grid agora abrem um painel flutuante com a lista dos colaboradores daquela categoria. Clicar num colaborador no painel fecha o painel e abre a folha daquele colaborador direto. Função: `showPayrollStatDetail(fieldKey, label, color)`.
+- **2026-05-07**: Fix de segurança no app de ponto (`ponto.html`) — o app agora grava **apenas** `pontoManualDias` no Firestore com `merge:true`, nunca mais espalhando o `currentPayroll` inteiro. Evita sobrescrever campos da folha editados pelo gestor após o colaborador abrir o app.
+- **2026-05-07**: Prévia Parcial de impressão — novo botão "👁 Prévia Parcial" no rodapé do modal Ponto Manual. Calcula tudo em memória (sem salvar), imprime com faixa laranja "PRÉVIA PARCIAL — DOCUMENTO NÃO OFICIAL" e restaura os valores originais. Função: `printPreviewParcial()`. `printFolhaPonto(isPreview=false)` aceita flag para watermark.
+- **2026-05-07**: Fechamento de Período — feature completa (ver seção "Folha de Ponto — Fechamento de Período" neste arquivo). Campos `periodoDe`/`periodoAte` no formulário, painel de fechamento global, fechamento individual, auto-fechamento por data, reabrir folha, bloqueio de formulário. Nova coleção `configuracoes` no Firestore.
+- **2026-05-07**: Fix `showSection()` — remove `modal-stat-detail` ao trocar de seção via sidebar. Corrigia bug onde o modal de stats aberto impedia cliques em botões de outras seções.
+- **2026-05-07**: Contabilidade — linhas pares branco (#ffffff), linhas ímpares azul claro (#EEF2FF). Colaboradores sem folha ganham borda vermelha esquerda (#EF9A9A) independente da cor alternada.
+- **2026-05-07**: Relatório Licença Maternidade — novo card no modal de relatórios de Colaboradores (tipo `licenca-mat`). Colunas: #, Reg., Nome, Setor, Posto, Admissão, Início Licença, Prev. Retorno, CPF, Celular.
+- **2026-05-07**: Tabela de Colaboradores — colunas dinâmicas: quando filtro "Lic. Maternidade" está ativo, colunas Admissão e CPF são substituídas por "Início Licença" e "Prev. Retorno" com datas em destaque rosa (#C2185B).
+- **2026-05-07**: Campos de data na Licença Maternidade — opção "Licença Maternidade" só aparece no select de status ao **editar** (não ao criar novo). Ao selecionar, exibe campos "Início da Licença" e "Previsão de Retorno", salvos como `licencaMaternidadeInicio` e `licencaMaternidadeTermino`.
+- **2026-05-07**: Dados da empresa configuráveis via Firestore — novo documento `configuracoes/empresa` com campos `nomeEmpresa`, `cnpj`, `descricao`, `subdesc`, `logoUrl`. Carregados em `init()` via `loadEmpresaConfig()`, aplicados a todos os elementos do DOM por `applyEmpresaConfig()`. Substituem todos os textos hardcoded "D.R. Global Multi Services" em `index.html` (15+ lugares com IDs) e em `printFolhaPonto()` em `app.js`. Nova seção "Configurações" no sidebar (apenas master), com formulário para editar os dados e função `saveEmpresaConfig()`. Helper `_e(campo)` retorna valor da empresa com fallback nos defaults.
 
 ---
 

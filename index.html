@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>D.R. Global Multi Services — Sistema de Gestão de Colaboradores</title>
+  <title id="page-title">D.R. Global Multi Services — Sistema de Gestão de Colaboradores</title>
   <link rel="icon" href="logo.png" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20260507s">
+  <link rel="stylesheet" href="styles.css?v=20260507t">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -13,14 +13,14 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-  <script src="firebase-config.js?v=20260507s"></script>
+  <script src="firebase-config.js?v=20260507t"></script>
 </head>
 <body>
 
 <!-- ===== TELA DE CARREGAMENTO / SETUP ===== -->
 <div id="loading-screen">
   <div class="loading-card">
-    <img src="logo.png" alt="D.R. Global Multi Services" class="loading-logo"
+    <img id="empresa-logo-loading" src="logo.png" alt="D.R. Global Multi Services" class="loading-logo"
          onerror="this.style.display='none'">
     <div class="loading-spinner"></div>
     <p class="loading-msg" id="loading-msg">Conectando ao banco de dados...</p>
@@ -29,7 +29,7 @@
 
 <div id="setup-screen" class="hidden">
   <div class="setup-card">
-    <img src="logo.png" alt="D.R. Global Multi Services" class="loading-logo"
+    <img id="empresa-logo-setup" src="logo.png" alt="D.R. Global Multi Services" class="loading-logo"
          onerror="this.style.display='none'">
     <h2>Configuração necessária</h2>
     <p>O sistema ainda não está conectado ao banco de dados Firebase.</p>
@@ -50,13 +50,13 @@
 <div id="login-screen">
   <div class="login-card">
     <div class="login-logo-wrap">
-      <img src="logo.png" alt="D.R. Global Multi Services" class="login-logo-img"
+      <img id="empresa-logo-login" src="logo.png" alt="D.R. Global Multi Services" class="login-logo-img"
            onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
       <div class="login-logo-fallback" style="display:none">DRG</div>
     </div>
     <div class="login-brand">
-      <h1>D.R. Global Multi Services</h1>
-      <p>Sistema de Gestão de Colaboradores</p>
+      <h1 id="empresa-nome-login">D.R. Global Multi Services</h1>
+      <p id="empresa-desc-login">Sistema de Gestão de Colaboradores</p>
     </div>
     <form id="login-form" onsubmit="doLogin(event)" autocomplete="off">
       <div class="form-group">
@@ -129,13 +129,13 @@
   <nav class="sidebar" id="sidebar">
     <div class="sidebar-brand">
       <div class="brand-logo-wrap">
-        <img src="logo.png" alt="Logo" class="brand-logo-img"
+        <img id="empresa-logo-sidebar" src="logo.png" alt="Logo" class="brand-logo-img"
              onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
         <div class="brand-logo" style="display:none">DRG</div>
       </div>
       <div class="brand-info">
-        <span class="brand-name">D.R. Global<br><span style="font-weight:500;font-size:12px;opacity:.85">Multi Services</span></span>
-        <span class="brand-sub">Gestão de Colaboradores</span>
+        <span id="empresa-nome-sidebar" class="brand-name">D.R. Global<br><span style="font-weight:500;font-size:12px;opacity:.85">Multi Services</span></span>
+        <span id="empresa-desc-sidebar" class="brand-sub">Gestão de Colaboradores</span>
       </div>
     </div>
 
@@ -180,6 +180,12 @@
         <a class="nav-link" id="nav-users" onclick="showSection('users')">
           <i class="fa-solid fa-user-shield"></i>
           <span>Usuários & Acessos</span>
+        </a>
+      </li>
+      <li id="nav-configuracoes-li" class="hidden">
+        <a class="nav-link" id="nav-configuracoes" onclick="showSection('configuracoes')">
+          <i class="fa-solid fa-gear"></i>
+          <span>Configurações</span>
         </a>
       </li>
     </ul>
@@ -262,7 +268,7 @@
       <section id="section-dashboard" class="section active">
         <div class="page-header">
           <h2>Visão Geral</h2>
-          <p>Bem-vindo ao sistema de gestão de colaboradores D.R. Global Multi Services</p>
+          <p id="dashboard-welcome-empresa">Bem-vindo ao sistema de gestão de colaboradores D.R. Global Multi Services</p>
         </div>
         <div class="stats-grid" id="dashboard-stats"></div>
         <div class="dashboard-cards">
@@ -1056,9 +1062,9 @@
           <div class="card-body p0">
             <div id="cont-printable">
               <div class="cont-report-header" style="display:none;padding:16px 20px;border-bottom:2px solid #e8f0fe;display:none">
-                <img src="logo.png" alt="D.R. Global" style="height:40px;object-fit:contain;margin-right:14px" onerror="this.style.display='none'">
+                <img id="empresa-logo-cont" src="logo.png" alt="D.R. Global" style="height:40px;object-fit:contain;margin-right:14px" onerror="this.style.display='none'">
                 <div>
-                  <div style="font-weight:800;font-size:16px;color:#1a3a6b">D.R. Global Multi Services</div>
+                  <div id="empresa-nome-cont" style="font-weight:800;font-size:16px;color:#1a3a6b">D.R. Global Multi Services</div>
                   <div style="font-size:13px;color:#555" id="cont-report-subtitle">Planilha de Contabilidade</div>
                 </div>
                 <div style="margin-left:auto;text-align:right;font-size:12px;color:#888">
@@ -1115,6 +1121,49 @@
           </div>
           <div class="card-body">
             <div id="cont-sem-folha-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== CONFIGURAÇÕES DA EMPRESA ===== -->
+      <section id="section-configuracoes" class="section">
+        <div class="page-header">
+          <h2>Configurações</h2>
+          <p>Dados da empresa exibidos no sistema e nos documentos impressos</p>
+        </div>
+        <div class="card" style="max-width:680px">
+          <div class="card-header">
+            <h3><i class="fa-solid fa-building"></i> Dados da Empresa</h3>
+          </div>
+          <div class="card-body">
+            <div class="form-group">
+              <label>Nome da Empresa</label>
+              <input type="text" id="cfg-nome-empresa" placeholder="Ex: D.R. Global Multi Services">
+            </div>
+            <div class="form-group">
+              <label>CNPJ</label>
+              <input type="text" id="cfg-cnpj" placeholder="Ex: 47.619.085/0001-98">
+            </div>
+            <div class="form-group">
+              <label>Descrição / Ramo de Atividade</label>
+              <input type="text" id="cfg-descricao" placeholder="Ex: Gestão de Portaria e Segurança">
+            </div>
+            <div class="form-group">
+              <label>URL do Logo <span style="font-size:11px;color:#888">(link externo ou deixe em branco para usar logo.png local)</span></label>
+              <input type="url" id="cfg-logo-url" placeholder="https://...">
+            </div>
+            <div class="form-group">
+              <label>Subtítulo da Tela de Login <span style="font-size:11px;color:#888">(opcional)</span></label>
+              <input type="text" id="cfg-subdesc" placeholder="Ex: Sistema de Gestão de Colaboradores">
+            </div>
+            <div style="display:flex;gap:10px;margin-top:8px">
+              <button class="btn btn-primary" onclick="saveEmpresaConfig()">
+                <i class="fa-solid fa-floppy-disk"></i> Salvar Configurações
+              </button>
+              <button class="btn btn-outline" onclick="applyEmpresaConfig()">
+                <i class="fa-solid fa-eye"></i> Pré-visualizar
+              </button>
+            </div>
           </div>
         </div>
       </section>
@@ -1295,11 +1344,11 @@
         <div id="report-printable">
           <div class="report-header">
             <div class="report-logo-block">
-              <img src="logo.png" alt="Logo" class="report-logo-img"
+              <img id="empresa-logo-report" src="logo.png" alt="Logo" class="report-logo-img"
                    onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
               <div class="report-logo-text" style="display:none">DRG</div>
               <div>
-                <div class="report-company">D.R. Global Multi Services</div>
+                <div id="empresa-nome-report" class="report-company">D.R. Global Multi Services</div>
                 <div class="report-subtitle" id="report-subtitle">Relatório</div>
               </div>
             </div>
@@ -1309,7 +1358,7 @@
           <div id="report-body-area"></div>
           <div class="report-footer">
             <p>Documento gerado em <span id="report-gen-date"></span></p>
-            <p>D.R. Global Multi Services — Sistema de Gestão de Colaboradores</p>
+            <p id="empresa-footer-report">D.R. Global Multi Services — Sistema de Gestão de Colaboradores</p>
           </div>
         </div>
       </div>
@@ -2408,15 +2457,15 @@
     <h2 style="color:#1565C0;margin:0 0 12px;font-size:22px">Sistema Bloqueado</h2>
     <p id="licenca-msg" style="color:#546E7A;font-size:14px;margin:0 0 28px;line-height:1.6">Entre em contato com o suporte para renovar o acesso.</p>
     <div style="background:#E3F2FD;border-radius:10px;padding:14px;font-size:13px;color:#1565C0">
-      <i class="fa-solid fa-headset"></i> Suporte: D.R. Global Multi Services
+      <i class="fa-solid fa-headset"></i> Suporte: <span id="empresa-suporte-nome">D.R. Global Multi Services</span>
     </div>
-    <p style="margin-top:16px;font-size:11px;color:#B0BEC5">D.R. Global Multi Services — Sistema de Gestão</p>
+    <p id="empresa-footer-licenca" style="margin-top:16px;font-size:11px;color:#B0BEC5">D.R. Global Multi Services — Sistema de Gestão</p>
   </div>
 </div>
 
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260507s"></script>
+<script src="app.js?v=20260507t"></script>
 </body>
 </html>

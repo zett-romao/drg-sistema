@@ -115,6 +115,14 @@ const DB = {
 // ============================================
 // ESTADO GLOBAL
 // ============================================
+const EMPRESA_DEFAULTS = {
+  nomeEmpresa: 'D.R. Global Multi Services',
+  cnpj:        '47.619.085/0001-98',
+  descricao:   'Gestão de Portaria e Segurança',
+  subdesc:     'Sistema de Gestão de Colaboradores',
+  logoUrl:     ''
+};
+
 const State = {
   employees: [],
   payrolls:  [],
@@ -122,12 +130,114 @@ const State = {
   postos:    [],
   contratos: [],
   cct: null,
+  empresa: {...EMPRESA_DEFAULTS},
   currentSection: 'dashboard',
   editingEmployeeId: null,
   currentPdfFile: null,
   currentPdfText: '',
   employeeFilter: 'all'
 };
+
+// ============================================
+// CONFIGURAÇÃO DA EMPRESA
+// ============================================
+function _e(field){ return (State.empresa&&State.empresa[field]) || EMPRESA_DEFAULTS[field] || ''; }
+
+async function loadEmpresaConfig(){
+  try {
+    const doc = await DB.fs.collection('configuracoes').doc('empresa').get();
+    if(doc.exists){
+      State.empresa = { ...EMPRESA_DEFAULTS, ...doc.data() };
+    }
+  } catch(e){ /* sem dados — usa defaults */ }
+  applyEmpresaConfig();
+}
+
+function applyEmpresaConfig(){
+  const e = State.empresa;
+  const nome    = e.nomeEmpresa || EMPRESA_DEFAULTS.nomeEmpresa;
+  const logo    = e.logoUrl     || 'logo.png';
+  const subdesc = e.subdesc     || EMPRESA_DEFAULTS.subdesc;
+
+  // título da aba
+  document.title = nome + ' — Sistema de Gestão';
+
+  // logos
+  ['empresa-logo-loading','empresa-logo-setup','empresa-logo-login',
+   'empresa-logo-sidebar','empresa-logo-cont','empresa-logo-report'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el){ el.src=logo; el.alt=nome; }
+  });
+
+  // textos de nome
+  ['empresa-nome-login','empresa-nome-cont','empresa-nome-report'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.textContent=nome;
+  });
+
+  // sidebar brand (tem estrutura especial)
+  const sideNome=document.getElementById('empresa-nome-sidebar');
+  if(sideNome) sideNome.textContent=nome;
+
+  // subtítulo login e sidebar
+  const descLogin=document.getElementById('empresa-desc-login');
+  if(descLogin) descLogin.textContent=subdesc;
+  const descSide=document.getElementById('empresa-desc-sidebar');
+  if(descSide) descSide.textContent=subdesc;
+
+  // dashboard welcome
+  const dWelcome=document.getElementById('dashboard-welcome-empresa');
+  if(dWelcome) dWelcome.textContent='Bem-vindo ao sistema de gestão de colaboradores ' + nome;
+
+  // footer relatório
+  const repFoot=document.getElementById('empresa-footer-report');
+  if(repFoot) repFoot.textContent=nome + ' — Sistema de Gestão de Colaboradores';
+
+  // licença lock
+  const supNome=document.getElementById('empresa-suporte-nome');
+  if(supNome) supNome.textContent=nome;
+  const licFoot=document.getElementById('empresa-footer-licenca');
+  if(licFoot) licFoot.textContent=nome + ' — Sistema de Gestão';
+
+  // formulário de configurações (se estiver visível)
+  if(document.getElementById('cfg-nome-empresa')){
+    setVal('cfg-nome-empresa', e.nomeEmpresa||'');
+    setVal('cfg-cnpj',         e.cnpj||'');
+    setVal('cfg-descricao',    e.descricao||'');
+    setVal('cfg-logo-url',     e.logoUrl||'');
+    setVal('cfg-subdesc',      e.subdesc||'');
+  }
+}
+
+async function saveEmpresaConfig(){
+  if(Auth.currentUser?.role!=='master'){ toast('Apenas o master pode alterar as configurações','error'); return; }
+  const dados = {
+    nomeEmpresa: val('cfg-nome-empresa').trim() || EMPRESA_DEFAULTS.nomeEmpresa,
+    cnpj:        val('cfg-cnpj').trim(),
+    descricao:   val('cfg-descricao').trim(),
+    logoUrl:     val('cfg-logo-url').trim(),
+    subdesc:     val('cfg-subdesc').trim(),
+    updatedAt:   new Date().toISOString()
+  };
+  try {
+    await DB.fs.collection('configuracoes').doc('empresa').set(dados, {merge:true});
+    State.empresa = { ...EMPRESA_DEFAULTS, ...dados };
+    applyEmpresaConfig();
+    toast('Configurações salvas com sucesso!','success');
+  } catch(e){
+    toast('Erro ao salvar configurações: ' + e.message,'error');
+  }
+}
+
+function renderConfiguracoes(){
+  // preenche os campos com os valores atuais
+  const e = State.empresa;
+  setVal('cfg-nome-empresa', e.nomeEmpresa||'');
+  setVal('cfg-cnpj',         e.cnpj||'');
+  setVal('cfg-descricao',    e.descricao||'');
+  setVal('cfg-logo-url',     e.logoUrl||'');
+  setVal('cfg-subdesc',      e.subdesc||'');
+}
 
 // ============================================
 // MÓDULO AUTH
@@ -425,11 +535,12 @@ function showSetup(){
 function showSection(name){
   if(!Auth.currentUser) return;
   const mods=getUserModules(Auth.currentUser);
-  if(name==='users'     && !mods.users && !mods.log) return;
-  if(name==='employees' && !mods.employees) return;
-  if(name==='payroll'   && !mods.payroll)   return;
-  if(name==='postos'    && !mods.postos)    return;
-  if(name==='contratos' && !mods.contratos) return;
+  if(name==='users'          && !mods.users && !mods.log) return;
+  if(name==='employees'      && !mods.employees) return;
+  if(name==='payroll'        && !mods.payroll)   return;
+  if(name==='postos'         && !mods.postos)    return;
+  if(name==='contratos'      && !mods.contratos) return;
+  if(name==='configuracoes'  && Auth.currentUser?.role!=='master') return;
   // Limpa qualquer modal flutuante que possa bloquear cliques
   const floatingModal=document.getElementById('modal-stat-detail');
   if(floatingModal) floatingModal.remove();
@@ -440,13 +551,14 @@ function showSection(name){
   if(section) section.classList.add('active');
   if(navBtn)  navBtn.classList.add('active');
   const titles={dashboard:'Dashboard',employees:'Colaboradores',payroll:'Folha de Ponto',
-                contabilidade:'Contabilidade',users:'Usuários & Acessos',postos:'Postos de Trabalho',contratos:'Contratos'};
+                contabilidade:'Contabilidade',users:'Usuários & Acessos',postos:'Postos de Trabalho',contratos:'Contratos',configuracoes:'Configurações'};
   document.getElementById('topbar-title').textContent=titles[name]||name;
   State.currentSection=name;
   if(name==='employees') renderEmployeeTable();
   if(name==='payroll')   { initPayrollSection(); renderPayrollStats(); }
   if(name==='dashboard') renderDashboard();
-  if(name==='contabilidade') renderContabilidade();
+  if(name==='contabilidade')   renderContabilidade();
+  if(name==='configuracoes')  renderConfiguracoes();
   if(name==='postos')    renderPostosTable();
   if(name==='contratos') { renderContratosTable(); populateContratoPostoSelect(); }
   if(name==='users'){
@@ -620,6 +732,8 @@ function applyUserSession(user){
   if(postosLi) postosLi.classList.toggle('hidden', !mods.postos);
   const contratosLi=document.getElementById('nav-contratos-li');
   if(contratosLi) contratosLi.classList.toggle('hidden', !mods.contratos);
+  const cfgLi=document.getElementById('nav-configuracoes-li');
+  if(cfgLi) cfgLi.classList.toggle('hidden', user.role!=='master');
   showSection('dashboard');
   updateDbInfo();
 }
@@ -4278,8 +4392,8 @@ ${isPreview?`<div class="preview-banner">
 </div>`:''}
 <div class="header">
   <div class="header-left">
-    <h1>D.R. Global Multi Services</h1>
-    <p>CNPJ: 47.619.085/0001-98 &nbsp;|&nbsp; Gestão de Portaria e Segurança</p>
+    <h1>${_e('nomeEmpresa')}</h1>
+    <p>CNPJ: ${_e('cnpj')} &nbsp;|&nbsp; ${_e('descricao')}</p>
     <p style="font-size:12px;font-weight:700;color:${isPreview?'#E65100':'#1a3a6b'};margin-top:4px">${isPreview?'PRÉVIA — ':''}FOLHA DE PONTO — ${mesLabel.toUpperCase()} / ${ano}</p>
   </div>
   <div class="header-right">
@@ -4352,7 +4466,7 @@ ${isPreview?`<div class="preview-banner">
 
 <div class="assinaturas">
   <div class="assinatura-box">
-    D.R. Global Multi Services<br>Empresa / Responsável
+    ${_e('nomeEmpresa')}<br>Empresa / Responsável
   </div>
   <div class="assinatura-box">
     ${emp.nome}<br>Colaborador
@@ -5067,6 +5181,9 @@ async function init(){
   if(!DB.init()){ showSetup(); return; }
 
   showLoading('Carregando dados...');
+
+  // 2b. Carregar config da empresa (em paralelo — não bloqueia)
+  loadEmpresaConfig().catch(()=>{});
 
   // 3. Carregar dados iniciais em paralelo
   try {

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>D.R. Global Multi Services — Sistema de Gestão de Colaboradores</title>
   <link rel="icon" href="logo.png" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20260507n">
+  <link rel="stylesheet" href="styles.css?v=20260507o">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -13,7 +13,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-  <script src="firebase-config.js?v=20260507n"></script>
+  <script src="firebase-config.js?v=20260507o"></script>
 </head>
 <body>
 
@@ -2040,6 +2040,9 @@
       <button class="btn btn-outline" id="btn-salvar-rascunho-ponto" onclick="savePontoManualRascunho()" style="color:var(--warning);border-color:var(--warning)">
         <i class="fa-solid fa-floppy-disk"></i> Salvar Rascunho
       </button>
+      <button class="btn btn-outline" onclick="printPreviewParcial()" style="color:#E65100;border-color:#E65100" title="Calcula e imprime com os dados atuais do ponto — não salva nada">
+        <i class="fa-solid fa-eye"></i> Prévia Parcial
+      </button>
       <button class="btn btn-outline" onclick="printFolhaPonto()" style="color:var(--success);border-color:var(--success)">
         <i class="fa-solid fa-print"></i> Imprimir Folha
       </button>
@@ -2369,6 +2372,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260507n"></script>
+<script src="app.js?v=20260507o"></script>
 </body>
 </html>

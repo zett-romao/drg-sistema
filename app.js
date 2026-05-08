@@ -3861,9 +3861,66 @@ async function applyPontoManual(){
 }
 
 // ============================================
+// PRÉVIA PARCIAL — calcula em memória, imprime, restaura o formulário
+// ============================================
+function printPreviewParcial(){
+  const empId=val('payroll-employee');
+  const emp=State.employees.find(e=>e.id===empId);
+  if(!empId||!emp){ toast('Selecione um colaborador na folha de ponto primeiro.','error'); return; }
+
+  // Campos do formulário que serão temporariamente alterados
+  const campos=['payroll-dias','payroll-faltas-injustificadas','payroll-faltas-justificadas',
+    'payroll-he-total','payroll-he-valor','payroll-remuneracao','payroll-bonus',
+    'payroll-vt-total','payroll-vr-total','payroll-va-liquido','payroll-adiantamento-valor',
+    'payroll-noturno','payroll-acumulo','payroll-insalubridade','payroll-desconto-atraso'];
+  const backup={};
+  campos.forEach(f=>{ backup[f]=val(f); });
+
+  // Calcula dias/faltas/HE do grid atual sem salvar no Firebase
+  const cards=_getPontoManualCards();
+  let diasTrabalhados=0, faltas=0, totalHEmin=0;
+  cards.forEach(card=>{
+    const diaSem=parseInt(card.dataset.semana);
+    const entrada=card.querySelector('.pm-entrada')?.value;
+    const saida=card.querySelector('.pm-saida')?.value;
+    const intIni=card.querySelector('.pm-int-ini')?.value;
+    const intFim=card.querySelector('.pm-int-fim')?.value;
+    const isWeekend=diaSem===0||diaSem===6;
+    if(entrada&&saida){
+      diasTrabalhados++;
+      let mb=timeToMinutes(saida)-timeToMinutes(entrada);
+      if(mb<=0) mb+=24*60;
+      const mi=(intIni&&intFim)?Math.max(0,timeToMinutes(intFim)-timeToMinutes(intIni)):0;
+      const minLiq=mb-mi;
+      let minContr=480;
+      const fam=escalaFamilia(emp.escala||'5x2A');
+      if(fam==='6x1') minContr=440;
+      else if(fam==='12x36') minContr=660;
+      totalHEmin+=Math.max(0,minLiq-minContr);
+    } else if(!isWeekend&&!entrada&&!saida) faltas++;
+  });
+
+  // Aplica temporariamente ao formulário e recalcula
+  setVal('payroll-dias',diasTrabalhados);
+  setVal('payroll-faltas-injustificadas',faltas);
+  setVal('payroll-faltas-justificadas',0);
+  if(totalHEmin>0) setVal('payroll-he-total',(totalHEmin/60).toFixed(2));
+  recalculate();
+
+  // Imprime com flag de prévia (adiciona watermark e faixa laranja)
+  printFolhaPonto(true);
+
+  // Restaura formulário original após o print ser gerado
+  setTimeout(()=>{
+    campos.forEach(f=>{ setVal(f,backup[f]); });
+    recalculate();
+  }, 600);
+}
+
+// ============================================
 // IMPRIMIR FOLHA DE PONTO
 // ============================================
-function printFolhaPonto(){
+function printFolhaPonto(isPreview=false){
   const empId=val('payroll-employee');
   const emp=State.employees.find(e=>e.id===empId);
   if(!empId||!emp){ toast('Selecione um colaborador na folha de ponto primeiro.','error'); return; }
@@ -3946,7 +4003,7 @@ function printFolhaPonto(){
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>Folha de Ponto — ${emp.nome} — ${mesLabel}/${ano}</title>
+<title>${isPreview?'PRÉVIA — ':''}Folha de Ponto — ${emp.nome} — ${mesLabel}/${ano}</title>
 <style>
   *{ box-sizing:border-box; margin:0; padding:0; }
   body{ font-family:Arial,sans-serif; font-size:11px; color:#212529; padding:16px; }
@@ -3976,17 +4033,25 @@ function printFolhaPonto(){
   .resumo-label{ font-size:9px; color:#555; }
   .resumo-valor{ font-size:13px; font-weight:700; color:#1B5E20; }
   .resumo-item.alerta .resumo-valor{ color:#E65100; }
+  .preview-banner{ background:#E65100;color:#fff;padding:8px 14px;border-radius:6px;margin-bottom:12px;display:flex;align-items:center;gap:10px;font-size:11px; }
+  .preview-banner strong{ font-size:13px; }
   @media print{ body{ padding:8px; } }
 </style>
 </head>
 <body>
+${isPreview?`<div class="preview-banner">
+  <span style="font-size:18px">⚠️</span>
+  <div><strong>PRÉVIA PARCIAL — DOCUMENTO NÃO OFICIAL</strong><br>
+  Gerado em ${dataAtual} com base nos registros até o momento. Os valores são proporcionais aos dias já trabalhados e podem mudar até o fechamento do mês.</div>
+</div>`:''}
 <div class="header">
   <div class="header-left">
     <h1>D.R. Global Multi Services</h1>
     <p>CNPJ: 47.619.085/0001-98 &nbsp;|&nbsp; Gestão de Portaria e Segurança</p>
-    <p style="font-size:12px;font-weight:700;color:#1a3a6b;margin-top:4px">FOLHA DE PONTO — ${mesLabel.toUpperCase()} / ${ano}</p>
+    <p style="font-size:12px;font-weight:700;color:${isPreview?'#E65100':'#1a3a6b'};margin-top:4px">${isPreview?'PRÉVIA — ':''}FOLHA DE PONTO — ${mesLabel.toUpperCase()} / ${ano}</p>
   </div>
   <div class="header-right">
+    <p>${isPreview?'<strong style="color:#E65100">PRÉVIA PARCIAL</strong><br>':''}</p>
     <p>Emitido em: ${dataAtual}</p>
     <p>Competência: ${mesLabel}/${ano}</p>
     <p>Registro nº ${reg}</p>

@@ -899,6 +899,7 @@ function renderDashboard(){
   const ativos=State.employees.filter(e=>(e.status||'ativo')==='ativo').length;
   const inativos=State.employees.filter(e=>(e.status||'ativo')==='inativo').length;
   const afastados=State.employees.filter(e=>(e.status||'ativo')==='afastado').length;
+  const licMaternidade=State.employees.filter(e=>(e.status||'ativo')==='licenca-maternidade').length;
   const totalPostos=(State.postos||[]).length;
   const stats=document.getElementById('dashboard-stats'); if(!stats) return;
   const cctInfo=State.cct?`<div class="stat-card" style="border-color:#7B1FA2;border-left-width:4px"><div class="stat-icon" style="background:#F3E5F5;color:#7B1FA2"><i class="fa-solid fa-file-contract"></i></div><div><div class="stat-value" style="font-size:14px">CCT vigente</div><div class="stat-label">desde ${formatDateBr(State.cct.vigencia)}</div></div></div>`:'';
@@ -909,6 +910,9 @@ function renderDashboard(){
     <div class="stat-card teal" style="cursor:pointer" onclick="showSection('employees');setEmployeeFilter('afastado')" title="Ver afastados INSS">
       <div class="stat-icon"><i class="fa-solid fa-user-clock"></i></div>
       <div><div class="stat-value">${afastados}</div><div class="stat-label">Afastados INSS</div></div></div>
+    ${licMaternidade>0?`<div class="stat-card" style="border-color:#E91E63;border-left-width:4px;cursor:pointer" onclick="showSection('employees');setEmployeeFilter('licenca-maternidade')" title="Ver licenças maternidade">
+      <div class="stat-icon" style="background:#FCE4EC;color:#E91E63"><i class="fa-solid fa-baby"></i></div>
+      <div><div class="stat-value" style="color:#E91E63">${licMaternidade}</div><div class="stat-label">Licença Maternidade</div></div></div>`:''}
     <div class="stat-card" style="border-color:#9E9E9E;border-left-width:4px;cursor:pointer" onclick="showSection('employees');setEmployeeFilter('inativo')" title="Ver colaboradores inativos">
       <div class="stat-icon" style="background:#F5F5F5;color:#757575"><i class="fa-solid fa-user-slash"></i></div>
       <div><div class="stat-value">${inativos}</div><div class="stat-label">Colaboradores inativos</div></div></div>
@@ -1510,6 +1514,9 @@ function exportReportCsv(){
 // ============================================
 function setEmployeeFilter(filter){
   State.employeeFilter = filter;
+  // Limpa a busca ao trocar o filtro de status (evita 0 resultados por conflito)
+  const searchEl=document.getElementById('employee-search');
+  if(searchEl) searchEl.value='';
   document.querySelectorAll('.status-filter-btn').forEach(btn=>{
     btn.classList.toggle('active', btn.dataset.filter === filter);
   });
@@ -1518,9 +1525,10 @@ function setEmployeeFilter(filter){
 
 function statusBadge(status){
   const s = status||'ativo';
-  if(s==='ativo')    return '<span class="badge badge-status-ativo">Ativo</span>';
-  if(s==='inativo')  return '<span class="badge badge-status-inativo">Inativo</span>';
-  if(s==='afastado') return '<span class="badge badge-status-afastado">Afastado INSS</span>';
+  if(s==='ativo')               return '<span class="badge badge-status-ativo">Ativo</span>';
+  if(s==='inativo')             return '<span class="badge badge-status-inativo">Inativo</span>';
+  if(s==='afastado')            return '<span class="badge badge-status-afastado">Afastado INSS</span>';
+  if(s==='licenca-maternidade') return '<span class="badge" style="background:#FCE4EC;color:#C2185B;font-weight:700">Lic. Maternidade</span>';
   return `<span class="badge badge-muted">${s}</span>`;
 }
 

@@ -1880,9 +1880,12 @@ function initPayrollSection(){
     if(e.id===currentId) opt.selected=true;
     sel.appendChild(opt);
   });
-  const mes=document.getElementById('payroll-mes');
-  mes.value=mes.value||currentMes();
+  const mesEl=document.getElementById('payroll-mes');
+  mesEl.value=mesEl.value||currentMes();
   document.getElementById('payroll-ano').value=document.getElementById('payroll-ano').value||currentAno();
+  const mes=parseInt(mesEl.value), ano=parseInt(document.getElementById('payroll-ano').value);
+  _autoFillPeriodoDates(mes,ano);
+  _updatePainelFechamento(mes,ano);
   if(currentId) onPayrollEmployeeChange();
 }
 
@@ -1921,6 +1924,7 @@ function onPayrollEmployeeChange(){
     if(noturnoCard) noturnoCard.classList.add('hidden');
   }
   recalculate(); renderPayrollHistory(empId);
+  _updateFolhaStatusBadge();
 }
 
 function calcAdNoturno(salarioBase, dias){
@@ -2247,6 +2251,10 @@ function renderPayrollHistory(empId){
 function loadPayrollRecord(id){
   const p=State.payrolls.find(r=>r.id===id); if(!p) return;
   setVal('payroll-employee',p.employeeId); setVal('payroll-mes',p.mes); setVal('payroll-ano',p.ano);
+  // Período De/Até — restaura se salvo, caso contrário auto-preenche
+  if(p.periodoDe) setVal('payroll-periodo-de',p.periodoDe);
+  if(p.periodoAte) setVal('payroll-periodo-ate',p.periodoAte);
+  if(!p.periodoDe||!p.periodoAte) _autoFillPeriodoDates(p.mes,p.ano);
   setVal('payroll-dias',p.diasTrabalhados);
   // Suporte a registros antigos (campo faltas único) e novos (divididos)
   setVal('payroll-faltas-justificadas',p.faltasJustificadas||0);
@@ -2296,6 +2304,11 @@ async function savePayroll(){
   const empId=val('payroll-employee'), mes=val('payroll-mes'), ano=val('payroll-ano');
   if(!empId){ toast('Selecione um colaborador.','error'); return; }
   if(!mes||!ano){ toast('Informe mês e ano.','error'); return; }
+  // Bloquear se a folha estiver fechada
+  const existingCheck=State.payrolls.find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
+  if(existingCheck?.status==='fechada'){
+    toast('Esta folha está fechada. Clique em "Reabrir esta Folha" para editar.','error'); return;
+  }
   const dias=numVal('payroll-dias');
   const faltasJust=numVal('payroll-faltas-justificadas');
   const faltasInjust=numVal('payroll-faltas-injustificadas');
@@ -2342,6 +2355,10 @@ async function savePayroll(){
     pdfName:State.currentPdfFile?State.currentPdfFile.name:(existing?existing.pdfName:''),
     // Preserva os pontos do app — savePayroll nunca deve apagar pontoManualDias
     pontoManualDias: existing?.pontoManualDias || [],
+    // Período e status
+    periodoDe: val('payroll-periodo-de')||'',
+    periodoAte: val('payroll-periodo-ate')||'',
+    status: existing?.status||'aberta',
     updatedAt:new Date().toISOString(),
     createdAt:existing?existing.createdAt:new Date().toISOString()
   };
@@ -2375,6 +2392,190 @@ function clearPayrollForm(){
 function openPayrollForEmployee(empId){
   showSection('payroll');
   setTimeout(()=>{ setVal('payroll-employee',empId); onPayrollEmployeeChange(); },80);
+}
+
+// ============================================
+// FECHAMENTO DE PERÍODO
+// ============================================
+function _periodoKey(mes,ano){ return `${ano}_${mes}`; }
+
+function _autoFillPeriodoDates(mes,ano){
+  mes=parseInt(mes); ano=parseInt(ano);
+  if(!mes||!ano) return;
+  const pad=n=>String(n).padStart(2,'0');
+  const ultimoDia=new Date(ano,mes,0).getDate();
+  const de=`${ano}-${pad(mes)}-01`;
+  const ate=`${ano}-${pad(mes)}-${pad(ultimoDia)}`;
+  const deEl=document.getElementById('payroll-periodo-de');
+  const ateEl=document.getElementById('payroll-periodo-ate');
+  if(deEl&&!deEl.value) deEl.value=de;
+  if(ateEl&&!ateEl.value) ateEl.value=ate;
+  // Força preenchimento se campo estiver no mês anterior
+  if(deEl&&deEl.value.substring(0,7)!==`${ano}-${pad(mes)}`) deEl.value=de;
+  if(ateEl&&ateEl.value.substring(0,7)!==`${ano}-${pad(mes)}`) ateEl.value=ate;
+}
+
+function onPayrollPeriodoChange(){
+  const mes=val('payroll-mes')||currentMes();
+  const ano=val('payroll-ano')||currentAno();
+  _autoFillPeriodoDates(mes,ano);
+  _updatePainelFechamento(mes,ano);
+  // Recarregar folha do colaborador selecionado para o novo período
+  const empId=val('payroll-employee');
+  if(empId) onPayrollEmployeeChange();
+}
+
+async function _updatePainelFechamento(mes,ano){
+  mes=parseInt(mes||currentMes()); ano=parseInt(ano||currentAno());
+  const key=_periodoKey(mes,ano);
+  const label=document.getElementById('fechamento-periodo-label');
+  const badge=document.getElementById('fechamento-status-badge');
+  const btnFechar=document.getElementById('btn-fechar-periodo');
+  const infoFechado=document.getElementById('fechamento-periodo-fechado-info');
+  const dataInput=document.getElementById('fechamento-data-input');
+  if(label) label.textContent=`${MESES[mes]} / ${ano}`;
+
+  // Carregar config do Firestore
+  let conf={};
+  try{
+    const snap=await DB.fs.collection('configuracoes').doc(`fechamento_${key}`).get();
+    if(snap.exists) conf=snap.data();
+  }catch(e){ console.warn('Conf fechamento não carregada:',e); }
+  State.confFolha=State.confFolha||{};
+  State.confFolha[key]=conf;
+
+  if(dataInput) dataInput.value=conf.dataFechamento||'';
+  const hoje=new Date().toISOString().substring(0,10);
+  const periodoFechado=!!conf.fechado;
+
+  if(badge){
+    badge.innerHTML=periodoFechado
+      ? `<span style="background:#E8EAF6;color:#5C6BC0;padding:4px 10px;border-radius:12px;font-size:12px;font-weight:700"><i class="fa-solid fa-lock"></i> Período Fechado</span>`
+      : `<span style="background:#E8F5E9;color:#2E7D32;padding:4px 10px;border-radius:12px;font-size:12px;font-weight:700"><i class="fa-solid fa-lock-open"></i> Período Aberto</span>`;
+  }
+  if(btnFechar) btnFechar.style.display=periodoFechado?'none':'inline-flex';
+  if(infoFechado){
+    if(periodoFechado && conf.fechadoEm){
+      infoFechado.style.display='inline';
+      infoFechado.textContent=`Fechado em ${new Date(conf.fechadoEm).toLocaleDateString('pt-BR')}`;
+    } else { infoFechado.style.display='none'; }
+  }
+
+  // Auto-fechamento: se hoje >= data de fechamento e não foi fechado ainda
+  if(!periodoFechado && conf.dataFechamento && hoje>=conf.dataFechamento){
+    await _executarFechamentoPeriodo(mes,ano,key,conf,true);
+  }
+}
+
+async function configurarDataFechamento(){
+  const mes=parseInt(val('payroll-mes')||currentMes());
+  const ano=parseInt(val('payroll-ano')||currentAno());
+  const data=document.getElementById('fechamento-data-input')?.value;
+  if(!data){ toast('Informe a data de fechamento.','error'); return; }
+  const key=_periodoKey(mes,ano);
+  const conf=State.confFolha?.[key]||{};
+  const novaConf={ ...conf, dataFechamento:data, updatedAt:new Date().toISOString() };
+  try{
+    await DB.fs.collection('configuracoes').doc(`fechamento_${key}`).set(novaConf,{merge:true});
+    State.confFolha=State.confFolha||{};
+    State.confFolha[key]=novaConf;
+    toast(`Data de fechamento de ${MESES[mes]}/${ano} definida para ${new Date(data+'T12:00:00').toLocaleDateString('pt-BR')}.`);
+    _updatePainelFechamento(mes,ano);
+  }catch(e){ toast('Erro ao salvar data de fechamento.','error'); }
+}
+
+async function fecharPeriodo(){
+  const mes=parseInt(val('payroll-mes')||currentMes());
+  const ano=parseInt(val('payroll-ano')||currentAno());
+  const key=_periodoKey(mes,ano);
+  const qtd=State.payrolls.filter(p=>p.mes==mes&&p.ano==ano&&p.status!=='fechada').length;
+  if(qtd===0){ toast(`Nenhuma folha aberta em ${MESES[mes]}/${ano}.`,'warning'); return; }
+  if(!confirm(`Fechar ${qtd} folha(s) de ${MESES[mes]}/${ano}?\n\nApós o fechamento as folhas ficam bloqueadas para edição. Você poderá reabrir individualmente se necessário.`)) return;
+  await _executarFechamentoPeriodo(mes,ano,key,State.confFolha?.[key]||{},false);
+}
+
+async function _executarFechamentoPeriodo(mes,ano,key,conf,automatico){
+  const folhasAbertas=State.payrolls.filter(p=>p.mes==mes&&p.ano==ano&&p.status!=='fechada');
+  const agora=new Date().toISOString();
+  try{
+    await Promise.all(folhasAbertas.map(p=>
+      DB.fs.collection('payrolls').doc(p.id).set({status:'fechada',fechadoEm:agora},{merge:true})
+    ));
+    const novaConf={...conf,fechado:true,fechadoEm:agora,updatedAt:agora};
+    await DB.fs.collection('configuracoes').doc(`fechamento_${key}`).set(novaConf,{merge:true});
+    State.confFolha=State.confFolha||{};
+    State.confFolha[key]=novaConf;
+    // Atualiza State local
+    folhasAbertas.forEach(p=>{ const s=State.payrolls.find(r=>r.id===p.id); if(s) s.status='fechada'; });
+    const msg=automatico
+      ? `Fechamento automático: ${folhasAbertas.length} folha(s) de ${MESES[mes]}/${ano} fechadas.`
+      : `${folhasAbertas.length} folha(s) de ${MESES[mes]}/${ano} fechadas com sucesso.`;
+    toast(msg);
+    Auth.log('PAYROLL_PERIODO_FECHADO',null,`${MESES[mes]}/${ano} — ${folhasAbertas.length} folhas`);
+    _updatePainelFechamento(mes,ano);
+    // Atualizar status badge da folha atual se estiver carregada
+    _updateFolhaStatusBadge();
+  }catch(e){ toast('Erro ao fechar período.','error'); console.error(e); }
+}
+
+async function reabrirFolha(){
+  const empId=val('payroll-employee');
+  const emp=State.employees.find(e=>e.id===empId);
+  const mes=parseInt(val('payroll-mes')||currentMes());
+  const ano=parseInt(val('payroll-ano')||currentAno());
+  if(!empId||!emp){ toast('Selecione um colaborador.','error'); return; }
+  const p=State.payrolls.find(r=>r.employeeId===empId&&r.mes==mes&&r.ano==ano);
+  if(!p){ toast('Folha não encontrada.','error'); return; }
+  if(!confirm(`Reabrir a folha de ${emp.nome} — ${MESES[mes]}/${ano}?\n\nA folha voltará a ser editável. O período geral continuará fechado para os demais.`)) return;
+  try{
+    await DB.fs.collection('payrolls').doc(p.id).set({status:'aberta',reabertoEm:new Date().toISOString()},{merge:true});
+    const s=State.payrolls.find(r=>r.id===p.id); if(s) s.status='aberta';
+    Auth.log('PAYROLL_REABERTO',null,`${emp.nome} — ${MESES[mes]}/${ano}`);
+    toast(`Folha de ${emp.nome} reaberta para edição.`);
+    _updateFolhaStatusBadge();
+  }catch(e){ toast('Erro ao reabrir folha.','error'); }
+}
+
+function _lockPayrollForm(isLocked){
+  const form=document.querySelector('#section-payroll .payroll-form-col');
+  if(!form) return;
+  // Inputs e selects (exceto colaborador, mês, ano, período)
+  const editIds=['payroll-dias','payroll-faltas-justificadas','payroll-faltas-injustificadas',
+    'payroll-remuneracao','payroll-vt-dia','payroll-vt-total','payroll-vr-dia','payroll-vr-total',
+    'payroll-va-total','payroll-va-liquido','payroll-bonus','payroll-noturno','payroll-acumulo',
+    'payroll-insalubridade','payroll-atraso-min','payroll-desconto-atraso','payroll-adiantamento-ativo',
+    'payroll-adiantamento-perc','payroll-adiantamento-valor','payroll-entrada','payroll-saida',
+    'payroll-intervalo-inicio','payroll-intervalo-fim','payroll-he-total','payroll-he-perc',
+    'payroll-he-valor','pdf-input'];
+  editIds.forEach(id=>{ const el=document.getElementById(id); if(el) el.disabled=isLocked; });
+  // Botões
+  const saveBtn=document.querySelector('#section-payroll .btn-primary');
+  if(saveBtn) saveBtn.disabled=isLocked;
+  const recalcBtn=document.querySelector('#section-payroll [onclick*="recalculate"]');
+  if(recalcBtn) recalcBtn.disabled=isLocked;
+  // PDF upload area
+  const pdfArea=document.getElementById('pdf-upload-area');
+  if(pdfArea) pdfArea.style.pointerEvents=isLocked?'none':'auto';
+  // Botão Reabrir
+  const btnReabrir=document.getElementById('btn-reabrir-folha');
+  if(btnReabrir) btnReabrir.style.display=isLocked?'inline-flex':'none';
+  // Overlay visual
+  const formCard=document.querySelector('#section-payroll .payroll-form-col .card-body');
+  if(formCard) formCard.style.opacity=isLocked?'0.75':'1';
+}
+
+function _updateFolhaStatusBadge(){
+  const empId=val('payroll-employee');
+  const mes=parseInt(val('payroll-mes')||currentMes());
+  const ano=parseInt(val('payroll-ano')||currentAno());
+  const badge=document.getElementById('payroll-status-badge');
+  if(!badge) return;
+  const p=State.payrolls.find(r=>r.employeeId===empId&&r.mes==mes&&r.ano==ano);
+  const fechada=p?.status==='fechada';
+  badge.innerHTML=fechada
+    ? `<span style="background:#E8EAF6;color:#5C6BC0;padding:3px 10px;border-radius:10px;font-size:12px;font-weight:700;white-space:nowrap"><i class="fa-solid fa-lock"></i> Folha Fechada</span>`
+    : (p?`<span style="background:#E8F5E9;color:#2E7D32;padding:3px 10px;border-radius:10px;font-size:12px;font-weight:700;white-space:nowrap"><i class="fa-solid fa-lock-open"></i> Folha Aberta</span>`:'');
+  _lockPayrollForm(fechada);
 }
 
 // ============================================

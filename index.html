@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>D.R. Global Multi Services — Sistema de Gestão de Colaboradores</title>
   <link rel="icon" href="logo.png" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20260507o">
+  <link rel="stylesheet" href="styles.css?v=20260507p">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -13,7 +13,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-  <script src="firebase-config.js?v=20260507o"></script>
+  <script src="firebase-config.js?v=20260507p"></script>
 </head>
 <body>
 
@@ -394,7 +394,32 @@
         </div>
 
         <!-- Stats da Folha de Ponto -->
-        <div class="stats-grid" id="payroll-stats-grid" style="margin-bottom:20px"></div>
+        <div class="stats-grid" id="payroll-stats-grid" style="margin-bottom:16px"></div>
+
+        <!-- Painel de Fechamento de Período -->
+        <div id="painel-fechamento" style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:12px 18px;margin-bottom:16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;box-shadow:0 1px 4px rgba(0,0,0,.06)">
+          <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:200px">
+            <i class="fa-solid fa-calendar-xmark" style="color:#5C6BC0;font-size:16px"></i>
+            <div>
+              <div style="font-size:11px;color:#888;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Fechamento do Período</div>
+              <div id="fechamento-periodo-label" style="font-weight:700;color:#333;font-size:14px">—</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <label style="font-size:12px;color:#666;white-space:nowrap">Data de fechamento:</label>
+            <input type="date" id="fechamento-data-input" style="border:1px solid #ccc;border-radius:6px;padding:5px 8px;font-size:13px;outline:none">
+            <button class="btn btn-sm btn-outline" onclick="configurarDataFechamento()" style="font-size:12px;white-space:nowrap">
+              <i class="fa-solid fa-floppy-disk"></i> Salvar
+            </button>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span id="fechamento-status-badge"></span>
+            <button id="btn-fechar-periodo" class="btn btn-sm" onclick="fecharPeriodo()" style="background:#5C6BC0;color:#fff;border:none;font-size:12px;white-space:nowrap;display:none">
+              <i class="fa-solid fa-lock"></i> Fechar Todas as Folhas
+            </button>
+            <span id="fechamento-periodo-fechado-info" style="display:none;font-size:12px;color:#5C6BC0;font-weight:600"></span>
+          </div>
+        </div>
 
         <div class="payroll-layout">
           <!-- Left: form -->
@@ -413,7 +438,7 @@
                   </div>
                   <div class="form-group form-group-sm">
                     <label>Mês <span class="required">*</span></label>
-                    <select id="payroll-mes">
+                    <select id="payroll-mes" onchange="onPayrollPeriodoChange()">
                       <option value="1">Janeiro</option>
                       <option value="2">Fevereiro</option>
                       <option value="3">Março</option>
@@ -430,7 +455,24 @@
                   </div>
                   <div class="form-group form-group-sm">
                     <label>Ano <span class="required">*</span></label>
-                    <input type="number" id="payroll-ano" value="2025" min="2020" max="2100">
+                    <input type="number" id="payroll-ano" value="2025" min="2020" max="2100" onchange="onPayrollPeriodoChange()">
+                  </div>
+                </div>
+                <!-- Período e Status -->
+                <div class="form-row" style="align-items:flex-end">
+                  <div class="form-group form-group-sm">
+                    <label><i class="fa-solid fa-calendar-day" style="color:var(--primary)"></i> Período De</label>
+                    <input type="date" id="payroll-periodo-de">
+                  </div>
+                  <div class="form-group form-group-sm">
+                    <label><i class="fa-solid fa-calendar-check" style="color:var(--primary)"></i> Período Até</label>
+                    <input type="date" id="payroll-periodo-ate">
+                  </div>
+                  <div class="form-group" style="flex:0 0 auto;display:flex;align-items:flex-end;gap:8px;padding-bottom:2px">
+                    <span id="payroll-status-badge"></span>
+                    <button id="btn-reabrir-folha" class="btn btn-sm btn-outline" onclick="reabrirFolha()" style="display:none;color:#E65100;border-color:#E65100;font-size:12px">
+                      <i class="fa-solid fa-lock-open"></i> Reabrir esta Folha
+                    </button>
                   </div>
                 </div>
 
@@ -2372,6 +2414,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260507o"></script>
+<script src="app.js?v=20260507p"></script>
 </body>
 </html>

@@ -536,10 +536,11 @@ function showSection(name){
   if(!Auth.currentUser) return;
   const mods=getUserModules(Auth.currentUser);
   if(name==='users'          && !mods.users && !mods.log) return;
-  if(name==='employees'      && !mods.employees) return;
-  if(name==='payroll'        && !mods.payroll)   return;
-  if(name==='postos'         && !mods.postos)    return;
-  if(name==='contratos'      && !mods.contratos) return;
+  if(name==='employees'      && !mods.employees)    return;
+  if(name==='payroll'        && !mods.payroll)      return;
+  if(name==='contabilidade'  && !mods.contabilidade) return;
+  if(name==='postos'         && !mods.postos)       return;
+  if(name==='contratos'      && !mods.contratos)    return;
   if(name==='configuracoes'  && Auth.currentUser?.role!=='master') return;
   // Limpa qualquer modal flutuante que possa bloquear cliques
   const floatingModal=document.getElementById('modal-stat-detail');
@@ -730,6 +731,8 @@ function applyUserSession(user){
   // Postos de Trabalho: master ou gestor
   const postosLi=document.getElementById('nav-postos-li');
   if(postosLi) postosLi.classList.toggle('hidden', !mods.postos);
+  const contLi=document.getElementById('nav-contabilidade-li');
+  if(contLi) contLi.classList.toggle('hidden', !mods.contabilidade);
   const contratosLi=document.getElementById('nav-contratos-li');
   if(contratosLi) contratosLi.classList.toggle('hidden', !mods.contratos);
   const cfgLi=document.getElementById('nav-configuracoes-li');
@@ -5242,13 +5245,14 @@ function confirmDeletePosto(id){
 // PERFIS CUSTOMIZÁVEIS
 // ============================================
 const MODULOS_LABELS={
-  employees:'Colaboradores',
-  payroll:  'Folha de Ponto',
-  reports:  'Relatórios',
-  postos:   'Postos de Trabalho',
-  contratos:'Contratos',
-  users:    'Usuários & Acessos',
-  log:      'Log de Acessos'
+  employees:    'Colaboradores',
+  payroll:      'Folha de Ponto',
+  reports:      'Relatórios',
+  contabilidade:'Contabilidade',
+  postos:       'Postos de Trabalho',
+  contratos:    'Contratos',
+  users:        'Usuários & Acessos',
+  log:          'Log de Acessos'
 };
 
 // Retorna os módulos permitidos para o usuário

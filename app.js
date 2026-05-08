@@ -2522,6 +2522,26 @@ async function _executarFechamentoPeriodo(mes,ano,key,conf,automatico){
   }catch(e){ toast('Erro ao fechar período.','error'); console.error(e); }
 }
 
+async function fecharFolhaIndividual(){
+  const empId=val('payroll-employee');
+  const emp=State.employees.find(e=>e.id===empId);
+  const mes=parseInt(val('payroll-mes')||currentMes());
+  const ano=parseInt(val('payroll-ano')||currentAno());
+  if(!empId||!emp){ toast('Selecione um colaborador.','error'); return; }
+  const p=State.payrolls.find(r=>r.employeeId===empId&&r.mes==mes&&r.ano==ano);
+  if(!p){ toast('Salve o lançamento antes de fechar.','error'); return; }
+  if(p.status==='fechada'){ toast('Esta folha já está fechada.','warning'); return; }
+  if(!confirm(`Fechar a folha de ${emp.nome} — ${MESES[mes]}/${ano}?\n\nA folha ficará bloqueada para edição. Você poderá reabrir se necessário.`)) return;
+  try{
+    const agora=new Date().toISOString();
+    await DB.fs.collection('payrolls').doc(p.id).set({status:'fechada',fechadoEm:agora},{merge:true});
+    const s=State.payrolls.find(r=>r.id===p.id); if(s){ s.status='fechada'; s.fechadoEm=agora; }
+    Auth.log('PAYROLL_FECHADO_INDIVIDUAL',null,`${emp.nome} — ${MESES[mes]}/${ano}`);
+    toast(`Folha de ${emp.nome} fechada.`);
+    _updateFolhaStatusBadge();
+  }catch(e){ toast('Erro ao fechar folha.','error'); console.error(e); }
+}
+
 async function reabrirFolha(){
   const empId=val('payroll-employee');
   const emp=State.employees.find(e=>e.id===empId);
@@ -2576,9 +2596,16 @@ function _updateFolhaStatusBadge(){
   if(!badge) return;
   const p=State.payrolls.find(r=>r.employeeId===empId&&r.mes==mes&&r.ano==ano);
   const fechada=p?.status==='fechada';
+  const temFolha=!!p;
   badge.innerHTML=fechada
     ? `<span style="background:#E8EAF6;color:#5C6BC0;padding:3px 10px;border-radius:10px;font-size:12px;font-weight:700;white-space:nowrap"><i class="fa-solid fa-lock"></i> Folha Fechada</span>`
-    : (p?`<span style="background:#E8F5E9;color:#2E7D32;padding:3px 10px;border-radius:10px;font-size:12px;font-weight:700;white-space:nowrap"><i class="fa-solid fa-lock-open"></i> Folha Aberta</span>`:'');
+    : (temFolha?`<span style="background:#E8F5E9;color:#2E7D32;padding:3px 10px;border-radius:10px;font-size:12px;font-weight:700;white-space:nowrap"><i class="fa-solid fa-lock-open"></i> Folha Aberta</span>`:'');
+  // Botão "Fechar esta Folha" — visível só quando tem folha salva e está aberta
+  const btnFecharInd=document.getElementById('btn-fechar-folha-individual');
+  if(btnFecharInd) btnFecharInd.style.display=(temFolha&&!fechada)?'inline-flex':'none';
+  // Botão "Reabrir esta Folha" — visível só quando fechada
+  const btnReabrir=document.getElementById('btn-reabrir-folha');
+  if(btnReabrir) btnReabrir.style.display=fechada?'inline-flex':'none';
   _lockPayrollForm(fechada);
 }
 

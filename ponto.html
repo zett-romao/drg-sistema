@@ -250,7 +250,7 @@
 <!-- Firebase SDK -->
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-<script src="firebase-config.js?v=20260506f"></script>
+<script src="firebase-config.js?v=20260507o"></script>
 
 <script>
 'use strict';
@@ -533,10 +533,11 @@ async function baterPonto() {
     // Salva coordenadas junto com o registro
     if (geo) dayEntry[prox + '_geo'] = geo;
 
-    // Prepara record
+    // Prepara record — grava APENAS os campos do app de ponto.
+    // Campos da folha (salário, faltas, VT, etc.) são do sistema do gestor e não devem ser tocados.
+    // merge:true garante que os campos não incluídos aqui são preservados no Firestore.
     const id = currentPayroll?.id || (Date.now().toString(36) + Math.random().toString(36).substr(2));
     const record = {
-      ...(currentPayroll || {}),
       id,
       employeeId: currentEmp.id,
       mes, ano,
@@ -546,7 +547,8 @@ async function baterPonto() {
     };
 
     await db.collection('payrolls').doc(id).set(record, { merge: true });
-    currentPayroll = record;
+    // Atualiza cache local mesclando com o que já tínhamos (preserva campos do gestor em memória)
+    currentPayroll = { ...(currentPayroll || {}), ...record };
 
     const nomes = { entrada:'Entrada', intIni:'Início do intervalo', intFim:'Fim do intervalo', saida:'Saída' };
     const geoMsg = geo ? ` · 📍 ${geo.acc}m de precisão` : ' · 📍 sem localização';

@@ -1558,9 +1558,21 @@ function renderEmployeeTable(){
     empty.style.display=''; return;
   }
   document.getElementById('employee-table').style.display=''; empty.style.display='none';
+  const isLicenca = State.employeeFilter === 'licenca-maternidade';
+  // Atualiza cabeçalhos dinamicamente conforme filtro
+  const th6 = document.getElementById('emp-th-col6');
+  const th7 = document.getElementById('emp-th-col7');
+  if(th6) th6.textContent = isLicenca ? 'Início Licença' : 'Admissão';
+  if(th7) th7.textContent = isLicenca ? 'Prev. Retorno'  : 'CPF';
   tbody.innerHTML=list.map((e)=>{
     const celularLimpo=(e.celular||'').replace(/\D/g,'');
     const whatsBtn=celularLimpo?`<button class="btn-icon btn-whatsapp-icon" onclick="openWhatsApp('${celularLimpo}','${e.nome.split(' ')[0]}')" title="WhatsApp"><i class="fa-brands fa-whatsapp"></i></button>`:'';
+    const col6 = isLicenca
+      ? `<strong style="color:#C2185B">${formatDateBr(e.licencaMaternidadeInicio)||'—'}</strong>`
+      : (e.dataAdmissao ? formatDateBr(e.dataAdmissao) : '—');
+    const col7 = isLicenca
+      ? `<strong style="color:#C2185B">${formatDateBr(e.licencaMaternidadeTermino)||'—'}</strong>`
+      : `<span class="td-mono">${e.cpf||'—'}</span>`;
     return `<tr>
       <td><span class="badge badge-muted">${e.registro?String(e.registro).padStart(4,'0'):'—'}</span></td>
       <td><div style="display:flex;align-items:center;gap:8px">
@@ -1570,8 +1582,8 @@ function renderEmployeeTable(){
       <td>${statusBadge(e.status)}</td>
       <td><span class="td-escala">${escalaLabel(e.escala||'5x2A')}</span></td>
       <td><span style="font-size:12px;color:var(--text-muted)">${e.posto||'—'}</span></td>
-      <td>${e.dataAdmissao?formatDateBr(e.dataAdmissao):'—'}</td>
-      <td><span class="td-mono">${e.cpf||'—'}</span></td>
+      <td>${col6}</td>
+      <td>${col7}</td>
       <td><span class="td-pix">${e.chavePix||'—'}</span></td>
       <td><div class="actions-cell">
         ${whatsBtn}

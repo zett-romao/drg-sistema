@@ -4487,6 +4487,250 @@ ${isPreview?`<div class="preview-banner">
 }
 
 // ============================================
+// EXPORTAR TODAS AS FOLHAS EM PDF (lote)
+// ============================================
+function _buildFolhaHtmlFromRecord(emp, p){
+  const mes      = p.mes;
+  const ano      = p.ano;
+  const mesLabel = MESES[mes]||'';
+  const posto    = State.postos.find(x=>x.id===emp.posto)||{razaoSocial:'—'};
+  const reg      = emp.registro?String(emp.registro).padStart(4,'0'):'—';
+  const dataAtual= new Date().toLocaleDateString('pt-BR');
+
+  // Valores financeiros do registro salvo
+  const diasTrabalhados = p.diasTrabalhados||0;
+  const faltasInj       = p.faltasInjustificadas||0;
+  const faltasJust      = p.faltasJustificadas||0;
+  const remuneracao     = p.remuneracao||0;
+  const vtTotal         = p.valeTransporte||0;
+  const vrTotal         = p.valeRefeicao||0;
+  const vaLiquido       = p.valeAlimentacaoLiquido||0;
+  const bonificacao     = p.bonificacao||0;
+  const heValor         = p.horasExtrasValor||0;
+  const heTotalHoras    = p.horasExtrasTotal||0;
+  const hePerc          = p.horasExtrasPerc||50;
+  const heTotal         = heTotalHoras>0?minutesToStr(Math.round(heTotalHoras*60)):'0';
+  const adNoturno       = p.adNoturno||0;
+  const acumulo         = p.acumuloFuncao||0;
+  const insalubridade   = p.insalubridade||0;
+  const adiantamento    = p.adiantamentoValor||0;
+  const adiantamentoPerc= p.adiantamentoPerc||40;
+  const descontoAtraso  = p.descontoAtraso||0;
+  const totalLiquido    = remuneracao+heValor+adNoturno+acumulo+insalubridade+bonificacao+vtTotal+vrTotal+vaLiquido-adiantamento-descontoAtraso;
+
+  // Tabela de dias do ponto
+  const diasPonto    = p.pontoManualDias||[];
+  const diasNoMes    = new Date(ano,mes,0).getDate();
+  const diasSemana   = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  let tabelaDias='';
+  for(let d=1;d<=diasNoMes;d++){
+    const dow      = new Date(ano,mes-1,d).getDay();
+    const nomeDia  = diasSemana[dow];
+    const isWknd   = dow===0||dow===6;
+    const pontodia = diasPonto.find(x=>x.dia===d)||{};
+    const entrada  = pontodia.entrada||'';
+    const saida    = pontodia.saida||'';
+    const intIni   = pontodia.intIni||'';
+    const intFim   = pontodia.intFim||'';
+    let minLiq=0;
+    if(entrada&&saida){
+      let mb=timeToMinutes(saida)-timeToMinutes(entrada);
+      if(mb<=0) mb+=24*60;
+      const mi=(intIni&&intFim)?Math.max(0,timeToMinutes(intFim)-timeToMinutes(intIni)):0;
+      minLiq=mb-mi;
+    }
+    const horasLiq=minLiq>0?minutesToStr(minLiq):'';
+    let obsdia='';
+    if(!entrada&&!saida&&!isWknd) obsdia='Falta';
+    else if(!entrada&&!saida&&isWknd) obsdia='Folga';
+    const rowBg=isWknd?'background:#F8F9FA;color:#999':'';
+    tabelaDias+=`<tr style="${rowBg}">
+      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${String(d).padStart(2,'0')}</td>
+      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${nomeDia}</td>
+      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${entrada}</td>
+      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${saida}</td>
+      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${intIni}</td>
+      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${intFim}</td>
+      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6;font-weight:${horasLiq?'600':'400'}">${horasLiq}</td>
+      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6;color:#E65100">${obsdia}</td>
+    </tr>`;
+  }
+
+  return `
+<div style="page-break-after:always;padding:16px">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Arial,sans-serif;font-size:11px;color:#212529}
+  h1{font-size:15px;color:#1a3a6b}
+  h2{font-size:12px;color:#1a3a6b;margin:10px 0 4px;border-bottom:1px solid #1a3a6b;padding-bottom:2px}
+  .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;border-bottom:2px solid #1a3a6b;padding-bottom:8px}
+  .header-left p{font-size:10px;color:#666}
+  .header-right{text-align:right;font-size:10px;color:#666}
+  .info-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px}
+  .info-item{background:#F1F5FF;border-radius:3px;padding:4px 7px}
+  .info-label{font-size:9px;color:#5A7AB5;font-weight:600;text-transform:uppercase}
+  .info-value{font-size:11px;font-weight:600;color:#1a3a6b}
+  table{width:100%;border-collapse:collapse;font-size:10px}
+  th{background:#1a3a6b;color:#fff;padding:4px 6px;text-align:center;border:1px solid #1a3a6b}
+  .fin-table{margin-top:10px}
+  .fin-table td{padding:4px 8px;border:1px solid #DEE2E6}
+  .fin-table tr:nth-child(even){background:#F8F9FA}
+  .fin-label{font-weight:600;color:#444;width:220px}
+  .fin-value{text-align:right;width:100px}
+  .fin-total{background:#1a3a6b!important;color:#fff;font-weight:700;font-size:12px}
+  .assinaturas{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:20px}
+  .assinatura-box{border-top:1px solid #444;padding-top:6px;text-align:center;font-size:10px;color:#555}
+  .resumo-bar{display:flex;gap:10px;margin:6px 0 10px}
+  .resumo-item{background:#E8F5E9;border-radius:3px;padding:4px 10px;flex:1;text-align:center}
+  .resumo-item.alerta{background:#FFF3E0}
+  .resumo-label{font-size:9px;color:#555}
+  .resumo-valor{font-size:13px;font-weight:700;color:#1B5E20}
+  .resumo-item.alerta .resumo-valor{color:#E65100}
+</style>
+<div class="header">
+  <div class="header-left">
+    <h1>${_e('nomeEmpresa')}</h1>
+    <p>CNPJ: ${_e('cnpj')} &nbsp;|&nbsp; ${_e('descricao')}</p>
+    <p style="font-size:12px;font-weight:700;color:#1a3a6b;margin-top:4px">FOLHA DE PONTO — ${mesLabel.toUpperCase()} / ${ano}</p>
+  </div>
+  <div class="header-right">
+    <p>Emitido em: ${dataAtual}</p>
+    <p>Competência: ${mesLabel}/${ano}</p>
+    <p>Registro nº ${reg}</p>
+    ${p.status==='fechada'?'<p style="color:#1B5E20;font-weight:700">✓ FOLHA FECHADA</p>':''}
+  </div>
+</div>
+
+<h2>Dados do Colaborador</h2>
+<div class="info-grid">
+  <div class="info-item"><div class="info-label">Nome</div><div class="info-value">${emp.nome}</div></div>
+  <div class="info-item"><div class="info-label">CPF</div><div class="info-value">${emp.cpf||'—'}</div></div>
+  <div class="info-item"><div class="info-label">RG</div><div class="info-value">${emp.rg||'—'}</div></div>
+  <div class="info-item"><div class="info-label">PIS/PASEP</div><div class="info-value">${emp.pis||'—'}</div></div>
+  <div class="info-item"><div class="info-label">Cargo / Função</div><div class="info-value">${emp.cargo||'—'}</div></div>
+  <div class="info-item"><div class="info-label">Escala</div><div class="info-value">${emp.escala||'—'}</div></div>
+  <div class="info-item"><div class="info-label">Admissão</div><div class="info-value">${emp.admissao?fmtDate(emp.admissao):'—'}</div></div>
+  <div class="info-item"><div class="info-label">Posto de Trabalho</div><div class="info-value">${posto.razaoSocial||'—'}</div></div>
+  <div class="info-item"><div class="info-label">Salário Base</div><div class="info-value">${fmtMoney(emp.salarioBase||0)}</div></div>
+  <div class="info-item"><div class="info-label">Horário Contratual</div><div class="info-value">${emp.horarioEntrada||'—'} – ${emp.horarioSaida||'—'}</div></div>
+  <div class="info-item"><div class="info-label">Banco de Horas</div><div class="info-value">${emp.bancoHoras||'—'}</div></div>
+  <div class="info-item"><div class="info-label">Período</div><div class="info-value">${p.periodoDe||'—'} a ${p.periodoAte||'—'}</div></div>
+</div>
+
+<h2>Resumo do Período</h2>
+<div class="resumo-bar">
+  <div class="resumo-item"><div class="resumo-label">Dias Trabalhados</div><div class="resumo-valor">${diasTrabalhados}</div></div>
+  <div class="resumo-item alerta"><div class="resumo-label">Faltas Injust.</div><div class="resumo-valor">${faltasInj}</div></div>
+  <div class="resumo-item alerta"><div class="resumo-label">Faltas Just.</div><div class="resumo-valor">${faltasJust}</div></div>
+  <div class="resumo-item"><div class="resumo-label">Horas Extras</div><div class="resumo-valor">${heTotal}</div></div>
+</div>
+
+<h2>Registro de Ponto Diário</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Dia</th><th>Sem.</th><th>Entrada</th><th>Saída</th>
+      <th>Int. Início</th><th>Int. Fim</th><th>Horas Líq.</th><th>Obs.</th>
+    </tr>
+  </thead>
+  <tbody>${tabelaDias}</tbody>
+</table>
+
+<h2 style="margin-top:12px">Demonstrativo Financeiro</h2>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+  <table class="fin-table">
+    <tr><td class="fin-label">Remuneração do Período</td><td class="fin-value">${fmtMoney(remuneracao)}</td></tr>
+    <tr><td class="fin-label">Horas Extras ${heTotal} (${hePerc}%)</td><td class="fin-value">${fmtMoney(heValor)}</td></tr>
+    ${adNoturno>0?`<tr><td class="fin-label">Adicional Noturno</td><td class="fin-value">${fmtMoney(adNoturno)}</td></tr>`:''}
+    ${acumulo>0?`<tr><td class="fin-label">Acúmulo de Função (+20%)</td><td class="fin-value">${fmtMoney(acumulo)}</td></tr>`:''}
+    ${insalubridade>0?`<tr><td class="fin-label">Insalubridade</td><td class="fin-value">${fmtMoney(insalubridade)}</td></tr>`:''}
+    ${bonificacao>0?`<tr><td class="fin-label">Bonificação</td><td class="fin-value">${fmtMoney(bonificacao)}</td></tr>`:''}
+    ${vtTotal>0?`<tr><td class="fin-label">Vale Transporte</td><td class="fin-value">${fmtMoney(vtTotal)}</td></tr>`:''}
+    ${vrTotal>0?`<tr><td class="fin-label">Vale Refeição</td><td class="fin-value">${fmtMoney(vrTotal)}</td></tr>`:''}
+    ${vaLiquido>0?`<tr><td class="fin-label">Vale Alimentação</td><td class="fin-value">${fmtMoney(vaLiquido)}</td></tr>`:''}
+    ${descontoAtraso>0?`<tr><td class="fin-label">Desconto Atraso</td><td class="fin-value" style="color:#c0392b">${fmtMoney(descontoAtraso)}</td></tr>`:''}
+    ${adiantamento>0?`<tr><td class="fin-label">Adiantamento (${adiantamentoPerc}%)</td><td class="fin-value" style="color:#c0392b">${fmtMoney(adiantamento)}</td></tr>`:''}
+    <tr class="fin-total"><td class="fin-label" style="color:#fff">TOTAL LÍQUIDO A RECEBER</td><td class="fin-value" style="color:#fff">${fmtMoney(totalLiquido)}</td></tr>
+  </table>
+  <div>
+    <div style="background:#E8F5E9;border:1px solid #A5D6A7;border-radius:4px;padding:10px;text-align:center">
+      <div style="font-size:10px;color:#388E3C;font-weight:600;text-transform:uppercase">Total Líquido</div>
+      <div style="font-size:20px;font-weight:700;color:#1B5E20">${fmtMoney(totalLiquido)}</div>
+      <div style="font-size:9px;color:#555;margin-top:2px">${mesLabel} / ${ano}</div>
+    </div>
+  </div>
+</div>
+
+<div class="assinaturas">
+  <div class="assinatura-box">${_e('nomeEmpresa')}<br>Empresa / Responsável</div>
+  <div class="assinatura-box">${emp.nome}<br>Colaborador</div>
+  <div class="assinatura-box">____________________________<br>Conferido por</div>
+</div>
+</div>`;
+}
+
+function exportarTodasFolhasPDF(){
+  const mes=parseInt(val('cont-mes'));
+  const ano=parseInt(val('cont-ano'));
+  const statusFiltro=val('cont-status-filter')||'ativo';
+  const mesLabel=MESES[mes]||'';
+
+  // Payrolls do mês selecionado
+  let payrolls=State.payrolls.filter(p=>p.mes==mes&&p.ano==ano);
+  if(!payrolls.length){
+    toast(`Nenhuma folha lançada em ${mesLabel}/${ano}. Carregue a contabilidade primeiro.`,'warning');
+    return;
+  }
+
+  // Filtrar por status do colaborador (igual à tabela de contabilidade)
+  const emps=State.employees.filter(e=>statusFiltro==='all'||e.status===statusFiltro);
+  const empIds=new Set(emps.map(e=>e.id));
+  payrolls=payrolls.filter(p=>empIds.has(p.employeeId));
+
+  // Ordenar por nome
+  payrolls.sort((a,b)=>{
+    const nA=(State.employees.find(e=>e.id===a.employeeId)||{}).nome||'';
+    const nB=(State.employees.find(e=>e.id===b.employeeId)||{}).nome||'';
+    return nA.localeCompare(nB);
+  });
+
+  toast(`Gerando PDF de ${payrolls.length} folhas — aguarde...`,'info');
+
+  // Montar HTML combinado
+  let bodyHtml='';
+  for(const p of payrolls){
+    const emp=State.employees.find(e=>e.id===p.employeeId);
+    if(!emp) continue;
+    bodyHtml+=_buildFolhaHtmlFromRecord(emp,p);
+  }
+
+  const fullHtml=`<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Folhas de Ponto — ${mesLabel}/${ano} — ${_e('nomeEmpresa')}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Arial,sans-serif;font-size:11px;color:#212529}
+  @media print{
+    @page{size:A4;margin:8mm}
+    div[style*="page-break-after"]{page-break-after:always}
+  }
+</style>
+</head>
+<body>
+${bodyHtml}
+<script>window.onload=function(){ window.print(); }<\/script>
+</body>
+</html>`;
+
+  const win=window.open('','_blank','width=900,height=700');
+  if(!win){ toast('Permita pop-ups para exportar o PDF.','error'); return; }
+  win.document.write(fullHtml);
+  win.document.close();
+}
+
+// ============================================
 // RELATÓRIO INDIVIDUAL
 // ============================================
 function initReportIndividualSelect(){

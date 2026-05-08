@@ -1817,6 +1817,55 @@ function getNextRegistro(){
   return max+1;
 }
 
+// ============================================
+// ENCARGOS & IRRF — LISTAS DINÂMICAS
+// ============================================
+function renderOutrosItens(items, tipo){
+  const container=document.getElementById(`emp-outros-${tipo}`);
+  if(!container) return;
+  container.innerHTML=(items||[]).map((item,i)=>`
+    <div class="outro-item-row" id="${tipo}-row-${i}">
+      <input type="text" placeholder="Descrição (ex: Adiantamento salarial)" value="${(item.descricao||'').replace(/"/g,'&quot;')}" id="${tipo}-desc-${i}">
+      <input type="number" placeholder="0,00" value="${item.valor||0}" min="0" step="0.01" id="${tipo}-val-${i}">
+      <button type="button" class="btn-icon btn-danger-icon" onclick="removeOutroItem('${tipo}',${i})" title="Remover">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>`).join('');
+}
+
+function addOutroItem(tipo){
+  const container=document.getElementById(`emp-outros-${tipo}`);
+  if(!container) return;
+  const idx=container.querySelectorAll('.outro-item-row').length;
+  const row=document.createElement('div');
+  row.className='outro-item-row';
+  row.id=`${tipo}-row-${idx}`;
+  row.innerHTML=`
+    <input type="text" placeholder="Descrição" id="${tipo}-desc-${idx}">
+    <input type="number" placeholder="0,00" min="0" step="0.01" id="${tipo}-val-${idx}">
+    <button type="button" class="btn-icon btn-danger-icon" onclick="removeOutroItem('${tipo}',${idx})" title="Remover">
+      <i class="fa-solid fa-xmark"></i>
+    </button>`;
+  container.appendChild(row);
+  row.querySelector('input[type="text"]').focus();
+}
+
+function removeOutroItem(tipo, idx){
+  const row=document.getElementById(`${tipo}-row-${idx}`);
+  if(row) row.remove();
+}
+
+function collectOutrosItens(tipo){
+  const container=document.getElementById(`emp-outros-${tipo}`);
+  if(!container) return [];
+  return Array.from(container.querySelectorAll('.outro-item-row')).map(row=>{
+    const inputs=row.querySelectorAll('input');
+    const descricao=(inputs[0]?.value||'').trim();
+    const valor=parseFloat(inputs[1]?.value)||0;
+    return descricao?{descricao,valor}:null;
+  }).filter(Boolean);
+}
+
 function openEmployeeModal(id=null){
   State.editingEmployeeId=id;
   document.getElementById('modal-employee').classList.remove('hidden');
@@ -1856,6 +1905,12 @@ function openEmployeeModal(id=null){
     const bonifChk=document.getElementById('emp-bonificacao-sempre-pagar');
     if(bonifChk) bonifChk.checked=!!(emp.bonificacaoSemprePagar);
     const chk=document.getElementById('emp-turno-noturno'); if(chk) chk.checked=!!(emp.turnoNoturno);
+    // Aba Encargos & IRRF
+    setVal('emp-dependentes-irrf', emp.dependentesIRRF||0);
+    setVal('emp-pensao-alimenticia', (emp.pensaoAlimenticia||0).toFixed(2));
+    setVal('emp-plano-saude', (emp.planoSaude||0).toFixed(2));
+    renderOutrosItens(emp.outrosDescontos||[], 'descontos');
+    renderOutrosItens(emp.outrosProventos||[], 'proventos');
     onEscalaChange();
     // Histórico de salário
     renderHistoricoSalario(emp.historicoSalario||[]);
@@ -1889,6 +1944,12 @@ function openEmployeeModal(id=null){
     const chk=document.getElementById('emp-turno-noturno'); if(chk) chk.checked=false;
     const acumChk=document.getElementById('emp-acumulo-funcao'); if(acumChk) acumChk.checked=false;
     const bonifChk=document.getElementById('emp-bonificacao-sempre-pagar'); if(bonifChk) bonifChk.checked=false;
+    // Encargos & IRRF — limpar para novo colaborador
+    setVal('emp-dependentes-irrf',0);
+    setVal('emp-pensao-alimenticia','0.00');
+    setVal('emp-plano-saude','0.00');
+    renderOutrosItens([],'descontos');
+    renderOutrosItens([],'proventos');
     onEscalaChange();
     document.getElementById('doc-list').innerHTML=`<div class="empty-state small"><i class="fa-solid fa-folder-open"></i><p>Salve o colaborador antes de enviar documentos</p></div>`;
   }
@@ -1935,6 +1996,12 @@ async function saveEmployee(){
     insalubridade:numVal('emp-insalubridade')||0,
     acumuloFuncao:!!(document.getElementById('emp-acumulo-funcao')?.checked),
     bonificacaoSemprePagar:!!(document.getElementById('emp-bonificacao-sempre-pagar')?.checked),
+    // Encargos & IRRF
+    dependentesIRRF:parseInt(val('emp-dependentes-irrf')||0),
+    pensaoAlimenticia:numVal('emp-pensao-alimenticia')||0,
+    planoSaude:numVal('emp-plano-saude')||0,
+    outrosDescontos:collectOutrosItens('descontos'),
+    outrosProventos:collectOutrosItens('proventos'),
     updatedAt:new Date().toISOString()
   };
   if(!State.editingEmployeeId){

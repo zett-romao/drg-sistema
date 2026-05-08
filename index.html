@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title id="page-title">D.R. Global Multi Services — Sistema de Gestão de Colaboradores</title>
   <link rel="icon" href="logo.png" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20260508b">
+  <link rel="stylesheet" href="styles.css?v=20260508c">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -13,7 +13,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-  <script src="firebase-config.js?v=20260508b"></script>
+  <script src="firebase-config.js?v=20260508c"></script>
 </head>
 <body>
 
@@ -1398,6 +1398,9 @@
         <button class="modal-tab" data-tab-id="tab-ferias" onclick="switchTab('tab-ferias')">
           <i class="fa-solid fa-umbrella-beach"></i> Férias
         </button>
+        <button class="modal-tab" data-tab-id="tab-encargos" onclick="switchTab('tab-encargos')">
+          <i class="fa-solid fa-receipt"></i> Encargos & IRRF
+        </button>
       </div>
 
       <!-- Tab: Dados Pessoais -->
@@ -1801,6 +1804,73 @@
             <p>Nenhum documento enviado</p>
           </div>
         </div>
+      </div>
+
+      <!-- Tab: Encargos & IRRF -->
+      <div class="tab-pane" id="tab-encargos">
+        <div class="info-banner">
+          <i class="fa-solid fa-circle-info"></i>
+          Informações usadas no cálculo do INSS, IRRF e FGTS na Folha de Ponto. Proventos e descontos fixos são aplicados automaticamente todo mês.
+        </div>
+
+        <!-- IRRF -->
+        <div class="divider">IRRF — Imposto de Renda Retido na Fonte</div>
+        <div class="form-row">
+          <div class="form-group form-group-sm">
+            <label><i class="fa-solid fa-users" style="color:var(--primary)"></i> Dependentes declarados</label>
+            <select id="emp-dependentes-irrf">
+              <option value="0">0 — Sem dependentes</option>
+              <option value="1">1 dependente</option>
+              <option value="2">2 dependentes</option>
+              <option value="3">3 dependentes</option>
+              <option value="4">4 dependentes</option>
+              <option value="5">5 dependentes</option>
+              <option value="6">6 dependentes</option>
+              <option value="7">7 dependentes</option>
+              <option value="8">8 dependentes</option>
+              <option value="9">9 dependentes</option>
+              <option value="10">10 dependentes</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label><i class="fa-solid fa-scale-balanced" style="color:#7B1FA2"></i> Pensão Alimentícia (R$/mês)</label>
+            <input type="number" id="emp-pensao-alimenticia" min="0" step="0.01" placeholder="0,00">
+            <small style="color:var(--text-muted);font-size:11px">Deducível da base do IRRF</small>
+          </div>
+        </div>
+
+        <!-- Descontos fixos -->
+        <div class="divider">Descontos Fixos Mensais</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label><i class="fa-solid fa-heart-pulse" style="color:#E53935"></i> Plano de Saúde (R$/mês)</label>
+            <input type="number" id="emp-plano-saude" min="0" step="0.01" placeholder="0,00">
+            <small style="color:var(--text-muted);font-size:11px">Descontado do salário líquido e dedutível do IRRF</small>
+          </div>
+        </div>
+        <div style="margin-bottom:8px">
+          <label style="font-weight:600;font-size:13px;color:var(--text)"><i class="fa-solid fa-circle-minus" style="color:#E53935"></i> Outros Descontos</label>
+          <div id="emp-outros-descontos" style="margin-top:8px;display:flex;flex-direction:column;gap:8px"></div>
+          <button type="button" class="btn btn-outline" style="margin-top:8px;font-size:12px" onclick="addOutroItem('descontos')">
+            <i class="fa-solid fa-plus"></i> Adicionar Desconto
+          </button>
+        </div>
+
+        <!-- Proventos fixos -->
+        <div class="divider" style="margin-top:16px">Proventos Fixos Mensais</div>
+        <div style="margin-bottom:8px">
+          <label style="font-weight:600;font-size:13px;color:var(--text)"><i class="fa-solid fa-circle-plus" style="color:#2E7D32"></i> Outros Proventos</label>
+          <div id="emp-outros-proventos" style="margin-top:8px;display:flex;flex-direction:column;gap:8px"></div>
+          <button type="button" class="btn btn-outline" style="margin-top:8px;font-size:12px" onclick="addOutroItem('proventos')">
+            <i class="fa-solid fa-plus"></i> Adicionar Provento
+          </button>
+        </div>
+
+        <style>
+          .outro-item-row{display:flex;gap:8px;align-items:center}
+          .outro-item-row input[type="text"]{flex:2;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px}
+          .outro-item-row input[type="number"]{flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;min-width:100px}
+        </style>
       </div>
     </div>
 
@@ -2470,6 +2540,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260508b"></script>
+<script src="app.js?v=20260508c"></script>
 </body>
 </html>

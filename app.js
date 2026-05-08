@@ -4793,6 +4793,30 @@ async function deleteDocument(empId, fileName){
 // ============================================
 // PREENCHER PONTO MANUALMENTE
 // ============================================
+
+// Helper: detecta se o turno cruza meia-noite (saída no dia seguinte)
+function _shiftCrossesMidnight(entrada, saida){
+  if(!entrada||!saida) return false;
+  return timeToMinutes(saida) < timeToMinutes(entrada);
+}
+
+// Helper: calcula minutos de intervalo, tratando intervalo cross-midnight
+// (ex: intIni 23:30, intFim 00:30 num turno noturno → 60min, antes retornava 0)
+// Só aplica +24h se o turno também cruza meia-noite (evita inflar HE em typos diurnos)
+function _calcIntervaloMin(intIni, intFim, entrada, saida){
+  if(!intIni||!intFim) return 0;
+  let mi = timeToMinutes(intFim) - timeToMinutes(intIni);
+  if(mi < 0 && _shiftCrossesMidnight(entrada, saida)) mi += 24*60;
+  return Math.max(0, mi);
+}
+
+// Helper: detecta se o intervalo cruza meia-noite (para mostrar "(+1)" no fim)
+function _intervaloCrossesMidnight(intIni, intFim, entrada, saida){
+  if(!intIni||!intFim) return false;
+  if(timeToMinutes(intFim) >= timeToMinutes(intIni)) return false;
+  return _shiftCrossesMidnight(entrada, saida);
+}
+
 async function openPontoManual(){
   const mes=parseInt(val('payroll-mes')||currentMes());
   const ano=parseInt(val('payroll-ano')||currentAno());
@@ -4829,6 +4853,7 @@ async function openPontoManual(){
           <div>
             <div style="font-size:10px;color:var(--text-muted);margin-bottom:2px">Saída</div>
             <input type="time" class="pm-saida pm-input" style="${opStyle}" onchange="calcResumoManual()">
+            <div class="pm-saida-nextday" style="display:none;font-size:9px;color:#FB8C00;font-weight:600;margin-top:2px">⚠ Saída no dia seguinte</div>
           </div>
           <div>
             <div style="font-size:10px;color:#F59E0B;margin-bottom:2px">🍽 Int. Início</div>
@@ -4837,6 +4862,7 @@ async function openPontoManual(){
           <div>
             <div style="font-size:10px;color:#F59E0B;margin-bottom:2px">🍽 Int. Fim</div>
             <input type="time" class="pm-int-fim pm-input" style="${opStyle}" onchange="calcResumoManual()">
+            <div class="pm-intfim-nextday" style="display:none;font-size:9px;color:#FB8C00;font-weight:600;margin-top:2px">⚠ Fim no dia seguinte</div>
           </div>
         </div>
       </div>
@@ -4942,6 +4968,8 @@ function calcResumoManual(){
   let diasTrabalhados=0, faltas=0, totalHEmin=0;
   const empId=val('payroll-employee');
   const emp=State.employees.find(e=>e.id===empId);
+  const fam=emp?escalaFamilia(emp.escala||'5x2A'):'5x2';
+  const is12x36=fam==='12x36';
   cards.forEach(card=>{
     const diaSem=parseInt(card.dataset.semana);
     const entrada=card.querySelector('.pm-entrada')?.value;
@@ -4949,20 +4977,22 @@ function calcResumoManual(){
     const intIni=card.querySelector('.pm-int-ini')?.value;
     const intFim=card.querySelector('.pm-int-fim')?.value;
     const isWeekend=diaSem===0||diaSem===6;
+    // Toggle dicas visuais "no dia seguinte"
+    const saidaHint=card.querySelector('.pm-saida-nextday');
+    if(saidaHint) saidaHint.style.display=_shiftCrossesMidnight(entrada,saida)?'block':'none';
+    const intHint=card.querySelector('.pm-intfim-nextday');
+    if(intHint) intHint.style.display=_intervaloCrossesMidnight(intIni,intFim,entrada,saida)?'block':'none';
     if(entrada&&saida){
       diasTrabalhados++;
       let minBrutos=timeToMinutes(saida)-timeToMinutes(entrada);
       if(minBrutos<=0) minBrutos+=24*60;
-      const minIntervalo=(intIni&&intFim)?Math.max(0,timeToMinutes(intFim)-timeToMinutes(intIni)):0;
+      const minIntervalo=_calcIntervaloMin(intIni,intFim,entrada,saida);
       const minLiquidos=minBrutos-minIntervalo;
       let minContratados=480; // 8h padrão
-      if(emp){
-        const fam=escalaFamilia(emp.escala||'5x2A');
-        if(fam==='6x1') minContratados=440;
-        else if(fam==='12x36') minContratados=660;
-      }
+      if(fam==='6x1') minContratados=440;
+      else if(fam==='12x36') minContratados=660;
       totalHEmin+=Math.max(0,minLiquidos-minContratados);
-    } else if(!isWeekend&&!entrada&&!saida) faltas++;
+    } else if(!isWeekend&&!is12x36&&!entrada&&!saida) faltas++;
   });
   const diasEl=document.getElementById('ponto-resumo-dias');
   const faltasEl=document.getElementById('ponto-resumo-faltas');
@@ -4979,6 +5009,8 @@ async function applyPontoManual(){
   const emp=State.employees.find(e=>e.id===empId);
   const mes=parseInt(val('payroll-mes')||currentMes());
   const ano=parseInt(val('payroll-ano')||currentAno());
+  const fam=emp?escalaFamilia(emp.escala||'5x2A'):'5x2';
+  const is12x36=fam==='12x36';
   cards.forEach(card=>{
     const diaSem=parseInt(card.dataset.semana);
     const entrada=card.querySelector('.pm-entrada')?.value;
@@ -4990,16 +5022,13 @@ async function applyPontoManual(){
       diasTrabalhados++;
       let minBrutos=timeToMinutes(saida)-timeToMinutes(entrada);
       if(minBrutos<=0) minBrutos+=24*60;
-      const minIntervalo=(intIni&&intFim)?Math.max(0,timeToMinutes(intFim)-timeToMinutes(intIni)):0;
+      const minIntervalo=_calcIntervaloMin(intIni,intFim,entrada,saida);
       const minLiquidos=minBrutos-minIntervalo;
       let minContratados=480;
-      if(emp){
-        const fam=escalaFamilia(emp.escala||'5x2A');
-        if(fam==='6x1') minContratados=440;
-        else if(fam==='12x36') minContratados=660;
-      }
+      if(fam==='6x1') minContratados=440;
+      else if(fam==='12x36') minContratados=660;
       totalHEmin+=Math.max(0,minLiquidos-minContratados);
-    } else if(!isWeekend&&!entrada&&!saida) faltas++;
+    } else if(!isWeekend&&!is12x36&&!entrada&&!saida) faltas++;
   });
   // Salva horários no Firebase antes de aplicar
   if(empId){
@@ -5039,6 +5068,8 @@ function printPreviewParcial(){
   // Calcula dias/faltas/HE do grid atual sem salvar no Firebase
   const cards=_getPontoManualCards();
   let diasTrabalhados=0, faltas=0, totalHEmin=0;
+  const fam=escalaFamilia(emp.escala||'5x2A');
+  const is12x36=fam==='12x36';
   cards.forEach(card=>{
     const diaSem=parseInt(card.dataset.semana);
     const entrada=card.querySelector('.pm-entrada')?.value;
@@ -5050,14 +5081,13 @@ function printPreviewParcial(){
       diasTrabalhados++;
       let mb=timeToMinutes(saida)-timeToMinutes(entrada);
       if(mb<=0) mb+=24*60;
-      const mi=(intIni&&intFim)?Math.max(0,timeToMinutes(intFim)-timeToMinutes(intIni)):0;
+      const mi=_calcIntervaloMin(intIni,intFim,entrada,saida);
       const minLiq=mb-mi;
       let minContr=480;
-      const fam=escalaFamilia(emp.escala||'5x2A');
       if(fam==='6x1') minContr=440;
       else if(fam==='12x36') minContr=660;
       totalHEmin+=Math.max(0,minLiq-minContr);
-    } else if(!isWeekend&&!entrada&&!saida) faltas++;
+    } else if(!isWeekend&&!is12x36&&!entrada&&!saida) faltas++;
   });
 
   // Aplica temporariamente ao formulário e recalcula
@@ -5118,6 +5148,8 @@ function printFolhaPonto(isPreview=false){
   const cards=_getPontoManualCards();
   const usandoModal=cards.length>0;
   const diasPonto=usandoModal ? _collectPontoManualDias() : (payrollReg?.pontoManualDias||[]);
+  const fam=escalaFamilia(emp.escala||'5x2A');
+  const is12x36=fam==='12x36';
 
   // Monta tabela de dias do mês
   const diasNoMes=new Date(ano,mes,0).getDate();
@@ -5136,21 +5168,26 @@ function printFolhaPonto(isPreview=false){
     if(entrada&&saida){
       let mb=timeToMinutes(saida)-timeToMinutes(entrada);
       if(mb<=0) mb+=24*60;
-      const mi=(intIni&&intFim)?Math.max(0,timeToMinutes(intFim)-timeToMinutes(intIni)):0;
+      const mi=_calcIntervaloMin(intIni,intFim,entrada,saida);
       minLiq=mb-mi;
     }
     const horasLiq=minLiq>0?minutesToStr(minLiq):'';
+    // Sufixo (+1) para saída/intFim cross-midnight em turno noturno
+    const saidaDisplay=_shiftCrossesMidnight(entrada,saida)?`${saida} <span style="color:#FB8C00;font-size:9px">(+1)</span>`:saida;
+    const intFimDisplay=_intervaloCrossesMidnight(intIni,intFim,entrada,saida)?`${intFim} <span style="color:#FB8C00;font-size:9px">(+1)</span>`:intFim;
     let obsdia='';
-    if(!entrada&&!saida&&!isWknd) obsdia='Falta';
-    else if(!entrada&&!saida&&isWknd) obsdia='Folga';
+    if(!entrada&&!saida){
+      if(isWknd||is12x36) obsdia='Folga';
+      else obsdia='Falta';
+    }
     const rowBg=isWknd?'background:#F8F9FA;color:#999':'';
     tabelaDias+=`<tr style="${rowBg}">
       <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${String(d).padStart(2,'0')}</td>
       <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${nomeDia}</td>
       <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${entrada}</td>
-      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${saida}</td>
+      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${saidaDisplay}</td>
       <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${intIni}</td>
-      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${intFim}</td>
+      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${intFimDisplay}</td>
       <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6;font-weight:${horasLiq?'600':'400'}">${horasLiq}</td>
       <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6;color:#E65100">${obsdia}</td>
     </tr>`;
@@ -5348,6 +5385,8 @@ function _buildFolhaHtmlFromRecord(emp, p){
   const diasPonto    = p.pontoManualDias||[];
   const diasNoMes    = new Date(ano,mes,0).getDate();
   const diasSemana   = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  const fam          = escalaFamilia(emp.escala||'5x2A');
+  const is12x36      = fam==='12x36';
   let tabelaDias='';
   for(let d=1;d<=diasNoMes;d++){
     const dow      = new Date(ano,mes-1,d).getDay();
@@ -5362,21 +5401,26 @@ function _buildFolhaHtmlFromRecord(emp, p){
     if(entrada&&saida){
       let mb=timeToMinutes(saida)-timeToMinutes(entrada);
       if(mb<=0) mb+=24*60;
-      const mi=(intIni&&intFim)?Math.max(0,timeToMinutes(intFim)-timeToMinutes(intIni)):0;
+      const mi=_calcIntervaloMin(intIni,intFim,entrada,saida);
       minLiq=mb-mi;
     }
     const horasLiq=minLiq>0?minutesToStr(minLiq):'';
+    // Sufixo (+1) para saída/intFim cross-midnight em turno noturno
+    const saidaDisplay=_shiftCrossesMidnight(entrada,saida)?`${saida} <span style="color:#FB8C00;font-size:9px">(+1)</span>`:saida;
+    const intFimDisplay=_intervaloCrossesMidnight(intIni,intFim,entrada,saida)?`${intFim} <span style="color:#FB8C00;font-size:9px">(+1)</span>`:intFim;
     let obsdia='';
-    if(!entrada&&!saida&&!isWknd) obsdia='Falta';
-    else if(!entrada&&!saida&&isWknd) obsdia='Folga';
+    if(!entrada&&!saida){
+      if(isWknd||is12x36) obsdia='Folga';
+      else obsdia='Falta';
+    }
     const rowBg=isWknd?'background:#F8F9FA;color:#999':'';
     tabelaDias+=`<tr style="${rowBg}">
       <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${String(d).padStart(2,'0')}</td>
       <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${nomeDia}</td>
       <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${entrada}</td>
-      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${saida}</td>
+      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${saidaDisplay}</td>
       <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${intIni}</td>
-      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${intFim}</td>
+      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${intFimDisplay}</td>
       <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6;font-weight:${horasLiq?'600':'400'}">${horasLiq}</td>
       <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6;color:#E65100">${obsdia}</td>
     </tr>`;

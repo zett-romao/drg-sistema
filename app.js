@@ -2248,6 +2248,8 @@ async function savePayroll(){
     horasExtrasPerc:parseInt(val('payroll-he-perc')||'50'),
     horasExtrasValor:numVal('payroll-he-valor')||0,
     pdfName:State.currentPdfFile?State.currentPdfFile.name:(existing?existing.pdfName:''),
+    // Preserva os pontos do app — savePayroll nunca deve apagar pontoManualDias
+    pontoManualDias: existing?.pontoManualDias || [],
     updatedAt:new Date().toISOString(),
     createdAt:existing?existing.createdAt:new Date().toISOString()
   };
@@ -3516,7 +3518,7 @@ async function deleteDocument(empId, fileName){
 // ============================================
 // PREENCHER PONTO MANUALMENTE
 // ============================================
-function openPontoManual(){
+async function openPontoManual(){
   const mes=parseInt(val('payroll-mes')||currentMes());
   const ano=parseInt(val('payroll-ano')||currentAno());
   const diasNoMes=new Date(ano,mes,0).getDate();
@@ -3564,8 +3566,22 @@ function openPontoManual(){
     </div>`;
   }
   grid.innerHTML=cards;
-  // Carregar dados salvos do Firebase (se existirem)
-  const payrollSalvo=State.payrolls.find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
+  // Busca direta no Firestore para garantir dados frescos do app de ponto
+  let payrollSalvo = State.payrolls.find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
+  try {
+    const snap = await DB.fs.collection('payrolls')
+      .where('employeeId','==',empId)
+      .where('mes','==',mes)
+      .where('ano','==',ano)
+      .limit(1).get();
+    if(!snap.empty){
+      payrollSalvo = snap.docs[0].data();
+      // Sincroniza State para manter cache atualizado
+      const idx = State.payrolls.findIndex(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
+      if(idx>=0) State.payrolls[idx]=payrollSalvo;
+      else State.payrolls.push(payrollSalvo);
+    }
+  } catch(e){ console.warn('openPontoManual: fallback para cache local',e); }
   if(payrollSalvo?.pontoManualDias?.length){
     payrollSalvo.pontoManualDias.forEach(d=>{
       const card=document.querySelector(`#ponto-manual-grid [data-dia="${d.dia}"]`);

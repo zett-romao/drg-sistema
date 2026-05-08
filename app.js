@@ -430,6 +430,9 @@ function showSection(name){
   if(name==='payroll'   && !mods.payroll)   return;
   if(name==='postos'    && !mods.postos)    return;
   if(name==='contratos' && !mods.contratos) return;
+  // Limpa qualquer modal flutuante que possa bloquear cliques
+  const floatingModal=document.getElementById('modal-stat-detail');
+  if(floatingModal) floatingModal.remove();
   document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
   document.querySelectorAll('.nav-link').forEach(n=>n.classList.remove('active'));
   const section=document.getElementById('section-'+name);
@@ -1114,8 +1117,8 @@ function renderContabilidade(){
     const especie=rem+an+ins+acu+he+bon;
     tR+=rem; tVT+=vt; tVR+=vr; tVA+=va; tHE+=he; tB+=bon; tAN+=an; tIns+=ins; tAcu+=acu; tAdiant+=adiant;
     tTotal+=especie+vt+vr+va;
-    const semBg=!p?'background:#FFF3F3;':'';
-    return `<tr style="${semBg}">
+    const rowBg=!p?'#FFF0F0':i%2===0?'#ffffff':'#F0F4FF';
+    return `<tr style="background:${rowBg}">
       <td>${i+1}</td>
       <td>${e.registro?String(e.registro).padStart(4,'0'):'—'}</td>
       <td><strong>${e.nome}</strong></td>

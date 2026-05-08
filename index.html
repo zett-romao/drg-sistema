@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title id="page-title">D.R. Global Multi Services — Sistema de Gestão de Colaboradores</title>
   <link rel="icon" href="logo.png" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20260508k">
+  <link rel="stylesheet" href="styles.css?v=20260508l">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -13,7 +13,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-  <script src="firebase-config.js?v=20260508k"></script>
+  <script src="firebase-config.js?v=20260508l"></script>
 </head>
 <body>
 
@@ -1942,6 +1942,16 @@
             <input type="time" id="emp-horario-ref-fim" placeholder="13:00">
           </div>
         </div>
+        <div class="form-row">
+          <div class="form-group" style="grid-column:1 / -1">
+            <div class="checkbox-group">
+              <input type="checkbox" id="emp-sem-refeicao" onchange="onSemRefeicaoChange()">
+              <label for="emp-sem-refeicao" style="font-size:14px;font-weight:600;color:var(--text)">
+                <i class="fa-solid fa-ban" style="color:#C62828"></i> Trabalha sozinho — <strong>sem horário de refeição</strong> (não tem rendido no posto)
+              </label>
+            </div>
+          </div>
+        </div>
         <div class="form-row" id="turno-noturno-row" style="display:none">
           <div class="form-group">
             <label>&nbsp;</label>
@@ -3073,6 +3083,60 @@
   </div>
 </div>
 
+<!-- ===== MODAL: REFEIÇÃO EM MASSA (ESCALAS) ===== -->
+<div class="modal-overlay hidden" id="modal-bulk-refeicao" onclick="closeModal('modal-bulk-refeicao', event)">
+  <div class="modal-dialog modal-md">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-utensils" style="color:#F59E0B"></i> Atualizar Horário de Refeição em Massa</h3>
+      <button class="modal-close" onclick="closeModal('modal-bulk-refeicao')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <div id="bulk-refeicao-info" style="background:#F1F5FF;padding:10px 14px;border-radius:6px;margin-bottom:14px;font-size:13px"></div>
+      <div class="form-row">
+        <div class="form-group">
+          <label><i class="fa-solid fa-utensils" style="color:#F59E0B"></i> Início da Refeição</label>
+          <input type="time" id="bulk-ref-ini" placeholder="12:00">
+        </div>
+        <div class="form-group">
+          <label><i class="fa-solid fa-utensils" style="color:#F59E0B"></i> Retorno da Refeição</label>
+          <input type="time" id="bulk-ref-fim" placeholder="13:00">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label><i class="fa-solid fa-calendar-day"></i> Aplicar a partir do dia</label>
+          <input type="number" id="bulk-ref-dia" min="1" max="31" placeholder="Ex.: 15">
+          <small style="color:var(--text-muted);font-size:11px">Padrão: hoje. Use 1 para o mês inteiro.</small>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="grid-column:1 / -1">
+          <div class="checkbox-group">
+            <input type="checkbox" id="bulk-ref-update-cadastro" checked>
+            <label for="bulk-ref-update-cadastro" style="font-size:13px"><i class="fa-solid fa-id-card" style="color:var(--primary)"></i> Atualizar também o cadastro do colaborador (default para meses futuros)</label>
+          </div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="grid-column:1 / -1">
+          <div class="checkbox-group">
+            <input type="checkbox" id="bulk-ref-future-months" checked>
+            <label for="bulk-ref-future-months" style="font-size:13px"><i class="fa-solid fa-forward" style="color:var(--primary)"></i> Aplicar também aos meses futuros já salvos</label>
+          </div>
+        </div>
+      </div>
+      <div class="alert alert-info" style="margin-top:12px;font-size:12px">
+        <i class="fa-solid fa-circle-info"></i>
+        <div>A alteração afeta apenas dias de <strong>Trabalho</strong> (folgas continuam sem horário). Dias já passados (anteriores ao dia escolhido) não são alterados.</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-bulk-refeicao')">Cancelar</button>
+      <button class="btn btn-primary" onclick="applyBulkRefeicao()"><i class="fa-solid fa-check"></i> Aplicar</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== MODAL: PERFIS CUSTOMIZÁVEIS ===== -->
 <div class="modal-overlay hidden" id="modal-perfil" onclick="closeModal('modal-perfil', event)">
   <div class="modal-dialog modal-md">
@@ -3132,6 +3196,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260508k"></script>
+<script src="app.js?v=20260508l"></script>
 </body>
 </html>

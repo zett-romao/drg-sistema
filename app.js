@@ -2474,6 +2474,17 @@ function onEmpStatusChange(){
   if(rowLic) rowLic.style.display=(status==='licenca-maternidade')?'':'none';
 }
 
+// Habilita/desabilita os inputs de horário de refeição conforme flag "semRefeicao"
+function onSemRefeicaoChange(){
+  const chk=document.getElementById('emp-sem-refeicao');
+  const ini=document.getElementById('emp-horario-ref-ini');
+  const fim=document.getElementById('emp-horario-ref-fim');
+  if(!chk) return;
+  const sem=chk.checked;
+  if(ini){ ini.disabled=sem; if(sem) ini.value=''; ini.style.opacity=sem?'.45':'1'; }
+  if(fim){ fim.disabled=sem; if(sem) fim.value=''; fim.style.opacity=sem?'.45':'1'; }
+}
+
 function _toggleOpcaoLicencaMaternidade(mostrar){
   const opt=document.getElementById('opt-licenca-maternidade');
   if(!opt) return;
@@ -2570,6 +2581,8 @@ function openEmployeeModal(id=null){
     onEmpStatusChange();
     setVal('emp-horario-entrada',emp.horarioEntrada||''); setVal('emp-horario-saida',emp.horarioSaida||'');
     setVal('emp-horario-ref-ini',emp.horarioRefIni||''); setVal('emp-horario-ref-fim',emp.horarioRefFim||'');
+    const semRefChk=document.getElementById('emp-sem-refeicao');
+    if(semRefChk){ semRefChk.checked=!!(emp.semRefeicao); onSemRefeicaoChange(); }
     setVal('emp-salario-base',emp.salarioBase||'');
     setVal('emp-posto',emp.posto||'');
     setVal('emp-setor',emp.setor||'');
@@ -2620,6 +2633,7 @@ function openEmployeeModal(id=null){
     const chk=document.getElementById('emp-turno-noturno'); if(chk) chk.checked=false;
     const acumChk=document.getElementById('emp-acumulo-funcao'); if(acumChk) acumChk.checked=false;
     const bonifChk=document.getElementById('emp-bonificacao-sempre-pagar'); if(bonifChk) bonifChk.checked=false;
+    const semRefChk=document.getElementById('emp-sem-refeicao'); if(semRefChk){ semRefChk.checked=false; onSemRefeicaoChange(); }
     // Encargos & IRRF — limpar para novo colaborador
     setVal('emp-dependentes-irrf',0);
     setVal('emp-pensao-alimenticia','0.00');
@@ -2669,6 +2683,7 @@ async function saveEmployee(){
     horarioSaida:val('emp-horario-saida'),
     horarioRefIni:val('emp-horario-ref-ini'),
     horarioRefFim:val('emp-horario-ref-fim'),
+    semRefeicao:!!(document.getElementById('emp-sem-refeicao')?.checked),
     turnoNoturno:chk?chk.checked:false,
     salarioBase:numVal('emp-salario-base'),
     insalubridade:numVal('emp-insalubridade')||0,
@@ -5284,7 +5299,7 @@ ${isPreview?`<div class="preview-banner">
   <div class="info-item"><div class="info-label">Admissão</div><div class="info-value">${emp.admissao?fmtDate(emp.admissao):'—'}</div></div>
   <div class="info-item"><div class="info-label">Posto de Trabalho</div><div class="info-value">${posto.razaoSocial||'—'}</div></div>
   <div class="info-item"><div class="info-label">Salário Base</div><div class="info-value">${fmtMoney(salarioBase)}</div></div>
-  <div class="info-item"><div class="info-label">Horário Contratual</div><div class="info-value">${emp.horarioEntrada||'—'} – ${emp.horarioSaida||'—'}${(emp.horarioRefIni||emp.horarioRefFim)?` <span style="font-size:10px;color:#888">(Ref. ${emp.horarioRefIni||'—'}–${emp.horarioRefFim||'—'})</span>`:''}</div></div>
+  <div class="info-item"><div class="info-label">Horário Contratual</div><div class="info-value">${emp.horarioEntrada||'—'} – ${emp.horarioSaida||'—'}${emp.semRefeicao?' <span style="font-size:10px;color:#C62828">(Sem refeição)</span>':((emp.horarioRefIni||emp.horarioRefFim)?` <span style="font-size:10px;color:#888">(Ref. ${emp.horarioRefIni||'—'}–${emp.horarioRefFim||'—'})</span>`:'')}</div></div>
   <div class="info-item"><div class="info-label">Banco de Horas</div><div class="info-value">${emp.bancoHoras||'—'}</div></div>
   <div class="info-item"><div class="info-label">Status</div><div class="info-value">${(emp.status||'ativo').charAt(0).toUpperCase()+(emp.status||'ativo').slice(1)}</div></div>
 </div>
@@ -5500,7 +5515,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
   <div class="info-item"><div class="info-label">Admissão</div><div class="info-value">${emp.admissao?fmtDate(emp.admissao):'—'}</div></div>
   <div class="info-item"><div class="info-label">Posto de Trabalho</div><div class="info-value">${posto.razaoSocial||'—'}</div></div>
   <div class="info-item"><div class="info-label">Salário Base</div><div class="info-value">${fmtMoney(emp.salarioBase||0)}</div></div>
-  <div class="info-item"><div class="info-label">Horário Contratual</div><div class="info-value">${emp.horarioEntrada||'—'} – ${emp.horarioSaida||'—'}${(emp.horarioRefIni||emp.horarioRefFim)?` <span style="font-size:10px;color:#888">(Ref. ${emp.horarioRefIni||'—'}–${emp.horarioRefFim||'—'})</span>`:''}</div></div>
+  <div class="info-item"><div class="info-label">Horário Contratual</div><div class="info-value">${emp.horarioEntrada||'—'} – ${emp.horarioSaida||'—'}${emp.semRefeicao?' <span style="font-size:10px;color:#C62828">(Sem refeição)</span>':((emp.horarioRefIni||emp.horarioRefFim)?` <span style="font-size:10px;color:#888">(Ref. ${emp.horarioRefIni||'—'}–${emp.horarioRefFim||'—'})</span>`:'')}</div></div>
   <div class="info-item"><div class="info-label">Banco de Horas</div><div class="info-value">${emp.bancoHoras||'—'}</div></div>
   <div class="info-item"><div class="info-label">Período</div><div class="info-value">${p.periodoDe||'—'} a ${p.periodoAte||'—'}</div></div>
 </div>
@@ -6169,8 +6184,14 @@ function _escalaHorariosDia(emp, diaSem){
   const def = ESCALA_HORARIOS_DEFAULT[escala] || ESCALA_HORARIOS_DEFAULT['5x2A'];
   let entrada = emp.horarioEntrada || def.entrada;
   let saida   = emp.horarioSaida   || def.saida;
-  let intIni  = emp.horarioRefIni  || '12:00';
-  let intFim  = emp.horarioRefFim  || '13:00';
+  // Refeição: respeita flag "semRefeicao" — sai em branco quando ativa
+  let intIni, intFim;
+  if(emp.semRefeicao){
+    intIni = ''; intFim = '';
+  } else {
+    intIni = emp.horarioRefIni || '12:00';
+    intFim = emp.horarioRefFim || '13:00';
+  }
   // Para 12x36 noturno, se não tem horário cadastrado, ajusta default
   if(escala==='12x36' && noturno && !emp.horarioEntrada){
     entrada = '19:00'; saida = '07:00';
@@ -6408,6 +6429,9 @@ function _renderEscalaCard(emp, mes, ano){
   const noturnoBadge = emp.turnoNoturno
     ? '<span style="background:#E8EAF6;color:#3F51B5;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px"><i class="fa-solid fa-moon"></i> Noturno</span>'
     : '';
+  const semRefBadge = emp.semRefeicao
+    ? '<span style="background:#FFEBEE;color:#C62828;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px" title="Trabalha sozinho — sem horário de refeição"><i class="fa-solid fa-ban"></i> Sem refeição</span>'
+    : '';
   const projBadge = isProjetada
     ? '<span style="background:#FFF3E0;color:#E65100;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px"><i class="fa-solid fa-wand-magic-sparkles"></i> Projetada — não salva</span>'
     : '<span style="background:#E8F5E9;color:#1B5E20;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px"><i class="fa-solid fa-check"></i> Salva</span>';
@@ -6416,10 +6440,11 @@ function _renderEscalaCard(emp, mes, ano){
     <div class="card-body" style="padding:14px 18px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
         <div>
-          <div style="font-size:15px;font-weight:700;color:var(--primary)">${emp.nome}${noturnoBadge}${projBadge}</div>
+          <div style="font-size:15px;font-weight:700;color:var(--primary)">${emp.nome}${noturnoBadge}${semRefBadge}${projBadge}</div>
           <div style="font-size:12px;color:var(--text-muted);margin-top:2px"><i class="fa-solid fa-building"></i> ${posto} &middot; <i class="fa-solid fa-sitemap"></i> ${setor} &middot; <strong>${escalaLabel(emp.escala||'5x2A')}</strong></div>
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${emp.semRefeicao?'':`<button class="btn btn-secondary" onclick="openBulkRefeicao('${emp.id}')" title="Atualizar horário de refeição em massa"><i class="fa-solid fa-utensils" style="color:#F59E0B"></i> Refeição em massa</button>`}
           <button class="btn btn-secondary" onclick="resetEscala('${emp.id}')" title="Reprojetar (descarta alterações)"><i class="fa-solid fa-rotate-left"></i> Reprojetar</button>
           <button class="btn btn-primary" onclick="saveEscala('${emp.id}')"><i class="fa-solid fa-floppy-disk"></i> Salvar</button>
         </div>
@@ -6576,6 +6601,100 @@ function resetEscala(empId){
   if(card) card.outerHTML = _renderEscalaCard(emp, mes, ano);
   State.escalas = oldEscalas;
   toast('Escala reprojetada (não salva)');
+}
+
+// ============================================
+// ESCALAS — Refeição em massa (cascata)
+// ============================================
+let _bulkRefeicaoEmpId = null;
+
+function openBulkRefeicao(empId){
+  const emp = (State.employees||[]).find(e=>e.id===empId);
+  if(!emp){ toast('Colaborador não encontrado','error'); return; }
+  if(emp.semRefeicao){ toast('Este colaborador trabalha sozinho — sem horário de refeição.','error'); return; }
+  _bulkRefeicaoEmpId = empId;
+  const mes = parseInt(document.getElementById('escala-mes').value);
+  const ano = parseInt(document.getElementById('escala-ano').value);
+  const today = new Date();
+  const isCurMes = (mes==today.getMonth()+1 && ano==today.getFullYear());
+  const startDia = isCurMes ? today.getDate() : 1;
+  // Pré-preenche com horários atuais do colaborador
+  setVal('bulk-ref-ini', emp.horarioRefIni || '12:00');
+  setVal('bulk-ref-fim', emp.horarioRefFim || '13:00');
+  setVal('bulk-ref-dia', startDia);
+  document.getElementById('bulk-ref-update-cadastro').checked = true;
+  document.getElementById('bulk-ref-future-months').checked = true;
+  document.getElementById('bulk-refeicao-info').innerHTML =
+    `<strong>${emp.nome}</strong> &middot; ${escalaLabel(emp.escala||'5x2A')}${emp.turnoNoturno?' (Noturno)':''}<br>
+     <span style="color:var(--text-muted);font-size:12px">Mês visível: ${MESES[mes]}/${ano}</span>`;
+  document.getElementById('modal-bulk-refeicao').classList.remove('hidden');
+}
+
+async function applyBulkRefeicao(){
+  const empId = _bulkRefeicaoEmpId;
+  if(!empId){ closeModal('modal-bulk-refeicao'); return; }
+  const emp = (State.employees||[]).find(e=>e.id===empId);
+  if(!emp){ toast('Colaborador não encontrado','error'); return; }
+  const newIni = val('bulk-ref-ini');
+  const newFim = val('bulk-ref-fim');
+  if(!newIni || !newFim){ toast('Preencha os dois horários.','error'); return; }
+  const startDia = parseInt(val('bulk-ref-dia')||'1');
+  const updateCadastro = document.getElementById('bulk-ref-update-cadastro').checked;
+  const futureMonths = document.getElementById('bulk-ref-future-months').checked;
+  const mes = parseInt(document.getElementById('escala-mes').value);
+  const ano = parseInt(document.getElementById('escala-ano').value);
+  const btn = document.querySelector('#modal-bulk-refeicao .btn-primary');
+  if(btn) setBtnLoading(btn, true, '');
+  try {
+    // 1) Atualiza DOM do card atual (apenas dias >= startDia, somente trabalho)
+    const card = document.querySelector(`.escala-card[data-emp-id="${empId}"]`);
+    let domCount = 0;
+    if(card){
+      card.querySelectorAll('tbody tr[data-dia]').forEach(row => {
+        const d = parseInt(row.dataset.dia);
+        if(d < startDia) return;
+        if(row.dataset.tipo !== 'trabalho') return;
+        const ini = row.querySelector('.esc-int-ini');
+        const fim = row.querySelector('.esc-int-fim');
+        if(ini){ ini.value = newIni; }
+        if(fim){ fim.value = newFim; }
+        domCount++;
+      });
+      card.dataset.dirty = '1';
+    }
+    // 2) Atualiza cadastro se solicitado
+    if(updateCadastro){
+      emp.horarioRefIni = newIni;
+      emp.horarioRefFim = newFim;
+      emp.updatedAt = new Date().toISOString();
+      await DB.save('employees', emp);
+    }
+    // 3) Atualiza meses futuros já salvos (se solicitado)
+    let futCount = 0;
+    if(futureMonths){
+      const futuras = (State.escalas||[]).filter(e => e.employeeId===empId &&
+        ((e.ano > ano) || (e.ano==ano && e.mes > mes))
+      );
+      for(const fut of futuras){
+        const novoDias = (fut.dias||[]).map(d => {
+          if(d.tipo === 'trabalho'){
+            return { ...d, intIni: newIni, intFim: newFim };
+          }
+          return d;
+        });
+        const novo = { ...fut, dias: novoDias, updatedAt: new Date().toISOString() };
+        await DB.save('escalas', novo);
+        futCount++;
+      }
+    }
+    closeModal('modal-bulk-refeicao');
+    toast(`Aplicado: ${domCount} dia(s) no mês atual + ${futCount} mês(es) futuro(s). Clique em Salvar no card pra confirmar o mês atual.`);
+  } catch(e){
+    console.error(e);
+    toast('Erro ao aplicar refeição em massa','error');
+  } finally {
+    if(btn) setBtnLoading(btn, false, '<i class="fa-solid fa-check"></i> Aplicar');
+  }
 }
 
 // ============================================

@@ -116,11 +116,12 @@ const DB = {
 // ESTADO GLOBAL
 // ============================================
 const EMPRESA_DEFAULTS = {
-  nomeEmpresa: 'D.R. Global Multi Services',
-  cnpj:        '47.619.085/0001-98',
-  descricao:   'Gestão de Portaria e Segurança',
-  subdesc:     'Sistema de Gestão de Colaboradores',
-  logoUrl:     ''
+  nomeEmpresa:         'D.R. Global Multi Services',
+  cnpj:                '47.619.085/0001-98',
+  descricao:           'Gestão de Portaria e Segurança',
+  subdesc:             'Sistema de Gestão de Colaboradores',
+  logoUrl:             '',
+  modoContabilidade:   'ambas'   // 'interna' | 'externa' | 'ambas'
 };
 
 const State = {
@@ -201,28 +202,67 @@ function applyEmpresaConfig(){
 
   // formulário de configurações (se estiver visível)
   if(document.getElementById('cfg-nome-empresa')){
-    setVal('cfg-nome-empresa', e.nomeEmpresa||'');
-    setVal('cfg-cnpj',         e.cnpj||'');
-    setVal('cfg-descricao',    e.descricao||'');
-    setVal('cfg-logo-url',     e.logoUrl||'');
-    setVal('cfg-subdesc',      e.subdesc||'');
+    setVal('cfg-nome-empresa',       e.nomeEmpresa||'');
+    setVal('cfg-cnpj',               e.cnpj||'');
+    setVal('cfg-descricao',          e.descricao||'');
+    setVal('cfg-logo-url',           e.logoUrl||'');
+    setVal('cfg-subdesc',            e.subdesc||'');
+    setVal('cfg-modo-contabilidade', e.modoContabilidade||'ambas');
+  }
+
+  // Banners de modo de contabilidade nas seções
+  _applyModoBanners(e.modoContabilidade||'ambas');
+}
+
+function _applyModoBanners(modo){
+  const banners = {
+    'pag-modo-banner':  document.getElementById('pag-modo-banner'),
+    'cont-modo-banner': document.getElementById('cont-modo-banner'),
+  };
+  const modoLabels = {
+    interna: { label:'Contabilidade Interna', cor:'#1B5E20', bg:'#E8F5E9', icon:'fa-house' },
+    externa: { label:'Contabilidade Externa',  cor:'#1565C0', bg:'#E3F2FD', icon:'fa-building' },
+    ambas:   { label:'Interna + Externa',      cor:'#4A148C', bg:'#F3E5F5', icon:'fa-code-branch' },
+  };
+  const m = modoLabels[modo] || modoLabels.ambas;
+
+  const pagBanner = document.getElementById('pag-modo-banner');
+  if(pagBanner){
+    const hidden = modo === 'externa';
+    pagBanner.style.display = hidden ? 'none' : '';
+    if(!hidden) pagBanner.innerHTML =
+      modo === 'interna'
+        ? `<i class="fa-solid fa-circle-check" style="color:${m.cor}"></i> <strong>Modo Contabilidade Interna</strong> — Você gerencia a folha de pagamento internamente. Use esta seção para acompanhar encargos, INSS, IRRF e FGTS de cada colaborador.`
+        : `<i class="fa-solid fa-code-branch" style="color:${m.cor}"></i> <strong>Modo Ambas</strong> — Pagamentos para gestão interna. Use Contabilidade para exportar dados à contabilidade externa.`;
+  }
+
+  const contBanner = document.getElementById('cont-modo-banner');
+  if(contBanner){
+    const hidden = modo === 'interna';
+    contBanner.style.display = hidden ? 'none' : '';
+    if(!hidden) contBanner.innerHTML =
+      modo === 'externa'
+        ? `<i class="fa-solid fa-circle-check" style="color:${m.cor}"></i> <strong>Modo Contabilidade Externa</strong> — Exporte a planilha mensal e envie ao seu contador. Ele é responsável pelo cálculo de INSS, FGTS e IRRF.`
+        : `<i class="fa-solid fa-code-branch" style="color:${m.cor}"></i> <strong>Modo Ambas</strong> — Contabilidade para exportação ao contador externo. Use Pagamentos para gestão interna de encargos.`;
   }
 }
 
 async function saveEmpresaConfig(){
   if(Auth.currentUser?.role!=='master'){ toast('Apenas o master pode alterar as configurações','error'); return; }
   const dados = {
-    nomeEmpresa: val('cfg-nome-empresa').trim() || EMPRESA_DEFAULTS.nomeEmpresa,
-    cnpj:        val('cfg-cnpj').trim(),
-    descricao:   val('cfg-descricao').trim(),
-    logoUrl:     val('cfg-logo-url').trim(),
-    subdesc:     val('cfg-subdesc').trim(),
-    updatedAt:   new Date().toISOString()
+    nomeEmpresa:       val('cfg-nome-empresa').trim() || EMPRESA_DEFAULTS.nomeEmpresa,
+    cnpj:              val('cfg-cnpj').trim(),
+    descricao:         val('cfg-descricao').trim(),
+    logoUrl:           val('cfg-logo-url').trim(),
+    subdesc:           val('cfg-subdesc').trim(),
+    modoContabilidade: val('cfg-modo-contabilidade') || 'ambas',
+    updatedAt:         new Date().toISOString()
   };
   try {
     await DB.fs.collection('configuracoes').doc('empresa').set(dados, {merge:true});
     State.empresa = { ...EMPRESA_DEFAULTS, ...dados };
     applyEmpresaConfig();
+    _applyModoBanners(dados.modoContabilidade||'ambas');
     toast('Configurações salvas com sucesso!','success');
   } catch(e){
     toast('Erro ao salvar configurações: ' + e.message,'error');
@@ -230,13 +270,13 @@ async function saveEmpresaConfig(){
 }
 
 function renderConfiguracoes(){
-  // preenche os campos com os valores atuais
   const e = State.empresa;
-  setVal('cfg-nome-empresa', e.nomeEmpresa||'');
-  setVal('cfg-cnpj',         e.cnpj||'');
-  setVal('cfg-descricao',    e.descricao||'');
-  setVal('cfg-logo-url',     e.logoUrl||'');
-  setVal('cfg-subdesc',      e.subdesc||'');
+  setVal('cfg-nome-empresa',       e.nomeEmpresa||'');
+  setVal('cfg-cnpj',               e.cnpj||'');
+  setVal('cfg-descricao',          e.descricao||'');
+  setVal('cfg-logo-url',           e.logoUrl||'');
+  setVal('cfg-subdesc',            e.subdesc||'');
+  setVal('cfg-modo-contabilidade', e.modoContabilidade||'ambas');
 }
 
 // ============================================
@@ -559,8 +599,8 @@ function showSection(name){
   if(name==='employees') renderEmployeeTable();
   if(name==='payroll')   { initPayrollSection(); renderPayrollStats(); }
   if(name==='dashboard') renderDashboard();
-  if(name==='pagamentos')      renderPagamentos();
-  if(name==='contabilidade')   renderContabilidade();
+  if(name==='pagamentos')    { _applyModoBanners(State.empresa?.modoContabilidade||'ambas'); renderPagamentos(); }
+  if(name==='contabilidade') { _applyModoBanners(State.empresa?.modoContabilidade||'ambas'); renderContabilidade(); }
   if(name==='configuracoes')  renderConfiguracoes();
   if(name==='postos')    renderPostosTable();
   if(name==='contratos') { renderContratosTable(); populateContratoPostoSelect(); }
@@ -1024,7 +1064,10 @@ async function setupAutoBackup(){
 function renderDashboard(){
   const mes=currentMes(), ano=currentAno();
   const payThisMonth=State.payrolls.filter(p=>p.mes==mes&&p.ano==ano);
-  const totalEsp=payThisMonth.reduce((s,p)=>s+(p.remuneracao||0),0);
+  const totalEsp     =payThisMonth.reduce((s,p)=>s+(p.remuneracao||0),0);
+  const totalLiqFinal=payThisMonth.reduce((s,p)=>s+(p.totalLiquidoFinal||p.remuneracao||0),0);
+  const totalINSS    =payThisMonth.reduce((s,p)=>s+(p.inss||0),0);
+  const totalFGTS    =payThisMonth.reduce((s,p)=>s+(p.fgts||0),0);
   const ativos=State.employees.filter(e=>(e.status||'ativo')==='ativo').length;
   const inativos=State.employees.filter(e=>(e.status||'ativo')==='inativo').length;
   const afastados=State.employees.filter(e=>(e.status||'ativo')==='afastado').length;
@@ -1048,6 +1091,34 @@ function renderDashboard(){
     <div class="stat-card" style="border-color:#1565C0;border-left-width:4px;cursor:pointer" onclick="showSection('postos')" title="Ver postos de trabalho">
       <div class="stat-icon" style="background:#E3F2FD;color:#1565C0"><i class="fa-solid fa-building"></i></div>
       <div><div class="stat-value" style="color:#1565C0">${totalPostos}</div><div class="stat-label">Postos de trabalho</div></div></div>
+    ${(()=>{
+      const modo=State.empresa?.modoContabilidade||'ambas';
+      const usaInterna=modo==='interna'||modo==='ambas';
+      const usaExterna=modo==='externa'||modo==='ambas';
+      let card='';
+      if(usaInterna){
+        // Card Pagamentos (líquido final com encargos)
+        const encargosCalc=totalINSS>0;
+        card+=`<div class="stat-card" style="border-color:#1B5E20;border-left-width:4px;cursor:pointer" onclick="showSection('pagamentos')" title="Ver pagamentos do mês">
+          <div class="stat-icon" style="background:#E8F5E9;color:#1B5E20"><i class="fa-solid fa-money-bill-wave"></i></div>
+          <div>
+            <div class="stat-value" style="color:#1B5E20">${fmtMoney(usaExterna&&!encargosCalc?totalEsp:totalLiqFinal)}</div>
+            <div class="stat-label">Folha ${MESES[mes]} — ${payThisMonth.length} holerite(s)</div>
+            ${encargosCalc?`<div style="font-size:10px;color:#666;margin-top:2px">INSS ${fmtMoney(totalINSS)} · FGTS ${fmtMoney(totalFGTS)}</div>`:''}
+          </div></div>`;
+      }
+      if(usaExterna&&!usaInterna){
+        // Card Contabilidade (remuneração bruta para enviar ao contador)
+        card+=`<div class="stat-card amber" style="cursor:pointer" onclick="showSection('contabilidade')" title="Ver planilha de contabilidade">
+          <div class="stat-icon"><i class="fa-solid fa-calculator"></i></div>
+          <div>
+            <div class="stat-value">${fmtMoney(totalEsp)}</div>
+            <div class="stat-label">Remunerações ${MESES[mes]} — ${payThisMonth.length} folha(s)</div>
+            <div style="font-size:10px;color:#777;margin-top:2px">Exportar para contador externo</div>
+          </div></div>`;
+      }
+      return card;
+    })()}
     <div class="stat-card green" style="cursor:pointer" onclick="showSection('payroll')" title="Ver folha de ponto">
       <div class="stat-icon"><i class="fa-solid fa-file-circle-check"></i></div>
       <div><div class="stat-value">${payThisMonth.length}</div><div class="stat-label">Folhas lançadas em ${MESES[mes]}</div></div></div>

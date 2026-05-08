@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title id="page-title">D.R. Global Multi Services — Sistema de Gestão de Colaboradores</title>
   <link rel="icon" href="logo.png" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20260508e">
+  <link rel="stylesheet" href="styles.css?v=20260508f">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -13,7 +13,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-  <script src="firebase-config.js?v=20260508e"></script>
+  <script src="firebase-config.js?v=20260508f"></script>
 </head>
 <body>
 
@@ -1070,6 +1070,9 @@
           </div>
         </div>
 
+        <!-- Banner modo contabilidade -->
+        <div id="pag-modo-banner" style="background:#E8F5E9;border:1px solid #A5D6A7;border-radius:6px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#1B5E20"></div>
+
         <!-- Filtros -->
         <div class="card">
           <div class="card-body">
@@ -1154,6 +1157,9 @@
             <p>Geração de planilha mensal para a contabilidade (holerites)</p>
           </div>
         </div>
+
+        <!-- Banner modo contabilidade -->
+        <div id="cont-modo-banner" style="background:#E3F2FD;border:1px solid #90CAF9;border-radius:6px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#1565C0"></div>
 
         <!-- Filtros -->
         <div class="card">
@@ -1305,6 +1311,18 @@
             <div class="form-group">
               <label>Subtítulo da Tela de Login <span style="font-size:11px;color:#888">(opcional)</span></label>
               <input type="text" id="cfg-subdesc" placeholder="Ex: Sistema de Gestão de Colaboradores">
+            </div>
+            <div class="form-group" style="margin-top:16px;padding-top:16px;border-top:1px solid #E0E0E0">
+              <label><i class="fa-solid fa-code-branch" style="color:var(--primary)"></i> Modo de Contabilidade</label>
+              <select id="cfg-modo-contabilidade">
+                <option value="ambas">Ambas — Uso interno + exportação para contador externo</option>
+                <option value="interna">Interna — Gestão de folha de pagamento feita pela empresa</option>
+                <option value="externa">Externa — Contabilidade terceirizada (envio de planilha ao contador)</option>
+              </select>
+              <small style="color:#888;margin-top:4px;display:block">
+                Afeta o card de folha no Dashboard e os avisos contextuais em Pagamentos e Contabilidade.
+                Não altera as permissões de acesso — essas são gerenciadas por perfil de usuário.
+              </small>
             </div>
             <div style="display:flex;gap:10px;margin-top:8px">
               <button class="btn btn-primary" onclick="saveEmpresaConfig()">
@@ -2688,6 +2706,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260508e"></script>
+<script src="app.js?v=20260508f"></script>
 </body>
 </html>

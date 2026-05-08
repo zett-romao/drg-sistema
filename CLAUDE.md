@@ -11,11 +11,13 @@ A versão é controlada pela constante `APP_VERSION` no topo de `app.js` — alt
 
 Sistema de gestão de colaboradores para a empresa **D.R. Global Multi Services** (portaria/condomínios). Inclui:
 
-- Cadastro de colaboradores (dados pessoais, endereço, contrato, benefícios, férias, documentos)
-- Folha de ponto mensal (com leitura automática de PDF via IA)
+- Cadastro de colaboradores (dados pessoais, endereço, contrato, benefícios, férias, documentos, refeição)
+- Folha de ponto mensal (com leitura automática de PDF via IA + ponto manual com suporte a turno noturno cross-midnight)
+- **Escalas** mensais projetadas automaticamente por colaborador (5x2, 6x1, 12x36) com edição inline e exportação PDF/Excel/Word
 - CCT (Convenção Coletiva de Trabalho) com parametrização global
-- Dashboard com alertas (exames, férias, contratos, PLR)
+- Dashboard com alertas (exames, férias, contratos, PLR) e cards clicáveis
 - Gestão de postos de trabalho e contratos
+- **Pagamentos / 13º Salário / Férias** com cálculos CLT (INSS/IRRF/FGTS tabela 2026)
 - **Contabilidade**: tabela mensal de 24 colunas com exportação CSV e impressão
 - App separado de **Ponto Eletrônico** mobile (`ponto.html`) pros colaboradores baterem ponto
 
@@ -73,9 +75,12 @@ Os relatórios **não** têm mais seção própria no sidebar. São acessados vi
 - Card "Total Remuneração" foi removido
 
 ### Modelo de dados (Firestore)
-- `employees` — colaboradores (campos relevantes recentemente adicionados: `acumuloFuncao` boolean, `insalubridade` 0/20/40/60, `bonificacaoSemprePagar` boolean)
-- `payrolls` — folhas de ponto mensais. Campos recentemente adicionados: `periodoDe` (string DD/MM/AAAA), `periodoAte` (string DD/MM/AAAA), `status` (`'aberta'` | `'fechada'`), `fechadoEm` (ISO timestamp)
-- `configuracoes` — coleção nova. Documentos `fechamento_{ano}_{mes}` com estrutura `{ dataFechamento: string, fechado: boolean, fechadoEm: ISO timestamp }`. Controla o fechamento mensal global da Folha de Ponto.
+- `employees` — colaboradores. Campos relevantes recentemente adicionados: `acumuloFuncao` boolean, `insalubridade` 0/20/40/60, `bonificacaoSemprePagar` boolean, `horarioRefIni` / `horarioRefFim` (Início/Retorno Refeição — default 12:00–13:00 quando vazios), `dependentesIRRF`, `pensaoAlimenticia`, `planoSaude`, `outrosProventos[]`, `outrosDescontos[]`.
+- `payrolls` — folhas de ponto mensais. Campos: `periodoDe`/`periodoAte` (DD/MM/AAAA), `status` (`'aberta'` | `'fechada'`), `fechadoEm` (ISO), `pontoManualDias[]` (dias preenchidos via modal ou app), `inss`/`irrf`/`fgts`/`totalLiquidoFinal` etc.
+- `escalas` — **NOVA coleção**. Schema: `{ id, employeeId, mes, ano, dias:[{dia, diaSem, tipo:'trabalho'|'folga', entrada, intIni, intFim, saida, revisao?:bool}], createdAt, updatedAt }`. Documento único por colaborador/mês. Listener real-time em `init()`.
+- `configuracoes` — Documentos `fechamento_{ano}_{mes}` (controle de fechamento) e `empresa` (nome, CNPJ, descrição, logoUrl, modoContabilidade).
+- `decimoTerceiro` — id `{empId}_{ano}` — cálculo de 13º com 1ª e 2ª parcela.
+- `ferias` — id `{empId}_{ano}_{inicio}` — período de gozo, abono, demonstrativo.
 - `cct` — documento único `id: 'current'`
 - `users` — usuários do sistema (login custom, NÃO Firebase Auth)
 - `accessLog` — log de auditoria
@@ -263,6 +268,9 @@ git push origin main
 - **2026-05-08**: Módulo 13º Salário — nova seção `decimoterceiro` no sidebar. Tabela com colunas: #, Reg., Nome, Meses, Total Bruto, 1ª Parcela, INSS, IRRF, FGTS*, 2ª Parcela Líq., Status. Modal com demonstrativo completo (campos readonly calculados automaticamente), datas de pagamento das parcelas, status (Pendente/Parcial/Pago), observações. Impressão de recibo individual por colaborador. Cálculos: INSS sobre total bruto (tabela progressiva 2026), IRRF sobre 2ª parcela (após INSS), FGTS 8% patronal informativo. Proporcional por meses trabalhados no ano (>15 dias = mês completo). Salvo em coleção `decimoTerceiro`, ID `{empId}_{ano}`. Funções: `renderDecimoTerceiro`, `openDecimoTerceiro`, `_calcDecTercPreview`, `saveDecimoTerceiro`, `printDecimoTerceiro`, `printDecimoTerceiroLista`. DB.listen em `init()`.
 - **2026-05-08**: Módulo Férias — nova seção `ferias` no sidebar. Tabela com colunas: #, Reg., Nome, Cargo, Período Aquisitivo (calculado automaticamente da admissão), Direito (ano), Status (Pendente/Agendadas/Gozadas). Modal com: início/fim do gozo, abono pecuniário (0–10 dias, oculto se 0), demonstrativo calculado automaticamente (salário de fruição, 1/3 constitucional, abono, INSS, IRRF, total líquido). Impressão de recibo com nota sobre isenção do abono. Cálculos: INSS sobre (fruição + terço), abono pecuniário isento de INSS (art. 144 CLT), IRRF sobre (fruição + terço - INSS - dependentes - pensão). Salvo em coleção `ferias`, ID `{empId}_{ano}_{inicio}`. Funções: `renderFeriasModulo`, `openFeriasModulo`, `calcFeriasModuloPreview`, `saveFeriasModulo`, `printFeriasModulo`. DB.listen em `init()`.
 - **2026-05-08**: Distribuição em pen drive implementada. Arquivos: `montar_pendrive.bat` (monta a pasta `_pendrive/` com todos os arquivos do sistema + `ABRIR.bat` launcher + `firebase-config.js` template sem credenciais), `firebase-config.template.js` (template para novos clientes). Pasta `_pendrive/` está no `.gitignore`. `manual_implantacao.html` criado (guia completo para o revendedor implantar em novo cliente). Manuais master/gestor atualizados para v9.0 com seção Configurações da Empresa. Manuais em `../Manuais/Manuais_DRG_Port/` (fora do repo git).
+- **2026-05-08**: Bug fix turno noturno (commit `fa0be22`) — intervalo cross-midnight (`intIni > intFim`) agora soma 24h em vez de retornar 0; helper `_calcIntervaloMin` centraliza a lógica nos 5 locais. Modal de Ponto Manual mostra dicas "⚠ Saída no dia seguinte" / "⚠ Fim no dia seguinte" automaticamente quando entrada > saída no mesmo card. Tabela impressa marca cross-midnight com sufixo "(+1)" laranja. Escala 12x36: dias vazios não contam mais como falta no resumo automático e aparecem como "Folga" na impressão (alinha com regra anti-engano da IA Gemini).
+- **2026-05-08**: Módulo **Escalas** completo (commit `991b4ed` + `f6009fb`) — nova seção `escalas` no sidebar entre Folha de Ponto e Pagamentos. Card no Dashboard mostra contagem de escalas projetadas vs pendentes. Algoritmos de projeção por família: 5x2 (Seg-Sex trabalho), 6x1A/C (Seg-Sáb trabalho), 6x1B (folga rotativa, detecta âncora do mês anterior — sem dados marca tudo trabalho com ⚠), 12x36 (alternância detectada do último dia trabalhado do mês anterior — sem dados começa dia 1 com ⚠). Cores: 5x2/6x1 → Sáb amarelo suave / Dom rosa suave; 12x36 → trabalho azul claro / folga amarelo claro alternados. Edição inline (entrada, intIni, intFim, saída) + status clicável Trabalho⇄Folga. Filtros: nome, posto, setor, escala, turno (diurno/noturno). Exports sem libs externas: Print (window.print), Excel (.xls via HTML+Blob), Word (.doc via HTML+Blob). Nova coleção Firestore `escalas` com schema `{id, employeeId, mes, ano, dias:[{dia, diaSem, tipo, entrada, intIni, intFim, saida}], createdAt, updatedAt}`. Listener real-time em `init()`. Módulo `escalas` adicionado a `MODULOS_LABELS`, `getUserModules` (master + operador true por default), `showSection` check, `applyUserSession` toggle, e checkbox no modal de perfil customizado (`f6009fb`). Novos campos no colaborador: `horarioRefIni` / `horarioRefFim` (Início/Retorno Refeição, default 12:00–13:00). Refeição também aparece no "Horário Contratual" da folha de ponto impressa (sincronização).
+- **2026-05-08**: Atualização documentação — manuais master/gestor ganharam seção dedicada "Escalas" (s7b master, s10b gestor) com algoritmos por escala, cores, edição, filtros e exportações. PROMPT_DO_PROJETO.md reescrito da v5 (Netlify) para v6 (DRG-Kronos 3.0 / GitHub Pages / Cloudflare Worker / todos módulos atuais). Pendrive ressincronizado via `montar_pendrive.bat` + cópia manual dos manuais.
 
 ---
 

@@ -1600,6 +1600,17 @@ function onEmpStatusChange(){
   if(rowLic) rowLic.style.display=(status==='licenca-maternidade')?'':'none';
 }
 
+function _toggleOpcaoLicencaMaternidade(mostrar){
+  const opt=document.getElementById('opt-licenca-maternidade');
+  if(!opt) return;
+  opt.style.display=mostrar?'':'none';
+  // Se estiver escondendo e estava selecionada, volta para 'ativo'
+  if(!mostrar && val('emp-status')==='licenca-maternidade'){
+    setVal('emp-status','ativo');
+    onEmpStatusChange();
+  }
+}
+
 function getNextRegistro(){
   if(State.employees.length===0) return 1;
   const max=State.employees.reduce((m,e)=>Math.max(m,parseInt(e.registro)||0),0);
@@ -1615,6 +1626,7 @@ function openEmployeeModal(id=null){
   if(id){
     const emp=State.employees.find(e=>e.id===id); if(!emp) return;
     titleEl.innerHTML='<i class="fa-solid fa-user-pen"></i> Editar Colaborador';
+    _toggleOpcaoLicencaMaternidade(true); // habilita opção ao editar
     setVal('emp-registro', emp.registro ? String(emp.registro).padStart(4,'0') : '—');
     setVal('emp-id',emp.id); setVal('emp-nome',emp.nome); setVal('emp-rg',emp.rg||'');
     setVal('emp-cpf',emp.cpf); setVal('emp-titulo',emp.tituloEleitor||''); setVal('emp-pis',emp.pisNit||'');
@@ -1658,6 +1670,7 @@ function openEmployeeModal(id=null){
   } else {
     const nextNum = getNextRegistro();
     titleEl.innerHTML='<i class="fa-solid fa-user-plus"></i> Novo Colaborador';
+    _toggleOpcaoLicencaMaternidade(false); // esconde opção ao criar novo
     setVal('emp-registro', String(nextNum).padStart(4,'0'));
     ['emp-id','emp-nome','emp-rg','emp-cpf','emp-titulo','emp-pis','emp-ctps-numero','emp-ctps-serie',
      'emp-nascimento','emp-email','emp-celular','emp-cep','emp-endereco','emp-numero','emp-complemento',

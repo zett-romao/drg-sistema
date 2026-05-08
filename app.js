@@ -1030,39 +1030,38 @@ function showPayrollStatDetail(fieldKey, label, color){
     }).filter(Boolean);
   }
   items.sort((a,b)=>b.value-a.value);
-  let modal=document.getElementById('modal-stat-detail');
-  if(!modal){
-    modal=document.createElement('div');
-    modal.id='modal-stat-detail';
-    modal.className='modal-overlay';
-    modal.innerHTML=`<div class="modal-box" style="max-width:500px">
-      <div class="modal-header">
-        <h3 id="stat-detail-title" style="font-size:16px"></h3>
-        <button class="btn-icon" onclick="document.getElementById('modal-stat-detail').classList.add('hidden')"><i class="fa-solid fa-xmark"></i></button>
-      </div>
-      <div id="stat-detail-body" style="max-height:420px;overflow-y:auto;padding:4px 0"></div>
-    </div>`;
-    document.body.appendChild(modal);
-  }
-  document.getElementById('stat-detail-title').innerHTML=`<i class="fa-solid fa-list" style="color:${color};margin-right:6px"></i>${label} — ${MESES[mes]}/${ano}`;
-  const body=document.getElementById('stat-detail-body');
-  if(items.length===0){
-    body.innerHTML=`<div style="text-align:center;padding:40px;color:#aaa"><i class="fa-solid fa-inbox" style="font-size:32px;margin-bottom:10px;display:block"></i>Nenhum registro neste mês</div>`;
-  } else {
-    body.innerHTML=items.map((it,i)=>`
-      <div onclick="document.getElementById('modal-stat-detail').classList.add('hidden');openPayrollForEmployee('${it.empId}')"
-           style="display:flex;align-items:center;gap:12px;padding:10px 16px;border-radius:8px;cursor:pointer;border-bottom:1px solid #f2f2f2;transition:background .15s"
-           onmouseover="this.style.background='${color}12'" onmouseout="this.style.background=''">
-        <div style="width:36px;height:36px;border-radius:50%;background:${color}20;color:${color};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0">${initials(it.nome)}</div>
+  const _closeStatDetail=()=>{ const m=document.getElementById('modal-stat-detail'); if(m) m.remove(); };
+  _closeStatDetail();
+  const modal=document.createElement('div');
+  modal.id='modal-stat-detail';
+  modal.style.cssText='position:fixed;inset:0;background:rgba(10,20,40,.55);display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px;animation:fadeIn .15s ease';
+  modal.addEventListener('click',e=>{ if(e.target===modal) _closeStatDetail(); });
+  const bodyRows = items.length===0
+    ? `<div style="text-align:center;padding:40px;color:#aaa"><i class="fa-solid fa-inbox" style="font-size:36px;margin-bottom:12px;display:block"></i><div style="font-size:14px">Nenhum registro neste mês</div></div>`
+    : items.map(it=>`
+      <div onclick="_closeStatDetail();openPayrollForEmployee('${it.empId}')"
+           style="display:flex;align-items:center;gap:14px;padding:12px 20px;cursor:pointer;border-bottom:1px solid #f0f0f0;transition:background .12s"
+           onmouseover="this.style.background='${color}10'" onmouseout="this.style.background=''">
+        <div style="width:40px;height:40px;border-radius:50%;background:${color}22;color:${color};display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex-shrink:0;letter-spacing:-.5px">${initials(it.nome)}</div>
         <div style="flex:1;min-width:0">
-          <div style="font-weight:600;color:#222;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${it.nome}</div>
-          <div style="font-size:12px;color:#888">${it.setor}</div>
+          <div style="font-weight:600;color:#1a1a2e;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${it.nome}</div>
+          <div style="font-size:12px;color:#9e9e9e;margin-top:1px">${it.setor}</div>
         </div>
-        <div style="font-weight:700;color:${color};font-size:15px;white-space:nowrap">${it.valueLabel}</div>
-        <i class="fa-solid fa-chevron-right" style="color:#ccc;font-size:11px"></i>
+        <div style="font-weight:700;color:${color};font-size:15px;white-space:nowrap;margin-right:4px">${it.valueLabel}</div>
+        <i class="fa-solid fa-arrow-right" style="color:#d0d0d0;font-size:12px"></i>
       </div>`).join('');
-  }
-  modal.classList.remove('hidden');
+  modal.innerHTML=`
+    <div style="background:#fff;border-radius:16px;width:100%;max-width:480px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.25);overflow:hidden">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 20px 14px;border-bottom:2px solid ${color}30;background:${color}08">
+        <div>
+          <div style="font-size:17px;font-weight:700;color:#1a1a2e">${label}</div>
+          <div style="font-size:12px;color:#888;margin-top:2px">${MESES[mes]}/${ano} · ${items.length} colaborador${items.length!==1?'es':''}</div>
+        </div>
+        <button onclick="_closeStatDetail()" style="border:none;background:${color}15;color:${color};width:34px;height:34px;border-radius:50%;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center">✕</button>
+      </div>
+      <div style="overflow-y:auto;flex:1">${bodyRows}</div>
+    </div>`;
+  document.body.appendChild(modal);
 }
 
 // ============================================

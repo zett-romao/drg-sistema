@@ -918,8 +918,6 @@ function renderDashboard(){
     <div class="stat-card green" style="cursor:pointer" onclick="showSection('payroll')" title="Ver folha de ponto">
       <div class="stat-icon"><i class="fa-solid fa-file-circle-check"></i></div>
       <div><div class="stat-value">${payThisMonth.length}</div><div class="stat-label">Folhas lançadas em ${MESES[mes]}</div></div></div>
-    <div class="stat-card amber"><div class="stat-icon"><i class="fa-solid fa-money-bill-wave"></i></div>
-      <div><div class="stat-value">${fmtMoney(totalEsp)}</div><div class="stat-label">Total remuneração ${MESES[mes]}</div></div></div>
     <div class="stat-card" style="border-color:#2E7D32;border-left-width:4px;cursor:pointer" onclick="showSection('contratos')" title="Ver contratos">
       <div class="stat-icon" style="background:#F1F8E9;color:#2E7D32"><i class="fa-solid fa-file-signature"></i></div>
       <div><div class="stat-value" style="color:#2E7D32">${(State.contratos||[]).filter(c=>!c.status||c.status!=='inativo').length}</div><div class="stat-label">Contratos ativos</div></div></div>

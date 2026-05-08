@@ -1039,7 +1039,7 @@ function showPayrollStatDetail(fieldKey, label, color){
   const bodyRows = items.length===0
     ? `<div style="text-align:center;padding:40px;color:#aaa"><i class="fa-solid fa-inbox" style="font-size:36px;margin-bottom:12px;display:block"></i><div style="font-size:14px">Nenhum registro neste mês</div></div>`
     : items.map(it=>`
-      <div onclick="_closeStatDetail();openPayrollForEmployee('${it.empId}')"
+      <div onclick="document.getElementById('modal-stat-detail').remove();openPayrollForEmployee('${it.empId}')"
            style="display:flex;align-items:center;gap:14px;padding:12px 20px;cursor:pointer;border-bottom:1px solid #f0f0f0;transition:background .12s"
            onmouseover="this.style.background='${color}10'" onmouseout="this.style.background=''">
         <div style="width:40px;height:40px;border-radius:50%;background:${color}22;color:${color};display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex-shrink:0;letter-spacing:-.5px">${initials(it.nome)}</div>
@@ -1057,7 +1057,7 @@ function showPayrollStatDetail(fieldKey, label, color){
           <div style="font-size:17px;font-weight:700;color:#1a1a2e">${label}</div>
           <div style="font-size:12px;color:#888;margin-top:2px">${MESES[mes]}/${ano} · ${items.length} colaborador${items.length!==1?'es':''}</div>
         </div>
-        <button onclick="_closeStatDetail()" style="border:none;background:${color}15;color:${color};width:34px;height:34px;border-radius:50%;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center">✕</button>
+        <button onclick="document.getElementById('modal-stat-detail').remove()" style="border:none;background:${color}15;color:${color};width:34px;height:34px;border-radius:50%;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center">✕</button>
       </div>
       <div style="overflow-y:auto;flex:1">${bodyRows}</div>
     </div>`;

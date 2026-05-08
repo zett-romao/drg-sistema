@@ -3645,30 +3645,24 @@ async function openPontoManual(){
       if(saiEl) saiEl.value=d.saida||'';
       if(iniEl) iniEl.value=d.intIni||'';
       if(fimEl) fimEl.value=d.intFim||'';
-      // Exibe botões de geo-localização do app de ponto
-      const geoRow=card.querySelector('.pm-geo-row');
-      if(geoRow){
-        geoRow.innerHTML='';
-        const labels={entrada:'Entrada',saida:'Saída',intIni:'Ini. Intervalo',intFim:'Fim Intervalo'};
-        const colors={entrada:'#1976D2',saida:'#388E3C',intIni:'#F57C00',intFim:'#7B1FA2'};
-        let hasGeo=false;
-        ['entrada','saida','intIni','intFim'].forEach(k=>{
-          const geo=d[k+'_geo'];
-          if(!geo) return;
-          hasGeo=true;
-          const acc=Math.round(geo.acc||0);
-          const btn=document.createElement('a');
-          btn.href=`https://maps.google.com/?q=${geo.lat},${geo.lng}`;
-          btn.target='_blank';
-          btn.title=`Lat: ${geo.lat.toFixed(6)}, Lng: ${geo.lng.toFixed(6)} · Precisão: ${acc}m`;
-          btn.style.cssText=`display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:12px;background:${colors[k]}15;border:1px solid ${colors[k]}55;color:${colors[k]};font-size:11px;font-weight:600;text-decoration:none;cursor:pointer;white-space:nowrap`;
-          btn.innerHTML=`<i class="fa-solid fa-location-dot" style="font-size:12px"></i> ${labels[k]} <span style="font-weight:400;opacity:.8">${acc}m</span> <span style="opacity:.6;font-size:10px">↗ Maps</span>`;
-          geoRow.appendChild(btn);
-        });
-        if(hasGeo){
-          geoRow.style.display='flex';
-        }
-      }
+      // Exibe ícones de localização do app de ponto
+      ['entrada','saida','intIni','intFim'].forEach(k=>{
+        const geo=d[k+'_geo'];
+        if(!geo) return;
+        const sel=k==='entrada'?'.pm-entrada':k==='saida'?'.pm-saida':k==='intIni'?'.pm-int-ini':'.pm-int-fim';
+        const inp=card.querySelector(sel);
+        if(!inp) return;
+        const existing=inp.parentElement.querySelector('.geo-badge');
+        if(existing) existing.remove();
+        const badge=document.createElement('a');
+        badge.className='geo-badge';
+        badge.href=`https://maps.google.com/?q=${geo.lat},${geo.lng}`;
+        badge.target='_blank';
+        badge.title=`Localização registrada pelo app · Precisão: ${geo.acc}m`;
+        badge.innerHTML='📍';
+        badge.style.cssText='font-size:12px;text-decoration:none;cursor:pointer;margin-left:4px';
+        inp.parentElement.appendChild(badge);
+      });
     });
   }
   // Mostrar resumo

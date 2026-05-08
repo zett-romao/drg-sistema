@@ -975,26 +975,94 @@ function renderPayrollStats(){
   const tAN=payThisMonth.reduce((s,p)=>s+(p.adNoturno||0),0);
   const tAdiant=payThisMonth.reduce((s,p)=>s+(p.adiantamento||0),0);
   const tTotal=tR+tVT+tVR+tVA+tHE+tB+tAN;
+  const sc='cursor:pointer;transition:box-shadow .15s' , sh='onmouseover="this.style.boxShadow=\'0 4px 16px #0002\'" onmouseout="this.style.boxShadow=\'\'"';
   grid.innerHTML=`
-    <div class="stat-card green"><div class="stat-icon"><i class="fa-solid fa-file-circle-check"></i></div>
+    <div class="stat-card green" style="${sc}" onclick="showPayrollStatDetail('_all','Folhas Lançadas','#2E7D32')" ${sh}>
+      <div class="stat-icon"><i class="fa-solid fa-file-circle-check"></i></div>
       <div><div class="stat-value">${payThisMonth.length}</div><div class="stat-label">Folhas lançadas — ${MESES[mes]}</div></div></div>
-    <div class="stat-card amber"><div class="stat-icon"><i class="fa-solid fa-money-bill-wave"></i></div>
+    <div class="stat-card amber" style="${sc}" onclick="showPayrollStatDetail('remuneracao','Total Remunerações','#F9A825')" ${sh}>
+      <div class="stat-icon"><i class="fa-solid fa-money-bill-wave"></i></div>
       <div><div class="stat-value">${fmtMoney(tR)}</div><div class="stat-label">Total Remunerações</div></div></div>
-    <div class="stat-card" style="border-color:#0288D1;border-left-width:4px"><div class="stat-icon" style="background:#E1F5FE;color:#0288D1"><i class="fa-solid fa-bus"></i></div>
+    <div class="stat-card" style="border-color:#0288D1;border-left-width:4px;${sc}" onclick="showPayrollStatDetail('valeTransporte','Vale Transporte','#0288D1')" ${sh}>
+      <div class="stat-icon" style="background:#E1F5FE;color:#0288D1"><i class="fa-solid fa-bus"></i></div>
       <div><div class="stat-value" style="font-size:15px">${fmtMoney(tVT)}</div><div class="stat-label">Vale Transporte</div></div></div>
-    <div class="stat-card" style="border-color:#E65100;border-left-width:4px"><div class="stat-icon" style="background:#FBE9E7;color:#E65100"><i class="fa-solid fa-utensils"></i></div>
+    <div class="stat-card" style="border-color:#E65100;border-left-width:4px;${sc}" onclick="showPayrollStatDetail('valeRefeicao','Vale Refeição','#E65100')" ${sh}>
+      <div class="stat-icon" style="background:#FBE9E7;color:#E65100"><i class="fa-solid fa-utensils"></i></div>
       <div><div class="stat-value" style="font-size:15px">${fmtMoney(tVR)}</div><div class="stat-label">Vale Refeição</div></div></div>
-    <div class="stat-card" style="border-color:#2E7D32;border-left-width:4px"><div class="stat-icon" style="background:#E8F5E9;color:#2E7D32"><i class="fa-solid fa-basket-shopping"></i></div>
+    <div class="stat-card" style="border-color:#2E7D32;border-left-width:4px;${sc}" onclick="showPayrollStatDetail('valeAlimentacaoLiquido','Vale Alimentação','#2E7D32')" ${sh}>
+      <div class="stat-icon" style="background:#E8F5E9;color:#2E7D32"><i class="fa-solid fa-basket-shopping"></i></div>
       <div><div class="stat-value" style="font-size:15px">${fmtMoney(tVA)}</div><div class="stat-label">Vale Alimentação</div></div></div>
-    <div class="stat-card" style="border-color:#5C6BC0;border-left-width:4px"><div class="stat-icon" style="background:#E8EAF6;color:#5C6BC0"><i class="fa-solid fa-clock-rotate-left"></i></div>
+    <div class="stat-card" style="border-color:#5C6BC0;border-left-width:4px;${sc}" onclick="showPayrollStatDetail('horasExtrasValor','Horas Extras','#5C6BC0')" ${sh}>
+      <div class="stat-icon" style="background:#E8EAF6;color:#5C6BC0"><i class="fa-solid fa-clock-rotate-left"></i></div>
       <div><div class="stat-value" style="font-size:15px">${fmtMoney(tHE)}</div><div class="stat-label">Horas Extras</div></div></div>
-    <div class="stat-card" style="border-color:#F57C00;border-left-width:4px"><div class="stat-icon" style="background:#FFF3E0;color:#F57C00"><i class="fa-solid fa-star"></i></div>
+    <div class="stat-card" style="border-color:#F57C00;border-left-width:4px;${sc}" onclick="showPayrollStatDetail('bonificacao','Bonificação','#F57C00')" ${sh}>
+      <div class="stat-icon" style="background:#FFF3E0;color:#F57C00"><i class="fa-solid fa-star"></i></div>
       <div><div class="stat-value" style="font-size:15px">${fmtMoney(tB)}</div><div class="stat-label">Bonificação</div></div></div>
-    <div class="stat-card" style="border-color:#00796B;border-left-width:4px"><div class="stat-icon" style="background:#E0F2F1;color:#00796B"><i class="fa-solid fa-hand-holding-dollar"></i></div>
+    <div class="stat-card" style="border-color:#00796B;border-left-width:4px;${sc}" onclick="showPayrollStatDetail('adiantamento','Adiantamentos','#00796B')" ${sh}>
+      <div class="stat-icon" style="background:#E0F2F1;color:#00796B"><i class="fa-solid fa-hand-holding-dollar"></i></div>
       <div><div class="stat-value" style="font-size:15px">${fmtMoney(tAdiant)}</div><div class="stat-label">Adiantamentos</div></div></div>
-    <div class="stat-card blue"><div class="stat-icon"><i class="fa-solid fa-calculator"></i></div>
+    <div class="stat-card blue" style="${sc}" onclick="showPayrollStatDetail('_total','Total Geral do Mês','#1565C0')" ${sh}>
+      <div class="stat-icon"><i class="fa-solid fa-calculator"></i></div>
       <div><div class="stat-value">${fmtMoney(tTotal)}</div><div class="stat-label">Total Geral do Mês</div></div></div>
   `;
+}
+
+function showPayrollStatDetail(fieldKey, label, color){
+  const mes=currentMes(), ano=currentAno();
+  const payThisMonth=State.payrolls.filter(p=>p.mes==mes&&p.ano==ano);
+  let items=[];
+  if(fieldKey==='_all'){
+    items=payThisMonth.map(p=>{
+      const emp=State.employees.find(e=>e.id===p.employeeId); if(!emp) return null;
+      return {empId:p.employeeId,nome:emp.nome,setor:emp.setor||'—',value:p.remuneracao||0,valueLabel:fmtMoney(p.remuneracao||0)};
+    }).filter(Boolean);
+  } else if(fieldKey==='_total'){
+    items=payThisMonth.map(p=>{
+      const emp=State.employees.find(e=>e.id===p.employeeId); if(!emp) return null;
+      const t=(p.remuneracao||0)+(p.valeTransporte||0)+(p.valeRefeicao||0)+(p.valeAlimentacaoLiquido||0)+(p.horasExtrasValor||0)+(p.bonificacao||0)+(p.adNoturno||0);
+      return {empId:p.employeeId,nome:emp.nome,setor:emp.setor||'—',value:t,valueLabel:fmtMoney(t)};
+    }).filter(i=>i&&i.value>0);
+  } else {
+    items=payThisMonth.map(p=>{
+      const emp=State.employees.find(e=>e.id===p.employeeId); if(!emp) return null;
+      const v=p[fieldKey]||0; if(v<=0) return null;
+      return {empId:p.employeeId,nome:emp.nome,setor:emp.setor||'—',value:v,valueLabel:fmtMoney(v)};
+    }).filter(Boolean);
+  }
+  items.sort((a,b)=>b.value-a.value);
+  let modal=document.getElementById('modal-stat-detail');
+  if(!modal){
+    modal=document.createElement('div');
+    modal.id='modal-stat-detail';
+    modal.className='modal-overlay';
+    modal.innerHTML=`<div class="modal-box" style="max-width:500px">
+      <div class="modal-header">
+        <h3 id="stat-detail-title" style="font-size:16px"></h3>
+        <button class="btn-icon" onclick="document.getElementById('modal-stat-detail').classList.add('hidden')"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="stat-detail-body" style="max-height:420px;overflow-y:auto;padding:4px 0"></div>
+    </div>`;
+    document.body.appendChild(modal);
+  }
+  document.getElementById('stat-detail-title').innerHTML=`<i class="fa-solid fa-list" style="color:${color};margin-right:6px"></i>${label} — ${MESES[mes]}/${ano}`;
+  const body=document.getElementById('stat-detail-body');
+  if(items.length===0){
+    body.innerHTML=`<div style="text-align:center;padding:40px;color:#aaa"><i class="fa-solid fa-inbox" style="font-size:32px;margin-bottom:10px;display:block"></i>Nenhum registro neste mês</div>`;
+  } else {
+    body.innerHTML=items.map((it,i)=>`
+      <div onclick="document.getElementById('modal-stat-detail').classList.add('hidden');openPayrollForEmployee('${it.empId}')"
+           style="display:flex;align-items:center;gap:12px;padding:10px 16px;border-radius:8px;cursor:pointer;border-bottom:1px solid #f2f2f2;transition:background .15s"
+           onmouseover="this.style.background='${color}12'" onmouseout="this.style.background=''">
+        <div style="width:36px;height:36px;border-radius:50%;background:${color}20;color:${color};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0">${initials(it.nome)}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;color:#222;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${it.nome}</div>
+          <div style="font-size:12px;color:#888">${it.setor}</div>
+        </div>
+        <div style="font-weight:700;color:${color};font-size:15px;white-space:nowrap">${it.valueLabel}</div>
+        <i class="fa-solid fa-chevron-right" style="color:#ccc;font-size:11px"></i>
+      </div>`).join('');
+  }
+  modal.classList.remove('hidden');
 }
 
 // ============================================

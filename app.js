@@ -2719,7 +2719,8 @@ const _ALL_REPORT_TYPES = [
   {type:'contatos',        icon:'fa-address-book',       label:'Contatos',             desc:'Telefone, e-mail e endereço'},
   {type:'ferias-marcadas', icon:'fa-umbrella-beach',     label:'Férias Marcadas',      desc:'Colaboradores com férias programadas'},
   {type:'ferias-pendentes',icon:'fa-calendar-xmark',     label:'Férias Pendentes',     desc:'Sem férias programadas'},
-  {type:'afastados',       icon:'fa-user-clock',         label:'Afastados INSS',       desc:'Colaboradores afastados'},
+  {type:'afastados',       icon:'fa-user-clock',         label:'Afastados INSS',       desc:'Colaboradores afastados pelo INSS'},
+  {type:'licenca-mat',    icon:'fa-baby',               label:'Licença Maternidade',  desc:'Colaboradoras em licença maternidade'},
   {type:'setor',           icon:'fa-sitemap',            label:'Por Setor',            desc:'Portaria, Limpeza, Manutenção...'},
   {type:'posto',           icon:'fa-building',           label:'Por Posto',            desc:'Filtrar por local de trabalho'},
   {type:'individual',      icon:'fa-file-invoice',       label:'Individual',           desc:'Ficha completa do colaborador'},
@@ -2808,7 +2809,8 @@ function generateReportNew(){
   else if(type==='contatos')   _reportContatos();
   else if(type==='ferias-marcadas')  _reportFeriasMarcadas();
   else if(type==='ferias-pendentes') _reportFeriasPendentes();
-  else if(type==='afastados')  _reportAfastados();
+  else if(type==='afastados')   _reportAfastados();
+  else if(type==='licenca-mat') _reportLicencaMaternidade();
   else if(type==='setor')           _reportSetor();
   else if(type==='posto')           _reportPosto();
   else if(type==='individual')      _reportIndividual();
@@ -2981,6 +2983,27 @@ function _reportAfastados(){
       <td>${e.setor||'—'}</td><td style="font-size:11px">${e.posto||'—'}</td>
       <td>${formatDateBr(e.dataAdmissao)}</td>
       <td>${e.cpf||'—'}</td><td>${e.celular||'—'}</td></tr>`).join('');
+  document.getElementById('report-body-area').innerHTML=_empTable(cols,rows);
+}
+
+// Licença Maternidade
+function _reportLicencaMaternidade(){
+  const list=State.employees.filter(e=>(e.status||'ativo')==='licenca-maternidade')
+    .sort((a,b)=>a.nome.localeCompare(b.nome));
+  _reportHeader('Relatório de Licença Maternidade', `${list.length} colaboradora(s)`);
+  const cols=['#','Reg.','Nome','Setor','Posto','Admissão','Início Licença','Prev. Retorno','CPF','Celular'];
+  const rows=list.length===0
+    ?`<tr><td colspan="10" style="text-align:center;padding:24px;color:var(--text-muted)">Nenhuma colaboradora em licença maternidade</td></tr>`
+    :list.map((e,i)=>`<tr><td>${i+1}</td>
+      <td>${e.registro?String(e.registro).padStart(4,'0'):'—'}</td>
+      <td><strong>${e.nome}</strong></td>
+      <td>${e.setor||'—'}</td>
+      <td style="font-size:11px">${e.posto||'—'}</td>
+      <td>${formatDateBr(e.dataAdmissao)}</td>
+      <td><strong>${formatDateBr(e.licencaMaternidadeInicio)||'—'}</strong></td>
+      <td><strong>${formatDateBr(e.licencaMaternidadeTermino)||'—'}</strong></td>
+      <td>${e.cpf||'—'}</td>
+      <td>${e.celular||'—'}</td></tr>`).join('');
   document.getElementById('report-body-area').innerHTML=_empTable(cols,rows);
 }
 

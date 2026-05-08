@@ -6,6 +6,11 @@
 'use strict';
 
 // ============================================
+// VERSÃO DO SISTEMA — altere APENAS aqui
+// ============================================
+const APP_VERSION = 'DRG-Kronos 3.0';
+
+// ============================================
 // MÓDULO DB — CAMADA FIRESTORE
 // ============================================
 const DB = {
@@ -4601,6 +4606,12 @@ function showLicencaLock(msg){
 // INICIALIZAÇÃO
 // ============================================
 async function init(){
+  // Injeta versão nos elementos HTML
+  ['login-version','sidebar-version'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.textContent = APP_VERSION;
+  });
+
   showLoading('Verificando configuração...');
 
   // 1. Verificar se Firebase está configurado

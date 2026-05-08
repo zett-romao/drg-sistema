@@ -211,6 +211,23 @@ ul { list-style: none; }
 }
 .btn-toggle-sidebar:hover { color: var(--primary); }
 
+.btn-voltar {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: none; border: 1px solid var(--border);
+  color: var(--text-muted); font-size: 13px; font-weight: 600;
+  padding: 5px 12px; border-radius: var(--radius-sm);
+  cursor: pointer; transition: all var(--transition);
+  white-space: nowrap;
+}
+.btn-voltar:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
+.btn-voltar.hidden { display: none; }
+.btn-voltar-label { display: inline; }
+
+@media (max-width: 480px) {
+  .btn-voltar-label { display: none; }
+  .btn-voltar { padding: 5px 8px; }
+}
+
 .topbar-title {
   font-size: 18px; font-weight: 700; color: var(--text);
   flex: 1;

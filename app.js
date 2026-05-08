@@ -133,6 +133,7 @@ const State = {
   cct: null,
   empresa: {...EMPRESA_DEFAULTS},
   currentSection: 'dashboard',
+  sectionHistory: [],          // pilha de navegação para o botão Voltar
   editingEmployeeId: null,
   currentPdfFile: null,
   currentPdfText: '',
@@ -572,6 +573,21 @@ function showSetup(){
 // ============================================
 // NAVEGAÇÃO
 // ============================================
+let _navigatingBack=false;
+
+function goBack(){
+  if(State.sectionHistory.length===0) return;
+  _navigatingBack=true;
+  const prev=State.sectionHistory.pop();
+  showSection(prev);
+  _navigatingBack=false;
+}
+
+function _updateBackBtn(){
+  const btn=document.getElementById('btn-voltar');
+  if(btn) btn.classList.toggle('hidden', State.sectionHistory.length===0);
+}
+
 function showSection(name){
   if(!Auth.currentUser) return;
   const mods=getUserModules(Auth.currentUser);
@@ -583,6 +599,12 @@ function showSection(name){
   if(name==='postos'         && !mods.postos)       return;
   if(name==='contratos'      && !mods.contratos)    return;
   if(name==='configuracoes'  && Auth.currentUser?.role!=='master') return;
+  // Empilha seção atual antes de trocar (exceto se estiver voltando ou já está na mesma seção)
+  if(!_navigatingBack && State.currentSection && State.currentSection!==name){
+    State.sectionHistory.push(State.currentSection);
+    if(State.sectionHistory.length>30) State.sectionHistory.shift(); // cap
+  }
+  _updateBackBtn();
   // Limpa qualquer modal flutuante que possa bloquear cliques
   const floatingModal=document.getElementById('modal-stat-detail');
   if(floatingModal) floatingModal.remove();

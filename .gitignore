@@ -28,3 +28,6 @@ npm-debug.log*
 
 # Dependências (se algum dia adicionar Node)
 node_modules/
+
+# Pasta de distribuição gerada pelo montar_pendrive.bat (não versionar)
+_pendrive/

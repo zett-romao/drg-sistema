@@ -6477,33 +6477,39 @@ function _renderEscalaCard(emp, mes, ano){
   </div>`;
 }
 
+function _escalaTipoBadge(tipo){
+  if(tipo === 'corrido')  return '<span style="color:#7B1FA2;font-weight:600;font-size:11px"><i class="fa-solid fa-person-running"></i> Corrido</span>';
+  if(tipo === 'folga')    return '<span style="color:#E65100;font-weight:600;font-size:11px"><i class="fa-solid fa-umbrella-beach"></i> Folga</span>';
+  return                          '<span style="color:#1B5E20;font-weight:600;font-size:11px"><i class="fa-solid fa-briefcase"></i> Trabalho</span>';
+}
+
 function _renderEscalaRow(d, fam){
   const sem = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][d.diaSem];
   // Cores: 12x36 = duas cores suaves alternadas; demais = sáb/dom diferenciados
   let bg = '#fff';
   if(fam==='12x36'){
-    bg = d.tipo==='trabalho' ? '#E3F2FD' : '#FFF8E1'; // azul suave / amarelo suave
+    bg = (d.tipo==='trabalho' || d.tipo==='corrido') ? '#E3F2FD' : '#FFF8E1';
   } else {
     if(d.diaSem===0)      bg = '#FFEBEE'; // domingo — rosa suave
     else if(d.diaSem===6) bg = '#FFF9C4'; // sábado — amarelo suave
   }
-  const tipoLabel = d.tipo==='trabalho'
-    ? '<span style="color:#1B5E20;font-weight:600;font-size:11px"><i class="fa-solid fa-briefcase"></i> Trabalho</span>'
-    : '<span style="color:#E65100;font-weight:600;font-size:11px"><i class="fa-solid fa-umbrella-beach"></i> Folga</span>';
   const revisao = d.revisao ? ' <span title="Revisar manualmente — sem dados anteriores" style="color:#E65100">⚠</span>' : '';
-  // Inputs de folga ficam editáveis (apenas dimmed) — útil para troca de dias entre colaboradores
-  const opacity = d.tipo==='folga' ? 'opacity:.55' : '';
-  const tipoTitle = d.tipo==='folga'
-    ? 'Clique para alternar trabalho/folga · ou digite um horário para converter em Trabalho'
-    : 'Clique para alternar trabalho/folga';
-  return `<tr style="background:${bg}" data-dia="${d.dia}" data-tipo="${d.tipo}">
+  // Opacidades por tipo:
+  //   trabalho → todos visíveis (1)
+  //   corrido  → entrada/saída visíveis, refeição esmaecida (.4)
+  //   folga    → todos esmaecidos (.55) mas editáveis
+  const opEnt = (d.tipo==='folga') ? 'opacity:.55' : '';
+  const opSai = (d.tipo==='folga') ? 'opacity:.55' : '';
+  const opRef = (d.tipo==='folga') ? 'opacity:.55' : (d.tipo==='corrido' ? 'opacity:.4' : '');
+  const tipoTitle = 'Clique para alternar: Trabalho → Corrido (hora corrida, sem refeição) → Folga';
+  return `<tr style="background:${bg}" data-dia="${d.dia}" data-tipo="${d.tipo||'trabalho'}">
     <td style="padding:4px 6px;text-align:center;border:1px solid var(--border);font-weight:700">${String(d.dia).padStart(2,'0')}${revisao}</td>
     <td style="padding:4px 6px;text-align:center;border:1px solid var(--border);font-size:11px">${sem}</td>
-    <td style="padding:4px 6px;text-align:center;border:1px solid var(--border)"><span class="esc-tipo-cell" onclick="toggleEscalaTipo(this)" style="cursor:pointer" title="${tipoTitle}">${tipoLabel}</span></td>
-    <td style="padding:2px;border:1px solid var(--border)"><input type="time" class="esc-entrada" value="${d.entrada||''}" style="width:100%;${opacity}" onchange="onEscalaCellEdit(this)"></td>
-    <td style="padding:2px;border:1px solid var(--border)"><input type="time" class="esc-int-ini" value="${d.intIni||''}" style="width:100%;${opacity}" onchange="onEscalaCellEdit(this)"></td>
-    <td style="padding:2px;border:1px solid var(--border)"><input type="time" class="esc-int-fim" value="${d.intFim||''}" style="width:100%;${opacity}" onchange="onEscalaCellEdit(this)"></td>
-    <td style="padding:2px;border:1px solid var(--border)"><input type="time" class="esc-saida" value="${d.saida||''}" style="width:100%;${opacity}" onchange="onEscalaCellEdit(this)"></td>
+    <td style="padding:4px 6px;text-align:center;border:1px solid var(--border)"><span class="esc-tipo-cell" onclick="toggleEscalaTipo(this)" style="cursor:pointer" title="${tipoTitle}">${_escalaTipoBadge(d.tipo)}</span></td>
+    <td style="padding:2px;border:1px solid var(--border)"><input type="time" class="esc-entrada" value="${d.entrada||''}" style="width:100%;${opEnt}" onchange="onEscalaCellEdit(this)"></td>
+    <td style="padding:2px;border:1px solid var(--border)"><input type="time" class="esc-int-ini" value="${d.intIni||''}" style="width:100%;${opRef}" onchange="onEscalaCellEdit(this)"></td>
+    <td style="padding:2px;border:1px solid var(--border)"><input type="time" class="esc-int-fim" value="${d.intFim||''}" style="width:100%;${opRef}" onchange="onEscalaCellEdit(this)"></td>
+    <td style="padding:2px;border:1px solid var(--border)"><input type="time" class="esc-saida" value="${d.saida||''}" style="width:100%;${opSai}" onchange="onEscalaCellEdit(this)"></td>
   </tr>`;
 }
 
@@ -6512,29 +6518,48 @@ function onEscalaCellEdit(input){
   const card = input.closest('.escala-card');
   if(card) card.dataset.dirty = '1';
   if(!row) return;
-  // Se digitou em linha de Folga: auto-converte para Trabalho e completa demais campos
-  if(row.dataset.tipo === 'folga' && input.value){
-    row.dataset.tipo = 'trabalho';
-    // Atualiza badge
-    const tipoCell = row.querySelector('.esc-tipo-cell');
-    if(tipoCell){
-      tipoCell.innerHTML = '<span style="color:#1B5E20;font-weight:600;font-size:11px"><i class="fa-solid fa-briefcase"></i> Trabalho</span>';
-      tipoCell.title = 'Clique para alternar trabalho/folga';
-    }
-    // Restaura opacidade dos 4 inputs
-    ['esc-entrada','esc-int-ini','esc-int-fim','esc-saida'].forEach(cls => {
-      const inp = row.querySelector('.'+cls);
-      if(inp) inp.style.opacity = '1';
-    });
-    // Pré-preenche campos vazios com defaults do colaborador (troca de dia)
+  const cur = row.dataset.tipo || 'trabalho';
+  const isMealField = input.classList.contains('esc-int-ini') || input.classList.contains('esc-int-fim');
+
+  // Helper para resolver defaults do colaborador
+  const getDefaults = () => {
     const empId = card?.dataset.empId;
     const emp = (State.employees||[]).find(e=>e.id===empId);
-    if(emp){
-      const dia = parseInt(row.dataset.dia);
-      const mes = parseInt(document.getElementById('escala-mes').value);
-      const ano = parseInt(document.getElementById('escala-ano').value);
-      const realDs = new Date(ano, mes-1, dia).getDay();
-      const h = _escalaHorariosDia(emp, realDs);
+    if(!emp) return null;
+    const dia = parseInt(row.dataset.dia);
+    const mes = parseInt(document.getElementById('escala-mes').value);
+    const ano = parseInt(document.getElementById('escala-ano').value);
+    const realDs = new Date(ano, mes-1, dia).getDay();
+    return _escalaHorariosDia(emp, realDs);
+  };
+  const setBadge = (tipo) => {
+    const cell = row.querySelector('.esc-tipo-cell');
+    if(cell) cell.innerHTML = _escalaTipoBadge(tipo);
+  };
+  const setOpacity = (tipo) => {
+    const ent = row.querySelector('.esc-entrada');
+    const ini = row.querySelector('.esc-int-ini');
+    const fim = row.querySelector('.esc-int-fim');
+    const sai = row.querySelector('.esc-saida');
+    if(tipo === 'trabalho'){
+      [ent,ini,fim,sai].forEach(i => { if(i) i.style.opacity = '1'; });
+    } else if(tipo === 'corrido'){
+      if(ent) ent.style.opacity = '1';
+      if(sai) sai.style.opacity = '1';
+      if(ini) ini.style.opacity = '.4';
+      if(fim) fim.style.opacity = '.4';
+    } else {
+      [ent,ini,fim,sai].forEach(i => { if(i) i.style.opacity = '.55'; });
+    }
+  };
+
+  // 1) Folga + qualquer input preenchido → Trabalho com defaults completados
+  if(cur === 'folga' && input.value){
+    row.dataset.tipo = 'trabalho';
+    setBadge('trabalho');
+    setOpacity('trabalho');
+    const h = getDefaults();
+    if(h){
       const ent = row.querySelector('.esc-entrada');
       const ini = row.querySelector('.esc-int-ini');
       const fim = row.querySelector('.esc-int-fim');
@@ -6544,41 +6569,71 @@ function onEscalaCellEdit(input){
       if(fim && !fim.value) fim.value = h.intFim;
       if(sai && !sai.value) sai.value = h.saida;
     }
+    return;
+  }
+  // 2) Corrido + campo de refeição preenchido → volta para Trabalho normal
+  if(cur === 'corrido' && isMealField && input.value){
+    row.dataset.tipo = 'trabalho';
+    setBadge('trabalho');
+    setOpacity('trabalho');
+    const ini = row.querySelector('.esc-int-ini');
+    const fim = row.querySelector('.esc-int-fim');
+    const h = getDefaults();
+    if(h){
+      if(ini && !ini.value) ini.value = h.intIni;
+      if(fim && !fim.value) fim.value = h.intFim;
+    }
   }
 }
 
+// Ciclo de status: Trabalho → Corrido → Folga → Trabalho ...
 function toggleEscalaTipo(span){
   const row = span.closest('tr');
   if(!row) return;
   const card = span.closest('.escala-card');
-  const cur = row.dataset.tipo;
-  const novo = cur==='trabalho' ? 'folga' : 'trabalho';
+  const cur = row.dataset.tipo || 'trabalho';
+  let novo;
+  if(cur === 'trabalho')      novo = 'corrido';
+  else if(cur === 'corrido')  novo = 'folga';
+  else                        novo = 'trabalho';
   row.dataset.tipo = novo;
-  // Inputs ficam sempre editáveis — folga só dimm; toggle limpa valores ao virar folga
-  ['esc-entrada','esc-int-ini','esc-int-fim','esc-saida'].forEach(cls => {
-    const inp = row.querySelector('.'+cls);
-    if(!inp) return;
-    inp.style.opacity = (novo==='folga') ? '.55' : '1';
-    if(novo==='folga') inp.value = '';
-  });
-  // Atualiza badge de status
-  span.innerHTML = novo==='trabalho'
-    ? '<span style="color:#1B5E20;font-weight:600;font-size:11px"><i class="fa-solid fa-briefcase"></i> Trabalho</span>'
-    : '<span style="color:#E65100;font-weight:600;font-size:11px"><i class="fa-solid fa-umbrella-beach"></i> Folga</span>';
-  // Se virou trabalho, pré-preenche horários com defaults do colaborador
-  if(novo==='trabalho' && card){
+  span.innerHTML = _escalaTipoBadge(novo);
+
+  const ent = row.querySelector('.esc-entrada');
+  const ini = row.querySelector('.esc-int-ini');
+  const fim = row.querySelector('.esc-int-fim');
+  const sai = row.querySelector('.esc-saida');
+
+  // Defaults do colaborador (para preencher entrada/saída em corrido e tudo em trabalho)
+  let h = null;
+  if(card){
     const empId = card.dataset.empId;
-    const emp = State.employees.find(e=>e.id===empId);
+    const emp = (State.employees||[]).find(e=>e.id===empId);
     if(emp){
       const dia = parseInt(row.dataset.dia);
       const mes = parseInt(document.getElementById('escala-mes').value);
       const ano = parseInt(document.getElementById('escala-ano').value);
       const realDs = new Date(ano, mes-1, dia).getDay();
-      const h = _escalaHorariosDia(emp, realDs);
-      row.querySelector('.esc-entrada').value = h.entrada;
-      row.querySelector('.esc-int-ini').value = h.intIni;
-      row.querySelector('.esc-int-fim').value = h.intFim;
-      row.querySelector('.esc-saida').value = h.saida;
+      h = _escalaHorariosDia(emp, realDs);
+    }
+  }
+
+  if(novo === 'folga'){
+    [ent, ini, fim, sai].forEach(inp => { if(inp){ inp.value=''; inp.style.opacity='.55'; } });
+  } else if(novo === 'corrido'){
+    // Mantém entrada/saída (preenche se vazio); zera refeição e esmaece
+    if(ent){ ent.style.opacity='1'; if(!ent.value && h) ent.value = h.entrada; }
+    if(sai){ sai.style.opacity='1'; if(!sai.value && h) sai.value = h.saida; }
+    if(ini){ ini.value=''; ini.style.opacity='.4'; }
+    if(fim){ fim.value=''; fim.style.opacity='.4'; }
+  } else {
+    // Trabalho: pré-preenche todos vazios
+    [ent, ini, fim, sai].forEach(inp => { if(inp) inp.style.opacity='1'; });
+    if(h){
+      if(ent && !ent.value) ent.value = h.entrada;
+      if(ini && !ini.value) ini.value = h.intIni;
+      if(fim && !fim.value) fim.value = h.intFim;
+      if(sai && !sai.value) sai.value = h.saida;
     }
   }
   if(card) card.dataset.dirty = '1';

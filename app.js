@@ -3137,6 +3137,50 @@ function recalculate(){
     ? hETotalInformado * (salBase/220) * (1 + percHE/100) : 0;
   setVal('payroll-he-valor', valorHE>0 ? valorHE.toFixed(2) : '0.00');
 
+  // --- HE Corrido (calculado a partir da Escala) ---
+  // Para cada dia com tipo='corrido' na escala do colaborador no mês,
+  // soma minutos de refeição que viraram extra, multiplica por valor-hora e adicional do dia
+  const heCorridoBlock = document.getElementById('he-corrido-block');
+  let heCorridoMin = 0, heCorridoValor = 0;
+  let heCorridoDetalhe = '';
+  if(emp){
+    const empMes = parseInt(val('payroll-mes'));
+    const empAno = parseInt(val('payroll-ano'));
+    const escalaDoMes = (State.escalas||[]).find(e =>
+      e.employeeId===emp.id && e.mes==empMes && e.ano==empAno);
+    if(escalaDoMes && Array.isArray(escalaDoMes.dias)){
+      // Duração da refeição (em min) baseada no cadastro do colaborador
+      let refMin = 60;
+      if(emp.horarioRefIni && emp.horarioRefFim){
+        let dm = timeToMinutes(emp.horarioRefFim) - timeToMinutes(emp.horarioRefIni);
+        if(dm < 0) dm += 24*60;
+        if(dm > 0 && dm <= 4*60) refMin = dm;
+      }
+      const buckets = {}; // {perc: minutos}
+      escalaDoMes.dias.forEach(d => {
+        if(d.tipo === 'corrido'){
+          const p = parseInt(d.hePercDia)||50;
+          buckets[p] = (buckets[p]||0) + refMin;
+        }
+      });
+      Object.entries(buckets).forEach(([perc, minutos]) => {
+        heCorridoMin += minutos;
+        if(salBase > 0){
+          heCorridoValor += (minutos/60) * (salBase/220) * (1 + parseInt(perc)/100);
+        }
+      });
+      heCorridoDetalhe = Object.entries(buckets)
+        .map(([perc, minutos]) => `${minutesToStr(minutos)} a +${perc}%`)
+        .join(' · ') || '—';
+    }
+  }
+  setVal('payroll-he-corrido-min',     heCorridoMin > 0 ? heCorridoMin : '');
+  setVal('payroll-he-corrido-detalhe', heCorridoDetalhe);
+  setVal('payroll-he-corrido-valor',   heCorridoValor > 0 ? heCorridoValor.toFixed(2) : '0.00');
+  if(heCorridoBlock){
+    heCorridoBlock.style.display = (heCorridoMin > 0) ? '' : 'none';
+  }
+
   // --- Adiantamento quinzenal ---
   const ativoAdiant=val('payroll-adiantamento-ativo')==='sim';
   const percAdiant=parseInt(val('payroll-adiantamento-perc')||'40');
@@ -3157,7 +3201,7 @@ function recalculate(){
     const bonusEnc   = numVal('payroll-bonus')||0;
     const outProv=(emp.outrosProventos||[]).reduce((s,i)=>s+(parseFloat(i.valor)||0),0);
     const outDesc=(emp.outrosDescontos||[]).reduce((s,i)=>s+(parseFloat(i.valor)||0),0);
-    const totalBruto=remuneracao+heValEnc+noturnoEnc+acumuloEnc+insalubEnc+bonusEnc+outProv;
+    const totalBruto=remuneracao+heValEnc+heCorridoValor+noturnoEnc+acumuloEnc+insalubEnc+bonusEnc+outProv;
     const pensaoEnc  =emp.pensaoAlimenticia||0;
     const planoEnc   =emp.planoSaude||0;
     const inss=calcINSS(totalBruto);
@@ -3234,6 +3278,9 @@ function loadPayrollRecord(id){
   setVal('payroll-he-total',  p.horasExtrasTotal||'');
   setVal('payroll-he-perc',   p.horasExtrasPerc||50);
   setVal('payroll-he-valor',  p.horasExtrasValor||'');
+  setVal('payroll-he-corrido-min',     p.heCorridoMin||'');
+  setVal('payroll-he-corrido-detalhe', p.heCorridoDetalhe||'');
+  setVal('payroll-he-corrido-valor',   p.heCorridoValor||'');
   const emp=State.employees.find(e=>e.id===p.employeeId);
   if(emp) setVal('payroll-pix',emp.chavePix||'');
   onPayrollEmployeeChange();
@@ -3307,6 +3354,10 @@ async function savePayroll(){
     horasExtrasTotal:numVal('payroll-he-total')||0,
     horasExtrasPerc:parseInt(val('payroll-he-perc')||'50'),
     horasExtrasValor:numVal('payroll-he-valor')||0,
+    // HE Corrido (vinda da Escala — somatório de minutos por % de adicional)
+    heCorridoMin:    numVal('payroll-he-corrido-min')||0,
+    heCorridoDetalhe:val('payroll-he-corrido-detalhe')||'',
+    heCorridoValor:  numVal('payroll-he-corrido-valor')||0,
     pdfName:State.currentPdfFile?State.currentPdfFile.name:(existing?existing.pdfName:''),
     // Encargos Legais
     totalBruto:          numVal('payroll-total-bruto')||0,
@@ -3346,7 +3397,8 @@ function clearPayrollForm(){
    'payroll-bonus','payroll-noturno','payroll-adiantamento-valor',
    'payroll-atraso-min','payroll-desconto-atraso',
    'payroll-entrada','payroll-saida','payroll-intervalo-inicio','payroll-intervalo-fim',
-   'payroll-horas-liquidas','payroll-horas-extras-dia','payroll-he-total','payroll-he-valor']
+   'payroll-horas-liquidas','payroll-horas-extras-dia','payroll-he-total','payroll-he-valor',
+   'payroll-he-corrido-min','payroll-he-corrido-detalhe','payroll-he-corrido-valor']
     .forEach(id=>setVal(id,''));
   setVal('payroll-adiantamento-ativo','nao');
   setVal('payroll-adiantamento-perc','40');
@@ -5167,12 +5219,15 @@ function printFolhaPonto(isPreview=false){
   const heTotalHoras=numVal('payroll-he-total')||0;
   const heTotal=heTotalHoras>0?minutesToStr(Math.round(heTotalHoras*60)):'0';
   const heValor=numVal('payroll-he-valor')||0;
+  const heCorridoMin=numVal('payroll-he-corrido-min')||0;
+  const heCorridoValor=numVal('payroll-he-corrido-valor')||0;
+  const heCorridoDetalhe=val('payroll-he-corrido-detalhe')||'';
   const adNoturno=numVal('payroll-noturno')||0;
   const acumulo=numVal('payroll-acumulo')||0;
   const insalubridade=numVal('payroll-insalubridade')||0;
   const adiantamento=numVal('payroll-adiantamento-valor')||0;
   const descontoAtraso=numVal('payroll-desconto-atraso')||0;
-  const totalLiquido=remuneracao+heValor+adNoturno+acumulo+insalubridade+bonificacao+vtTotal+vrTotal+vaLiquido-adiantamento-descontoAtraso;
+  const totalLiquido=remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade+bonificacao+vtTotal+vrTotal+vaLiquido-adiantamento-descontoAtraso;
 
   // Posto do colaborador
   const posto=State.postos.find(p=>p.id===emp.posto)||{razaoSocial:'—', endereco:'—'};
@@ -5328,6 +5383,7 @@ ${isPreview?`<div class="preview-banner">
   <table class="fin-table">
     <tr><td class="fin-label">Remuneração do Período</td><td class="fin-value">${fmtMoney(remuneracao)}</td></tr>
     <tr><td class="fin-label">Horas Extras (${heTotal})</td><td class="fin-value">${fmtMoney(heValor)}</td></tr>
+    ${heCorridoValor>0?`<tr><td class="fin-label">HE Hora Corrida ${heCorridoDetalhe?`<small style="color:#7B1FA2">— ${heCorridoDetalhe}</small>`:''}</td><td class="fin-value">${fmtMoney(heCorridoValor)}</td></tr>`:''}
     ${adNoturno>0?`<tr><td class="fin-label">Adicional Noturno</td><td class="fin-value">${fmtMoney(adNoturno)}</td></tr>`:''}
     ${acumulo>0?`<tr><td class="fin-label">Acúmulo de Função (+20%)</td><td class="fin-value">${fmtMoney(acumulo)}</td></tr>`:''}
     ${insalubridade>0?`<tr><td class="fin-label">Insalubridade</td><td class="fin-value">${fmtMoney(insalubridade)}</td></tr>`:''}
@@ -5394,6 +5450,10 @@ function _buildFolhaHtmlFromRecord(emp, p){
   const heTotalHoras    = p.horasExtrasTotal||0;
   const hePerc          = p.horasExtrasPerc||50;
   const heTotal         = heTotalHoras>0?minutesToStr(Math.round(heTotalHoras*60)):'0';
+  // HE Corrido (salvo em escalas + recálculo na folha)
+  const heCorridoMin    = p.heCorridoMin||0;
+  const heCorridoValor  = p.heCorridoValor||0;
+  const heCorridoDetalhe= p.heCorridoDetalhe||'';
   const adNoturno       = p.adNoturno||0;
   const acumulo         = p.acumuloFuncao||0;
   const insalubridade   = p.insalubridade||0;
@@ -5412,7 +5472,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
   // Líquido final: usa o salvo se disponível, senão calcula o antigo (retrocompatibilidade)
   const totalLiquido    = p.totalLiquidoFinal
     ? p.totalLiquidoFinal
-    : remuneracao+heValor+adNoturno+acumulo+insalubridade+bonificacao+vtTotal+vrTotal+vaLiquido-adiantamento-descontoAtraso;
+    : remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade+bonificacao+vtTotal+vrTotal+vaLiquido-adiantamento-descontoAtraso;
 
   // Tabela de dias do ponto
   const diasPonto    = p.pontoManualDias||[];
@@ -5546,6 +5606,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
     <table class="fin-table">
       <tr><td class="fin-label">Remuneração do Período</td><td class="fin-value">${fmtMoney(remuneracao)}</td></tr>
       ${heValor>0?`<tr><td class="fin-label">Horas Extras ${heTotal} (${hePerc}%)</td><td class="fin-value">${fmtMoney(heValor)}</td></tr>`:''}
+      ${heCorridoValor>0?`<tr><td class="fin-label">HE Hora Corrida ${heCorridoDetalhe?`<small style="color:#7B1FA2">— ${heCorridoDetalhe}</small>`:''}</td><td class="fin-value">${fmtMoney(heCorridoValor)}</td></tr>`:''}
       ${adNoturno>0?`<tr><td class="fin-label">Adicional Noturno</td><td class="fin-value">${fmtMoney(adNoturno)}</td></tr>`:''}
       ${acumulo>0?`<tr><td class="fin-label">Acúmulo de Função (+20%)</td><td class="fin-value">${fmtMoney(acumulo)}</td></tr>`:''}
       ${insalubridade>0?`<tr><td class="fin-label">Insalubridade</td><td class="fin-value">${fmtMoney(insalubridade)}</td></tr>`:''}
@@ -6477,10 +6538,81 @@ function _renderEscalaCard(emp, mes, ano){
   </div>`;
 }
 
-function _escalaTipoBadge(tipo){
-  if(tipo === 'corrido')  return '<span style="color:#7B1FA2;font-weight:600;font-size:11px"><i class="fa-solid fa-person-running"></i> Corrido</span>';
+function _escalaTipoBadge(tipo, perc){
+  if(tipo === 'corrido'){
+    const pct = perc ? ` <small style="background:#F3E5F5;padding:0 4px;border-radius:3px">+${perc}%</small>` : '';
+    return `<span style="color:#7B1FA2;font-weight:600;font-size:11px"><i class="fa-solid fa-person-running"></i> Corrido${pct}</span>`;
+  }
   if(tipo === 'folga')    return '<span style="color:#E65100;font-weight:600;font-size:11px"><i class="fa-solid fa-umbrella-beach"></i> Folga</span>';
   return                          '<span style="color:#1B5E20;font-weight:600;font-size:11px"><i class="fa-solid fa-briefcase"></i> Trabalho</span>';
+}
+
+// ============================================
+// ESCALAS — Modal de % HE para Corrido
+// ============================================
+let _pendingCorridoRow = null;
+let _previousTipoBeforeCorrido = null;
+
+function _openCorridoPercModal(row, prevTipo){
+  _pendingCorridoRow = row;
+  _previousTipoBeforeCorrido = prevTipo || 'trabalho';
+  setVal('corrido-perc-custom', '');
+  document.getElementById('modal-corrido-perc').classList.remove('hidden');
+}
+
+function setCorridoPerc(perc){
+  const row = _pendingCorridoRow;
+  if(!row){ closeModal('modal-corrido-perc'); return; }
+  const validPerc = Math.max(0, Math.min(200, parseInt(perc)||50));
+  row.dataset.hePerc = validPerc;
+  const cell = row.querySelector('.esc-tipo-cell');
+  if(cell) cell.innerHTML = _escalaTipoBadge('corrido', validPerc);
+  const card = row.closest('.escala-card');
+  if(card) card.dataset.dirty = '1';
+  closeModal('modal-corrido-perc');
+  _pendingCorridoRow = null;
+  _previousTipoBeforeCorrido = null;
+}
+
+function cancelCorridoPerc(){
+  // Reverte o status para o anterior (trabalho ou folga)
+  const row = _pendingCorridoRow;
+  if(row){
+    const prev = _previousTipoBeforeCorrido || 'trabalho';
+    row.dataset.tipo = prev;
+    delete row.dataset.hePerc;
+    const cell = row.querySelector('.esc-tipo-cell');
+    if(cell) cell.innerHTML = _escalaTipoBadge(prev);
+    // Restaura inputs conforme tipo anterior
+    const ent = row.querySelector('.esc-entrada');
+    const ini = row.querySelector('.esc-int-ini');
+    const fim = row.querySelector('.esc-int-fim');
+    const sai = row.querySelector('.esc-saida');
+    if(prev === 'trabalho'){
+      [ent, ini, fim, sai].forEach(i => { if(i) i.style.opacity='1'; });
+      // Recompõe defaults se vazios
+      const card = row.closest('.escala-card');
+      const empId = card?.dataset.empId;
+      const emp = (State.employees||[]).find(e=>e.id===empId);
+      if(emp){
+        const dia = parseInt(row.dataset.dia);
+        const mes = parseInt(document.getElementById('escala-mes').value);
+        const ano = parseInt(document.getElementById('escala-ano').value);
+        const realDs = new Date(ano, mes-1, dia).getDay();
+        const h = _escalaHorariosDia(emp, realDs);
+        if(ent && !ent.value) ent.value = h.entrada;
+        if(ini && !ini.value) ini.value = h.intIni;
+        if(fim && !fim.value) fim.value = h.intFim;
+        if(sai && !sai.value) sai.value = h.saida;
+      }
+    } else {
+      // folga
+      [ent, ini, fim, sai].forEach(i => { if(i){ i.value=''; i.style.opacity='.55'; } });
+    }
+  }
+  closeModal('modal-corrido-perc');
+  _pendingCorridoRow = null;
+  _previousTipoBeforeCorrido = null;
 }
 
 function _renderEscalaRow(d, fam){
@@ -6502,10 +6634,11 @@ function _renderEscalaRow(d, fam){
   const opSai = (d.tipo==='folga') ? 'opacity:.55' : '';
   const opRef = (d.tipo==='folga') ? 'opacity:.55' : (d.tipo==='corrido' ? 'opacity:.4' : '');
   const tipoTitle = 'Clique para alternar: Trabalho → Corrido (hora corrida, sem refeição) → Folga';
-  return `<tr style="background:${bg}" data-dia="${d.dia}" data-tipo="${d.tipo||'trabalho'}">
+  const hePercAttr = (d.tipo==='corrido' && d.hePercDia) ? `data-he-perc="${d.hePercDia}"` : '';
+  return `<tr style="background:${bg}" data-dia="${d.dia}" data-tipo="${d.tipo||'trabalho'}" ${hePercAttr}>
     <td style="padding:4px 6px;text-align:center;border:1px solid var(--border);font-weight:700">${String(d.dia).padStart(2,'0')}${revisao}</td>
     <td style="padding:4px 6px;text-align:center;border:1px solid var(--border);font-size:11px">${sem}</td>
-    <td style="padding:4px 6px;text-align:center;border:1px solid var(--border)"><span class="esc-tipo-cell" onclick="toggleEscalaTipo(this)" style="cursor:pointer" title="${tipoTitle}">${_escalaTipoBadge(d.tipo)}</span></td>
+    <td style="padding:4px 6px;text-align:center;border:1px solid var(--border)"><span class="esc-tipo-cell" onclick="toggleEscalaTipo(this)" style="cursor:pointer" title="${tipoTitle}">${_escalaTipoBadge(d.tipo, d.hePercDia)}</span></td>
     <td style="padding:2px;border:1px solid var(--border)"><input type="time" class="esc-entrada" value="${d.entrada||''}" style="width:100%;${opEnt}" onchange="onEscalaCellEdit(this)"></td>
     <td style="padding:2px;border:1px solid var(--border)"><input type="time" class="esc-int-ini" value="${d.intIni||''}" style="width:100%;${opRef}" onchange="onEscalaCellEdit(this)"></td>
     <td style="padding:2px;border:1px solid var(--border)"><input type="time" class="esc-int-fim" value="${d.intFim||''}" style="width:100%;${opRef}" onchange="onEscalaCellEdit(this)"></td>
@@ -6597,7 +6730,10 @@ function toggleEscalaTipo(span){
   else if(cur === 'corrido')  novo = 'folga';
   else                        novo = 'trabalho';
   row.dataset.tipo = novo;
-  span.innerHTML = _escalaTipoBadge(novo);
+  // Limpa hePerc ao sair de corrido
+  if(novo !== 'corrido') delete row.dataset.hePerc;
+  const perc = parseInt(row.dataset.hePerc) || (novo==='corrido' ? 50 : null);
+  span.innerHTML = _escalaTipoBadge(novo, perc);
 
   const ent = row.querySelector('.esc-entrada');
   const ini = row.querySelector('.esc-int-ini');
@@ -6626,6 +6762,9 @@ function toggleEscalaTipo(span){
     if(sai){ sai.style.opacity='1'; if(!sai.value && h) sai.value = h.saida; }
     if(ini){ ini.value=''; ini.style.opacity='.4'; }
     if(fim){ fim.value=''; fim.style.opacity='.4'; }
+    // Define default 50% e abre modal pra escolher %
+    row.dataset.hePerc = '50';
+    _openCorridoPercModal(row, cur);
   } else {
     // Trabalho: pré-preenche todos vazios
     [ent, ini, fim, sai].forEach(inp => { if(inp) inp.style.opacity='1'; });
@@ -6650,13 +6789,17 @@ function _collectEscalaDias(empId){
     const dia = parseInt(row.dataset.dia);
     const ds = new Date(ano, mes-1, dia).getDay();
     const tipo = row.dataset.tipo || 'trabalho';
-    dias.push({
+    const obj = {
       dia, diaSem:ds, tipo,
       entrada: row.querySelector('.esc-entrada').value,
       intIni:  row.querySelector('.esc-int-ini').value,
       intFim:  row.querySelector('.esc-int-fim').value,
       saida:   row.querySelector('.esc-saida').value
-    });
+    };
+    if(tipo === 'corrido'){
+      obj.hePercDia = parseInt(row.dataset.hePerc) || 50;
+    }
+    dias.push(obj);
   });
   return dias;
 }

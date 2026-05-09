@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title id="page-title">D.R. Global Multi Services — Sistema de Gestão de Colaboradores</title>
   <link rel="icon" href="logo.png" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20260508o">
+  <link rel="stylesheet" href="styles.css?v=20260508p">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -13,7 +13,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-  <script src="firebase-config.js?v=20260508o"></script>
+  <script src="firebase-config.js?v=20260508p"></script>
 </head>
 <body>
 
@@ -751,6 +751,29 @@
                   </div>
                   <div style="font-size:11px;color:#5E35B1;margin-top:4px">
                     <i class="fa-solid fa-calculator"></i> Calculado automaticamente pelos horários. Ajuste o total manualmente se necessário.
+                  </div>
+                  <!-- HE Corrido (vinda da Escala — dias marcados como Corrido) -->
+                  <div id="he-corrido-block" style="margin-top:10px;padding:8px 10px;background:#F3E5F5;border-left:3px solid #7B1FA2;border-radius:4px;display:none">
+                    <div style="font-size:11px;font-weight:700;color:#6A1B9A;margin-bottom:4px">
+                      <i class="fa-solid fa-person-running"></i> HE Hora Corrida (a partir da Escala)
+                    </div>
+                    <div class="form-row" style="margin:0">
+                      <div class="form-group">
+                        <label style="font-size:10px">Total min. corrido</label>
+                        <input type="number" id="payroll-he-corrido-min" min="0" step="1" placeholder="0" readonly class="input-readonly">
+                      </div>
+                      <div class="form-group">
+                        <label style="font-size:10px">Detalhes</label>
+                        <input type="text" id="payroll-he-corrido-detalhe" placeholder="—" readonly class="input-readonly">
+                      </div>
+                      <div class="form-group">
+                        <label style="font-size:10px">Valor HE Corrido: R$</label>
+                        <input type="number" id="payroll-he-corrido-valor" min="0" step="0.01" placeholder="0,00" readonly class="input-readonly">
+                      </div>
+                    </div>
+                    <div style="font-size:10px;color:#7B1FA2;margin-top:4px">
+                      <i class="fa-solid fa-link"></i> Marque dias como <strong>Corrido</strong> em Escalas para gerar este valor automaticamente.
+                    </div>
                   </div>
                 </div>
 
@@ -3083,6 +3106,36 @@
   </div>
 </div>
 
+<!-- ===== MODAL: % HE PARA HORA CORRIDA (ESCALAS) ===== -->
+<div class="modal-overlay hidden" id="modal-corrido-perc" onclick="closeModal('modal-corrido-perc', event)">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-person-running" style="color:#7B1FA2"></i> Hora Corrida — Adicional Legal</h3>
+      <button class="modal-close" onclick="closeModal('modal-corrido-perc')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <p style="margin-bottom:12px;font-size:13px">Esta hora corrida será paga como <strong>hora extra</strong>. Selecione o adicional legal aplicável (incorporado no cálculo da Folha de Ponto):</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button type="button" class="btn btn-secondary" onclick="setCorridoPerc(50)" style="text-align:left"><strong>50%</strong> <small style="color:var(--text-muted)">CCT padrão (dias úteis)</small></button>
+        <button type="button" class="btn btn-secondary" onclick="setCorridoPerc(60)" style="text-align:left"><strong>60%</strong> <small style="color:var(--text-muted)">CCT especial</small></button>
+        <button type="button" class="btn btn-secondary" onclick="setCorridoPerc(70)" style="text-align:left"><strong>70%</strong> <small style="color:var(--text-muted)">CCT especial</small></button>
+        <button type="button" class="btn btn-secondary" onclick="setCorridoPerc(100)" style="text-align:left"><strong>100%</strong> <small style="color:var(--text-muted)">domingo / feriado</small></button>
+      </div>
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+        <label style="font-size:12px;color:var(--text-muted)">Outro percentual (custom):</label>
+        <div style="display:flex;gap:6px;align-items:center;margin-top:4px">
+          <input type="number" id="corrido-perc-custom" min="0" max="200" step="1" placeholder="Ex.: 80" style="flex:1">
+          <span style="font-weight:700">%</span>
+          <button type="button" class="btn btn-primary" onclick="setCorridoPerc(parseInt(document.getElementById('corrido-perc-custom').value)||50)"><i class="fa-solid fa-check"></i> OK</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="cancelCorridoPerc()">Cancelar (volta para Trabalho)</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== MODAL: REFEIÇÃO EM MASSA (ESCALAS) ===== -->
 <div class="modal-overlay hidden" id="modal-bulk-refeicao" onclick="closeModal('modal-bulk-refeicao', event)">
   <div class="modal-dialog modal-md">
@@ -3196,6 +3249,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260508o"></script>
+<script src="app.js?v=20260508p"></script>
 </body>
 </html>

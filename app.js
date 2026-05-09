@@ -6491,23 +6491,60 @@ function _renderEscalaRow(d, fam){
     ? '<span style="color:#1B5E20;font-weight:600;font-size:11px"><i class="fa-solid fa-briefcase"></i> Trabalho</span>'
     : '<span style="color:#E65100;font-weight:600;font-size:11px"><i class="fa-solid fa-umbrella-beach"></i> Folga</span>';
   const revisao = d.revisao ? ' <span title="Revisar manualmente — sem dados anteriores" style="color:#E65100">⚠</span>' : '';
-  const dis = d.tipo==='folga' ? 'disabled' : '';
-  const opacity = d.tipo==='folga' ? 'opacity:.45' : '';
+  // Inputs de folga ficam editáveis (apenas dimmed) — útil para troca de dias entre colaboradores
+  const opacity = d.tipo==='folga' ? 'opacity:.55' : '';
+  const tipoTitle = d.tipo==='folga'
+    ? 'Clique para alternar trabalho/folga · ou digite um horário para converter em Trabalho'
+    : 'Clique para alternar trabalho/folga';
   return `<tr style="background:${bg}" data-dia="${d.dia}" data-tipo="${d.tipo}">
     <td style="padding:4px 6px;text-align:center;border:1px solid var(--border);font-weight:700">${String(d.dia).padStart(2,'0')}${revisao}</td>
     <td style="padding:4px 6px;text-align:center;border:1px solid var(--border);font-size:11px">${sem}</td>
-    <td style="padding:4px 6px;text-align:center;border:1px solid var(--border)"><span class="esc-tipo-cell" onclick="toggleEscalaTipo(this)" style="cursor:pointer" title="Clique para alternar trabalho/folga">${tipoLabel}</span></td>
-    <td style="padding:2px;border:1px solid var(--border)"><input type="time" class="esc-entrada" value="${d.entrada||''}" ${dis} style="width:100%;${opacity}" onchange="onEscalaCellEdit(this)"></td>
-    <td style="padding:2px;border:1px solid var(--border)"><input type="time" class="esc-int-ini" value="${d.intIni||''}" ${dis} style="width:100%;${opacity}" onchange="onEscalaCellEdit(this)"></td>
-    <td style="padding:2px;border:1px solid var(--border)"><input type="time" class="esc-int-fim" value="${d.intFim||''}" ${dis} style="width:100%;${opacity}" onchange="onEscalaCellEdit(this)"></td>
-    <td style="padding:2px;border:1px solid var(--border)"><input type="time" class="esc-saida" value="${d.saida||''}" ${dis} style="width:100%;${opacity}" onchange="onEscalaCellEdit(this)"></td>
+    <td style="padding:4px 6px;text-align:center;border:1px solid var(--border)"><span class="esc-tipo-cell" onclick="toggleEscalaTipo(this)" style="cursor:pointer" title="${tipoTitle}">${tipoLabel}</span></td>
+    <td style="padding:2px;border:1px solid var(--border)"><input type="time" class="esc-entrada" value="${d.entrada||''}" style="width:100%;${opacity}" onchange="onEscalaCellEdit(this)"></td>
+    <td style="padding:2px;border:1px solid var(--border)"><input type="time" class="esc-int-ini" value="${d.intIni||''}" style="width:100%;${opacity}" onchange="onEscalaCellEdit(this)"></td>
+    <td style="padding:2px;border:1px solid var(--border)"><input type="time" class="esc-int-fim" value="${d.intFim||''}" style="width:100%;${opacity}" onchange="onEscalaCellEdit(this)"></td>
+    <td style="padding:2px;border:1px solid var(--border)"><input type="time" class="esc-saida" value="${d.saida||''}" style="width:100%;${opacity}" onchange="onEscalaCellEdit(this)"></td>
   </tr>`;
 }
 
 function onEscalaCellEdit(input){
-  // Marcador visual de alterações não salvas (pendente de implementação)
+  const row = input.closest('tr');
   const card = input.closest('.escala-card');
   if(card) card.dataset.dirty = '1';
+  if(!row) return;
+  // Se digitou em linha de Folga: auto-converte para Trabalho e completa demais campos
+  if(row.dataset.tipo === 'folga' && input.value){
+    row.dataset.tipo = 'trabalho';
+    // Atualiza badge
+    const tipoCell = row.querySelector('.esc-tipo-cell');
+    if(tipoCell){
+      tipoCell.innerHTML = '<span style="color:#1B5E20;font-weight:600;font-size:11px"><i class="fa-solid fa-briefcase"></i> Trabalho</span>';
+      tipoCell.title = 'Clique para alternar trabalho/folga';
+    }
+    // Restaura opacidade dos 4 inputs
+    ['esc-entrada','esc-int-ini','esc-int-fim','esc-saida'].forEach(cls => {
+      const inp = row.querySelector('.'+cls);
+      if(inp) inp.style.opacity = '1';
+    });
+    // Pré-preenche campos vazios com defaults do colaborador (troca de dia)
+    const empId = card?.dataset.empId;
+    const emp = (State.employees||[]).find(e=>e.id===empId);
+    if(emp){
+      const dia = parseInt(row.dataset.dia);
+      const mes = parseInt(document.getElementById('escala-mes').value);
+      const ano = parseInt(document.getElementById('escala-ano').value);
+      const realDs = new Date(ano, mes-1, dia).getDay();
+      const h = _escalaHorariosDia(emp, realDs);
+      const ent = row.querySelector('.esc-entrada');
+      const ini = row.querySelector('.esc-int-ini');
+      const fim = row.querySelector('.esc-int-fim');
+      const sai = row.querySelector('.esc-saida');
+      if(ent && !ent.value) ent.value = h.entrada;
+      if(ini && !ini.value) ini.value = h.intIni;
+      if(fim && !fim.value) fim.value = h.intFim;
+      if(sai && !sai.value) sai.value = h.saida;
+    }
+  }
 }
 
 function toggleEscalaTipo(span){
@@ -6517,12 +6554,11 @@ function toggleEscalaTipo(span){
   const cur = row.dataset.tipo;
   const novo = cur==='trabalho' ? 'folga' : 'trabalho';
   row.dataset.tipo = novo;
-  // Habilita/desabilita inputs
+  // Inputs ficam sempre editáveis — folga só dimm; toggle limpa valores ao virar folga
   ['esc-entrada','esc-int-ini','esc-int-fim','esc-saida'].forEach(cls => {
     const inp = row.querySelector('.'+cls);
     if(!inp) return;
-    inp.disabled = (novo==='folga');
-    inp.style.opacity = (novo==='folga') ? '.45' : '1';
+    inp.style.opacity = (novo==='folga') ? '.55' : '1';
     if(novo==='folga') inp.value = '';
   });
   // Atualiza badge de status

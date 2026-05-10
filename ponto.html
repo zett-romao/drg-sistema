@@ -530,6 +530,8 @@ async function baterPonto() {
       dias.push(dayEntry);
     }
     dayEntry[prox] = hora;
+    // Marca origem da batida (app vs manual pelo operador no gestor)
+    dayEntry[prox + '_origem'] = 'app';
     // Salva coordenadas junto com o registro
     if (geo) dayEntry[prox + '_geo'] = geo;
 

@@ -807,6 +807,9 @@ function applyUserSession(user){
   if(postosLi) postosLi.classList.toggle('hidden', !mods.postos);
   const escLi=document.getElementById('nav-escalas-li');
   if(escLi) escLi.classList.toggle('hidden', !mods.escalas);
+  // Botão Revisar HE no card Horas Extras
+  const btnHE=document.getElementById('btn-revisar-he');
+  if(btnHE) btnHE.classList.toggle('hidden', !(mods.aprovaHE || user.role==='master'));
   const pagLi=document.getElementById('nav-pagamentos-li');
   if(pagLi) pagLi.classList.toggle('hidden', !mods.pagamentos);
   const decLi=document.getElementById('nav-decimoterceiro-li');
@@ -1113,6 +1116,24 @@ function renderDashboard(){
   const totalPostos=(State.postos||[]).length;
   const escalasMes=(State.escalas||[]).filter(es=>es.mes==mes&&es.ano==ano).length;
   const escalasPend=Math.max(0, ativos-escalasMes);
+  // HE Pendente de revisão: percorre payrolls do mês e conta dias com divergência > tolerância e status pendente
+  let heRevisaoEmps = 0, heRevisaoDias = 0;
+  payThisMonth.forEach(p => {
+    const emp = State.employees.find(e=>e.id===p.employeeId);
+    if(!emp || !p.pontoManualDias) return;
+    let hasPendente = false;
+    p.pontoManualDias.forEach(d => {
+      if(!d.entrada || !d.saida) return;
+      const exp = _getExpectedDay(emp, p.mes, p.ano, d.dia);
+      if(!exp || !exp.entrada) return;
+      const detec = _detectHEDivergencia(d, exp);
+      if(detec.precisaRevisao && (d.heReview?.status||'pendente')==='pendente'){
+        heRevisaoDias++;
+        hasPendente = true;
+      }
+    });
+    if(hasPendente) heRevisaoEmps++;
+  });
   const stats=document.getElementById('dashboard-stats'); if(!stats) return;
   const cctInfo=State.cct?`<div class="stat-card" style="border-color:#7B1FA2;border-left-width:4px"><div class="stat-icon" style="background:#F3E5F5;color:#7B1FA2"><i class="fa-solid fa-file-contract"></i></div><div><div class="stat-value" style="font-size:14px">CCT vigente</div><div class="stat-label">desde ${formatDateBr(State.cct.vigencia)}</div></div></div>`:'';
   stats.innerHTML=`
@@ -1131,6 +1152,13 @@ function renderDashboard(){
     <div class="stat-card" style="border-color:#1565C0;border-left-width:4px;cursor:pointer" onclick="showSection('postos')" title="Ver postos de trabalho">
       <div class="stat-icon" style="background:#E3F2FD;color:#1565C0"><i class="fa-solid fa-building"></i></div>
       <div><div class="stat-value" style="color:#1565C0">${totalPostos}</div><div class="stat-label">Postos de trabalho</div></div></div>
+    ${heRevisaoEmps>0?`<div class="stat-card" style="border-color:#E65100;border-left-width:4px;cursor:pointer" onclick="_dashGotoHEReview()" title="Colaboradores com HE acima da tolerância CLT aguardando revisão">
+      <div class="stat-icon" style="background:#FFF3E0;color:#E65100"><i class="fa-solid fa-magnifying-glass"></i></div>
+      <div>
+        <div class="stat-value" style="color:#E65100">${heRevisaoEmps}</div>
+        <div class="stat-label">Pendentes de revisar HE</div>
+        <div style="font-size:10px;color:#E65100;margin-top:2px"><i class="fa-solid fa-triangle-exclamation"></i> ${heRevisaoDias} dia(s) — clique pra revisar</div>
+      </div></div>`:''}
     <div class="stat-card" style="border-color:#6A1B9A;border-left-width:4px;cursor:pointer" onclick="showSection('escalas')" title="Ver escalas do mês">
       <div class="stat-icon" style="background:#F3E5F5;color:#6A1B9A"><i class="fa-solid fa-calendar-days"></i></div>
       <div>
@@ -4885,6 +4913,108 @@ function _shiftCrossesMidnight(entrada, saida){
   return timeToMinutes(saida) < timeToMinutes(entrada);
 }
 
+// ============================================
+// HE REVIEW — Tolerância CLT + detecção de divergência
+// ============================================
+// Tolerância CLT: 5min por batida, 10min por dia (Art. 58 §1º + Súmula 366 TST)
+const HE_TOLERANCIA_BATIDA_MIN = 5;
+const HE_TOLERANCIA_DIA_MIN    = 10;
+
+// Retorna o "esperado" para um dia: prioriza escala salva, depois cadastro contratual
+function _getExpectedDay(emp, mes, ano, dia){
+  if(!emp) return null;
+  // 1) Tenta escala salva
+  const esc = (State.escalas||[]).find(e => e.employeeId===emp.id && e.mes==mes && e.ano==ano);
+  if(esc?.dias?.length){
+    const d = esc.dias.find(x => x.dia===dia);
+    if(d){
+      return {
+        tipo: d.tipo || 'trabalho',
+        entrada: d.entrada || '',
+        saida:   d.saida   || '',
+        intIni:  d.intIni  || '',
+        intFim:  d.intFim  || ''
+      };
+    }
+  }
+  // 2) Fallback: horários contratuais do cadastro (assume trabalho em dia útil)
+  const diaSem = new Date(ano, mes-1, dia).getDay();
+  const isWknd = diaSem===0 || diaSem===6;
+  const fam = escalaFamilia(emp.escala||'5x2A');
+  // Para 5x2 e fins de semana, sem horário esperado (é folga)
+  if(fam==='5x2' && isWknd) return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
+  if(fam==='6x1' && diaSem===0) return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
+  return {
+    tipo:'trabalho',
+    entrada: emp.horarioEntrada || '',
+    saida:   emp.horarioSaida   || '',
+    intIni:  emp.semRefeicao ? '' : (emp.horarioRefIni || '12:00'),
+    intFim:  emp.semRefeicao ? '' : (emp.horarioRefFim || '13:00')
+  };
+}
+
+// Detecta divergência de um dia real vs esperado. Retorna motivos + total minutos de excesso.
+function _detectHEDivergencia(realDay, expectedDay){
+  const out = { totalMin:0, motivos:[], precisaRevisao:false };
+  if(!realDay || !expectedDay) return out;
+  if(!realDay.entrada || !realDay.saida || !expectedDay.entrada || !expectedDay.saida) return out;
+  if(expectedDay.tipo === 'folga') return out; // dia de folga sem expected — só vira HE se aprovado manualmente
+  const ent  = timeToMinutes(realDay.entrada);
+  const eEnt = timeToMinutes(expectedDay.entrada);
+  // Excesso de ENTRADA (entrou antes do contratual)
+  if(ent < eEnt){
+    const d = eEnt - ent;
+    out.totalMin += d;
+    if(d > HE_TOLERANCIA_BATIDA_MIN) out.motivos.push(`Entrou ${d}min antes`);
+  }
+  // Excesso de SAÍDA (saiu depois)
+  let sai  = timeToMinutes(realDay.saida);
+  let eSai = timeToMinutes(expectedDay.saida);
+  if(_shiftCrossesMidnight(realDay.entrada, realDay.saida) && sai <= ent) sai += 24*60;
+  if(_shiftCrossesMidnight(expectedDay.entrada, expectedDay.saida) && eSai <= eEnt) eSai += 24*60;
+  if(sai > eSai){
+    const d = sai - eSai;
+    out.totalMin += d;
+    if(d > HE_TOLERANCIA_BATIDA_MIN) out.motivos.push(`Saiu ${d}min depois`);
+  }
+  // Almoço encurtado (real menor que esperado)
+  if(realDay.intIni && realDay.intFim && expectedDay.intIni && expectedDay.intFim){
+    const realDur = _calcIntervaloMin(realDay.intIni, realDay.intFim, realDay.entrada, realDay.saida);
+    const expDur  = _calcIntervaloMin(expectedDay.intIni, expectedDay.intFim, expectedDay.entrada, expectedDay.saida);
+    if(realDur < expDur){
+      const d = expDur - realDur;
+      out.totalMin += d;
+      if(d > HE_TOLERANCIA_BATIDA_MIN) out.motivos.push(`Almoço ${d}min mais curto`);
+    }
+  }
+  // Súmula 366 TST: total > 10min/dia → precisa de revisão; senão CLT permite ignorar
+  out.precisaRevisao = out.totalMin > HE_TOLERANCIA_DIA_MIN;
+  return out;
+}
+
+// Decide qual conjunto de minutos usar no cálculo:
+// - dentro da tolerância CLT → usa expected (CLT permite ignorar)
+// - acima da tolerância:
+//     * aprovado → usa real (HE conta)
+//     * pendente/abonado → usa expected (HE não conta até revisar)
+function _effectiveMinLiq(realDay, expectedDay, contratosMin){
+  const _liq = (d) => {
+    if(!d || !d.entrada || !d.saida) return 0;
+    let mb = timeToMinutes(d.saida) - timeToMinutes(d.entrada);
+    if(mb <= 0) mb += 24*60;
+    const mi = _calcIntervaloMin(d.intIni, d.intFim, d.entrada, d.saida);
+    return Math.max(0, mb - mi);
+  };
+  const realLiq = _liq(realDay);
+  if(!expectedDay || !expectedDay.entrada) return realLiq; // sem expected, usa real
+  const detec = _detectHEDivergencia(realDay, expectedDay);
+  const reviewStatus = realDay.heReview?.status || null;
+  const useReal = (!detec.precisaRevisao) || (reviewStatus === 'aprovado');
+  if(useReal) return realLiq;
+  // HE indevida não aprovada → usa expected (zera o excesso)
+  return _liq(expectedDay);
+}
+
 // Helper: calcula minutos de intervalo, tratando intervalo cross-midnight
 // (ex: intIni 23:30, intFim 00:30 num turno noturno → 60min, antes retornava 0)
 // Só aplica +24h se o turno também cruza meia-noite (evita inflar HE em typos diurnos)
@@ -4933,20 +5063,20 @@ async function openPontoManual(){
         <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:4px 6px">
           <div>
             <div style="font-size:10px;color:var(--text-muted);margin-bottom:2px">Entrada</div>
-            <input type="time" class="pm-entrada pm-input" style="${opStyle}" onchange="calcResumoManual()">
+            <input type="time" class="pm-entrada pm-input" style="${opStyle}" onchange="onPontoManualEdit(this);calcResumoManual()">
           </div>
           <div>
             <div style="font-size:10px;color:var(--text-muted);margin-bottom:2px">Saída</div>
-            <input type="time" class="pm-saida pm-input" style="${opStyle}" onchange="calcResumoManual()">
+            <input type="time" class="pm-saida pm-input" style="${opStyle}" onchange="onPontoManualEdit(this);calcResumoManual()">
             <div class="pm-saida-nextday" style="display:none;font-size:9px;color:#FB8C00;font-weight:600;margin-top:2px">⚠ Saída no dia seguinte</div>
           </div>
           <div>
             <div style="font-size:10px;color:#F59E0B;margin-bottom:2px">🍽 Int. Início</div>
-            <input type="time" class="pm-int-ini pm-input" style="${opStyle}" onchange="calcResumoManual()">
+            <input type="time" class="pm-int-ini pm-input" style="${opStyle}" onchange="onPontoManualEdit(this);calcResumoManual()">
           </div>
           <div>
             <div style="font-size:10px;color:#F59E0B;margin-bottom:2px">🍽 Int. Fim</div>
-            <input type="time" class="pm-int-fim pm-input" style="${opStyle}" onchange="calcResumoManual()">
+            <input type="time" class="pm-int-fim pm-input" style="${opStyle}" onchange="onPontoManualEdit(this);calcResumoManual()">
             <div class="pm-intfim-nextday" style="display:none;font-size:9px;color:#FB8C00;font-weight:600;margin-top:2px">⚠ Fim no dia seguinte</div>
           </div>
         </div>
@@ -4983,13 +5113,16 @@ async function openPontoManual(){
       if(saiEl) saiEl.value=d.saida||'';
       if(iniEl) iniEl.value=d.intIni||'';
       if(fimEl) fimEl.value=d.intFim||'';
-      // Exibe ícones de localização do app de ponto
+      // Marca origem e visual (app vs editado pelo operador)
       ['entrada','saida','intIni','intFim'].forEach(k=>{
-        const geo=d[k+'_geo'];
-        if(!geo) return;
         const sel=k==='entrada'?'.pm-entrada':k==='saida'?'.pm-saida':k==='intIni'?'.pm-int-ini':'.pm-int-fim';
         const inp=card.querySelector(sel);
         if(!inp) return;
+        const origem = d[k+'_origem'] || (d[k+'_geo'] ? 'app' : (d[k] ? 'manual' : ''));
+        if(origem){ inp.dataset.origem = origem; _updatePontoOrigemMarker(inp); }
+        // Geo (📍 — só de batidas do app)
+        const geo=d[k+'_geo'];
+        if(!geo) return;
         const existing=inp.parentElement.querySelector('.geo-badge');
         if(existing) existing.remove();
         const badge=document.createElement('a');
@@ -5013,17 +5146,71 @@ function _getPontoManualCards(){
   return document.querySelectorAll('#ponto-manual-grid [data-dia]');
 }
 
+// Marca campo como editado pelo operador (origem='manual') + atualiza visual
+function onPontoManualEdit(input){
+  if(!input) return;
+  // Só marca como manual se houver valor (limpar volta a estado vazio)
+  if(input.value){
+    input.dataset.origem = 'manual';
+  } else {
+    delete input.dataset.origem;
+  }
+  _updatePontoOrigemMarker(input);
+}
+
+// Atualiza marcador visual (asterisco laranja) ao lado do input
+function _updatePontoOrigemMarker(input){
+  if(!input) return;
+  const parent = input.parentElement;
+  if(!parent) return;
+  const existing = parent.querySelector('.pm-origem-mark');
+  if(existing) existing.remove();
+  if(input.dataset.origem === 'manual' && input.value){
+    const mark = document.createElement('span');
+    mark.className = 'pm-origem-mark';
+    mark.title = 'Editado pelo operador (origem manual)';
+    mark.textContent = '*';
+    mark.style.cssText = 'color:#E65100;font-weight:700;font-size:13px;margin-left:4px;vertical-align:middle';
+    parent.appendChild(mark);
+  }
+}
+
 function _collectPontoManualDias(){
   const dias=[];
   _getPontoManualCards().forEach(card=>{
-    dias.push({
-      dia:     parseInt(card.dataset.dia),
+    const e  = card.querySelector('.pm-entrada');
+    const s  = card.querySelector('.pm-saida');
+    const ii = card.querySelector('.pm-int-ini');
+    const if_= card.querySelector('.pm-int-fim');
+    // Preserva campos auxiliares já existentes no payroll (geo, origem para campos que não foram tocados)
+    const dia = parseInt(card.dataset.dia);
+    const empId = val('payroll-employee');
+    const mesL = parseInt(val('payroll-mes'));
+    const anoL = parseInt(val('payroll-ano'));
+    const existingPayroll = State.payrolls.find(p=>p.employeeId===empId&&p.mes==mesL&&p.ano==anoL);
+    const existingDay = existingPayroll?.pontoManualDias?.find(d=>d.dia===dia) || {};
+    const obj = {
+      dia,
       diaSem:  parseInt(card.dataset.semana),
-      entrada: card.querySelector('.pm-entrada')?.value||'',
-      saida:   card.querySelector('.pm-saida')?.value||'',
-      intIni:  card.querySelector('.pm-int-ini')?.value||'',
-      intFim:  card.querySelector('.pm-int-fim')?.value||''
+      entrada: e?.value || '',
+      saida:   s?.value || '',
+      intIni:  ii?.value || '',
+      intFim:  if_?.value || ''
+    };
+    // Origem por campo (app = batido no PWA, manual = lançado pelo operador)
+    [['entrada',e],['saida',s],['intIni',ii],['intFim',if_]].forEach(([k,inp])=>{
+      if(!inp) return;
+      if(inp.value){
+        // Se input tem dataset.origem usa, senão preserva o salvo, senão 'manual'
+        const o = inp.dataset.origem || existingDay[k+'_origem'] || 'manual';
+        obj[k+'_origem'] = o;
+      }
+      // Preserva geo do PWA (mesmo se operador edita, geo original é histórica)
+      if(existingDay[k+'_geo']) obj[k+'_geo'] = existingDay[k+'_geo'];
     });
+    // Preserva heReview do dia (decisão de aprovação)
+    if(existingDay.heReview) obj.heReview = existingDay.heReview;
+    dias.push(obj);
   });
   return dias;
 }
@@ -5050,12 +5237,19 @@ async function savePontoManualRascunho(){
 
 function calcResumoManual(){
   const cards=_getPontoManualCards();
-  let diasTrabalhados=0, faltas=0, totalHEmin=0;
+  let diasTrabalhados=0, faltas=0, totalHEmin=0, pendentes=0;
   const empId=val('payroll-employee');
   const emp=State.employees.find(e=>e.id===empId);
+  const mes=parseInt(val('payroll-mes'));
+  const ano=parseInt(val('payroll-ano'));
   const fam=emp?escalaFamilia(emp.escala||'5x2A'):'5x2';
   const is12x36=fam==='12x36';
+  let minContratados=480;
+  if(fam==='6x1') minContratados=440;
+  else if(fam==='12x36') minContratados=660;
+  const existingPayroll=State.payrolls.find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
   cards.forEach(card=>{
+    const dia=parseInt(card.dataset.dia);
     const diaSem=parseInt(card.dataset.semana);
     const entrada=card.querySelector('.pm-entrada')?.value;
     const saida=card.querySelector('.pm-saida')?.value;
@@ -5069,22 +5263,250 @@ function calcResumoManual(){
     if(intHint) intHint.style.display=_intervaloCrossesMidnight(intIni,intFim,entrada,saida)?'block':'none';
     if(entrada&&saida){
       diasTrabalhados++;
-      let minBrutos=timeToMinutes(saida)-timeToMinutes(entrada);
-      if(minBrutos<=0) minBrutos+=24*60;
-      const minIntervalo=_calcIntervaloMin(intIni,intFim,entrada,saida);
-      const minLiquidos=minBrutos-minIntervalo;
-      let minContratados=480; // 8h padrão
-      if(fam==='6x1') minContratados=440;
-      else if(fam==='12x36') minContratados=660;
-      totalHEmin+=Math.max(0,minLiquidos-minContratados);
+      const realDay={dia,diaSem,entrada,saida,intIni,intFim};
+      const existingDay=existingPayroll?.pontoManualDias?.find(d=>d.dia===dia);
+      if(existingDay?.heReview) realDay.heReview=existingDay.heReview;
+      const expectedDay=emp?_getExpectedDay(emp,mes,ano,dia):null;
+      const effLiq=_effectiveMinLiq(realDay,expectedDay,minContratados);
+      totalHEmin+=Math.max(0,effLiq-minContratados);
+      const detec=_detectHEDivergencia(realDay,expectedDay);
+      const reviewStatus=realDay.heReview?.status||'pendente';
+      if(detec.precisaRevisao && reviewStatus==='pendente') pendentes++;
+      _updateHEReviewBadge(card,detec,realDay.heReview);
     } else if(!isWeekend&&!is12x36&&!entrada&&!saida) faltas++;
   });
   const diasEl=document.getElementById('ponto-resumo-dias');
   const faltasEl=document.getElementById('ponto-resumo-faltas');
   const heEl=document.getElementById('ponto-resumo-he');
+  const pendEl=document.getElementById('ponto-resumo-he-pendente');
   if(diasEl)   diasEl.textContent=diasTrabalhados;
   if(faltasEl) faltasEl.textContent=faltas;
   if(heEl)     heEl.textContent=totalHEmin>0?minutesToStr(totalHEmin):'0h';
+  if(pendEl){
+    if(pendentes>0){
+      pendEl.style.display='';
+      pendEl.innerHTML=`<i class="fa-solid fa-triangle-exclamation" style="color:#E65100"></i> <strong>${pendentes} dia(s)</strong> com HE acima da tolerância — <a href="#" onclick="openHEReview();return false" style="color:#E65100;font-weight:700;text-decoration:underline">revisar agora</a>`;
+    } else {
+      pendEl.style.display='none';
+    }
+  }
+}
+
+// ============================================
+// HE REVIEW — Painel de revisão das divergências
+// ============================================
+
+// Atalho do Dashboard: vai para Folha de Ponto e abre review do 1º colaborador com pendência
+function _dashGotoHEReview(){
+  const mes = currentMes(), ano = currentAno();
+  const payThisMonth = State.payrolls.filter(p=>p.mes==mes&&p.ano==ano);
+  for(const p of payThisMonth){
+    const emp = State.employees.find(e=>e.id===p.employeeId);
+    if(!emp || !p.pontoManualDias) continue;
+    const hasPendente = (p.pontoManualDias||[]).some(d => {
+      if(!d.entrada || !d.saida) return false;
+      const exp = _getExpectedDay(emp, p.mes, p.ano, d.dia);
+      if(!exp || !exp.entrada) return false;
+      const detec = _detectHEDivergencia(d, exp);
+      return detec.precisaRevisao && (d.heReview?.status||'pendente')==='pendente';
+    });
+    if(hasPendente){
+      showSection('payroll');
+      setTimeout(() => {
+        setVal('payroll-employee', p.employeeId);
+        setVal('payroll-mes', p.mes);
+        setVal('payroll-ano', p.ano);
+        loadPayrollRecord(p.id);
+        setTimeout(openHEReview, 300);
+      }, 100);
+      return;
+    }
+  }
+  toast('Nenhuma HE pendente encontrada.', 'success');
+}
+
+// Abre o modal de revisão de HE para o colaborador/mes/ano selecionados
+async function openHEReview(){
+  // Verifica permissão
+  const mods = getUserModules(Auth.currentUser);
+  if(!mods.aprovaHE && Auth.currentUser?.role !== 'master'){
+    toast('Você não tem permissão para revisar/aprovar horas extras.', 'error');
+    return;
+  }
+  const empId = val('payroll-employee');
+  if(!empId){ toast('Selecione um colaborador na Folha de Ponto primeiro.', 'error'); return; }
+  const emp = State.employees.find(e=>e.id===empId);
+  if(!emp){ toast('Colaborador não encontrado.', 'error'); return; }
+  const mes = parseInt(val('payroll-mes')||currentMes());
+  const ano = parseInt(val('payroll-ano')||currentAno());
+  // Pega payroll diretamente do State (já tem os dias mais recentes do PWA)
+  // Se modal Ponto Manual está aberto, prioriza os dados do DOM (mais recentes ainda)
+  const cardsAbertos = _getPontoManualCards();
+  let dias = [];
+  if(cardsAbertos.length){
+    // Coleta do DOM, preservando heReview existente
+    dias = _collectPontoManualDias();
+  } else {
+    const payroll = State.payrolls.find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
+    dias = payroll?.pontoManualDias || [];
+  }
+  // Filtra dias com divergência > tolerância
+  const linhas = [];
+  dias.forEach(d => {
+    if(!d.entrada || !d.saida) return;
+    const expected = _getExpectedDay(emp, mes, ano, d.dia);
+    if(!expected || !expected.entrada) return;
+    const detec = _detectHEDivergencia(d, expected);
+    if(!detec.precisaRevisao) return;
+    linhas.push({ d, expected, detec });
+  });
+  document.getElementById('he-review-info').innerHTML =
+    `<strong>${emp.nome}</strong> &middot; ${MESES[mes]}/${ano} &middot; <strong>${linhas.length}</strong> dia(s) com divergência acima de 10min/dia`;
+  const listEl = document.getElementById('he-review-list');
+  if(!linhas.length){
+    listEl.innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-check" style="color:#1B5E20"></i><p>Nenhuma divergência acima da tolerância CLT neste mês.</p></div>';
+  } else {
+    listEl.innerHTML = linhas.map(({d,expected,detec}) => _renderHEReviewRow(d, expected, detec)).join('');
+  }
+  document.getElementById('modal-he-review').classList.remove('hidden');
+}
+
+function _renderHEReviewRow(d, expected, detec){
+  const status = d.heReview?.status || 'pendente';
+  const perc   = d.heReview?.perc   || 50;
+  const obs    = d.heReview?.observacao || '';
+  const sem    = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][d.diaSem];
+  const aprovado = d.heReview?.aprovadoPor ? `<small style="color:#1B5E20">por <strong>${d.heReview.aprovadoPor}</strong> em ${d.heReview.aprovadoEm ? new Date(d.heReview.aprovadoEm).toLocaleDateString('pt-BR') : '—'}</small>` : '';
+  return `<div class="he-review-card" data-dia="${d.dia}" data-tipo-saved="${status}" style="border:1.5px solid #E0E0E0;border-radius:8px;padding:10px 14px;margin-bottom:10px;background:#fff">
+    <div style="display:flex;justify-content:space-between;align-items:start;gap:10px;flex-wrap:wrap">
+      <div>
+        <div style="font-weight:700;font-size:14px;color:#E65100">Dia ${String(d.dia).padStart(2,'0')} (${sem}) — ${detec.totalMin}min de excesso</div>
+        <div style="font-size:12px;color:#666;margin-top:3px"><strong>Esperado:</strong> ${expected.entrada}–${expected.saida}${expected.intIni?` (ref. ${expected.intIni}–${expected.intFim})`:''}</div>
+        <div style="font-size:12px;color:#666"><strong>Real:</strong> ${d.entrada}–${d.saida}${d.intIni?` (ref. ${d.intIni}–${d.intFim})`:''}</div>
+        <div style="font-size:11px;color:#E65100;margin-top:3px"><i class="fa-solid fa-list"></i> ${(detec.motivos||['—']).join(' · ')}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;min-width:280px">
+        <div style="display:flex;gap:4px;flex-wrap:wrap">
+          <button type="button" class="btn-he-action" data-act="aprovado" onclick="_selectHEReview(this,'aprovado')" style="flex:1;padding:6px 10px;border:1.5px solid ${status==='aprovado'?'#1B5E20':'#CFD8DC'};background:${status==='aprovado'?'#E8F5E9':'#fff'};color:${status==='aprovado'?'#1B5E20':'#666'};border-radius:4px;cursor:pointer;font-weight:600;font-size:12px"><i class="fa-solid fa-circle-check"></i> Aprovar</button>
+          <button type="button" class="btn-he-action" data-act="abonado" onclick="_selectHEReview(this,'abonado')" style="flex:1;padding:6px 10px;border:1.5px solid ${status==='abonado'?'#37474F':'#CFD8DC'};background:${status==='abonado'?'#ECEFF1':'#fff'};color:${status==='abonado'?'#37474F':'#666'};border-radius:4px;cursor:pointer;font-weight:600;font-size:12px"><i class="fa-solid fa-ban"></i> Abonar</button>
+          <button type="button" class="btn-he-action" data-act="pendente" onclick="_selectHEReview(this,'pendente')" style="flex:1;padding:6px 10px;border:1.5px solid ${status==='pendente'?'#E65100':'#CFD8DC'};background:${status==='pendente'?'#FFF3E0':'#fff'};color:${status==='pendente'?'#E65100':'#666'};border-radius:4px;cursor:pointer;font-weight:600;font-size:12px"><i class="fa-solid fa-clock"></i> Pendente</button>
+        </div>
+        <div class="he-perc-row" style="display:${status==='aprovado'?'flex':'none'};gap:4px;align-items:center">
+          <label style="font-size:11px;color:#666;font-weight:600">% HE:</label>
+          <select class="he-perc-select" style="flex:1;padding:4px;font-size:12px">
+            <option value="50" ${perc==50?'selected':''}>50% — dias úteis</option>
+            <option value="60" ${perc==60?'selected':''}>60%</option>
+            <option value="70" ${perc==70?'selected':''}>70%</option>
+            <option value="100" ${perc==100?'selected':''}>100% — domingo/feriado</option>
+          </select>
+        </div>
+        <input type="text" class="he-obs" placeholder="Justificativa / observação (opcional)" value="${obs.replace(/"/g,'&quot;')}" style="font-size:11px;padding:4px 6px;border:1px solid #CFD8DC;border-radius:4px">
+        ${aprovado?`<div style="font-size:10px;text-align:right">${aprovado}</div>`:''}
+      </div>
+    </div>
+  </div>`;
+}
+
+function _selectHEReview(btn, action){
+  const card = btn.closest('.he-review-card');
+  if(!card) return;
+  card.dataset.tipoSaved = action;
+  // Atualiza visual dos 3 botões
+  card.querySelectorAll('.btn-he-action').forEach(b => {
+    const a = b.dataset.act;
+    const isSel = a === action;
+    let cor, bg;
+    if(a==='aprovado'){ cor='#1B5E20'; bg='#E8F5E9'; }
+    else if(a==='abonado'){ cor='#37474F'; bg='#ECEFF1'; }
+    else { cor='#E65100'; bg='#FFF3E0'; }
+    b.style.borderColor = isSel ? cor : '#CFD8DC';
+    b.style.background  = isSel ? bg  : '#fff';
+    b.style.color       = isSel ? cor : '#666';
+  });
+  // Mostra/esconde linha do %
+  const percRow = card.querySelector('.he-perc-row');
+  if(percRow) percRow.style.display = (action === 'aprovado') ? 'flex' : 'none';
+}
+
+async function saveHEReview(){
+  const mods = getUserModules(Auth.currentUser);
+  if(!mods.aprovaHE && Auth.currentUser?.role !== 'master'){
+    toast('Sem permissão.', 'error');
+    return;
+  }
+  const empId = val('payroll-employee');
+  const mes = parseInt(val('payroll-mes'));
+  const ano = parseInt(val('payroll-ano'));
+  // Coleta decisões do modal
+  const decisoes = {};
+  document.querySelectorAll('#he-review-list .he-review-card').forEach(card => {
+    const dia = parseInt(card.dataset.dia);
+    const status = card.dataset.tipoSaved || 'pendente';
+    const percSel = card.querySelector('.he-perc-select');
+    const obs = card.querySelector('.he-obs')?.value || '';
+    decisoes[dia] = {
+      status,
+      perc: status==='aprovado' ? (parseInt(percSel?.value)||50) : null,
+      observacao: obs,
+      aprovadoPor: (status==='aprovado' || status==='abonado') ? Auth.currentUser?.username : null,
+      aprovadoEm:  (status==='aprovado' || status==='abonado') ? new Date().toISOString() : null
+    };
+  });
+  // Aplica nas pontoManualDias do payroll
+  const payroll = State.payrolls.find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
+  if(!payroll){ toast('Folha de Ponto não encontrada — salve o ponto antes.', 'error'); return; }
+  const newDias = (payroll.pontoManualDias||[]).map(d => {
+    const dec = decisoes[d.dia];
+    if(!dec) return d;
+    return { ...d, heReview: dec };
+  });
+  // Se modal Ponto Manual está aberto, atualiza os dados em memória direto
+  if(_getPontoManualCards().length){
+    // Aplica também no payroll do State
+    payroll.pontoManualDias = newDias;
+  }
+  const btn = document.querySelector('#modal-he-review .btn-primary');
+  if(btn) setBtnLoading(btn, true, '');
+  try {
+    const updated = { ...payroll, pontoManualDias: newDias, updatedAt: new Date().toISOString() };
+    await DB.save('payrolls', updated);
+    // Atualiza State.payrolls em memória pra refletir mudança imediata
+    const idx = State.payrolls.findIndex(p=>p.id===updated.id);
+    if(idx >= 0) State.payrolls[idx] = updated;
+    Auth.log('HE_REVIEW_SAVED', null, `${MESES[mes]}/${ano} — ${Object.keys(decisoes).length} dia(s) revisados`);
+    toast('Revisão de HE salva! Recalculando folha...');
+    closeModal('modal-he-review');
+    // Recalcula resumo do Ponto Manual se aberto
+    if(_getPontoManualCards().length) calcResumoManual();
+    // Recalcula folha (atualiza payroll-he-total / valor)
+    recalculate();
+    if(State.currentSection === 'dashboard') renderDashboard();
+  } catch(e){
+    console.error(e);
+    toast('Erro ao salvar revisão.', 'error');
+  } finally {
+    if(btn) setBtnLoading(btn, false, '<i class="fa-solid fa-floppy-disk"></i> Salvar revisão');
+  }
+}
+
+// Atualiza badge visual de "HE pendente" no card de um dia
+function _updateHEReviewBadge(card, detec, heReview){
+  if(!card) return;
+  const existing = card.querySelector('.pm-he-review-badge');
+  if(existing) existing.remove();
+  if(!detec || !detec.precisaRevisao) return;
+  const status = heReview?.status || 'pendente';
+  let bg, color, label, icon;
+  if(status === 'aprovado'){ bg='#E8F5E9'; color='#1B5E20'; label=`HE aprovada · ${heReview.perc||50}%`; icon='circle-check'; }
+  else if(status === 'abonado'){ bg='#ECEFF1'; color='#37474F'; label='HE abonada'; icon='ban'; }
+  else                          { bg='#FFF3E0'; color='#E65100'; label=`HE pendente · ${detec.totalMin}min`; icon='triangle-exclamation'; }
+  const badge = document.createElement('div');
+  badge.className = 'pm-he-review-badge';
+  badge.title = (detec.motivos||[]).join(' · ');
+  badge.style.cssText = `font-size:10px;font-weight:700;color:${color};background:${bg};padding:2px 8px;border-radius:4px;margin-top:4px;display:inline-block;cursor:pointer`;
+  badge.innerHTML = `<i class="fa-solid fa-${icon}"></i> ${label}`;
+  badge.onclick = () => openHEReview();
+  card.appendChild(badge);
 }
 
 async function applyPontoManual(){
@@ -5096,7 +5518,12 @@ async function applyPontoManual(){
   const ano=parseInt(val('payroll-ano')||currentAno());
   const fam=emp?escalaFamilia(emp.escala||'5x2A'):'5x2';
   const is12x36=fam==='12x36';
+  let minContratados=480;
+  if(fam==='6x1') minContratados=440;
+  else if(fam==='12x36') minContratados=660;
+  const existingPayroll=State.payrolls.find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
   cards.forEach(card=>{
+    const dia=parseInt(card.dataset.dia);
     const diaSem=parseInt(card.dataset.semana);
     const entrada=card.querySelector('.pm-entrada')?.value;
     const saida=card.querySelector('.pm-saida')?.value;
@@ -5105,14 +5532,12 @@ async function applyPontoManual(){
     const isWeekend=diaSem===0||diaSem===6;
     if(entrada&&saida){
       diasTrabalhados++;
-      let minBrutos=timeToMinutes(saida)-timeToMinutes(entrada);
-      if(minBrutos<=0) minBrutos+=24*60;
-      const minIntervalo=_calcIntervaloMin(intIni,intFim,entrada,saida);
-      const minLiquidos=minBrutos-minIntervalo;
-      let minContratados=480;
-      if(fam==='6x1') minContratados=440;
-      else if(fam==='12x36') minContratados=660;
-      totalHEmin+=Math.max(0,minLiquidos-minContratados);
+      const realDay={dia,diaSem,entrada,saida,intIni,intFim};
+      const existingDay=existingPayroll?.pontoManualDias?.find(d=>d.dia===dia);
+      if(existingDay?.heReview) realDay.heReview=existingDay.heReview;
+      const expectedDay=emp?_getExpectedDay(emp,mes,ano,dia):null;
+      const effLiq=_effectiveMinLiq(realDay,expectedDay,minContratados);
+      totalHEmin+=Math.max(0,effLiq-minContratados);
     } else if(!isWeekend&&!is12x36&&!entrada&&!saida) faltas++;
   });
   // Salva horários no Firebase antes de aplicar
@@ -7018,6 +7443,7 @@ const MODULOS_LABELS={
   employees:       'Colaboradores',
   payroll:         'Folha de Ponto',
   escalas:         'Escalas',
+  aprovaHE:        'Aprovar Horas Extras',
   reports:         'Relatórios',
   pagamentos:      'Pagamentos',
   decimoterceiro:  '13º Salário',
@@ -7032,8 +7458,8 @@ const MODULOS_LABELS={
 // Retorna os módulos permitidos para o usuário
 function getUserModules(user){
   if(!user) return {};
-  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,escalas:true,reports:true,pagamentos:true,decimoterceiro:true,ferias:true,contabilidade:true,postos:true,contratos:true,users:true,log:true};
-  if(user.role==='operador') return {dashboard:true,employees:false,payroll:true,escalas:true,reports:true,pagamentos:true,decimoterceiro:true,ferias:true,contabilidade:true,postos:false,contratos:false,users:false,log:!!user.showLog};
+  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,escalas:true,aprovaHE:true,reports:true,pagamentos:true,decimoterceiro:true,ferias:true,contabilidade:true,postos:true,contratos:true,users:true,log:true};
+  if(user.role==='operador') return {dashboard:true,employees:false,payroll:true,escalas:true,aprovaHE:false,reports:true,pagamentos:true,decimoterceiro:true,ferias:true,contabilidade:true,postos:false,contratos:false,users:false,log:!!user.showLog};
   if(user.role&&user.role.startsWith('p_')){
     const perfilId=user.role.replace('p_','');
     const perfil=(State.perfis||[]).find(p=>p.id===perfilId);

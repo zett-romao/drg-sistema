@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title id="page-title">D.R. Global Multi Services — Sistema de Gestão de Colaboradores</title>
   <link rel="icon" href="logo.png" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20260508p">
+  <link rel="stylesheet" href="styles.css?v=20260508q">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -13,7 +13,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-  <script src="firebase-config.js?v=20260508p"></script>
+  <script src="firebase-config.js?v=20260508q"></script>
 </head>
 <body>
 
@@ -749,8 +749,9 @@
                       <input type="number" id="payroll-he-valor" min="0" step="0.01" placeholder="0,00" readonly class="input-readonly">
                     </div>
                   </div>
-                  <div style="font-size:11px;color:#5E35B1;margin-top:4px">
-                    <i class="fa-solid fa-calculator"></i> Calculado automaticamente pelos horários. Ajuste o total manualmente se necessário.
+                  <div style="font-size:11px;color:#5E35B1;margin-top:4px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+                    <span><i class="fa-solid fa-calculator"></i> Calculado automaticamente pelos horários. Ajuste o total manualmente se necessário.</span>
+                    <button type="button" id="btn-revisar-he" class="btn btn-secondary hidden" onclick="openHEReview()" style="padding:4px 10px;font-size:12px"><i class="fa-solid fa-magnifying-glass" style="color:#E65100"></i> Revisar HE</button>
                   </div>
                   <!-- HE Corrido (vinda da Escala — dias marcados como Corrido) -->
                   <div id="he-corrido-block" style="margin-top:10px;padding:8px 10px;background:#F3E5F5;border-left:3px solid #7B1FA2;border-radius:4px;display:none">
@@ -2817,10 +2818,13 @@
         Preencha Entrada e Saída dos dias trabalhados. Dias úteis sem preenchimento = falta. Sáb/Dom vazios = folga.
       </p>
       <div id="ponto-manual-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:6px"></div>
-      <div id="ponto-manual-resumo" style="margin-top:14px;padding:12px;background:var(--primary-light);border-radius:8px;display:none;display:flex;gap:20px;flex-wrap:wrap;align-items:center">
-        <span><i class="fa-solid fa-calendar-check" style="color:var(--success)"></i> <strong id="ponto-resumo-dias">0</strong> dias trabalhados</span>
-        <span><i class="fa-solid fa-circle-xmark" style="color:var(--danger)"></i> <strong id="ponto-resumo-faltas">0</strong> falta(s)</span>
-        <span><i class="fa-solid fa-clock" style="color:var(--warning)"></i> <strong id="ponto-resumo-he">0h</strong> extras</span>
+      <div id="ponto-manual-resumo" style="margin-top:14px;padding:12px;background:var(--primary-light);border-radius:8px;display:none;flex-direction:column;gap:8px">
+        <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center">
+          <span><i class="fa-solid fa-calendar-check" style="color:var(--success)"></i> <strong id="ponto-resumo-dias">0</strong> dias trabalhados</span>
+          <span><i class="fa-solid fa-circle-xmark" style="color:var(--danger)"></i> <strong id="ponto-resumo-faltas">0</strong> falta(s)</span>
+          <span><i class="fa-solid fa-clock" style="color:var(--warning)"></i> <strong id="ponto-resumo-he">0h</strong> extras</span>
+        </div>
+        <div id="ponto-resumo-he-pendente" style="display:none;font-size:13px;color:#E65100;background:#FFF3E0;padding:6px 10px;border-radius:4px"></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -3106,6 +3110,28 @@
   </div>
 </div>
 
+<!-- ===== MODAL: REVISAR HE DO MÊS ===== -->
+<div class="modal-overlay hidden" id="modal-he-review" onclick="closeModal('modal-he-review', event)">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-magnifying-glass" style="color:#E65100"></i> Revisar Horas Extras — Acima da Tolerância CLT</h3>
+      <button class="modal-close" onclick="closeModal('modal-he-review')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <div id="he-review-info" style="background:#FFF3E0;padding:10px 14px;border-radius:6px;margin-bottom:14px;font-size:13px;color:#E65100"></div>
+      <div class="alert alert-info" style="font-size:12px;margin-bottom:12px">
+        <i class="fa-solid fa-circle-info"></i>
+        <div><strong>Tolerância CLT (Súmula 366 TST):</strong> divergências de até 5min por batida e 10min/dia são ignoradas automaticamente. Acima disso, conta a totalidade — precisa decisão do gestor para virar HE.</div>
+      </div>
+      <div id="he-review-list" style="max-height:60vh;overflow-y:auto"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-he-review')">Fechar</button>
+      <button class="btn btn-primary" onclick="saveHEReview()"><i class="fa-solid fa-floppy-disk"></i> Salvar revisão</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== MODAL: % HE PARA HORA CORRIDA (ESCALAS) ===== -->
 <div class="modal-overlay hidden" id="modal-corrido-perc" onclick="closeModal('modal-corrido-perc', event)">
   <div class="modal-dialog modal-sm">
@@ -3210,6 +3236,7 @@
           <label class="checkbox-label"><input type="checkbox" name="mod" value="employees"> <span><i class="fa-solid fa-users" style="width:14px;color:var(--primary)"></i> Colaboradores</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="payroll"> <span><i class="fa-solid fa-file-invoice-dollar" style="width:14px;color:var(--primary)"></i> Folha de Ponto</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="escalas"> <span><i class="fa-solid fa-calendar-days" style="width:14px;color:var(--primary)"></i> Escalas</span></label>
+          <label class="checkbox-label"><input type="checkbox" name="mod" value="aprovaHE"> <span><i class="fa-solid fa-magnifying-glass" style="width:14px;color:#E65100"></i> Aprovar Horas Extras</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="reports"> <span><i class="fa-solid fa-chart-bar" style="width:14px;color:var(--primary)"></i> Relatórios</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="pagamentos"> <span><i class="fa-solid fa-money-bill-wave" style="width:14px;color:var(--primary)"></i> Pagamentos</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="decimoterceiro"> <span><i class="fa-solid fa-gift" style="width:14px;color:var(--primary)"></i> 13º Salário</span></label>
@@ -3249,6 +3276,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260508p"></script>
+<script src="app.js?v=20260508q"></script>
 </body>
 </html>

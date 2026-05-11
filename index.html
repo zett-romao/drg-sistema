@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title id="page-title">D.R. Global Multi Services — Sistema de Gestão de Colaboradores</title>
   <link rel="icon" href="logo.png" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20260508u">
+  <link rel="stylesheet" href="styles.css?v=20260508v">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -13,7 +13,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-  <script src="firebase-config.js?v=20260508u"></script>
+  <script src="firebase-config.js?v=20260508v"></script>
 </head>
 <body>
 
@@ -2225,25 +2225,39 @@
       <div class="tab-pane" id="tab-beneficios">
         <div class="info-banner">
           <i class="fa-solid fa-circle-info"></i>
-          Os valores diários de VT/AM e VR são os valores padrão usados no cálculo dos benefícios na Folha de Ponto. Podem ser ajustados por lançamento.
+          Defina a frequência (diária ou semanal) e o valor de VT/AM e VR. Total na folha = valor × dias trabalhados (diária) ou × semanas trabalhadas (semanal, com base na escala). Dias não preenchidos não recebem.
         </div>
         <div class="form-row">
           <div class="form-group">
             <label><i class="fa-solid fa-bus" style="color:#4fc3f7"></i> Modalidade de Transporte</label>
             <select id="emp-tipo-transporte" onchange="onTipoTransporteChange()">
               <option value="vt">VT — Vale Transporte (creditado na plataforma)</option>
-              <option value="am">AM — Auxílio Mobilidade (pago em espécie / PIX)</option>
+              <option value="am">AM — Auxílio Mobilidade (pago em espécie / PIX ou cartão mobilidade)</option>
               <option value="nao">Não optante</option>
             </select>
           </div>
+          <div class="form-group" id="emp-vt-freq-wrap">
+            <label><i class="fa-solid fa-calendar-days" style="color:#4fc3f7"></i> Frequência VT/AM</label>
+            <select id="emp-vt-freq" onchange="onVtFreqChange()">
+              <option value="diario">Diária (valor × dias trabalhados)</option>
+              <option value="semanal">Semanal (valor × semanas trabalhadas)</option>
+            </select>
+          </div>
           <div class="form-group" id="emp-vt-dia-wrap">
-            <label><i class="fa-solid fa-bus" style="color:#4fc3f7"></i> Valor Diário VT/AM (R$)</label>
+            <label id="emp-vt-dia-label"><i class="fa-solid fa-bus" style="color:#4fc3f7"></i> Valor Diário VT/AM (R$)</label>
             <input type="number" id="emp-vt-dia" min="0" step="0.01" placeholder="0,00">
           </div>
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label><i class="fa-solid fa-utensils" style="color:#ff8a65"></i> Valor Diário do VR (R$)</label>
+            <label><i class="fa-solid fa-calendar-days" style="color:#ff8a65"></i> Frequência VR</label>
+            <select id="emp-vr-freq" onchange="onVrFreqChange()">
+              <option value="diario">Diária (valor × dias trabalhados)</option>
+              <option value="semanal">Semanal (valor × semanas trabalhadas)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label id="emp-vr-dia-label"><i class="fa-solid fa-utensils" style="color:#ff8a65"></i> Valor Diário do VR (R$)</label>
             <input type="number" id="emp-vr-dia" min="0" step="0.01" placeholder="0,00">
           </div>
         </div>
@@ -3436,6 +3450,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260508u"></script>
+<script src="app.js?v=20260508v"></script>
 </body>
 </html>

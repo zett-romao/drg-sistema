@@ -2671,8 +2671,12 @@ function openEmployeeModal(id=null){
     setVal('emp-endereco',emp.endereco||''); setVal('emp-numero',emp.numero||''); setVal('emp-complemento',emp.complemento||'');
     setVal('emp-bairro',emp.bairro||''); setVal('emp-cidade',emp.cidade||''); setVal('emp-estado',emp.estado||'SP');
     setVal('emp-tipo-transporte',emp.tipoTransporte||'vt');
+    setVal('emp-vt-freq', emp.vtFreq||'diario');
+    setVal('emp-vr-freq', emp.vrFreq||'diario');
     setVal('emp-vt-dia',emp.valorDiarioVt||''); setVal('emp-vr-dia',emp.valorDiarioVr||'');
     setVal('emp-va-mensal',emp.valorMensalVa||''); setVal('emp-pix',emp.chavePix||'');
+    onVtFreqChange();
+    onVrFreqChange();
     onTipoTransporteChange();
     // Contrato & Trabalho
     setVal('emp-data-admissao',emp.dataAdmissao||''); setVal('emp-data-demissao',emp.dataDemissao||'');
@@ -2757,7 +2761,9 @@ function openEmployeeModal(id=null){
      'emp-cnh','emp-cnh-categoria'].forEach(id=>setVal(id,''));
     setVal('emp-estado','SP'); setVal('emp-status','ativo'); setVal('emp-escala','5x2A');
     setVal('emp-insalubridade',0);
+    setVal('emp-vt-freq','diario'); setVal('emp-vr-freq','diario');
     onEmpStatusChange();
+    onVtFreqChange(); onVrFreqChange();
     const chk=document.getElementById('emp-turno-noturno'); if(chk) chk.checked=false;
     const acumChk=document.getElementById('emp-acumulo-funcao'); if(acumChk) acumChk.checked=false;
     const bonifChk=document.getElementById('emp-bonificacao-sempre-pagar'); if(bonifChk) bonifChk.checked=false;
@@ -2797,6 +2803,8 @@ async function saveEmployee(){
     complemento:val('emp-complemento'), bairro:val('emp-bairro'),
     cidade:val('emp-cidade'), estado:val('emp-estado'),
     tipoTransporte:val('emp-tipo-transporte')||'vt',
+    vtFreq: val('emp-vt-freq')||'diario',
+    vrFreq: val('emp-vr-freq')||'diario',
     valorDiarioVt:numVal('emp-vt-dia'), valorDiarioVr:numVal('emp-vr-dia'),
     valorMensalVa:numVal('emp-va-mensal'),
     chavePix:val('emp-pix'),
@@ -3083,12 +3091,44 @@ function _updateVtCardLabel(tipo){
 function onTipoTransporteChange(){
   const tipo=val('emp-tipo-transporte')||'vt';
   const wrap=document.getElementById('emp-vt-dia-wrap');
-  if(wrap) wrap.style.display=tipo==='nao'?'none':'';
-  // Atualiza label do campo de valor
-  const lbl=wrap?wrap.querySelector('label'):null;
-  if(lbl) lbl.innerHTML=tipo==='am'
-    ? '<i class="fa-solid fa-motorcycle" style="color:#4fc3f7"></i> Valor Diário AM (R$)'
-    : '<i class="fa-solid fa-bus" style="color:#4fc3f7"></i> Valor Diário VT (R$)';
+  const freqWrap=document.getElementById('emp-vt-freq-wrap');
+  if(wrap)     wrap.style.display = tipo==='nao' ? 'none' : '';
+  if(freqWrap) freqWrap.style.display = tipo==='nao' ? 'none' : '';
+  _updateVtLabel();
+}
+
+// Atualiza label do campo VT/AM com base na modalidade + frequência
+function _updateVtLabel(){
+  const tipo = val('emp-tipo-transporte')||'vt';
+  const freq = val('emp-vt-freq')||'diario';
+  const lbl  = document.getElementById('emp-vt-dia-label');
+  if(!lbl) return;
+  const periodo = freq === 'semanal' ? 'Semanal' : 'Diário';
+  const icon = tipo==='am'
+    ? '<i class="fa-solid fa-motorcycle" style="color:#4fc3f7"></i>'
+    : '<i class="fa-solid fa-bus" style="color:#4fc3f7"></i>';
+  const nome = tipo==='am' ? 'AM' : 'VT';
+  lbl.innerHTML = `${icon} Valor ${periodo} ${nome} (R$)`;
+}
+
+function onVtFreqChange(){ _updateVtLabel(); }
+
+function onVrFreqChange(){
+  const freq = val('emp-vr-freq')||'diario';
+  const lbl  = document.getElementById('emp-vr-dia-label');
+  if(!lbl) return;
+  const periodo = freq === 'semanal' ? 'Semanal' : 'Diário';
+  lbl.innerHTML = `<i class="fa-solid fa-utensils" style="color:#ff8a65"></i> Valor ${periodo} do VR (R$)`;
+}
+
+// Calcula o número de semanas trabalhadas no mês baseado na escala
+// (5x2=5dias/sem, 6x1=6dias/sem, 12x36=~3.5dias/sem). Usa ceil para garantir
+// que 1 dia trabalhado = 1 semana (sem benefício "fracionado").
+function _semanasTrabalhadas(dias, escala){
+  if(!dias || dias<=0) return 0;
+  const fam = escalaFamilia(escala||'5x2A');
+  const diasPorSemana = fam==='12x36' ? 3.5 : (fam==='6x1' ? 6 : 5);
+  return Math.ceil(dias / diasPorSemana);
 }
 
 // ============================================================
@@ -3165,9 +3205,14 @@ function recalculate(){
   }
   const remuneracao = remuneracaoBase; // usar valor recém-calculado diretamente
 
-  // --- VT e VR ---
-  setVal('payroll-vt-total',(numVal('payroll-vt-dia')*dias).toFixed(2));
-  setVal('payroll-vr-total',(numVal('payroll-vr-dia')*dias).toFixed(2));
+  // --- VT e VR (respeita frequência diária ou semanal definida no cadastro) ---
+  const vtFreqCalc = emp?.vtFreq || 'diario';
+  const vrFreqCalc = emp?.vrFreq || 'diario';
+  const semCalc    = _semanasTrabalhadas(dias, emp?.escala);
+  const vtMult = (vtFreqCalc === 'semanal') ? semCalc : dias;
+  const vrMult = (vrFreqCalc === 'semanal') ? semCalc : dias;
+  setVal('payroll-vt-total',(numVal('payroll-vt-dia')*vtMult).toFixed(2));
+  setVal('payroll-vr-total',(numVal('payroll-vr-dia')*vrMult).toFixed(2));
 
   // --- Bonificação de Boa Permanência ---
   // Regra padrão: qualquer falta zera o benefício
@@ -3497,6 +3542,13 @@ async function savePayroll(){
   const totalFaltas=faltasJust+faltasInjust;
   const vtDia=numVal('payroll-vt-dia'), vrDia=numVal('payroll-vr-dia');
   const existing=State.payrolls.find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
+  // Frequência: lê do cadastro do colaborador
+  const empSel = State.employees.find(e=>e.id===empId);
+  const vtFreq = empSel?.vtFreq || 'diario';
+  const vrFreq = empSel?.vrFreq || 'diario';
+  const semanas = _semanasTrabalhadas(dias, empSel?.escala);
+  const valeTransporteTotal = (vtFreq === 'semanal') ? vtDia*semanas : vtDia*dias;
+  const valeRefeicaoTotal   = (vrFreq === 'semanal') ? vrDia*semanas : vrDia*dias;
   const record={
     id:existing?existing.id:genId(), employeeId:empId,
     mes:parseInt(mes), ano:parseInt(ano),
@@ -3505,8 +3557,8 @@ async function savePayroll(){
     faltasJustificadas:faltasJust,
     faltasInjustificadas:faltasInjust,
     remuneracao:numVal('payroll-remuneracao'),
-    vtDia, valeTransporte:vtDia*dias,
-    vrDia, valeRefeicao:vrDia*dias,
+    vtDia, vtFreq, semanasTrabalhadas:semanas, valeTransporte:valeTransporteTotal,
+    vrDia, vrFreq, valeRefeicao:valeRefeicaoTotal,
     valeAlimentacaoTotal:numVal('payroll-va-total'),
     valeAlimentacaoLiquido:numVal('payroll-va-liquido'),
     // Bonificação: zera só se houver falta E o colaborador NÃO tem flag de "sempre pagar"

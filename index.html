@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title id="page-title">D.R. Global Multi Services — Sistema de Gestão de Colaboradores</title>
   <link rel="icon" href="logo.png" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20260508s">
+  <link rel="stylesheet" href="styles.css?v=20260508t">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -13,7 +13,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-  <script src="firebase-config.js?v=20260508s"></script>
+  <script src="firebase-config.js?v=20260508t"></script>
 </head>
 <body>
 
@@ -1790,8 +1790,28 @@
             <input type="text" id="emp-nome" placeholder="Nome completo do colaborador">
           </div>
           <div class="form-group">
+            <label>Sexo</label>
+            <select id="emp-sexo">
+              <option value="">—</option>
+              <option value="Masculino">Masculino</option>
+              <option value="Feminino">Feminino</option>
+              <option value="Outro">Outro</option>
+              <option value="Prefiro não informar">Prefiro não informar</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
             <label>RG <span class="required">*</span></label>
             <input type="text" id="emp-rg" placeholder="00.000.000-0">
+          </div>
+          <div class="form-group">
+            <label>Data de Expedição do RG</label>
+            <input type="date" id="emp-rg-expedicao">
+          </div>
+          <div class="form-group">
+            <label>Órgão Emissor do RG</label>
+            <input type="text" id="emp-rg-orgao" placeholder="Ex.: SSP/SP, PC/RJ">
           </div>
         </div>
         <div class="form-row">
@@ -1800,12 +1820,120 @@
             <input type="text" id="emp-cpf" placeholder="000.000.000-00" oninput="maskCpf(this)">
           </div>
           <div class="form-group">
-            <label>Título de Eleitor</label>
-            <input type="text" id="emp-titulo" placeholder="0000 0000 0000">
+            <label>Data de Nascimento</label>
+            <input type="date" id="emp-nascimento">
           </div>
+          <div class="form-group">
+            <label>Estado Civil</label>
+            <select id="emp-estado-civil">
+              <option value="">—</option>
+              <option value="Solteiro(a)">Solteiro(a)</option>
+              <option value="Casado(a)">Casado(a)</option>
+              <option value="União Estável">União Estável</option>
+              <option value="Divorciado(a)">Divorciado(a)</option>
+              <option value="Separado(a)">Separado(a)</option>
+              <option value="Viúvo(a)">Viúvo(a)</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group form-group-2">
+            <label>Local de Nascimento (cidade)</label>
+            <input type="text" id="emp-local-nascimento" placeholder="Cidade onde nasceu">
+          </div>
+          <div class="form-group form-group-sm">
+            <label>UF Nascimento</label>
+            <select id="emp-uf-nascimento">
+              <option value="">—</option>
+              <option>AC</option><option>AL</option><option>AP</option><option>AM</option>
+              <option>BA</option><option>CE</option><option>DF</option><option>ES</option>
+              <option>GO</option><option>MA</option><option>MT</option><option>MS</option>
+              <option>MG</option><option>PA</option><option>PB</option><option>PR</option>
+              <option>PE</option><option>PI</option><option>RJ</option><option>RN</option>
+              <option>RS</option><option>RO</option><option>RR</option><option>SC</option>
+              <option>SP</option><option>SE</option><option>TO</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Raça / Cor</label>
+            <select id="emp-raca">
+              <option value="">—</option>
+              <option value="Branca">Branca</option>
+              <option value="Preta">Preta</option>
+              <option value="Parda">Parda</option>
+              <option value="Amarela">Amarela</option>
+              <option value="Indígena">Indígena</option>
+              <option value="Não declarado">Não declarado</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group form-group-2">
+            <label>Nome da Mãe</label>
+            <input type="text" id="emp-mae" placeholder="Nome completo da mãe">
+          </div>
+          <div class="form-group form-group-2">
+            <label>Nome do Pai</label>
+            <input type="text" id="emp-pai" placeholder="Nome completo do pai (opcional)">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Grau de Instrução</label>
+            <select id="emp-grau-instrucao">
+              <option value="">—</option>
+              <option value="Analfabeto">Analfabeto</option>
+              <option value="Fundamental">Fundamental (1º grau)</option>
+              <option value="Médio">Médio (2º grau)</option>
+              <option value="Técnico">Técnico</option>
+              <option value="Superior">Superior (graduação)</option>
+              <option value="Pós-graduação">Pós-graduação</option>
+              <option value="Mestrado">Mestrado</option>
+              <option value="Doutorado">Doutorado</option>
+            </select>
+          </div>
+          <div class="form-group form-group-sm">
+            <label>Concluído?</label>
+            <select id="emp-instrucao-concluido">
+              <option value="">—</option>
+              <option value="sim">Sim</option>
+              <option value="nao">Não (cursando/incompleto)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>E-mail</label>
+            <input type="email" id="emp-email" placeholder="colaborador@email.com">
+          </div>
+          <div class="form-group">
+            <label>Celular</label>
+            <input type="tel" id="emp-celular" placeholder="(00) 00000-0000" oninput="maskPhone(this)">
+          </div>
+        </div>
+
+        <div class="divider"><span><i class="fa-solid fa-id-card" style="color:var(--primary)"></i> Documentos & Eleitorais</span></div>
+
+        <div class="form-row">
           <div class="form-group">
             <label>PIS / NIT <span class="required">*</span></label>
             <input type="text" id="emp-pis" placeholder="000.00000.00-0">
+          </div>
+          <div class="form-group">
+            <label>Data de Cadastro do PIS</label>
+            <input type="date" id="emp-pis-data">
+          </div>
+          <div class="form-group">
+            <label>Título de Eleitor</label>
+            <input type="text" id="emp-titulo" placeholder="0000 0000 0000">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group form-group-sm">
+            <label>Zona Eleitoral</label>
+            <input type="text" id="emp-titulo-zona" placeholder="Ex.: 042">
+          </div>
+          <div class="form-group form-group-sm">
+            <label>Seção Eleitoral</label>
+            <input type="text" id="emp-titulo-secao" placeholder="Ex.: 0123">
           </div>
         </div>
         <div class="form-row">
@@ -1817,21 +1945,41 @@
             <label>CTPS — Série</label>
             <input type="text" id="emp-ctps-serie" placeholder="0000">
           </div>
+          <div class="form-group">
+            <label>Data de Emissão da CTPS</label>
+            <input type="date" id="emp-ctps-emissao">
+          </div>
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label>Data de Nascimento</label>
-            <input type="date" id="emp-nascimento">
+            <label>CNH (número)</label>
+            <input type="text" id="emp-cnh" placeholder="00000000000">
           </div>
-          <div class="form-group">
-            <label>E-mail</label>
-            <input type="email" id="emp-email" placeholder="colaborador@email.com">
-          </div>
-          <div class="form-group">
-            <label>Celular</label>
-            <input type="tel" id="emp-celular" placeholder="(00) 00000-0000" oninput="maskPhone(this)">
+          <div class="form-group form-group-sm">
+            <label>Categoria CNH</label>
+            <select id="emp-cnh-categoria">
+              <option value="">—</option>
+              <option value="A">A</option>
+              <option value="B">B</option>
+              <option value="AB">AB</option>
+              <option value="C">C</option>
+              <option value="AC">AC</option>
+              <option value="D">D</option>
+              <option value="AD">AD</option>
+              <option value="E">E</option>
+              <option value="AE">AE</option>
+            </select>
           </div>
         </div>
+
+        <div class="divider"><span><i class="fa-solid fa-people-roof" style="color:var(--primary)"></i> Dependentes</span></div>
+        <div id="emp-dependentes-info" style="background:#F1F5FF;border-left:3px solid var(--primary);padding:8px 12px;border-radius:4px;font-size:12px;margin-bottom:10px">
+          <i class="fa-solid fa-circle-info"></i> Cadastre filhos e outros dependentes. <strong>Estes dados são informativos</strong> — para dependentes que abatem IRRF, ajuste também o campo "Dependentes IRRF" na aba <strong>Encargos & IRRF</strong>.
+        </div>
+        <div id="emp-dependentes-list" style="display:flex;flex-direction:column;gap:8px"></div>
+        <button type="button" class="btn btn-outline" onclick="addDependente()" style="margin-top:10px;font-size:13px;color:var(--primary);border-color:var(--primary)">
+          <i class="fa-solid fa-plus"></i> Adicionar dependente
+        </button>
 
         <!-- Foto do colaborador -->
         <div class="photo-upload-area">
@@ -2170,17 +2318,29 @@
           <div class="form-row">
             <div class="form-group">
               <label>Tipo de Documento</label>
-              <select id="doc-tipo">
+              <select id="doc-tipo" onchange="onDocTipoChange()">
                 <option value="RG">RG</option>
                 <option value="CPF">CPF</option>
                 <option value="Comprovante de Residência">Comprovante de Residência</option>
                 <option value="Contrato de Trabalho">Contrato de Trabalho</option>
+                <option value="CTPS">CTPS</option>
+                <option value="Título de Eleitor">Título de Eleitor</option>
+                <option value="PIS / NIT">PIS / NIT</option>
+                <option value="CNH">CNH</option>
+                <option value="Exame Médico">Exame Médico</option>
+                <option value="Atestado">Atestado</option>
                 <option value="Outros">Outros</option>
               </select>
             </div>
             <div class="form-group form-group-2">
               <label>Arquivo <span class="required">*</span></label>
               <input type="file" id="doc-file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx">
+            </div>
+          </div>
+          <div class="form-row" id="doc-tipo-outros-row" style="display:none">
+            <div class="form-group" style="grid-column:1 / -1">
+              <label><i class="fa-solid fa-pen" style="color:#E65100"></i> Especificar qual documento <span class="required">*</span></label>
+              <input type="text" id="doc-tipo-outros" placeholder="Ex.: Certidão de nascimento, Diploma, Reservista, etc.">
             </div>
           </div>
           <button class="btn btn-primary" onclick="uploadDocument()" id="btn-upload-doc">
@@ -3276,6 +3436,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260508s"></script>
+<script src="app.js?v=20260508t"></script>
 </body>
 </html>

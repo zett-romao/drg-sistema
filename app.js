@@ -2295,6 +2295,61 @@ async function uploadEmployeePhoto(empId){
 }
 
 // ============================================
+// DEPENDENTES (cadastro do colaborador)
+// ============================================
+function renderDependentes(deps){
+  const list = document.getElementById('emp-dependentes-list');
+  if(!list) return;
+  list.innerHTML = '';
+  (deps||[]).forEach((dep, idx) => list.appendChild(_createDependenteRow(dep, idx)));
+}
+
+function _createDependenteRow(dep, idx){
+  const div = document.createElement('div');
+  div.className = 'dep-row';
+  div.dataset.idx = idx;
+  div.style.cssText = 'border:1px solid var(--border);border-radius:6px;padding:8px 10px;display:grid;grid-template-columns:2fr 1.2fr 1fr auto;gap:8px;align-items:end;background:#FAFBFC';
+  const nomeVal = (dep?.nome || '').replace(/"/g,'&quot;');
+  const cpfVal  = dep?.cpf || '';
+  const nascVal = dep?.dataNasc || '';
+  div.innerHTML = `
+    <div><label style="font-size:11px;color:var(--text-muted);font-weight:600">Nome do dependente</label>
+      <input type="text" class="dep-nome" value="${nomeVal}" placeholder="Nome completo"></div>
+    <div><label style="font-size:11px;color:var(--text-muted);font-weight:600">CPF</label>
+      <input type="text" class="dep-cpf" value="${cpfVal}" placeholder="000.000.000-00" oninput="maskCpf(this)"></div>
+    <div><label style="font-size:11px;color:var(--text-muted);font-weight:600">Data Nasc.</label>
+      <input type="date" class="dep-nasc" value="${nascVal}"></div>
+    <div><button type="button" class="btn-icon btn-danger-icon" onclick="removeDependente(this)" title="Remover dependente"><i class="fa-solid fa-trash"></i></button></div>
+  `;
+  return div;
+}
+
+function addDependente(){
+  const list = document.getElementById('emp-dependentes-list');
+  if(!list) return;
+  const idx = list.children.length;
+  list.appendChild(_createDependenteRow(null, idx));
+}
+
+function removeDependente(btn){
+  const row = btn.closest('.dep-row');
+  if(row) row.remove();
+}
+
+function collectDependentes(){
+  const list = document.getElementById('emp-dependentes-list');
+  if(!list) return [];
+  const deps = [];
+  list.querySelectorAll('.dep-row').forEach(row => {
+    const nome = row.querySelector('.dep-nome')?.value?.trim();
+    const cpf  = row.querySelector('.dep-cpf')?.value?.trim();
+    const dataNasc = row.querySelector('.dep-nasc')?.value;
+    if(nome) deps.push({ nome, cpf: cpf||'', dataNasc: dataNasc||'' });
+  });
+  return deps;
+}
+
+// ============================================
 // FÉRIAS
 // ============================================
 function renderFeriasList(ferias){
@@ -2632,6 +2687,26 @@ function openEmployeeModal(id=null){
     renderHistoricoSalario(emp.historicoSalario||[]);
     // Histórico de postos
     renderHistoricoPostos(emp);
+    // Dependentes (cadastro)
+    renderDependentes(emp.dependentes||[]);
+    // Novos campos pessoais
+    setVal('emp-sexo',                emp.sexo||'');
+    setVal('emp-rg-expedicao',        emp.rgExpedicao||'');
+    setVal('emp-rg-orgao',            emp.rgOrgao||'');
+    setVal('emp-estado-civil',        emp.estadoCivil||'');
+    setVal('emp-local-nascimento',    emp.localNascimento||'');
+    setVal('emp-uf-nascimento',       emp.ufNascimento||'');
+    setVal('emp-raca',                emp.raca||'');
+    setVal('emp-mae',                 emp.nomeMae||'');
+    setVal('emp-pai',                 emp.nomePai||'');
+    setVal('emp-grau-instrucao',      emp.grauInstrucao||'');
+    setVal('emp-instrucao-concluido', emp.instrucaoConcluido||'');
+    setVal('emp-pis-data',            emp.pisData||'');
+    setVal('emp-titulo-zona',         emp.tituloZona||'');
+    setVal('emp-titulo-secao',        emp.tituloSecao||'');
+    setVal('emp-ctps-emissao',        emp.ctpsEmissao||'');
+    setVal('emp-cnh',                 emp.cnh||'');
+    setVal('emp-cnh-categoria',       emp.cnhCategoria||'');
     // Foto
     loadEmployeePhoto(emp.id, emp.fotoUrl||null);
     // Férias
@@ -2655,6 +2730,13 @@ function openEmployeeModal(id=null){
     renderFeriasList([]);
     renderHistoricoSalario([]);
     renderHistoricoPostos(null);
+    renderDependentes([]);
+    // Reset dos novos campos pessoais
+    ['emp-sexo','emp-rg-expedicao','emp-rg-orgao','emp-estado-civil',
+     'emp-local-nascimento','emp-uf-nascimento','emp-raca','emp-mae','emp-pai',
+     'emp-grau-instrucao','emp-instrucao-concluido','emp-pis-data',
+     'emp-titulo-zona','emp-titulo-secao','emp-ctps-emissao',
+     'emp-cnh','emp-cnh-categoria'].forEach(id=>setVal(id,''));
     setVal('emp-estado','SP'); setVal('emp-status','ativo'); setVal('emp-escala','5x2A');
     setVal('emp-insalubridade',0);
     onEmpStatusChange();
@@ -2713,6 +2795,25 @@ async function saveEmployee(){
     horarioRefFim:val('emp-horario-ref-fim'),
     semRefeicao:!!(document.getElementById('emp-sem-refeicao')?.checked),
     turnoNoturno:chk?chk.checked:false,
+    // Novos campos pessoais (Dados Pessoais)
+    sexo:               val('emp-sexo'),
+    rgExpedicao:        val('emp-rg-expedicao'),
+    rgOrgao:            val('emp-rg-orgao'),
+    estadoCivil:        val('emp-estado-civil'),
+    localNascimento:    val('emp-local-nascimento'),
+    ufNascimento:       val('emp-uf-nascimento'),
+    raca:               val('emp-raca'),
+    nomeMae:            val('emp-mae'),
+    nomePai:            val('emp-pai'),
+    grauInstrucao:      val('emp-grau-instrucao'),
+    instrucaoConcluido: val('emp-instrucao-concluido'),
+    pisData:            val('emp-pis-data'),
+    tituloZona:         val('emp-titulo-zona'),
+    tituloSecao:        val('emp-titulo-secao'),
+    ctpsEmissao:        val('emp-ctps-emissao'),
+    cnh:                val('emp-cnh'),
+    cnhCategoria:       val('emp-cnh-categoria'),
+    dependentes:        collectDependentes(),
     salarioBase:numVal('emp-salario-base'),
     insalubridade:numVal('emp-insalubridade')||0,
     acumuloFuncao:!!(document.getElementById('emp-acumulo-funcao')?.checked),
@@ -2803,6 +2904,19 @@ function onPayrollEmployeeChange(){
   const emp=State.employees.find(e=>e.id===empId);
   const infoEl=document.getElementById('payroll-emp-info');
   if(emp){
+    // FIX: troca de colaborador deve carregar registro salvo OU resetar todos os campos
+    // específicos da folha (adiantamento, bonus, faltas, HE etc.). Antes só atualizava
+    // campos vindos do cadastro, deixando adiantamento ativo "vazar" entre colaboradores.
+    const mes=parseInt(val('payroll-mes')||currentMes());
+    const ano=parseInt(val('payroll-ano')||currentAno());
+    const saved=State.payrolls.find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
+    if(saved){
+      // Carrega registro existente — loadPayrollRecord seta todos os campos da folha
+      loadPayrollRecord(saved.id);
+    } else {
+      // Sem registro salvo: zera os campos específicos da folha (mas não os de cadastro)
+      _resetPayrollFieldsOnly();
+    }
     setVal('payroll-vt-dia',emp.valorDiarioVt||'');
     setVal('payroll-vr-dia',emp.valorDiarioVr||'');
     setVal('payroll-pix',emp.chavePix||'');
@@ -2828,12 +2942,29 @@ function onPayrollEmployeeChange(){
     ['payroll-vt-dia','payroll-vr-dia','payroll-pix','payroll-noturno',
      'payroll-entrada','payroll-saida','payroll-intervalo-inicio','payroll-intervalo-fim',
      'payroll-horas-liquidas','payroll-horas-extras-dia'].forEach(id=>setVal(id,''));
+    _resetPayrollFieldsOnly();
     if(infoEl) infoEl.classList.add('hidden');
     const noturnoCard=document.getElementById('noturno-card');
     if(noturnoCard) noturnoCard.classList.add('hidden');
   }
   recalculate(); renderPayrollHistory(empId);
   _updateFolhaStatusBadge();
+}
+
+// Reset apenas dos campos da folha (não toca em vt-dia/vr-dia/pix/horarios — vêm do cadastro)
+function _resetPayrollFieldsOnly(){
+  ['payroll-dias','payroll-faltas','payroll-faltas-justificadas','payroll-faltas-injustificadas',
+   'payroll-remuneracao','payroll-vt-total','payroll-vr-total','payroll-va-total','payroll-va-liquido',
+   'payroll-bonus','payroll-adiantamento-valor','payroll-atraso-min','payroll-desconto-atraso',
+   'payroll-acumulo','payroll-insalubridade','payroll-horas-liquidas','payroll-horas-extras-dia',
+   'payroll-he-total','payroll-he-valor','payroll-he-corrido-min','payroll-he-corrido-detalhe',
+   'payroll-he-corrido-valor','payroll-outros-proventos','payroll-outros-descontos',
+   'payroll-inss','payroll-irrf','payroll-fgts','payroll-pensao','payroll-plano-saude-desc',
+   'payroll-total-bruto','payroll-total-liquido-final']
+    .forEach(id=>setVal(id,''));
+  setVal('payroll-adiantamento-ativo','nao');
+  setVal('payroll-adiantamento-perc','40');
+  setVal('payroll-he-perc','50');
 }
 
 function calcAdNoturno(salarioBase, dias){
@@ -4860,6 +4991,13 @@ async function downloadAllDocuments(){
   }
 }
 
+// Toggle do input "especificar outros" no upload de documentos
+function onDocTipoChange(){
+  const sel = val('doc-tipo');
+  const row = document.getElementById('doc-tipo-outros-row');
+  if(row) row.style.display = (sel === 'Outros') ? '' : 'none';
+}
+
 async function uploadDocument(){
   const empId=val('emp-id');
   if(!empId){ toast('Salve o colaborador antes de enviar documentos.','warning'); return; }
@@ -4868,7 +5006,17 @@ async function uploadDocument(){
   const fileInput=document.getElementById('doc-file');
   const file=fileInput?fileInput.files[0]:null;
   if(!file){ toast('Selecione um arquivo.','error'); return; }
-  const tipo=val('doc-tipo')||'Outros';
+  let tipo=val('doc-tipo')||'Outros';
+  // Se "Outros", usa o nome customizado especificado pelo operador
+  if(tipo === 'Outros'){
+    const custom = val('doc-tipo-outros');
+    if(!custom || !custom.trim()){
+      toast('Especifique qual é o documento ao escolher "Outros".', 'error');
+      return;
+    }
+    // Sanitiza para uso como nome de arquivo (sem caracteres problemáticos)
+    tipo = custom.trim().replace(/[\\/:*?"<>|]/g, '-').substring(0, 60);
+  }
   const timestamp=Date.now();
   const ext=file.name.split('.').pop();
   const storageName=`${timestamp}_${tipo}.${ext}`;
@@ -4879,6 +5027,9 @@ async function uploadDocument(){
     await ref.put(file);
     toast('Documento enviado com sucesso!');
     if(fileInput) fileInput.value='';
+    // Limpa o campo "especificar outros" e volta o select para o padrão
+    setVal('doc-tipo-outros','');
+    onDocTipoChange();
     await loadDocumentList(empId);
   } catch(e){
     toast('Erro ao enviar documento.','error'); console.error(e);

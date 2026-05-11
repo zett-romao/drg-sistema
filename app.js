@@ -5296,6 +5296,39 @@ function calcResumoManual(){
 // HE REVIEW — Painel de revisão das divergências
 // ============================================
 
+// Helper: payroll do colaborador tem algum dia com HE pendente acima da tolerância?
+function _payrollTemPendente(payroll){
+  if(!payroll || !payroll.pontoManualDias) return false;
+  const emp = State.employees.find(e=>e.id===payroll.employeeId);
+  if(!emp) return false;
+  return payroll.pontoManualDias.some(d => {
+    if(!d.entrada || !d.saida) return false;
+    const exp = _getExpectedDay(emp, payroll.mes, payroll.ano, d.dia);
+    if(!exp || !exp.entrada) return false;
+    const detec = _detectHEDivergencia(d, exp);
+    return detec.precisaRevisao && (d.heReview?.status||'pendente')==='pendente';
+  });
+}
+
+// Conta colaboradores com HE pendente no mês
+function _countAllPendentes(mes, ano){
+  return (State.payrolls||[])
+    .filter(p => p.mes==mes && p.ano==ano)
+    .filter(_payrollTemPendente)
+    .length;
+}
+
+// Acha o próximo payroll com pendentes, pulando empId
+function _findNextPendentePayroll(mes, ano, excludeEmpId){
+  const payrolls = (State.payrolls||[]).filter(p => p.mes==mes && p.ano==ano);
+  // Primeiro tenta outro colaborador
+  for(const p of payrolls){
+    if(p.employeeId === excludeEmpId) continue;
+    if(_payrollTemPendente(p)) return p;
+  }
+  return null;
+}
+
 // Atalho do Dashboard: vai para Folha de Ponto e abre review do 1º colaborador com pendência
 function _dashGotoHEReview(){
   const mes = currentMes(), ano = currentAno();
@@ -5592,13 +5625,50 @@ async function saveHEReview(){
     const idx = State.payrolls.findIndex(p=>p.id===updated.id);
     if(idx >= 0) State.payrolls[idx] = updated;
     Auth.log('HE_REVIEW_SAVED', null, `${MESES[mes]}/${ano} — ${Object.keys(decisoes).length} dia(s) revisados`);
-    toast('Revisão de HE salva! Recalculando folha...');
     closeModal('modal-he-review');
     // Recalcula resumo do Ponto Manual se aberto
     if(_getPontoManualCards().length) calcResumoManual();
     // Recalcula folha (atualiza payroll-he-total / valor)
     recalculate();
-    if(State.currentSection === 'dashboard') renderDashboard();
+    // Atualiza dashboard SEMPRE (mesmo se não visível) para próxima visita estar fresh
+    renderDashboard();
+    // ───────────────────────────────────────────────────────────────────
+    // Pós-save: verifica pendentes restantes e oferece próxima ação
+    // ───────────────────────────────────────────────────────────────────
+    const isPontoManualOpen = _getPontoManualCards().length > 0;
+    // Mesmo colaborador ainda tem dias pendentes?
+    const updatedPayroll = State.payrolls.find(p => p.id === updated.id);
+    const sameStillPending = _payrollTemPendente(updatedPayroll);
+    if(sameStillPending){
+      // Reabre o painel automaticamente para revisar os dias restantes
+      toast('✓ Revisão salva — este colaborador ainda tem dias pendentes. Reabrindo painel...', 'info');
+      setTimeout(() => openHEReview(), 500);
+      return;
+    }
+    // Próximo colaborador com pendentes (só sugere se não está dentro do fluxo de Ponto Manual)
+    if(!isPontoManualOpen){
+      const nextPay = _findNextPendentePayroll(mes, ano, empId);
+      if(nextPay){
+        const empNext  = State.employees.find(e=>e.id===nextPay.employeeId);
+        const remaining = _countAllPendentes(mes, ano);
+        const empNome  = empNext?.nome || 'próximo colaborador';
+        const msg = `✓ Revisão salva!\n\nAinda há ${remaining} colaborador(es) com HE pendente neste mês.\n\nDeseja revisar o próximo agora?\n— ${empNome}`;
+        setTimeout(() => {
+          if(confirm(msg)){
+            setVal('payroll-employee', nextPay.employeeId);
+            setVal('payroll-mes',      nextPay.mes);
+            setVal('payroll-ano',      nextPay.ano);
+            loadPayrollRecord(nextPay.id);
+            setTimeout(() => openHEReview(), 400);
+          } else {
+            toast(`${remaining} colaborador(es) ainda têm HE pendente. Volte ao Dashboard quando quiser revisar.`, 'info');
+          }
+        }, 300);
+        return;
+      }
+    }
+    // Não há mais pendentes
+    toast('🎉 Todas as HE pendentes deste mês foram revisadas!', 'success');
   } catch(e){
     console.error(e);
     toast('Erro ao salvar revisão.', 'error');

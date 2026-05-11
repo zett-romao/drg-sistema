@@ -517,6 +517,24 @@ function val(id)    { const el=document.getElementById(id); return el?el.value.t
 function setVal(id,v){ const el=document.getElementById(id); if(el) el.value=(v==null)?'':v; }
 function numVal(id) { return parseFloat(val(id))||0; }
 
+// Remove valores `undefined` de objetos/arrays aninhados antes de salvar no Firestore
+// (Firestore rejeita undefined com FirebaseError: Function setDoc() called with invalid data).
+function _sanitizeForFirestore(value){
+  if(value === undefined) return null;
+  if(value === null) return null;
+  if(Array.isArray(value)) return value.map(_sanitizeForFirestore);
+  if(typeof value === 'object'){
+    const out = {};
+    Object.keys(value).forEach(k => {
+      const v = value[k];
+      if(v === undefined) return; // omite chaves com undefined
+      out[k] = _sanitizeForFirestore(v);
+    });
+    return out;
+  }
+  return value;
+}
+
 function setBtnLoading(btn, loading, defaultHTML){
   if(!btn) return;
   btn.disabled = loading;
@@ -2854,11 +2872,14 @@ async function saveEmployee(){
     if(fotoResult===null) data.fotoUrl=null;           // foi removida
     else if(fotoResult!==undefined) data.fotoUrl=fotoResult; // nova foto
     // fotoResult===undefined = não mudou (mantém o que já estava em data.fotoUrl)
-    await DB.save('employees',data);
+    await DB.save('employees', _sanitizeForFirestore(data));
     Auth.log(State.editingEmployeeId?'EMPLOYEE_UPDATED':'EMPLOYEE_CREATED', null, `${data.nome} (CPF: ${data.cpf||'—'}, Posto: ${data.posto||'—'})`);
     closeModal('modal-employee');
     toast(State.editingEmployeeId?'Colaborador atualizado!':'Colaborador cadastrado!');
-  } catch(e){ toast('Erro ao salvar. Verifique a conexão.','error'); console.error(e); }
+  } catch(e){
+    console.error('saveEmployee erro:', e, 'data:', data);
+    toast('Erro ao salvar: ' + (e?.message || e), 'error');
+  }
   finally { setBtnLoading(btn,false,'<i class="fa-solid fa-floppy-disk"></i> Salvar Colaborador'); }
 }
 
@@ -3529,7 +3550,8 @@ async function savePayroll(){
     pensaoAlimenticiaDesc:numVal('payroll-pensao')||0,
     totalLiquidoFinal:   numVal('payroll-total-liquido-final')||0,
     // Preserva os pontos do app — savePayroll nunca deve apagar pontoManualDias
-    pontoManualDias: existing?.pontoManualDias || [],
+    // Sanitiza: Firestore rejeita undefined; converte para null ou remove
+    pontoManualDias: _sanitizeForFirestore(existing?.pontoManualDias || []),
     // Período e status
     periodoDe: val('payroll-periodo-de')||'',
     periodoAte: val('payroll-periodo-ate')||'',
@@ -3540,12 +3562,17 @@ async function savePayroll(){
   const btn=document.querySelector('#section-payroll .btn-primary');
   setBtnLoading(btn,true,'');
   try {
-    await DB.save('payrolls',record);
+    // Sanitiza o record inteiro contra `undefined` (Firestore rejeita)
+    const cleanRecord = _sanitizeForFirestore(record);
+    await DB.save('payrolls', cleanRecord);
     const empNome=(State.employees.find(e=>e.id===empId)||{}).nome||'—';
     Auth.log(existing?'PAYROLL_UPDATED':'PAYROLL_CREATED', null, `${empNome} — ${MESES[parseInt(mes)]}/${ano}`);
     toast(existing?'Lançamento atualizado!':'Lançamento salvo!');
     clearPdf(null,true);
-  } catch(e){ toast('Erro ao salvar.','error'); }
+  } catch(e){
+    console.error('savePayroll erro:', e, 'record:', record);
+    toast('Erro ao salvar: ' + (e?.message || e), 'error');
+  }
   finally { setBtnLoading(btn,false,'<i class="fa-solid fa-floppy-disk"></i> Salvar Lançamento'); }
 }
 

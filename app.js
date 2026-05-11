@@ -5372,13 +5372,19 @@ async function openHEReview(){
 }
 
 function _renderHEReviewRow(d, expected, detec){
-  const status = d.heReview?.status || 'pendente';
+  // Legacy 'abonado' migrado para 'pendente' visual (mantém valor antigo no dataset pra compat)
+  const rawStatus = d.heReview?.status || 'pendente';
+  const status = (rawStatus === 'abonado') ? 'pendente' : rawStatus;
   const perc   = d.heReview?.perc   || 50;
   const obs    = d.heReview?.observacao || '';
   const sem    = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][d.diaSem];
   const aprovado = d.heReview?.aprovadoPor ? `<small style="color:#1B5E20">por <strong>${d.heReview.aprovadoPor}</strong> em ${d.heReview.aprovadoEm ? new Date(d.heReview.aprovadoEm).toLocaleDateString('pt-BR') : '—'}</small>` : '';
-  return `<div class="he-review-card" data-dia="${d.dia}" data-tipo-saved="${status}" style="border:1.5px solid #E0E0E0;border-radius:8px;padding:10px 14px;margin-bottom:10px;background:#fff">
-    <div style="display:flex;justify-content:space-between;align-items:start;gap:10px;flex-wrap:wrap">
+  // Dados auxiliares (esperado + real) no dataset para o modo edição
+  return `<div class="he-review-card" data-dia="${d.dia}" data-diasem="${d.diaSem}" data-tipo-saved="${status}"
+       data-real-entrada="${d.entrada||''}" data-real-saida="${d.saida||''}" data-real-intini="${d.intIni||''}" data-real-intfim="${d.intFim||''}"
+       data-exp-entrada="${expected.entrada||''}" data-exp-saida="${expected.saida||''}" data-exp-intini="${expected.intIni||''}" data-exp-intfim="${expected.intFim||''}"
+       style="border:1.5px solid #E0E0E0;border-radius:8px;padding:10px 14px;margin-bottom:10px;background:#fff">
+    <div class="he-review-display" style="display:flex;justify-content:space-between;align-items:start;gap:10px;flex-wrap:wrap">
       <div>
         <div style="font-weight:700;font-size:14px;color:#E65100">Dia ${String(d.dia).padStart(2,'0')} (${sem}) — ${detec.totalMin}min de excesso</div>
         <div style="font-size:12px;color:#666;margin-top:3px"><strong>Esperado:</strong> ${expected.entrada}–${expected.saida}${expected.intIni?` (ref. ${expected.intIni}–${expected.intFim})`:''}</div>
@@ -5388,7 +5394,7 @@ function _renderHEReviewRow(d, expected, detec){
       <div style="display:flex;flex-direction:column;gap:6px;min-width:280px">
         <div style="display:flex;gap:4px;flex-wrap:wrap">
           <button type="button" class="btn-he-action" data-act="aprovado" onclick="_selectHEReview(this,'aprovado')" style="flex:1;padding:6px 10px;border:1.5px solid ${status==='aprovado'?'#1B5E20':'#CFD8DC'};background:${status==='aprovado'?'#E8F5E9':'#fff'};color:${status==='aprovado'?'#1B5E20':'#666'};border-radius:4px;cursor:pointer;font-weight:600;font-size:12px"><i class="fa-solid fa-circle-check"></i> Aprovar</button>
-          <button type="button" class="btn-he-action" data-act="abonado" onclick="_selectHEReview(this,'abonado')" style="flex:1;padding:6px 10px;border:1.5px solid ${status==='abonado'?'#37474F':'#CFD8DC'};background:${status==='abonado'?'#ECEFF1':'#fff'};color:${status==='abonado'?'#37474F':'#666'};border-radius:4px;cursor:pointer;font-weight:600;font-size:12px"><i class="fa-solid fa-ban"></i> Abonar</button>
+          <button type="button" class="btn-he-action" onclick="_startHEReviewEdit(this)" style="flex:1;padding:6px 10px;border:1.5px solid #1565C0;background:#E3F2FD;color:#0D47A1;border-radius:4px;cursor:pointer;font-weight:600;font-size:12px" title="Editar os horários reais deste dia"><i class="fa-solid fa-pen-to-square"></i> Editar</button>
           <button type="button" class="btn-he-action" data-act="pendente" onclick="_selectHEReview(this,'pendente')" style="flex:1;padding:6px 10px;border:1.5px solid ${status==='pendente'?'#E65100':'#CFD8DC'};background:${status==='pendente'?'#FFF3E0':'#fff'};color:${status==='pendente'?'#E65100':'#666'};border-radius:4px;cursor:pointer;font-weight:600;font-size:12px"><i class="fa-solid fa-clock"></i> Pendente</button>
         </div>
         <div class="he-perc-row" style="display:${status==='aprovado'?'flex':'none'};gap:4px;align-items:center">
@@ -5404,21 +5410,101 @@ function _renderHEReviewRow(d, expected, detec){
         ${aprovado?`<div style="font-size:10px;text-align:right">${aprovado}</div>`:''}
       </div>
     </div>
+    <div class="he-review-edit" style="display:none;background:#F1F5FF;padding:10px;border-radius:6px;margin-top:8px">
+      <div style="font-size:12px;font-weight:700;color:#0D47A1;margin-bottom:8px"><i class="fa-solid fa-pen-to-square"></i> Editar horários reais do dia ${String(d.dia).padStart(2,'0')} (${sem})</div>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px 10px">
+        <div><label style="font-size:10px;color:#666;font-weight:600">Entrada</label><input type="time" class="he-edit-entrada" value="${d.entrada||''}" style="width:100%;padding:4px;font-size:12px;border:1px solid #CFD8DC;border-radius:4px"></div>
+        <div><label style="font-size:10px;color:#666;font-weight:600">Saída</label><input type="time" class="he-edit-saida" value="${d.saida||''}" style="width:100%;padding:4px;font-size:12px;border:1px solid #CFD8DC;border-radius:4px"></div>
+        <div><label style="font-size:10px;color:#F59E0B;font-weight:600">🍽 Início Refeição</label><input type="time" class="he-edit-intini" value="${d.intIni||''}" style="width:100%;padding:4px;font-size:12px;border:1px solid #CFD8DC;border-radius:4px"></div>
+        <div><label style="font-size:10px;color:#F59E0B;font-weight:600">🍽 Retorno Refeição</label><input type="time" class="he-edit-intfim" value="${d.intFim||''}" style="width:100%;padding:4px;font-size:12px;border:1px solid #CFD8DC;border-radius:4px"></div>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:10px;justify-content:flex-end">
+        <button type="button" class="btn btn-outline" onclick="_cancelHEReviewEdit(this)" style="padding:6px 14px;font-size:12px"><i class="fa-solid fa-xmark"></i> Cancelar</button>
+        <button type="button" class="btn btn-primary" onclick="_applyHEReviewEdit(this)" style="padding:6px 14px;font-size:12px;background:#1565C0"><i class="fa-solid fa-check"></i> Aplicar edição</button>
+      </div>
+      <div style="font-size:10px;color:#666;margin-top:6px"><i class="fa-solid fa-info-circle"></i> Os horários serão marcados como editados pelo operador (asterisco no Ponto Manual). O sistema recalcula a divergência automaticamente.</div>
+    </div>
   </div>`;
+}
+
+function _startHEReviewEdit(btn){
+  const card = btn.closest('.he-review-card');
+  if(!card) return;
+  card.querySelector('.he-review-display').style.display = 'none';
+  card.querySelector('.he-review-edit').style.display = '';
+}
+
+function _cancelHEReviewEdit(btn){
+  const card = btn.closest('.he-review-card');
+  if(!card) return;
+  // Restaura inputs aos valores originais (em caso de cancelar após editar mas não aplicar)
+  card.querySelector('.he-edit-entrada').value = card.dataset.realEntrada || '';
+  card.querySelector('.he-edit-saida').value   = card.dataset.realSaida   || '';
+  card.querySelector('.he-edit-intini').value  = card.dataset.realIntini  || '';
+  card.querySelector('.he-edit-intfim').value  = card.dataset.realIntfim  || '';
+  card.querySelector('.he-review-edit').style.display = 'none';
+  card.querySelector('.he-review-display').style.display = 'flex';
+}
+
+// Aplica edição inline: atualiza dataset + sinaliza pendente de save, recalcula divergência exibida
+function _applyHEReviewEdit(btn){
+  const card = btn.closest('.he-review-card');
+  if(!card) return;
+  const newE = card.querySelector('.he-edit-entrada').value;
+  const newS = card.querySelector('.he-edit-saida').value;
+  const newII = card.querySelector('.he-edit-intini').value;
+  const newIF = card.querySelector('.he-edit-intfim').value;
+  // Marca como dirty para o saveHEReview persistir as edições
+  card.dataset.edited = '1';
+  card.dataset.realEntrada = newE;
+  card.dataset.realSaida   = newS;
+  card.dataset.realIntini  = newII;
+  card.dataset.realIntfim  = newIF;
+  // Recalcula divergência com os novos valores
+  const expected = {
+    tipo: 'trabalho',
+    entrada: card.dataset.expEntrada || '',
+    saida:   card.dataset.expSaida   || '',
+    intIni:  card.dataset.expIntini  || '',
+    intFim:  card.dataset.expIntfim  || ''
+  };
+  const real = { entrada:newE, saida:newS, intIni:newII, intFim:newIF };
+  const detec = _detectHEDivergencia(real, expected);
+  // Atualiza visual do display (resumo)
+  const display = card.querySelector('.he-review-display');
+  const realRow = display.querySelector('div > div:nth-child(3)'); // 3rd div é "Real: ..."
+  if(realRow){
+    realRow.innerHTML = `<strong>Real (editado *):</strong> ${newE}–${newS}${newII?` (ref. ${newII}–${newIF})`:''}`;
+  }
+  const motRow = display.querySelector('div > div:nth-child(4)');
+  if(motRow){
+    motRow.innerHTML = `<i class="fa-solid fa-list"></i> ${(detec.motivos||['Dentro da tolerância CLT']).join(' · ')}`;
+  }
+  const tituloRow = display.querySelector('div > div:first-child');
+  if(tituloRow){
+    if(detec.precisaRevisao){
+      tituloRow.innerHTML = `Dia ${card.dataset.dia} — ${detec.totalMin}min de excesso <small style="color:#0D47A1">(editado)</small>`;
+    } else {
+      tituloRow.innerHTML = `Dia ${card.dataset.dia} <small style="color:#1B5E20">— dentro da tolerância após edição ✓</small>`;
+    }
+  }
+  // Esconde edit, mostra display
+  card.querySelector('.he-review-edit').style.display = 'none';
+  display.style.display = 'flex';
+  toast('Edição aplicada. Clique em "Salvar revisão" para persistir.', 'info');
 }
 
 function _selectHEReview(btn, action){
   const card = btn.closest('.he-review-card');
   if(!card) return;
   card.dataset.tipoSaved = action;
-  // Atualiza visual dos 3 botões
-  card.querySelectorAll('.btn-he-action').forEach(b => {
+  // Atualiza visual apenas dos botões de status (Aprovar/Pendente) — Editar fica intacto
+  card.querySelectorAll('.btn-he-action[data-act]').forEach(b => {
     const a = b.dataset.act;
     const isSel = a === action;
     let cor, bg;
     if(a==='aprovado'){ cor='#1B5E20'; bg='#E8F5E9'; }
-    else if(a==='abonado'){ cor='#37474F'; bg='#ECEFF1'; }
-    else { cor='#E65100'; bg='#FFF3E0'; }
+    else                { cor='#E65100'; bg='#FFF3E0'; } // pendente
     b.style.borderColor = isSel ? cor : '#CFD8DC';
     b.style.background  = isSel ? bg  : '#fff';
     b.style.color       = isSel ? cor : '#666';
@@ -5437,8 +5523,9 @@ async function saveHEReview(){
   const empId = val('payroll-employee');
   const mes = parseInt(val('payroll-mes'));
   const ano = parseInt(val('payroll-ano'));
-  // Coleta decisões do modal
+  // Coleta decisões + edições do modal
   const decisoes = {};
+  const edicoes  = {};
   document.querySelectorAll('#he-review-list .he-review-card').forEach(card => {
     const dia = parseInt(card.dataset.dia);
     const status = card.dataset.tipoSaved || 'pendente';
@@ -5448,17 +5535,48 @@ async function saveHEReview(){
       status,
       perc: status==='aprovado' ? (parseInt(percSel?.value)||50) : null,
       observacao: obs,
-      aprovadoPor: (status==='aprovado' || status==='abonado') ? Auth.currentUser?.username : null,
-      aprovadoEm:  (status==='aprovado' || status==='abonado') ? new Date().toISOString() : null
+      aprovadoPor: (status==='aprovado') ? Auth.currentUser?.username : null,
+      aprovadoEm:  (status==='aprovado') ? new Date().toISOString() : null
     };
+    // Se foi editado inline, coleta os novos horários
+    if(card.dataset.edited === '1'){
+      edicoes[dia] = {
+        entrada: card.dataset.realEntrada || '',
+        saida:   card.dataset.realSaida   || '',
+        intIni:  card.dataset.realIntini  || '',
+        intFim:  card.dataset.realIntfim  || ''
+      };
+    }
   });
   // Aplica nas pontoManualDias do payroll
   const payroll = State.payrolls.find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
   if(!payroll){ toast('Folha de Ponto não encontrada — salve o ponto antes.', 'error'); return; }
   const newDias = (payroll.pontoManualDias||[]).map(d => {
     const dec = decisoes[d.dia];
-    if(!dec) return d;
-    return { ...d, heReview: dec };
+    const ed  = edicoes[d.dia];
+    let out = { ...d };
+    if(ed){
+      // Aplica edição inline + marca origem='manual' nos campos editados
+      ['entrada','saida','intIni','intFim'].forEach(k => {
+        if(ed[k] !== d[k]){
+          out[k] = ed[k];
+          out[k+'_origem'] = 'manual';
+        }
+      });
+      // Após edição, recalcula divergência com os novos valores
+      const emp = State.employees.find(e=>e.id===empId);
+      const expected = emp ? _getExpectedDay(emp, mes, ano, d.dia) : null;
+      const detec = expected ? _detectHEDivergencia(out, expected) : { precisaRevisao:false };
+      // Se não há mais divergência > 10min, limpa heReview (não precisa mais revisar)
+      if(!detec.precisaRevisao){
+        delete out.heReview;
+        return out;
+      }
+    }
+    if(dec){
+      out.heReview = dec;
+    }
+    return out;
   });
   // Se modal Ponto Manual está aberto, atualiza os dados em memória direto
   if(_getPontoManualCards().length){

@@ -1134,6 +1134,21 @@ function renderDashboard(){
   const totalPostos=(State.postos||[]).length;
   const escalasMes=(State.escalas||[]).filter(es=>es.mes==mes&&es.ano==ano).length;
   const escalasPend=Math.max(0, ativos-escalasMes);
+  // Benefícios a pagar — hoje e esta semana
+  const hojeISO = new Date().toISOString().substring(0,10);
+  const semana  = _semanaDe(hojeISO);
+  const colabsHoje   = _colabsTrabalhandoEm(hojeISO);
+  const colabsSemana = (State.employees||[]).filter(e => (e.status||'ativo')==='ativo' &&
+    _diasTrabalhadosNoIntervalo(e, semana.inicio, semana.fim) > 0);
+  let totalBenHoje = 0, totalBenSemana = 0;
+  colabsHoje.forEach(e => {
+    const b = _calcBeneficiosColab(e, hojeISO, hojeISO, 'dia');
+    totalBenHoje += b.total;
+  });
+  colabsSemana.forEach(e => {
+    const b = _calcBeneficiosColab(e, semana.inicio, semana.fim, 'semana');
+    totalBenSemana += b.total;
+  });
   // HE Pendente de revisão: percorre payrolls do mês e conta dias com divergência > tolerância e status pendente
   let heRevisaoEmps = 0, heRevisaoDias = 0;
   payThisMonth.forEach(p => {
@@ -1176,6 +1191,13 @@ function renderDashboard(){
         <div class="stat-value" style="color:#E65100">${heRevisaoEmps}</div>
         <div class="stat-label">Pendentes de revisar HE</div>
         <div style="font-size:10px;color:#E65100;margin-top:2px"><i class="fa-solid fa-triangle-exclamation"></i> ${heRevisaoDias} dia(s) — clique pra revisar</div>
+      </div></div>`:''}
+    ${(colabsHoje.length>0||colabsSemana.length>0)?`<div class="stat-card" style="border-color:#0288D1;border-left-width:4px;cursor:pointer" onclick="openBeneficiosPagar()" title="Ver benefícios a pagar hoje e nesta semana">
+      <div class="stat-icon" style="background:#E1F5FE;color:#0288D1"><i class="fa-solid fa-money-check-dollar"></i></div>
+      <div>
+        <div class="stat-value" style="color:#0288D1;font-size:14px">Benefícios a pagar</div>
+        <div class="stat-label">Hoje: <strong>${colabsHoje.length}</strong> colab. (${fmtMoney(totalBenHoje)})</div>
+        <div style="font-size:10px;color:#01579B;margin-top:2px"><i class="fa-solid fa-calendar-week"></i> Semana: <strong>${colabsSemana.length}</strong> colab. (${fmtMoney(totalBenSemana)})</div>
       </div></div>`:''}
     <div class="stat-card" style="border-color:#6A1B9A;border-left-width:4px;cursor:pointer" onclick="showSection('escalas')" title="Ver escalas do mês">
       <div class="stat-icon" style="background:#F3E5F5;color:#6A1B9A"><i class="fa-solid fa-calendar-days"></i></div>
@@ -3129,6 +3151,460 @@ function _semanasTrabalhadas(dias, escala){
   const fam = escalaFamilia(escala||'5x2A');
   const diasPorSemana = fam==='12x36' ? 3.5 : (fam==='6x1' ? 6 : 5);
   return Math.ceil(dias / diasPorSemana);
+}
+
+// ============================================
+// BENEFÍCIOS A PAGAR — UI (card no dash + modais)
+// ============================================
+let _beneficioTabAtual = 'hoje';
+
+function openBeneficiosPagar(){
+  _beneficioTabAtual = 'hoje';
+  // Ativa tab Hoje
+  document.querySelectorAll('.benef-tab-btn').forEach(b => {
+    if(b.dataset.tab === 'hoje'){
+      b.classList.add('active');
+      b.style.borderBottom = '3px solid #0288D1';
+      b.style.color = '#0288D1';
+    } else {
+      b.classList.remove('active');
+      b.style.borderBottom = '3px solid transparent';
+      b.style.color = 'var(--text-muted)';
+    }
+  });
+  renderBeneficiosLista();
+  document.getElementById('modal-beneficios-pagar').classList.remove('hidden');
+}
+
+function switchBeneficioTab(tab){
+  _beneficioTabAtual = tab;
+  document.querySelectorAll('.benef-tab-btn').forEach(b => {
+    if(b.dataset.tab === tab){
+      b.classList.add('active');
+      b.style.borderBottom = '3px solid #0288D1';
+      b.style.color = '#0288D1';
+    } else {
+      b.classList.remove('active');
+      b.style.borderBottom = '3px solid transparent';
+      b.style.color = 'var(--text-muted)';
+    }
+  });
+  renderBeneficiosLista();
+}
+
+function renderBeneficiosLista(){
+  const tab = _beneficioTabAtual || 'hoje';
+  const hojeISO = new Date().toISOString().substring(0,10);
+  let ini, fim, escopo, periodoLabel;
+  if(tab === 'hoje'){
+    ini = fim = hojeISO;
+    escopo = 'dia';
+    periodoLabel = `<strong>Hoje (${new Date().toLocaleDateString('pt-BR')})</strong>`;
+  } else {
+    const s = _semanaDe(hojeISO);
+    ini = s.inicio; fim = s.fim;
+    escopo = 'semana';
+    const fmt = iso => new Date(iso+'T12:00:00').toLocaleDateString('pt-BR');
+    periodoLabel = `<strong>Esta semana — ${fmt(s.inicio)} a ${fmt(s.fim)}</strong>`;
+  }
+  // Coleta colaboradores ativos com algum dia trabalhado no período
+  const linhas = [];
+  (State.employees||[])
+    .filter(e => (e.status||'ativo') === 'ativo')
+    .forEach(e => {
+      const b = _calcBeneficiosColab(e, ini, fim, escopo);
+      if(b.total > 0) linhas.push({ emp:e, b });
+    });
+  linhas.sort((a,b) => (a.emp.nome||'').localeCompare(b.emp.nome||''));
+  const totalGeral = linhas.reduce((s,l)=>s+l.b.total,0);
+  const totalVT    = linhas.reduce((s,l)=>s+l.b.vtValor,0);
+  const totalVR    = linhas.reduce((s,l)=>s+l.b.vrValor,0);
+  document.getElementById('benef-info').innerHTML =
+    `${periodoLabel} &middot; <strong>${linhas.length}</strong> colaborador(es) &middot; ` +
+    `VT/AM: <strong>${fmtMoney(totalVT)}</strong> &middot; VR: <strong>${fmtMoney(totalVR)}</strong> &middot; ` +
+    `Total: <strong style="color:#0288D1">${fmtMoney(totalGeral)}</strong>`;
+  const listEl = document.getElementById('benef-lista');
+  if(!linhas.length){
+    listEl.innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-check" style="color:#1B5E20"></i><p>Nenhum benefício a pagar neste período.</p></div>';
+    return;
+  }
+  let html = `<table style="width:100%;border-collapse:collapse;font-size:13px">
+    <thead style="background:#F5F7FB;position:sticky;top:0">
+      <tr>
+        <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border)">Colaborador</th>
+        <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border)">Posto</th>
+        <th style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border)">Dias</th>
+        <th style="padding:8px 10px;text-align:right;border-bottom:1px solid var(--border)">VT/AM</th>
+        <th style="padding:8px 10px;text-align:right;border-bottom:1px solid var(--border)">VR</th>
+        <th style="padding:8px 10px;text-align:right;border-bottom:1px solid var(--border)">Total</th>
+        <th style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border)">Ações</th>
+      </tr>
+    </thead>
+    <tbody>`;
+  linhas.forEach(({emp, b}, idx) => {
+    const posto = (State.postos||[]).find(p=>p.id===emp.posto)?.razaoSocial || '—';
+    const bg = idx % 2 ? '#FAFBFC' : '#fff';
+    const vtIcon = b.vtTipo === 'am' ? '<i class="fa-solid fa-motorcycle" style="color:#4fc3f7"></i>'
+                                     : '<i class="fa-solid fa-bus" style="color:#4fc3f7"></i>';
+    html += `<tr style="background:${bg};cursor:pointer" onclick="openBeneficioDetalhe('${emp.id}','${escopo}','${ini}','${fim}')">
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF2F7"><strong style="color:var(--primary)">${emp.nome}</strong><br><small style="color:var(--text-muted)">${emp.setor||'—'}</small></td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF2F7;font-size:12px">${posto}</td>
+      <td style="padding:8px 10px;text-align:center;border-bottom:1px solid #EEF2F7">${b.dias}</td>
+      <td style="padding:8px 10px;text-align:right;border-bottom:1px solid #EEF2F7">${vtIcon} ${b.vtValor>0?fmtMoney(b.vtValor):'—'}</td>
+      <td style="padding:8px 10px;text-align:right;border-bottom:1px solid #EEF2F7"><i class="fa-solid fa-utensils" style="color:#ff8a65"></i> ${b.vrValor>0?fmtMoney(b.vrValor):'—'}</td>
+      <td style="padding:8px 10px;text-align:right;border-bottom:1px solid #EEF2F7;font-weight:700;color:#0288D1">${fmtMoney(b.total)}</td>
+      <td style="padding:8px 10px;text-align:center;border-bottom:1px solid #EEF2F7"><button class="btn-icon" onclick="event.stopPropagation();openBeneficioDetalhe('${emp.id}','${escopo}','${ini}','${fim}')" title="Ver planilha individual"><i class="fa-solid fa-clipboard-list" style="color:#0288D1"></i></button></td>
+    </tr>`;
+  });
+  html += `</tbody>
+    <tfoot style="background:#E8F5E9;font-weight:700">
+      <tr>
+        <td colspan="3" style="padding:10px;text-align:right">TOTAL GERAL</td>
+        <td style="padding:10px;text-align:right">${fmtMoney(totalVT)}</td>
+        <td style="padding:10px;text-align:right">${fmtMoney(totalVR)}</td>
+        <td style="padding:10px;text-align:right;color:#1B5E20;font-size:15px">${fmtMoney(totalGeral)}</td>
+        <td></td>
+      </tr>
+    </tfoot>
+  </table>`;
+  listEl.innerHTML = html;
+}
+
+// Estado do modal de detalhe (para os botões de export)
+let _beneficioDetalheCtx = null;
+
+function openBeneficioDetalhe(empId, escopo, dataIni, dataFim){
+  const emp = State.employees.find(e=>e.id===empId);
+  if(!emp){ toast('Colaborador não encontrado.','error'); return; }
+  const b = _calcBeneficiosColab(emp, dataIni, dataFim, escopo);
+  const posto = (State.postos||[]).find(p=>p.id===emp.posto)?.razaoSocial || '—';
+  const fmt = iso => new Date(iso+'T12:00:00').toLocaleDateString('pt-BR');
+  const periodoLabel = (escopo === 'dia')
+    ? `Hoje — ${fmt(dataIni)}`
+    : `Semana — ${fmt(dataIni)} a ${fmt(dataFim)}`;
+  document.getElementById('benef-det-nome').textContent = emp.nome;
+  document.getElementById('benef-det-info').innerHTML =
+    `<strong>Período:</strong> ${periodoLabel}<br>` +
+    `<strong>Posto:</strong> ${posto} &nbsp;|&nbsp; <strong>Setor:</strong> ${emp.setor||'—'} &nbsp;|&nbsp; ` +
+    `<strong>Escala:</strong> ${escalaLabel(emp.escala||'5x2A')}${emp.turnoNoturno?' (Noturno)':''}<br>` +
+    `<strong>Dias trabalhados no período:</strong> ${b.dias}` +
+    `${b.semanas>0?` &nbsp;|&nbsp; <strong>Semanas:</strong> ${b.semanas}`:''}`;
+  const tbody = document.getElementById('benef-det-tbody');
+  const linhas = [];
+  // VT/AM
+  if(b.vtTipo !== 'nao' && emp.valorDiarioVt){
+    const isPeriodo = (escopo==='dia' && b.vtFreq==='diario') ||
+                      (escopo==='semana' && b.vtFreq==='semanal');
+    const isWeekDailySum = (escopo==='semana' && b.vtFreq==='diario');
+    let mult = 1, multLabel = '×1 dia';
+    if(escopo === 'dia' && b.vtFreq === 'diario'){ mult = b.dias>0?1:0; multLabel = `${b.dias>0?'×1 dia':'(não trab.)'}`; }
+    else if(escopo === 'semana' && b.vtFreq === 'semanal'){ mult = b.semanas; multLabel = `×${b.semanas} sem.`; }
+    else if(escopo === 'semana' && b.vtFreq === 'diario'){ mult = b.dias; multLabel = `×${b.dias} dias`; }
+    else if(escopo === 'dia' && b.vtFreq === 'semanal'){ mult = 0; multLabel = '(pago semanal)'; }
+    const ben = (b.vtTipo === 'am') ? 'AM — Auxílio Mobilidade' : 'VT — Vale Transporte';
+    const freqLabel = (b.vtFreq === 'semanal') ? 'Semanal' : 'Diária';
+    linhas.push({ rotulo: ben, freq: freqLabel, base: emp.valorDiarioVt||0, mult, multLabel, valor: b.vtValor, campoId: 'edit-vt' });
+  }
+  // VR
+  if(emp.valorDiarioVr){
+    let mult = 1, multLabel = '×1 dia';
+    if(escopo === 'dia' && b.vrFreq === 'diario'){ mult = b.dias>0?1:0; multLabel = `${b.dias>0?'×1 dia':'(não trab.)'}`; }
+    else if(escopo === 'semana' && b.vrFreq === 'semanal'){ mult = b.semanas; multLabel = `×${b.semanas} sem.`; }
+    else if(escopo === 'semana' && b.vrFreq === 'diario'){ mult = b.dias; multLabel = `×${b.dias} dias`; }
+    else if(escopo === 'dia' && b.vrFreq === 'semanal'){ mult = 0; multLabel = '(pago semanal)'; }
+    const freqLabel = (b.vrFreq === 'semanal') ? 'Semanal' : 'Diária';
+    linhas.push({ rotulo: 'VR — Vale Refeição', freq: freqLabel, base: emp.valorDiarioVr||0, mult, multLabel, valor: b.vrValor, campoId: 'edit-vr' });
+  }
+  if(!linhas.length){
+    tbody.innerHTML = '<tr><td colspan="5" style="padding:14px;text-align:center;color:var(--text-muted)">Nenhum benefício cadastrado para este período.</td></tr>';
+  } else {
+    tbody.innerHTML = linhas.map(l => `<tr>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF2F7;font-weight:600">${l.rotulo}</td>
+      <td style="padding:8px 10px;text-align:center;border-bottom:1px solid #EEF2F7;font-size:11px">${l.freq}</td>
+      <td style="padding:8px 10px;text-align:right;border-bottom:1px solid #EEF2F7">${fmtMoney(l.base)}</td>
+      <td style="padding:8px 10px;text-align:right;border-bottom:1px solid #EEF2F7;font-size:11px;color:var(--text-muted)">${l.multLabel}</td>
+      <td style="padding:4px;border-bottom:1px solid #EEF2F7;text-align:right">
+        <input type="number" id="${l.campoId}" value="${l.valor.toFixed(2)}" step="0.01" min="0" onchange="recalcBeneficioDetalhe()" style="width:100px;text-align:right;font-weight:700">
+      </td>
+    </tr>`).join('');
+  }
+  setVal('benef-det-obs','');
+  _beneficioDetalheCtx = { emp, b, escopo, dataIni, dataFim, posto, periodoLabel };
+  recalcBeneficioDetalhe();
+  document.getElementById('modal-beneficio-detalhe').classList.remove('hidden');
+}
+
+function recalcBeneficioDetalhe(){
+  const vt = numVal('edit-vt');
+  const vr = numVal('edit-vr');
+  document.getElementById('benef-det-total').textContent = fmtMoney(vt + vr);
+}
+
+// ============================================
+// BENEFÍCIOS A PAGAR — Exportação (Imprimir + PDF)
+// ============================================
+function exportBeneficiosLista(formato){
+  const tab = _beneficioTabAtual || 'hoje';
+  const hojeISO = new Date().toISOString().substring(0,10);
+  let ini, fim, escopo, periodoLabel;
+  if(tab === 'hoje'){
+    ini = fim = hojeISO;
+    escopo = 'dia';
+    periodoLabel = `Hoje — ${new Date().toLocaleDateString('pt-BR')}`;
+  } else {
+    const s = _semanaDe(hojeISO);
+    ini = s.inicio; fim = s.fim;
+    escopo = 'semana';
+    const fmt = iso => new Date(iso+'T12:00:00').toLocaleDateString('pt-BR');
+    periodoLabel = `Semana — ${fmt(s.inicio)} a ${fmt(s.fim)}`;
+  }
+  const linhas = [];
+  (State.employees||[])
+    .filter(e => (e.status||'ativo') === 'ativo')
+    .forEach(e => {
+      const b = _calcBeneficiosColab(e, ini, fim, escopo);
+      if(b.total > 0) linhas.push({ emp:e, b });
+    });
+  linhas.sort((a,b) => (a.emp.nome||'').localeCompare(b.emp.nome||''));
+  if(!linhas.length){ toast('Nenhum benefício a exportar.','error'); return; }
+  const totalVT = linhas.reduce((s,l)=>s+l.b.vtValor,0);
+  const totalVR = linhas.reduce((s,l)=>s+l.b.vrValor,0);
+  const total   = totalVT + totalVR;
+  let rows = '';
+  linhas.forEach(({emp, b}, idx) => {
+    const posto = (State.postos||[]).find(p=>p.id===emp.posto)?.razaoSocial || '—';
+    const benVT = b.vtTipo === 'am' ? 'AM' : 'VT';
+    rows += `<tr style="background:${idx%2?'#F8FAFF':'#fff'}">
+      <td>${idx+1}</td>
+      <td><strong>${emp.nome}</strong><br><small style="color:#666">${emp.setor||'—'}</small></td>
+      <td>${posto}</td>
+      <td style="text-align:center">${b.dias}</td>
+      <td style="text-align:right">${benVT} ${fmtMoney(b.vtValor)}</td>
+      <td style="text-align:right">${fmtMoney(b.vrValor)}</td>
+      <td style="text-align:right;font-weight:700">${fmtMoney(b.total)}</td>
+    </tr>`;
+  });
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Benefícios a Pagar — ${periodoLabel}</title>
+<style>
+  body{font-family:Arial,sans-serif;padding:16px;color:#212529;font-size:12px}
+  h1{color:#0288D1;font-size:18px;margin-bottom:4px}
+  .info{font-size:11px;color:#666;margin-bottom:14px}
+  table{width:100%;border-collapse:collapse}
+  th{background:#0288D1;color:#fff;padding:8px;text-align:left;font-size:11px}
+  td{padding:8px;border-bottom:1px solid #DEE2E6}
+  tfoot td{background:#E1F5FE;font-weight:700;color:#01579B}
+  .tot{font-size:14px;color:#01579B}
+  @media print{ body{padding:8px} h1{font-size:14px} }
+</style></head>
+<body>
+<h1>${_e('nomeEmpresa')} — Benefícios a Pagar</h1>
+<p class="info"><strong>Período:</strong> ${periodoLabel} &middot; ${linhas.length} colaborador(es) &middot; Gerado em ${new Date().toLocaleString('pt-BR')}</p>
+<table>
+  <thead><tr><th>#</th><th>Colaborador</th><th>Posto</th><th style="text-align:center">Dias</th><th style="text-align:right">VT/AM</th><th style="text-align:right">VR</th><th style="text-align:right">Total</th></tr></thead>
+  <tbody>${rows}</tbody>
+  <tfoot>
+    <tr>
+      <td colspan="4" style="text-align:right">TOTAIS</td>
+      <td style="text-align:right">${fmtMoney(totalVT)}</td>
+      <td style="text-align:right">${fmtMoney(totalVR)}</td>
+      <td class="tot" style="text-align:right">${fmtMoney(total)}</td>
+    </tr>
+  </tfoot>
+</table>
+<p style="margin-top:18px;font-size:10px;color:#888;text-align:center">${_e('nomeEmpresa')} — Sistema DRG-Kronos 3.0</p>
+</body></html>`;
+  _abrirJanelaExport(html, formato, `Beneficios_${tab}_${new Date().toISOString().substring(0,10)}`);
+}
+
+function exportBeneficioDetalhe(formato){
+  if(!_beneficioDetalheCtx){ toast('Abra um colaborador primeiro.','error'); return; }
+  const ctx = _beneficioDetalheCtx;
+  const vt = numVal('edit-vt');
+  const vr = numVal('edit-vr');
+  const obs = val('benef-det-obs');
+  const total = vt + vr;
+  const emp = ctx.emp;
+  let rows = '';
+  if(emp.valorDiarioVt && ctx.b.vtTipo !== 'nao'){
+    const nome = ctx.b.vtTipo==='am'?'AM — Auxílio Mobilidade':'VT — Vale Transporte';
+    rows += `<tr><td><strong>${nome}</strong></td><td style="text-align:center">${ctx.b.vtFreq==='semanal'?'Semanal':'Diária'}</td><td style="text-align:right">${fmtMoney(emp.valorDiarioVt||0)}</td><td style="text-align:right;font-weight:700">${fmtMoney(vt)}</td></tr>`;
+  }
+  if(emp.valorDiarioVr){
+    rows += `<tr><td><strong>VR — Vale Refeição</strong></td><td style="text-align:center">${ctx.b.vrFreq==='semanal'?'Semanal':'Diária'}</td><td style="text-align:right">${fmtMoney(emp.valorDiarioVr||0)}</td><td style="text-align:right;font-weight:700">${fmtMoney(vr)}</td></tr>`;
+  }
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Planilha de Benefícios — ${emp.nome}</title>
+<style>
+  body{font-family:Arial,sans-serif;padding:16px;color:#212529;font-size:13px}
+  h1{color:#0288D1;font-size:18px;margin-bottom:4px}
+  h2{color:#1a3a6b;font-size:14px;margin:14px 0 6px}
+  .info{font-size:12px;color:#666;margin-bottom:14px;background:#F1F5FF;padding:10px;border-radius:6px}
+  .info strong{color:#0D47A1}
+  table{width:100%;border-collapse:collapse;margin-bottom:14px}
+  th{background:#0288D1;color:#fff;padding:8px;text-align:left;font-size:12px}
+  td{padding:8px;border-bottom:1px solid #DEE2E6}
+  tfoot td{background:#E1F5FE;font-weight:700;color:#01579B;font-size:14px}
+  .ass{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:36px;font-size:11px;color:#555}
+  .ass-line{border-top:1px solid #444;padding-top:6px;text-align:center}
+  @media print{ body{padding:8px} h1{font-size:14px} }
+</style></head>
+<body>
+<h1>${_e('nomeEmpresa')} — Planilha de Benefícios</h1>
+<p style="font-size:11px;color:#666;margin-bottom:8px">CNPJ: ${_e('cnpj')} &middot; ${_e('descricao')}</p>
+<div class="info">
+  <div><strong>Colaborador:</strong> ${emp.nome} &middot; CPF: ${emp.cpf||'—'}</div>
+  <div><strong>Posto:</strong> ${ctx.posto} &middot; <strong>Setor:</strong> ${emp.setor||'—'}</div>
+  <div><strong>Escala:</strong> ${escalaLabel(emp.escala||'5x2A')}${emp.turnoNoturno?' (Noturno)':''}</div>
+  <div><strong>Período:</strong> ${ctx.periodoLabel}</div>
+  <div><strong>Dias trabalhados no período:</strong> ${ctx.b.dias}${ctx.b.semanas>0?` &middot; <strong>Semanas:</strong> ${ctx.b.semanas}`:''}</div>
+</div>
+<h2>Demonstrativo</h2>
+<table>
+  <thead><tr><th>Benefício</th><th style="text-align:center">Frequência</th><th style="text-align:right">Valor Base</th><th style="text-align:right">Valor a Pagar</th></tr></thead>
+  <tbody>${rows}</tbody>
+  <tfoot><tr><td colspan="3" style="text-align:right">TOTAL A PAGAR</td><td style="text-align:right">${fmtMoney(total)}</td></tr></tfoot>
+</table>
+${obs?`<div style="background:#FFF9E6;padding:10px;border-left:3px solid #F59E0B;font-size:12px;margin-bottom:14px"><strong>Observação:</strong> ${obs}</div>`:''}
+<div class="ass">
+  <div class="ass-line">${_e('nomeEmpresa')}<br>Empresa / Responsável</div>
+  <div class="ass-line">${emp.nome}<br>Colaborador (recebimento)</div>
+</div>
+<p style="margin-top:36px;font-size:10px;color:#888;text-align:center">Gerado em ${new Date().toLocaleString('pt-BR')} &middot; Sistema DRG-Kronos 3.0</p>
+</body></html>`;
+  _abrirJanelaExport(html, formato, `Beneficio_${emp.nome.replace(/\s+/g,'_')}_${new Date().toISOString().substring(0,10)}`);
+}
+
+// Abre nova janela com HTML e dispara print ou força download para PDF
+function _abrirJanelaExport(html, formato, baseName){
+  if(formato === 'pdf'){
+    // PDF via "Salvar como PDF" do navegador na janela de impressão
+    const win = window.open('','_blank','width=900,height=700');
+    if(!win){ toast('Permita pop-ups para gerar o PDF.','error'); return; }
+    win.document.write(html + '<scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt>');
+    win.document.close();
+    toast('Use "Salvar como PDF" na janela de impressão.', 'info');
+  } else {
+    // Imprimir direto
+    const win = window.open('','_blank','width=900,height=700');
+    if(!win){ toast('Permita pop-ups para imprimir.','error'); return; }
+    win.document.write(html + '<scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt>');
+    win.document.close();
+  }
+}
+
+// ============================================
+// BENEFÍCIOS A PAGAR — helpers
+// ============================================
+
+// Verifica se o colaborador está escalado/trabalha em uma data específica
+// Prioridade: Escala salva > Escala projetada > escala contratual (5x2/6x1/12x36)
+function _colabTrabalhaNoDia(emp, dataISO){
+  if(!emp) return false;
+  const status = emp.status || 'ativo';
+  if(status !== 'ativo') return false;
+  const d = new Date(dataISO + 'T12:00:00');
+  if(isNaN(d.getTime())) return false;
+  const mes = d.getMonth()+1, ano = d.getFullYear(), dia = d.getDate();
+  // 1) Escala salva?
+  const esc = (State.escalas||[]).find(e => e.employeeId===emp.id && e.mes==mes && e.ano==ano);
+  if(esc?.dias?.length){
+    const sav = esc.dias.find(x => x.dia===dia);
+    if(sav) return sav.tipo === 'trabalho' || sav.tipo === 'corrido';
+  }
+  // 2) Ponto manual / batido?
+  const pay = (State.payrolls||[]).find(p => p.employeeId===emp.id && p.mes==mes && p.ano==ano);
+  if(pay?.pontoManualDias?.length){
+    const d2 = pay.pontoManualDias.find(x => x.dia===dia);
+    if(d2 && d2.entrada && d2.saida) return true;
+  }
+  // 3) Fallback por escala contratual
+  const fam = escalaFamilia(emp.escala || '5x2A');
+  const ds = d.getDay();
+  if(fam === '5x2') return ds >= 1 && ds <= 5;
+  if(fam === '6x1') return ds !== 0;
+  // 12x36: sem dados anteriores não temos como saber — retorna true como aproximação
+  return true;
+}
+
+// Lista colaboradores que trabalham em uma data específica
+function _colabsTrabalhandoEm(dataISO){
+  return (State.employees||[])
+    .filter(e => (e.status||'ativo') === 'ativo')
+    .filter(e => _colabTrabalhaNoDia(e, dataISO));
+}
+
+// Conta dias trabalhados de um colaborador num intervalo (inclusive)
+function _diasTrabalhadosNoIntervalo(emp, dataInicioISO, dataFimISO){
+  if(!emp) return 0;
+  const ini = new Date(dataInicioISO + 'T12:00:00');
+  const fim = new Date(dataFimISO + 'T12:00:00');
+  if(isNaN(ini.getTime()) || isNaN(fim.getTime())) return 0;
+  let count = 0;
+  const cur = new Date(ini);
+  while(cur <= fim){
+    if(_colabTrabalhaNoDia(emp, cur.toISOString().substring(0,10))) count++;
+    cur.setDate(cur.getDate()+1);
+  }
+  return count;
+}
+
+// Retorna data ISO do início (segunda) e fim (domingo) da semana de uma data
+function _semanaDe(dataISO){
+  const d = new Date(dataISO + 'T12:00:00');
+  const ds = d.getDay(); // 0 dom .. 6 sab
+  // Considera semana segunda → domingo (padrão BR)
+  const diffSeg = (ds === 0) ? -6 : (1 - ds);
+  const seg = new Date(d); seg.setDate(d.getDate() + diffSeg);
+  const dom = new Date(seg); dom.setDate(seg.getDate() + 6);
+  const fmt = x => x.toISOString().substring(0,10);
+  return { inicio: fmt(seg), fim: fmt(dom) };
+}
+
+// Calcula benefícios de um colaborador para um período (dia ou semana)
+// Retorna { vtNome, vtValor, vtFreqLabel, vrValor, vrFreqLabel, vaValor, total, dias }
+function _calcBeneficiosColab(emp, dataInicioISO, dataFimISO, escopo){
+  const empE = State.employees.find(e => e.id===emp.id) || emp;
+  const dias = _diasTrabalhadosNoIntervalo(empE, dataInicioISO, dataFimISO);
+  const sem  = _semanasTrabalhadas(dias, empE.escala);
+  const out = {
+    dias,
+    semanas: sem,
+    vtTipo: empE.tipoTransporte || 'vt',
+    vtFreq: empE.vtFreq || 'diario',
+    vrFreq: empE.vrFreq || 'diario',
+    vtValor: 0, vrValor: 0, total: 0
+  };
+  // VT/AM
+  if(out.vtTipo !== 'nao' && empE.valorDiarioVt){
+    if(escopo === 'dia'){
+      // No escopo "dia", só conta benefício diário (semanal será mostrado em "semana")
+      if(out.vtFreq === 'diario'){
+        out.vtValor = (dias > 0) ? (empE.valorDiarioVt || 0) : 0;
+      }
+    } else if(escopo === 'semana'){
+      if(out.vtFreq === 'semanal'){
+        out.vtValor = (sem > 0) ? (empE.valorDiarioVt || 0) * sem : 0;
+      } else {
+        // Diário no escopo semana = soma dos dias trabalhados na semana
+        out.vtValor = (empE.valorDiarioVt || 0) * dias;
+      }
+    }
+  }
+  // VR
+  if(empE.valorDiarioVr){
+    if(escopo === 'dia'){
+      if(out.vrFreq === 'diario'){
+        out.vrValor = (dias > 0) ? (empE.valorDiarioVr || 0) : 0;
+      }
+    } else if(escopo === 'semana'){
+      if(out.vrFreq === 'semanal'){
+        out.vrValor = (sem > 0) ? (empE.valorDiarioVr || 0) * sem : 0;
+      } else {
+        out.vrValor = (empE.valorDiarioVr || 0) * dias;
+      }
+    }
+  }
+  out.total = out.vtValor + out.vrValor;
+  return out;
 }
 
 // ============================================================

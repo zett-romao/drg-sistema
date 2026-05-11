@@ -3228,16 +3228,21 @@ function renderBeneficiosLista(){
     listEl.innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-check" style="color:#1B5E20"></i><p>Nenhum benefício a pagar neste período.</p></div>';
     return;
   }
-  let html = `<table style="width:100%;border-collapse:collapse;font-size:13px">
+  const fmtDate = iso => new Date(iso+'T12:00:00').toLocaleDateString('pt-BR');
+  const periodoCol = (escopo === 'dia') ? fmtDate(ini) : `${fmtDate(ini)} → ${fmtDate(fim)}`;
+  let html = `<table style="width:100%;border-collapse:collapse;font-size:12px">
     <thead style="background:#F5F7FB;position:sticky;top:0">
       <tr>
-        <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border)">Colaborador</th>
-        <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border)">Posto</th>
-        <th style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border)">Dias</th>
-        <th style="padding:8px 10px;text-align:right;border-bottom:1px solid var(--border)">VT/AM</th>
-        <th style="padding:8px 10px;text-align:right;border-bottom:1px solid var(--border)">VR</th>
-        <th style="padding:8px 10px;text-align:right;border-bottom:1px solid var(--border)">Total</th>
-        <th style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border)">Ações</th>
+        <th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border)">Matr.</th>
+        <th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border)">Colaborador</th>
+        <th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border)">Posto</th>
+        <th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border)">Período</th>
+        <th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border)">Dias</th>
+        <th style="padding:6px 8px;text-align:right;border-bottom:1px solid var(--border)">VT/AM</th>
+        <th style="padding:6px 8px;text-align:right;border-bottom:1px solid var(--border)">VR</th>
+        <th style="padding:6px 8px;text-align:right;border-bottom:1px solid var(--border)">Total</th>
+        <th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border)">Chave PIX</th>
+        <th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border)">Ações</th>
       </tr>
     </thead>
     <tbody>`;
@@ -3246,24 +3251,29 @@ function renderBeneficiosLista(){
     const bg = idx % 2 ? '#FAFBFC' : '#fff';
     const vtIcon = b.vtTipo === 'am' ? '<i class="fa-solid fa-motorcycle" style="color:#4fc3f7"></i>'
                                      : '<i class="fa-solid fa-bus" style="color:#4fc3f7"></i>';
+    const matr = emp.registro ? String(emp.registro).padStart(4,'0') : '—';
+    const pix  = emp.chavePix || '—';
     html += `<tr style="background:${bg};cursor:pointer" onclick="openBeneficioDetalhe('${emp.id}','${escopo}','${ini}','${fim}')">
-      <td style="padding:8px 10px;border-bottom:1px solid #EEF2F7"><strong style="color:var(--primary)">${emp.nome}</strong><br><small style="color:var(--text-muted)">${emp.setor||'—'}</small></td>
-      <td style="padding:8px 10px;border-bottom:1px solid #EEF2F7;font-size:12px">${posto}</td>
-      <td style="padding:8px 10px;text-align:center;border-bottom:1px solid #EEF2F7">${b.dias}</td>
-      <td style="padding:8px 10px;text-align:right;border-bottom:1px solid #EEF2F7">${vtIcon} ${b.vtValor>0?fmtMoney(b.vtValor):'—'}</td>
-      <td style="padding:8px 10px;text-align:right;border-bottom:1px solid #EEF2F7"><i class="fa-solid fa-utensils" style="color:#ff8a65"></i> ${b.vrValor>0?fmtMoney(b.vrValor):'—'}</td>
-      <td style="padding:8px 10px;text-align:right;border-bottom:1px solid #EEF2F7;font-weight:700;color:#0288D1">${fmtMoney(b.total)}</td>
-      <td style="padding:8px 10px;text-align:center;border-bottom:1px solid #EEF2F7"><button class="btn-icon" onclick="event.stopPropagation();openBeneficioDetalhe('${emp.id}','${escopo}','${ini}','${fim}')" title="Ver planilha individual"><i class="fa-solid fa-clipboard-list" style="color:#0288D1"></i></button></td>
+      <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7;font-weight:700;color:var(--primary)">${matr}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7"><strong style="color:var(--primary)">${emp.nome}</strong><br><small style="color:var(--text-muted)">${emp.setor||'—'}</small></td>
+      <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7;font-size:11px">${posto}</td>
+      <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7;font-size:11px">${periodoCol}</td>
+      <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7">${b.dias}</td>
+      <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7">${vtIcon} ${b.vtValor>0?fmtMoney(b.vtValor):'—'}</td>
+      <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7"><i class="fa-solid fa-utensils" style="color:#ff8a65"></i> ${b.vrValor>0?fmtMoney(b.vrValor):'—'}</td>
+      <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;font-weight:700;color:#0288D1">${fmtMoney(b.total)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7;font-size:11px;font-family:monospace;color:#00695C">${pix}</td>
+      <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7"><button class="btn-icon" onclick="event.stopPropagation();openBeneficioDetalhe('${emp.id}','${escopo}','${ini}','${fim}')" title="Ver planilha individual"><i class="fa-solid fa-clipboard-list" style="color:#0288D1"></i></button></td>
     </tr>`;
   });
   html += `</tbody>
     <tfoot style="background:#E8F5E9;font-weight:700">
       <tr>
-        <td colspan="3" style="padding:10px;text-align:right">TOTAL GERAL</td>
+        <td colspan="5" style="padding:10px;text-align:right">TOTAL GERAL</td>
         <td style="padding:10px;text-align:right">${fmtMoney(totalVT)}</td>
         <td style="padding:10px;text-align:right">${fmtMoney(totalVR)}</td>
-        <td style="padding:10px;text-align:right;color:#1B5E20;font-size:15px">${fmtMoney(totalGeral)}</td>
-        <td></td>
+        <td style="padding:10px;text-align:right;color:#1B5E20;font-size:14px">${fmtMoney(totalGeral)}</td>
+        <td colspan="2"></td>
       </tr>
     </tfoot>
   </table>`;
@@ -3283,12 +3293,16 @@ function openBeneficioDetalhe(empId, escopo, dataIni, dataFim){
     ? `Hoje — ${fmt(dataIni)}`
     : `Semana — ${fmt(dataIni)} a ${fmt(dataFim)}`;
   document.getElementById('benef-det-nome').textContent = emp.nome;
+  const matr = emp.registro ? String(emp.registro).padStart(4,'0') : '—';
+  const pixDet = emp.chavePix || '—';
   document.getElementById('benef-det-info').innerHTML =
+    `<strong>Matrícula:</strong> ${matr} &nbsp;|&nbsp; <strong>CPF:</strong> ${emp.cpf||'—'}<br>` +
     `<strong>Período:</strong> ${periodoLabel}<br>` +
     `<strong>Posto:</strong> ${posto} &nbsp;|&nbsp; <strong>Setor:</strong> ${emp.setor||'—'} &nbsp;|&nbsp; ` +
     `<strong>Escala:</strong> ${escalaLabel(emp.escala||'5x2A')}${emp.turnoNoturno?' (Noturno)':''}<br>` +
     `<strong>Dias trabalhados no período:</strong> ${b.dias}` +
-    `${b.semanas>0?` &nbsp;|&nbsp; <strong>Semanas:</strong> ${b.semanas}`:''}`;
+    `${b.semanas>0?` &nbsp;|&nbsp; <strong>Semanas:</strong> ${b.semanas}`:''}<br>` +
+    `<strong style="color:#00695C"><i class="fa-brands fa-pix"></i> Chave PIX:</strong> <span style="font-family:monospace">${pixDet}</span>`;
   const tbody = document.getElementById('benef-det-tbody');
   const linhas = [];
   // VT/AM
@@ -3346,17 +3360,19 @@ function recalcBeneficioDetalhe(){
 function exportBeneficiosLista(formato){
   const tab = _beneficioTabAtual || 'hoje';
   const hojeISO = new Date().toISOString().substring(0,10);
-  let ini, fim, escopo, periodoLabel;
+  let ini, fim, escopo, periodoLabel, periodoCol;
+  const fmt = iso => new Date(iso+'T12:00:00').toLocaleDateString('pt-BR');
   if(tab === 'hoje'){
     ini = fim = hojeISO;
     escopo = 'dia';
-    periodoLabel = `Hoje — ${new Date().toLocaleDateString('pt-BR')}`;
+    periodoLabel = `Hoje — ${fmt(hojeISO)}`;
+    periodoCol   = fmt(hojeISO);
   } else {
     const s = _semanaDe(hojeISO);
     ini = s.inicio; fim = s.fim;
     escopo = 'semana';
-    const fmt = iso => new Date(iso+'T12:00:00').toLocaleDateString('pt-BR');
     periodoLabel = `Semana — ${fmt(s.inicio)} a ${fmt(s.fim)}`;
+    periodoCol   = `${fmt(s.inicio)} → ${fmt(s.fim)}`;
   }
   const linhas = [];
   (State.employees||[])
@@ -3374,44 +3390,62 @@ function exportBeneficiosLista(formato){
   linhas.forEach(({emp, b}, idx) => {
     const posto = (State.postos||[]).find(p=>p.id===emp.posto)?.razaoSocial || '—';
     const benVT = b.vtTipo === 'am' ? 'AM' : 'VT';
+    const matr = emp.registro ? String(emp.registro).padStart(4,'0') : '—';
+    const pix  = emp.chavePix || '—';
     rows += `<tr style="background:${idx%2?'#F8FAFF':'#fff'}">
-      <td>${idx+1}</td>
-      <td><strong>${emp.nome}</strong><br><small style="color:#666">${emp.setor||'—'}</small></td>
-      <td>${posto}</td>
+      <td style="text-align:center">${idx+1}</td>
+      <td style="text-align:center;font-weight:700">${matr}</td>
+      <td><strong>${emp.nome}</strong>${emp.setor?`<br><small style="color:#666">${emp.setor}</small>`:''}</td>
+      <td style="font-size:11px">${posto}</td>
+      <td style="text-align:center;font-size:11px">${periodoCol}</td>
       <td style="text-align:center">${b.dias}</td>
       <td style="text-align:right">${benVT} ${fmtMoney(b.vtValor)}</td>
       <td style="text-align:right">${fmtMoney(b.vrValor)}</td>
       <td style="text-align:right;font-weight:700">${fmtMoney(b.total)}</td>
+      <td style="font-family:monospace;font-size:11px;color:#00695C">${pix}</td>
     </tr>`;
   });
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Benefícios a Pagar — ${periodoLabel}</title>
+  const html = `<!DOCTYPE html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="UTF-8"><title>Benefícios a Pagar — ${periodoLabel}</title>
 <style>
   body{font-family:Arial,sans-serif;padding:16px;color:#212529;font-size:12px}
   h1{color:#0288D1;font-size:18px;margin-bottom:4px}
   .info{font-size:11px;color:#666;margin-bottom:14px}
   table{width:100%;border-collapse:collapse}
   th{background:#0288D1;color:#fff;padding:8px;text-align:left;font-size:11px}
-  td{padding:8px;border-bottom:1px solid #DEE2E6}
+  td{padding:6px 8px;border-bottom:1px solid #DEE2E6}
   tfoot td{background:#E1F5FE;font-weight:700;color:#01579B}
   .tot{font-size:14px;color:#01579B}
-  @media print{ body{padding:8px} h1{font-size:14px} }
+  @media print{ body{padding:8px} h1{font-size:14px} table{font-size:10px} }
 </style></head>
 <body>
-<h1>${_e('nomeEmpresa')} — Benefícios a Pagar</h1>
-<p class="info"><strong>Período:</strong> ${periodoLabel} &middot; ${linhas.length} colaborador(es) &middot; Gerado em ${new Date().toLocaleString('pt-BR')}</p>
+<h1>${_e('nomeEmpresa')} — Planilha de Benefícios a Pagar</h1>
+<p class="info"><strong>Período:</strong> ${periodoLabel} &middot; <strong>${linhas.length}</strong> colaborador(es) &middot; Gerado em ${new Date().toLocaleString('pt-BR')}</p>
 <table>
-  <thead><tr><th>#</th><th>Colaborador</th><th>Posto</th><th style="text-align:center">Dias</th><th style="text-align:right">VT/AM</th><th style="text-align:right">VR</th><th style="text-align:right">Total</th></tr></thead>
+  <thead><tr>
+    <th style="text-align:center">#</th>
+    <th style="text-align:center">Matr.</th>
+    <th>Colaborador</th>
+    <th>Posto</th>
+    <th style="text-align:center">Período</th>
+    <th style="text-align:center">Dias</th>
+    <th style="text-align:right">VT/AM</th>
+    <th style="text-align:right">VR</th>
+    <th style="text-align:right">Total</th>
+    <th>Chave PIX</th>
+  </tr></thead>
   <tbody>${rows}</tbody>
   <tfoot>
     <tr>
-      <td colspan="4" style="text-align:right">TOTAIS</td>
+      <td colspan="6" style="text-align:right">TOTAIS</td>
       <td style="text-align:right">${fmtMoney(totalVT)}</td>
       <td style="text-align:right">${fmtMoney(totalVR)}</td>
       <td class="tot" style="text-align:right">${fmtMoney(total)}</td>
+      <td></td>
     </tr>
   </tfoot>
 </table>
-<p style="margin-top:18px;font-size:10px;color:#888;text-align:center">${_e('nomeEmpresa')} — Sistema DRG-Kronos 3.0</p>
+<p style="margin-top:14px;font-size:11px;color:#555"><strong>Uso:</strong> esta planilha lista os colaboradores com benefícios a serem pagos manualmente (PIX, espécie ou cartão). Use a coluna "Chave PIX" para conferir o destinatário.</p>
+<p style="margin-top:18px;font-size:10px;color:#888;text-align:center">${_e('nomeEmpresa')} — Sistema DRG-Kronos 3.0 &middot; ${linhas.length} colaborador(es)</p>
 </body></html>`;
   _abrirJanelaExport(html, formato, `Beneficios_${tab}_${new Date().toISOString().substring(0,10)}`);
 }
@@ -3432,13 +3466,16 @@ function exportBeneficioDetalhe(formato){
   if(emp.valorDiarioVr){
     rows += `<tr><td><strong>VR — Vale Refeição</strong></td><td style="text-align:center">${ctx.b.vrFreq==='semanal'?'Semanal':'Diária'}</td><td style="text-align:right">${fmtMoney(emp.valorDiarioVr||0)}</td><td style="text-align:right;font-weight:700">${fmtMoney(vr)}</td></tr>`;
   }
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Planilha de Benefícios — ${emp.nome}</title>
+  const matrPdf = emp.registro ? String(emp.registro).padStart(4,'0') : '—';
+  const pixPdf  = emp.chavePix || '—';
+  const html = `<!DOCTYPE html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="UTF-8"><title>Planilha de Benefícios — ${emp.nome}</title>
 <style>
   body{font-family:Arial,sans-serif;padding:16px;color:#212529;font-size:13px}
   h1{color:#0288D1;font-size:18px;margin-bottom:4px}
   h2{color:#1a3a6b;font-size:14px;margin:14px 0 6px}
   .info{font-size:12px;color:#666;margin-bottom:14px;background:#F1F5FF;padding:10px;border-radius:6px}
   .info strong{color:#0D47A1}
+  .pix-box{background:#E0F2F1;border-left:3px solid #00695C;padding:8px 12px;border-radius:4px;font-size:12px;margin-bottom:14px}
   table{width:100%;border-collapse:collapse;margin-bottom:14px}
   th{background:#0288D1;color:#fff;padding:8px;text-align:left;font-size:12px}
   td{padding:8px;border-bottom:1px solid #DEE2E6}
@@ -3451,12 +3488,13 @@ function exportBeneficioDetalhe(formato){
 <h1>${_e('nomeEmpresa')} — Planilha de Benefícios</h1>
 <p style="font-size:11px;color:#666;margin-bottom:8px">CNPJ: ${_e('cnpj')} &middot; ${_e('descricao')}</p>
 <div class="info">
-  <div><strong>Colaborador:</strong> ${emp.nome} &middot; CPF: ${emp.cpf||'—'}</div>
+  <div><strong>Matrícula:</strong> ${matrPdf} &middot; <strong>Colaborador:</strong> ${emp.nome} &middot; <strong>CPF:</strong> ${emp.cpf||'—'}</div>
   <div><strong>Posto:</strong> ${ctx.posto} &middot; <strong>Setor:</strong> ${emp.setor||'—'}</div>
   <div><strong>Escala:</strong> ${escalaLabel(emp.escala||'5x2A')}${emp.turnoNoturno?' (Noturno)':''}</div>
   <div><strong>Período:</strong> ${ctx.periodoLabel}</div>
   <div><strong>Dias trabalhados no período:</strong> ${ctx.b.dias}${ctx.b.semanas>0?` &middot; <strong>Semanas:</strong> ${ctx.b.semanas}`:''}</div>
 </div>
+<div class="pix-box"><strong style="color:#00695C">💸 Chave PIX para pagamento:</strong> <span style="font-family:monospace;font-size:14px">${pixPdf}</span></div>
 <h2>Demonstrativo</h2>
 <table>
   <thead><tr><th>Benefício</th><th style="text-align:center">Frequência</th><th style="text-align:right">Valor Base</th><th style="text-align:right">Valor a Pagar</th></tr></thead>
@@ -3473,22 +3511,32 @@ ${obs?`<div style="background:#FFF9E6;padding:10px;border-left:3px solid #F59E0B
   _abrirJanelaExport(html, formato, `Beneficio_${emp.nome.replace(/\s+/g,'_')}_${new Date().toISOString().substring(0,10)}`);
 }
 
-// Abre nova janela com HTML e dispara print ou força download para PDF
+// Abre nova janela com HTML para imprimir/PDF, ou dispara download .xls
 function _abrirJanelaExport(html, formato, baseName){
+  if(formato === 'excel'){
+    // Gera arquivo .xls (Excel abre HTML como planilha)
+    const blob = new Blob(['﻿' + html], { type: 'application/vnd.ms-excel;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${baseName||'export'}.xls`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast('Planilha .xls gerada!', 'success');
+    return;
+  }
   if(formato === 'pdf'){
-    // PDF via "Salvar como PDF" do navegador na janela de impressão
     const win = window.open('','_blank','width=900,height=700');
     if(!win){ toast('Permita pop-ups para gerar o PDF.','error'); return; }
     win.document.write(html + '<scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt>');
     win.document.close();
     toast('Use "Salvar como PDF" na janela de impressão.', 'info');
-  } else {
-    // Imprimir direto
-    const win = window.open('','_blank','width=900,height=700');
-    if(!win){ toast('Permita pop-ups para imprimir.','error'); return; }
-    win.document.write(html + '<scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt>');
-    win.document.close();
+    return;
   }
+  // print
+  const win = window.open('','_blank','width=900,height=700');
+  if(!win){ toast('Permita pop-ups para imprimir.','error'); return; }
+  win.document.write(html + '<scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt>');
+  win.document.close();
 }
 
 // ============================================

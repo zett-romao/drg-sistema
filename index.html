@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title id="page-title">D.R. Global Multi Services — Sistema de Gestão de Colaboradores</title>
   <link rel="icon" href="logo.png" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20260508x">
+  <link rel="stylesheet" href="styles.css?v=20260508y">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -13,7 +13,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-  <script src="firebase-config.js?v=20260508x"></script>
+  <script src="firebase-config.js?v=20260508y"></script>
 </head>
 <body>
 
@@ -3354,6 +3354,27 @@
   </div>
 </div>
 
+<!-- ===== MODAL: PENDENTES DE REVISAR HE (lista) ===== -->
+<div class="modal-overlay hidden" id="modal-pendentes-he-list" onclick="closeModal('modal-pendentes-he-list', event)">
+  <div class="modal-dialog modal-md">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-magnifying-glass" style="color:#E65100"></i> Pendentes de Revisar HE</h3>
+      <button class="modal-close" onclick="closeModal('modal-pendentes-he-list')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <div id="pendentes-he-info" style="background:#FFF3E0;padding:10px 14px;border-radius:6px;margin-bottom:14px;font-size:13px;color:#E65100"></div>
+      <div class="alert alert-info" style="font-size:12px;margin-bottom:12px">
+        <i class="fa-solid fa-circle-info"></i>
+        <div>Cada colaborador abaixo tem dias com HE acima da tolerância CLT (10min/dia). Clique no nome para abrir o painel de revisão.</div>
+      </div>
+      <div id="pendentes-he-list" style="max-height:60vh;overflow:auto"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-pendentes-he-list')">Fechar</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== MODAL: REVISAR HE DO MÊS ===== -->
 <div class="modal-overlay hidden" id="modal-he-review" onclick="closeModal('modal-he-review', event)">
   <div class="modal-dialog modal-lg">
@@ -3520,6 +3541,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260508x"></script>
+<script src="app.js?v=20260508y"></script>
 </body>
 </html>

@@ -6083,33 +6083,108 @@ function _findNextPendentePayroll(mes, ano, excludeEmpId){
   return null;
 }
 
-// Atalho do Dashboard: vai para Folha de Ponto e abre review do 1º colaborador com pendência
-function _dashGotoHEReview(){
-  const mes = currentMes(), ano = currentAno();
-  const payThisMonth = State.payrolls.filter(p=>p.mes==mes&&p.ano==ano);
-  for(const p of payThisMonth){
+// Constrói a lista detalhada de colaboradores com HE pendente acima da tolerância CLT
+function _getPendentesHEList(mes, ano){
+  const list = [];
+  (State.payrolls||[]).filter(p => p.mes==mes && p.ano==ano).forEach(p => {
     const emp = State.employees.find(e=>e.id===p.employeeId);
-    if(!emp || !p.pontoManualDias) continue;
-    const hasPendente = (p.pontoManualDias||[]).some(d => {
-      if(!d.entrada || !d.saida) return false;
+    if(!emp || !p.pontoManualDias) return;
+    let nDias = 0, totalMin = 0;
+    const detalhes = [];
+    p.pontoManualDias.forEach(d => {
+      if(!d.entrada || !d.saida) return;
       const exp = _getExpectedDay(emp, p.mes, p.ano, d.dia);
-      if(!exp || !exp.entrada) return false;
+      if(!exp || !exp.entrada) return;
       const detec = _detectHEDivergencia(d, exp);
-      return detec.precisaRevisao && (d.heReview?.status||'pendente')==='pendente';
+      if(detec.precisaRevisao && (d.heReview?.status||'pendente')==='pendente'){
+        nDias++;
+        totalMin += detec.totalMin;
+        detalhes.push({ dia: d.dia, totalMin: detec.totalMin, motivos: detec.motivos||[] });
+      }
     });
-    if(hasPendente){
-      showSection('payroll');
-      setTimeout(() => {
-        setVal('payroll-employee', p.employeeId);
-        setVal('payroll-mes', p.mes);
-        setVal('payroll-ano', p.ano);
-        loadPayrollRecord(p.id);
-        setTimeout(openHEReview, 300);
-      }, 100);
-      return;
+    if(nDias > 0){
+      const posto = (State.postos||[]).find(po => po.id===emp.posto)?.razaoSocial || '—';
+      list.push({ emp, posto, payroll: p, nDias, totalMin, detalhes });
     }
+  });
+  list.sort((a,b) => (a.emp.nome||'').localeCompare(b.emp.nome||''));
+  return list;
+}
+
+// Atalho do Dashboard: abre o modal de lista com todos os colaboradores pendentes
+function _dashGotoHEReview(){
+  openPendentesHEList();
+}
+
+// Abre o modal de lista com pendentes de revisar HE
+function openPendentesHEList(){
+  const mes = currentMes(), ano = currentAno();
+  const lista = _getPendentesHEList(mes, ano);
+  const totalDias = lista.reduce((s,l)=>s+l.nDias, 0);
+  const totalMin  = lista.reduce((s,l)=>s+l.totalMin, 0);
+  document.getElementById('pendentes-he-info').innerHTML =
+    `<strong>Período:</strong> ${MESES[mes]}/${ano} &middot; ` +
+    `<strong>${lista.length}</strong> colaborador(es) pendente(s) &middot; ` +
+    `<strong>${totalDias}</strong> dia(s) totais &middot; ` +
+    `<strong>${minutesToStr(totalMin)}</strong> de divergência acumulada`;
+  const listEl = document.getElementById('pendentes-he-list');
+  if(!lista.length){
+    listEl.innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-check" style="color:#1B5E20"></i><p>Nenhuma HE pendente neste mês.</p></div>';
+    document.getElementById('modal-pendentes-he-list').classList.remove('hidden');
+    return;
   }
-  toast('Nenhuma HE pendente encontrada.', 'success');
+  let html = `<table style="width:100%;border-collapse:collapse;font-size:13px">
+    <thead style="background:#F5F7FB;position:sticky;top:0">
+      <tr>
+        <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border)">Colaborador</th>
+        <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border)">Posto</th>
+        <th style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border)">Dias</th>
+        <th style="padding:8px 10px;text-align:right;border-bottom:1px solid var(--border)">Divergência</th>
+        <th style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border)">Ação</th>
+      </tr>
+    </thead>
+    <tbody>`;
+  lista.forEach((l, idx) => {
+    const bg = idx % 2 ? '#FAFBFC' : '#fff';
+    const matr = l.emp.registro ? String(l.emp.registro).padStart(4,'0') : '—';
+    const diasLabel = l.detalhes.map(d => String(d.dia).padStart(2,'0')).join(', ');
+    html += `<tr style="background:${bg};cursor:pointer" onclick="_abrirRevisaoColab('${l.emp.id}','${l.payroll.id}',${mes},${ano})">
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF2F7">
+        <small style="color:var(--text-muted);font-weight:700">${matr}</small><br>
+        <strong style="color:var(--primary)">${l.emp.nome}</strong>
+        ${l.emp.setor?`<br><small style="color:var(--text-muted)">${l.emp.setor}</small>`:''}
+      </td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF2F7;font-size:12px">${l.posto}</td>
+      <td style="padding:8px 10px;text-align:center;border-bottom:1px solid #EEF2F7">
+        <strong style="color:#E65100;font-size:15px">${l.nDias}</strong>
+        <br><small style="color:var(--text-muted)">dia(s): ${diasLabel}</small>
+      </td>
+      <td style="padding:8px 10px;text-align:right;border-bottom:1px solid #EEF2F7">
+        <strong style="color:#E65100">${minutesToStr(l.totalMin)}</strong>
+      </td>
+      <td style="padding:8px 10px;text-align:center;border-bottom:1px solid #EEF2F7">
+        <button class="btn btn-primary" style="font-size:12px;padding:5px 12px;background:#E65100" onclick="event.stopPropagation();_abrirRevisaoColab('${l.emp.id}','${l.payroll.id}',${mes},${ano})">
+          <i class="fa-solid fa-magnifying-glass"></i> Revisar
+        </button>
+      </td>
+    </tr>`;
+  });
+  html += `</tbody></table>`;
+  listEl.innerHTML = html;
+  document.getElementById('modal-pendentes-he-list').classList.remove('hidden');
+}
+
+// Fecha o modal lista e abre a Folha de Ponto + Revisão HE do colaborador escolhido
+function _abrirRevisaoColab(empId, payrollId, mes, ano){
+  closeModal('modal-pendentes-he-list');
+  showSection('payroll');
+  setTimeout(() => {
+    setVal('payroll-employee', empId);
+    setVal('payroll-mes', mes);
+    setVal('payroll-ano', ano);
+    loadPayrollRecord(payrollId);
+    setTimeout(openHEReview, 300);
+  }, 100);
 }
 
 // Abre o modal de revisão de HE para o colaborador/mes/ano selecionados

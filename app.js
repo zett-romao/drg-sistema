@@ -7335,6 +7335,15 @@ function _effectiveMinLiq(realDay, expectedDay, contratosMin){
   return _liq(expectedDay);
 }
 
+// Minutos líquidos trabalhados de um dia (entrada→saída menos intervalo)
+function _liqMin(d){
+  if(!d || !d.entrada || !d.saida) return 0;
+  let mb = timeToMinutes(d.saida) - timeToMinutes(d.entrada);
+  if(mb <= 0) mb += 24*60;
+  const mi = _calcIntervaloMin(d.intIni, d.intFim, d.entrada, d.saida);
+  return Math.max(0, mb - mi);
+}
+
 // Helper: calcula minutos de intervalo, tratando intervalo cross-midnight
 // (ex: intIni 23:30, intFim 00:30 num turno noturno → 60min, antes retornava 0)
 // Só aplica +24h se o turno também cruza meia-noite (evita inflar HE em typos diurnos)
@@ -7557,7 +7566,7 @@ async function savePontoManualRascunho(){
 
 function calcResumoManual(){
   const cards=_getPontoManualCards();
-  let diasTrabalhados=0, faltas=0, totalHEmin=0, pendentes=0;
+  let diasTrabalhados=0, faltas=0, totalHEmin=0, totalAtrasoMin=0, pendentes=0;
   const empId=val('payroll-employee');
   const emp=State.employees.find(e=>e.id===empId);
   const mes=parseInt(val('payroll-mes'));
@@ -7589,6 +7598,11 @@ function calcResumoManual(){
       const expectedDay=emp?_getExpectedDay(emp,mes,ano,dia):null;
       const effLiq=_effectiveMinLiq(realDay,expectedDay,minContratados);
       totalHEmin+=Math.max(0,effLiq-minContratados);
+      // Atraso automático: déficit do dia (trabalhou menos que o previsto), além da tolerância CLT (10min)
+      if(expectedDay && expectedDay.tipo!=='folga' && expectedDay.entrada && expectedDay.saida){
+        const faltaDia=_liqMin(expectedDay)-effLiq;
+        if(faltaDia>HE_TOLERANCIA_DIA_MIN) totalAtrasoMin+=faltaDia;
+      }
       const detec=_detectHEDivergencia(realDay,expectedDay);
       const reviewStatus=realDay.heReview?.status||'pendente';
       if(detec.precisaRevisao && reviewStatus==='pendente') pendentes++;
@@ -7598,10 +7612,12 @@ function calcResumoManual(){
   const diasEl=document.getElementById('ponto-resumo-dias');
   const faltasEl=document.getElementById('ponto-resumo-faltas');
   const heEl=document.getElementById('ponto-resumo-he');
+  const atrasoEl=document.getElementById('ponto-resumo-atraso');
   const pendEl=document.getElementById('ponto-resumo-he-pendente');
   if(diasEl)   diasEl.textContent=diasTrabalhados;
   if(faltasEl) faltasEl.textContent=faltas;
   if(heEl)     heEl.textContent=totalHEmin>0?minutesToStr(totalHEmin):'0h';
+  if(atrasoEl) atrasoEl.textContent=totalAtrasoMin>0?minutesToStr(totalAtrasoMin):'0h';
   if(pendEl){
     if(pendentes>0){
       pendEl.style.display='';
@@ -8094,7 +8110,7 @@ function _updateHEReviewBadge(card, detec, heReview){
 
 async function applyPontoManual(){
   const cards=_getPontoManualCards();
-  let diasTrabalhados=0, faltas=0, totalHEmin=0;
+  let diasTrabalhados=0, faltas=0, totalHEmin=0, totalAtrasoMin=0;
   const empId=val('payroll-employee');
   const emp=State.employees.find(e=>e.id===empId);
   const mes=parseInt(val('payroll-mes')||currentMes());
@@ -8121,6 +8137,11 @@ async function applyPontoManual(){
       const expectedDay=emp?_getExpectedDay(emp,mes,ano,dia):null;
       const effLiq=_effectiveMinLiq(realDay,expectedDay,minContratados);
       totalHEmin+=Math.max(0,effLiq-minContratados);
+      // Atraso automático: déficit do dia além da tolerância CLT (10min)
+      if(expectedDay && expectedDay.tipo!=='folga' && expectedDay.entrada && expectedDay.saida){
+        const faltaDia=_liqMin(expectedDay)-effLiq;
+        if(faltaDia>HE_TOLERANCIA_DIA_MIN) totalAtrasoMin+=faltaDia;
+      }
     } else if(!isWeekend&&!is12x36&&!entrada&&!saida) faltas++;
   });
   // Salva horários no Firebase antes de aplicar
@@ -8137,9 +8158,10 @@ async function applyPontoManual(){
   setVal('payroll-faltas-injustificadas',faltas);
   setVal('payroll-faltas-justificadas',0);
   if(totalHEmin>0) setVal('payroll-he-total',(totalHEmin/60).toFixed(2));
+  setVal('payroll-atraso-min', totalAtrasoMin>0 ? totalAtrasoMin : '');
   recalculate();
   closeModal('modal-ponto-manual');
-  toast(`Aplicado: ${diasTrabalhados} dias trabalhados / ${faltas} falta(s)${totalHEmin>0?' / '+minutesToStr(totalHEmin)+' HE':''}.`);
+  toast(`Aplicado: ${diasTrabalhados} dias trabalhados / ${faltas} falta(s)${totalHEmin>0?' / '+minutesToStr(totalHEmin)+' HE':''}${totalAtrasoMin>0?' / '+minutesToStr(totalAtrasoMin)+' atraso':''}.`);
 }
 
 // ============================================

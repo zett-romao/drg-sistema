@@ -3103,7 +3103,7 @@ function onPayrollEmployeeChange(){
 function _resetPayrollFieldsOnly(){
   ['payroll-dias','payroll-faltas','payroll-faltas-justificadas','payroll-faltas-injustificadas',
    'payroll-remuneracao','payroll-vt-total','payroll-vr-total','payroll-va-total','payroll-va-liquido',
-   'payroll-bonus','payroll-adiantamento-valor','payroll-atraso-min','payroll-desconto-atraso',
+   'payroll-bonus','payroll-adiantamento-valor','payroll-atraso-min','payroll-desconto-atraso','payroll-atraso-justificativa',
    'payroll-acumulo','payroll-insalubridade','payroll-horas-liquidas','payroll-horas-extras-dia',
    'payroll-he-total','payroll-he-valor','payroll-he-corrido-min','payroll-he-corrido-detalhe',
    'payroll-he-corrido-valor','payroll-outros-proventos','payroll-outros-descontos',
@@ -3114,6 +3114,8 @@ function _resetPayrollFieldsOnly(){
   setVal('payroll-adiantamento-perc','40');
   setVal('payroll-he-perc','50');
   setVal('payroll-he-destino','folha');
+  setVal('payroll-atraso-tipo','imotivado');
+  const _abChk=document.getElementById('payroll-atraso-abonado'); if(_abChk) _abChk.checked=false;
 }
 
 function calcAdNoturno(salarioBase, dias){
@@ -3814,9 +3816,22 @@ function recalculate(){
 
   // Atrasos em minutos (campo opcional)
   const minutosAtraso = numVal('payroll-atraso-min')||0;
-  // Tolerância CLT: até 10 min/dia total — se ultrapassar, desconta tudo
-  const descontoAtraso = minutosAtraso>0 ? minutosAtraso*valorMinuto : 0;
+  // Abono de atraso: se abonado, registra mas não desconta do salário
+  const atrasoAbonado = !!document.getElementById('payroll-atraso-abonado')?.checked;
+  // Tolerância CLT: até 10 min/dia total — se ultrapassar, desconta tudo (exceto se abonado)
+  const descontoAtraso = (minutosAtraso>0 && !atrasoAbonado) ? minutosAtraso*valorMinuto : 0;
   setVal('payroll-desconto-atraso', descontoAtraso>0 ? descontoAtraso.toFixed(2) : '0.00');
+  // Nota visual do abono
+  const atrasoNote = document.getElementById('atraso-abono-note');
+  if(atrasoNote){
+    if(minutosAtraso>0 && atrasoAbonado){
+      const tipoTxt = (val('payroll-atraso-tipo')==='motivado') ? 'motivado' : 'imotivado';
+      atrasoNote.style.display='';
+      atrasoNote.innerHTML=`<i class="fa-solid fa-handshake-angle"></i> Atraso de <strong>${minutosAtraso} min</strong> (${tipoTxt}) <strong>abonado</strong> — não será descontado do salário.`;
+    } else {
+      atrasoNote.style.display='none';
+    }
+  }
 
   // Remuneração líquida base = salário - descontos de faltas - descontos de atraso
   const remuneracaoBase = Math.max(0, salBase - descontoFaltasInj - descontoFaltasJust - descontoAtraso);
@@ -4132,6 +4147,9 @@ function loadPayrollRecord(id){
   setVal('payroll-insalubridade',p.insalubridade||'');
   setVal('payroll-atraso-min',p.minutosAtraso||'');
   setVal('payroll-desconto-atraso',p.descontoAtraso||'');
+  setVal('payroll-atraso-tipo',p.atrasoTipo||'imotivado');
+  const _atrChk=document.getElementById('payroll-atraso-abonado'); if(_atrChk) _atrChk.checked=!!p.atrasoAbonado;
+  setVal('payroll-atraso-justificativa',p.atrasoJustificativa||'');
   setVal('payroll-adiantamento-ativo',p.adiantamentoAtivo?'sim':'nao');
   setVal('payroll-adiantamento-perc',p.adiantamentoPerc||40);
   setVal('payroll-adiantamento-valor',p.adiantamentoValor||'');
@@ -4218,6 +4236,9 @@ async function savePayroll(){
     insalubridade:numVal('payroll-insalubridade')||0,
     minutosAtraso:numVal('payroll-atraso-min')||0,
     descontoAtraso:numVal('payroll-desconto-atraso')||0,
+    atrasoTipo:val('payroll-atraso-tipo')||'imotivado',
+    atrasoAbonado:!!document.getElementById('payroll-atraso-abonado')?.checked,
+    atrasoJustificativa:val('payroll-atraso-justificativa')||'',
     adiantamentoAtivo:val('payroll-adiantamento-ativo')==='sim',
     adiantamentoPerc:parseInt(val('payroll-adiantamento-perc')||'40'),
     adiantamentoValor:val('payroll-adiantamento-ativo')==='sim'?numVal('payroll-adiantamento-valor'):0,
@@ -4281,7 +4302,7 @@ function clearPayrollForm(){
    'payroll-remuneracao','payroll-vt-dia','payroll-vt-total',
    'payroll-vr-dia','payroll-vr-total','payroll-va-total','payroll-va-liquido',
    'payroll-bonus','payroll-noturno','payroll-adiantamento-valor',
-   'payroll-atraso-min','payroll-desconto-atraso',
+   'payroll-atraso-min','payroll-desconto-atraso','payroll-atraso-justificativa',
    'payroll-entrada','payroll-saida','payroll-intervalo-inicio','payroll-intervalo-fim',
    'payroll-horas-liquidas','payroll-horas-extras-dia','payroll-he-total','payroll-he-valor',
    'payroll-he-corrido-min','payroll-he-corrido-detalhe','payroll-he-corrido-valor']
@@ -4290,6 +4311,8 @@ function clearPayrollForm(){
   setVal('payroll-adiantamento-perc','40');
   setVal('payroll-he-perc','50');
   setVal('payroll-he-destino','folha');
+  setVal('payroll-atraso-tipo','imotivado');
+  const _abChk2=document.getElementById('payroll-atraso-abonado'); if(_abChk2) _abChk2.checked=false;
   clearPdf(null,true); recalculate();
 }
 
@@ -5124,7 +5147,8 @@ function _lockPayrollForm(isLocked){
   const editIds=['payroll-dias','payroll-faltas-justificadas','payroll-faltas-injustificadas',
     'payroll-remuneracao','payroll-vt-dia','payroll-vt-total','payroll-vr-dia','payroll-vr-total',
     'payroll-va-total','payroll-va-liquido','payroll-bonus','payroll-noturno','payroll-acumulo',
-    'payroll-insalubridade','payroll-atraso-min','payroll-desconto-atraso','payroll-adiantamento-ativo',
+    'payroll-insalubridade','payroll-atraso-min','payroll-desconto-atraso',
+    'payroll-atraso-tipo','payroll-atraso-justificativa','payroll-atraso-abonado','payroll-adiantamento-ativo',
     'payroll-adiantamento-perc','payroll-adiantamento-valor','payroll-entrada','payroll-saida',
     'payroll-intervalo-inicio','payroll-intervalo-fim','payroll-he-total','payroll-he-perc',
     'payroll-he-valor','pdf-input'];
@@ -8211,6 +8235,10 @@ function printFolhaPonto(isPreview=false){
   const insalubridade=numVal('payroll-insalubridade')||0;
   const adiantamento=numVal('payroll-adiantamento-valor')||0;
   const descontoAtraso=numVal('payroll-desconto-atraso')||0;
+  const minutosAtraso=numVal('payroll-atraso-min')||0;
+  const atrasoAbonado=!!document.getElementById('payroll-atraso-abonado')?.checked;
+  const atrasoTipo=val('payroll-atraso-tipo')||'imotivado';
+  const atrasoJustificativa=val('payroll-atraso-justificativa')||'';
   const totalLiquido=remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade+bonificacao+vtTotal+vrTotal+vaLiquido-adiantamento-descontoAtraso;
 
   // Posto do colaborador
@@ -8375,7 +8403,7 @@ ${isPreview?`<div class="preview-banner">
     ${vtTotal>0?`<tr><td class="fin-label">Vale Transporte</td><td class="fin-value">${fmtMoney(vtTotal)}</td></tr>`:''}
     ${vrTotal>0?`<tr><td class="fin-label">Vale Refeição</td><td class="fin-value">${fmtMoney(vrTotal)}</td></tr>`:''}
     ${vaLiquido>0?`<tr><td class="fin-label">Vale Alimentação</td><td class="fin-value">${fmtMoney(vaLiquido)}</td></tr>`:''}
-    ${descontoAtraso>0?`<tr><td class="fin-label">Desconto Atraso</td><td class="fin-value" style="color:#c0392b">${fmtMoney(descontoAtraso)}</td></tr>`:''}
+    ${minutosAtraso>0?`<tr><td class="fin-label">${atrasoAbonado?'Atraso Abonado':'Desconto Atraso'} — ${minutosAtraso} min (${atrasoTipo==='motivado'?'motivado':'imotivado'})${atrasoJustificativa?` <small style="color:#666">&middot; ${atrasoJustificativa}</small>`:''}</td><td class="fin-value" style="color:${atrasoAbonado?'#2E7D32':'#c0392b'}">${atrasoAbonado?'R$ 0,00':fmtMoney(descontoAtraso)}</td></tr>`:''}
     ${adiantamento>0?`<tr><td class="fin-label">Adiantamento (${numVal('payroll-adiantamento-perc')||40}%)</td><td class="fin-value" style="color:#c0392b">${fmtMoney(adiantamento)}</td></tr>`:''}
     <tr class="fin-total"><td class="fin-label" style="color:#fff">TOTAL LÍQUIDO A RECEBER</td><td class="fin-value" style="color:#fff">${fmtMoney(totalLiquido)}</td></tr>
   </table>
@@ -8444,6 +8472,10 @@ function _buildFolhaHtmlFromRecord(emp, p){
   const adiantamento    = p.adiantamentoValor||0;
   const adiantamentoPerc= p.adiantamentoPerc||40;
   const descontoAtraso  = p.descontoAtraso||0;
+  const minutosAtraso   = p.minutosAtraso||0;
+  const atrasoAbonado   = !!p.atrasoAbonado;
+  const atrasoTipo      = p.atrasoTipo||'imotivado';
+  const atrasoJustificativa = p.atrasoJustificativa||'';
   // Encargos legais (salvos a partir da v2026-05-08; fallback zero para registros antigos)
   const inssVal         = p.inss||0;
   const irrfVal         = p.irrf||0;
@@ -8607,7 +8639,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
       ${irrfVal>0?`<tr><td class="fin-label">IRRF</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(irrfVal)})</td></tr>`:''}
       ${pensaoVal>0?`<tr><td class="fin-label">Pensão Alimentícia</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(pensaoVal)})</td></tr>`:''}
       ${planoSaudeVal>0?`<tr><td class="fin-label">Plano de Saúde</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(planoSaudeVal)})</td></tr>`:''}
-      ${descontoAtraso>0?`<tr><td class="fin-label">Desconto Atraso</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(descontoAtraso)})</td></tr>`:''}
+      ${minutosAtraso>0?`<tr><td class="fin-label">${atrasoAbonado?'Atraso Abonado':'Desconto Atraso'} — ${minutosAtraso} min (${atrasoTipo==='motivado'?'motivado':'imotivado'})${atrasoJustificativa?` <small style="color:#666">&middot; ${atrasoJustificativa}</small>`:''}</td><td class="fin-value" style="color:${atrasoAbonado?'#2E7D32':'#c0392b'}">${atrasoAbonado?'R$ 0,00':`(${fmtMoney(descontoAtraso)})`}</td></tr>`:''}
       ${adiantamento>0?`<tr><td class="fin-label">Adiantamento (${adiantamentoPerc}%)</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(adiantamento)})</td></tr>`:''}
       ${outrosDescVal>0?`<tr><td class="fin-label">Outros Descontos</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(outrosDescVal)})</td></tr>`:''}
     </table>

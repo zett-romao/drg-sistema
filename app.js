@@ -13,7 +13,7 @@ const APP_VERSION = 'DRG-Kronos 3.0';
 // ============================================
 // ASAAS — URL do Worker proxy (Cloudflare)
 // ============================================
-const ASAAS_WORKER = 'https://drg-rently-asaas.zett-romao.workers.dev';
+const ASAAS_WORKER = 'https://drg-asaas.zett-romao.workers.dev';
 
 // ============================================
 // MÓDULO DB — CAMADA FIRESTORE
@@ -5386,6 +5386,18 @@ function openAdmCobranca(tenantId) {
   document.getElementById('modal-adm-cobranca').classList.remove('hidden');
 }
 
+function setAdmCobrancaTipo(modo) {
+  setVal('adm-mc-modo', modo);
+  const btnA = document.getElementById('adm-mc-btn-avulsa');
+  const btnR = document.getElementById('adm-mc-btn-recorrente');
+  if (btnA) { btnA.style.background = modo==='avulsa' ? '#1a3a6b' : '#f4f6fa'; btnA.style.color = modo==='avulsa' ? '#fff' : '#555'; }
+  if (btnR) { btnR.style.background = modo==='recorrente' ? '#2e7d32' : '#f4f6fa'; btnR.style.color = modo==='recorrente' ? '#fff' : '#555'; }
+  const cicloRow = document.getElementById('adm-mc-ciclo-row');
+  if (cicloRow) cicloRow.style.display = modo==='recorrente' ? '' : 'none';
+  const vencLabel = document.getElementById('adm-mc-venc-label');
+  if (vencLabel) vencLabel.textContent = modo==='recorrente' ? '1ª cobrança em *' : 'Vencimento *';
+}
+
 async function executarAdmCobranca() {
   const tenantId  = val('adm-mc-tenant-id');
   const t         = _admTenants.find(x => x.id === tenantId);
@@ -5394,6 +5406,8 @@ async function executarAdmCobranca() {
   const descricao = val('adm-mc-descricao').trim();
   const tipo      = val('adm-mc-tipo');
   const email     = val('adm-mc-email').trim();
+  const modo      = val('adm-mc-modo') || 'avulsa';
+  const ciclo     = val('adm-mc-ciclo') || 'MONTHLY';
 
   if (!valor || !venc) { toast('Preencha valor e vencimento.','warning'); return; }
 
@@ -5421,23 +5435,40 @@ async function executarAdmCobranca() {
     }
     if (email) { await _admTenantRef(tenantId).set({ email }, {merge:true}); if (t) t.email = email; }
 
-    // 2. Criar cobrança
-    const cob = await _asaasPost('/payments', {
-      customer: customerId, billingType: tipo,
-      value: valor, dueDate: venc,
-      description: descricao, externalReference: tenantId,
-    });
+    // 2. Criar cobrança avulsa (/payments) ou assinatura recorrente (/subscriptions)
+    let cob;
+    if (modo === 'recorrente') {
+      cob = await _asaasPost('/subscriptions', {
+        customer: customerId, billingType: tipo,
+        value: valor, nextDueDate: venc,
+        cycle: ciclo,
+        description: descricao, externalReference: tenantId,
+      });
+    } else {
+      cob = await _asaasPost('/payments', {
+        customer: customerId, billingType: tipo,
+        value: valor, dueDate: venc,
+        description: descricao, externalReference: tenantId,
+      });
+    }
+
+    const cobId     = cob.id;
+    const cobStatus = cob.status;
+    const link      = cob.invoiceUrl || cob.bankSlipUrl || '';
 
     // 3. Registrar histórico
     const cobrancas = [...(t?.cobrancas || [])];
-    cobrancas.unshift({ id: cob.id, valor, vencimento: venc, descricao, tipo,
-      status: cob.status, criadoEm: new Date().toISOString(),
-      invoiceUrl: cob.invoiceUrl || null, bankSlipUrl: cob.bankSlipUrl || null });
+    cobrancas.unshift({
+      id: cobId, valor, vencimento: venc, descricao, tipo,
+      status: cobStatus, criadoEm: new Date().toISOString(),
+      modo, ciclo: modo==='recorrente' ? ciclo : undefined,
+      invoiceUrl: cob.invoiceUrl || null, bankSlipUrl: cob.bankSlipUrl || null,
+    });
     await _admTenantRef(tenantId).set({ cobrancas: cobrancas.slice(0,50) }, {merge:true});
     if (t) t.cobrancas = cobrancas;
 
     // 4. Resultado
-    const link = cob.invoiceUrl || cob.bankSlipUrl || '';
+    const cicloLabels = { MONTHLY:'Mensal', QUARTERLY:'Trimestral', SEMIANNUALLY:'Semestral', YEARLY:'Anual' };
     const wNum = (t?.telefone || '').replace(/\D/g,'');
     const wMsg = encodeURIComponent(`Olá ${t?.nome}!\n\nLink de pagamento DRG-Kronos:\n${link}\n\nValor: ${fmtMoney(valor)} | Venc.: ${venc.split('-').reverse().join('/')}\n\nObrigado!`);
     const whatsUrl = wNum ? `https://wa.me/55${wNum}?text=${wMsg}` : `https://wa.me/?text=${wMsg}`;
@@ -5445,8 +5476,8 @@ async function executarAdmCobranca() {
     const resEl = document.getElementById('adm-mc-resultado');
     resEl.style.display = 'block';
     resEl.innerHTML = `<div style="background:#e8f5e9;border:1px solid #a5d6a7;border-radius:9px;padding:14px;font-size:13px">
-      <strong style="color:#2e7d32"><i class="fa-solid fa-circle-check"></i> Cobrança gerada!</strong><br>
-      <span style="color:#555">ID: <code>${cob.id}</code> | Status: ${cob.status}</span>
+      <strong style="color:#2e7d32"><i class="fa-solid fa-circle-check"></i> ${modo==='recorrente' ? 'Assinatura criada!' : 'Cobrança gerada!'}</strong><br>
+      <span style="color:#555">ID: <code>${cobId}</code> | Status: ${cobStatus}${modo==='recorrente' ? ` | ${cicloLabels[ciclo]||ciclo}` : ''}</span>
       ${link ? `<br><input type="text" value="${link}" readonly style="width:100%;margin-top:8px;padding:6px 10px;border:1px solid #ccc;border-radius:6px;font-size:12px;font-family:monospace" onclick="this.select()">` : ''}
       <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
         ${link ? `<button onclick="navigator.clipboard.writeText('${link}').then(()=>toast('Link copiado!','success'))" class="btn btn-primary btn-sm"><i class="fa-solid fa-copy"></i> Copiar Link</button>` : ''}
@@ -5455,7 +5486,7 @@ async function executarAdmCobranca() {
     </div>`;
     btn.style.display = 'none';
     renderAdminFaturamento();
-    toast('Cobrança gerada com sucesso!', 'success');
+    toast(modo==='recorrente' ? 'Assinatura criada com sucesso!' : 'Cobrança gerada com sucesso!', 'success');
 
   } catch(e) {
     const resEl = document.getElementById('adm-mc-resultado');

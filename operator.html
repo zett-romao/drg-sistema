@@ -345,6 +345,7 @@
     </div>
     <div class="modal-body" style="max-height:78vh;overflow-y:auto">
       <input type="hidden" id="mc-tenant-id">
+      <input type="hidden" id="mc-modo" value="avulsa">
       <div class="alert alert-info" style="margin-bottom:14px;display:flex;gap:10px;align-items:flex-start">
         <i class="fa-solid fa-building" style="margin-top:2px"></i>
         <div>
@@ -352,13 +353,24 @@
           <span style="font-size:12px;color:#555">CNPJ: <span id="mc-tenant-cnpj"></span></span>
         </div>
       </div>
+      <!-- Tipo: Avulsa ou Recorrente -->
+      <div style="display:flex;gap:0;margin-bottom:14px;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden">
+        <button id="mc-btn-avulsa" onclick="setCobrancaTipo('avulsa')"
+          style="flex:1;padding:9px;border:none;cursor:pointer;font-size:13px;font-weight:600;background:#1a3a6b;color:#fff">
+          <i class="fa-solid fa-file-invoice"></i> Avulsa
+        </button>
+        <button id="mc-btn-recorrente" onclick="setCobrancaTipo('recorrente')"
+          style="flex:1;padding:9px;border:none;cursor:pointer;font-size:13px;font-weight:600;background:#f4f6fa;color:#555">
+          <i class="fa-solid fa-rotate"></i> Recorrente (Assinatura)
+        </button>
+      </div>
       <div class="form-row">
         <div class="form-group">
           <label>Valor (R$) *</label>
           <input type="number" id="mc-valor" placeholder="297.00" step="0.01" min="0">
         </div>
         <div class="form-group">
-          <label>Vencimento *</label>
+          <label id="mc-venc-label">Vencimento *</label>
           <input type="date" id="mc-vencimento">
         </div>
       </div>
@@ -370,6 +382,17 @@
             <option value="BOLETO">Boleto Bancário</option>
           </select>
         </div>
+        <div class="form-group" id="mc-ciclo-row" style="display:none">
+          <label>Ciclo de cobrança</label>
+          <select id="mc-ciclo">
+            <option value="MONTHLY">Mensal</option>
+            <option value="QUARTERLY">Trimestral</option>
+            <option value="SEMIANNUALLY">Semestral</option>
+            <option value="YEARLY">Anual</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
         <div class="form-group">
           <label>E-mail do cliente (para notificação)</label>
           <input type="email" id="mc-email" placeholder="financeiro@empresa.com">
@@ -898,7 +921,7 @@ function setRedBorderFavicon() {
 }
 
 // ─── ASAAS INTEGRATION ───────────────────────────────────────────────────────
-const ASAAS_WORKER = 'https://drg-rently-asaas.zett-romao.workers.dev';
+const ASAAS_WORKER = 'https://drg-asaas.zett-romao.workers.dev';
 
 async function _asaasReq(method, path, body) {
   const opts = {
@@ -1028,6 +1051,18 @@ function _renderHistoricoCobrancas(t) {
   }).join('');
 }
 
+function setCobrancaTipo(modo) {
+  document.getElementById('mc-modo').value = modo;
+  const btnA = document.getElementById('mc-btn-avulsa');
+  const btnR = document.getElementById('mc-btn-recorrente');
+  if (btnA) { btnA.style.background = modo==='avulsa' ? '#1a3a6b' : '#f4f6fa'; btnA.style.color = modo==='avulsa' ? '#fff' : '#555'; }
+  if (btnR) { btnR.style.background = modo==='recorrente' ? '#2e7d32' : '#f4f6fa'; btnR.style.color = modo==='recorrente' ? '#fff' : '#555'; }
+  const cicloRow = document.getElementById('mc-ciclo-row');
+  if (cicloRow) cicloRow.style.display = modo==='recorrente' ? '' : 'none';
+  const vencLabel = document.getElementById('mc-venc-label');
+  if (vencLabel) vencLabel.textContent = modo==='recorrente' ? '1ª cobrança em *' : 'Vencimento *';
+}
+
 async function executarCobranca() {
   const tenantId  = document.getElementById('mc-tenant-id').value;
   const t         = _tenants.find(x => x.id === tenantId);
@@ -1036,6 +1071,8 @@ async function executarCobranca() {
   const descricao = document.getElementById('mc-descricao').value.trim();
   const tipo      = document.getElementById('mc-tipo').value;
   const email     = document.getElementById('mc-email').value.trim();
+  const modo      = document.getElementById('mc-modo').value || 'avulsa';
+  const ciclo     = document.getElementById('mc-ciclo').value || 'MONTHLY';
 
   if (!valor)  { alert('Informe o valor da cobrança.'); return; }
   if (!venc)   { alert('Informe a data de vencimento.'); return; }
@@ -1066,39 +1103,50 @@ async function executarCobranca() {
         });
         customerId = cli.id;
       }
-      // Salva customerId no tenant
       await tenantRef(tenantId).set({ asaasCustomerId: customerId }, { merge: true });
       if (t) t.asaasCustomerId = customerId;
     }
 
-    // Atualiza email se informado
     if (email) {
       await tenantRef(tenantId).set({ email }, { merge: true });
       if (t) t.email = email;
     }
 
-    // 2. Criar cobrança
-    const cob = await _asaasPost('/payments', {
-      customer:          customerId,
-      billingType:       tipo,
-      value:             valor,
-      dueDate:           venc,
-      description:       descricao,
-      externalReference: tenantId,
-    });
+    // 2. Criar cobrança avulsa ou assinatura recorrente
+    let cob;
+    if (modo === 'recorrente') {
+      cob = await _asaasPost('/subscriptions', {
+        customer: customerId, billingType: tipo,
+        value: valor, nextDueDate: venc,
+        cycle: ciclo,
+        description: descricao, externalReference: tenantId,
+      });
+    } else {
+      cob = await _asaasPost('/payments', {
+        customer:          customerId,
+        billingType:       tipo,
+        value:             valor,
+        dueDate:           venc,
+        description:       descricao,
+        externalReference: tenantId,
+      });
+    }
 
     // 3. Registrar no histórico do tenant
-    const cobrancas = t?.cobrancas || [];
+    const cicloLabels = { MONTHLY:'Mensal', QUARTERLY:'Trimestral', SEMIANNUALLY:'Semestral', YEARLY:'Anual' };
+    const cobrancas = [...(t?.cobrancas || [])];
     cobrancas.unshift({
-      id:         cob.id,
+      id:          cob.id,
       valor,
-      vencimento: venc,
+      vencimento:  venc,
       descricao,
       tipo,
-      status:     cob.status,
-      criadoEm:   new Date().toISOString(),
-      invoiceUrl: cob.invoiceUrl || null,
-      bankSlipUrl:cob.bankSlipUrl || null,
+      status:      cob.status,
+      criadoEm:    new Date().toISOString(),
+      modo,
+      ciclo:       modo==='recorrente' ? ciclo : undefined,
+      invoiceUrl:  cob.invoiceUrl || null,
+      bankSlipUrl: cob.bankSlipUrl || null,
     });
     await tenantRef(tenantId).set({ cobrancas: cobrancas.slice(0, 50) }, { merge: true });
     if (t) t.cobrancas = cobrancas;
@@ -1122,11 +1170,11 @@ async function executarCobranca() {
     resEl.innerHTML = `
       <div style="background:#e8f5e9;border:1px solid #a5d6a7;border-radius:9px;padding:16px;font-size:13px">
         <div style="font-weight:700;color:#2e7d32;margin-bottom:10px">
-          <i class="fa-solid fa-circle-check"></i> Cobrança gerada com sucesso!
+          <i class="fa-solid fa-circle-check"></i> ${modo==='recorrente' ? 'Assinatura criada com sucesso!' : 'Cobrança gerada com sucesso!'}
         </div>
         <div style="margin-bottom:3px"><strong>ID Asaas:</strong> <code style="background:#f0f9f0;padding:2px 6px;border-radius:4px;font-size:12px">${cob.id}</code></div>
-        <div style="margin-bottom:3px"><strong>Status:</strong> ${cob.status}</div>
-        <div style="margin-bottom:3px"><strong>Valor:</strong> R$ ${valor.toLocaleString('pt-BR',{minimumFractionDigits:2})} &nbsp;|&nbsp; <strong>Venc.:</strong> ${venc.split('-').reverse().join('/')}</div>
+        <div style="margin-bottom:3px"><strong>Status:</strong> ${cob.status}${modo==='recorrente' ? ` &nbsp;|&nbsp; <strong>Ciclo:</strong> ${cicloLabels[ciclo]||ciclo}` : ''}</div>
+        <div style="margin-bottom:3px"><strong>Valor:</strong> R$ ${valor.toLocaleString('pt-BR',{minimumFractionDigits:2})} &nbsp;|&nbsp; <strong>${modo==='recorrente'?'1ª cobrança':'Venc.'}</strong>: ${venc.split('-').reverse().join('/')}</div>
         ${link ? `
         <div style="margin-top:10px;margin-bottom:12px">
           <strong>Link de pagamento:</strong><br>

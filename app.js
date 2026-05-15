@@ -5812,8 +5812,8 @@ function _calcRescisao(r){
   o.pensao=parseFloat(r.pensao)||0;
   o.adiantamentos=parseFloat(r.adiantamentos)||0;
   o.avisoDescontado=parseFloat(r.avisoDescontado)||0;
-  o.outrosDescontos=parseFloat(r.outrosDescontos)||0;
-  o.outrasVerbas=parseFloat(r.outrasVerbas)||0;
+  o.outrosDescontos=_somaRescItens(r.outrosDescontos);
+  o.outrasVerbas=_somaRescItens(r.outrasVerbas);
   // Totais — verbas em dinheiro (a multa do FGTS vai para a conta vinculada / saque)
   o.totalVerbas=o.saldoSalario+o.avisoValor+o.decimo+o.feriasVenc+o.feriasProp+o.indenizAdic+o.outrasVerbas;
   o.totalDescontos=o.inss+o.irrf+o.pensao+o.adiantamentos+o.avisoDescontado+o.outrosDescontos;
@@ -5822,6 +5822,47 @@ function _calcRescisao(r){
   const prazo=new Date(dem); prazo.setDate(prazo.getDate()+10);
   o.prazoPagamento=`${String(prazo.getDate()).padStart(2,'0')}/${String(prazo.getMonth()+1).padStart(2,'0')}/${prazo.getFullYear()}`;
   return o;
+}
+
+// --- Listas dinâmicas de verbas/descontos da rescisão ---
+function _somaRescItens(v){
+  if(Array.isArray(v)) return v.reduce((s,i)=>s+(parseFloat(i.valor)||0),0);
+  return parseFloat(v)||0;
+}
+function _rescItemRowHtml(descricao, valor){
+  return `<div class="outro-item-row">
+    <input type="text" placeholder="Descrição (ex: comissão, vale, mensalidade...)" value="${(descricao||'').replace(/"/g,'&quot;')}">
+    <input type="number" placeholder="0,00" min="0" step="0.01" value="${valor||''}" oninput="recalcRescisaoModal()">
+    <button type="button" class="btn-icon btn-danger-icon" onclick="removeRescItem(this)" title="Remover"><i class="fa-solid fa-xmark"></i></button>
+  </div>`;
+}
+function renderRescItens(key, items){
+  const c=document.getElementById('resc-'+key+'-list'); if(!c) return;
+  let arr=items;
+  if(!Array.isArray(arr)) arr=(parseFloat(items)>0)?[{descricao:'',valor:parseFloat(items)}]:[];
+  c.innerHTML=arr.map(it=>_rescItemRowHtml(it.descricao,it.valor)).join('');
+}
+function addRescItem(key){
+  const c=document.getElementById('resc-'+key+'-list'); if(!c) return;
+  const wrap=document.createElement('div');
+  wrap.innerHTML=_rescItemRowHtml('','');
+  const row=wrap.firstElementChild;
+  c.appendChild(row);
+  row.querySelector('input[type="text"]')?.focus();
+}
+function removeRescItem(btn){
+  const row=btn.closest('.outro-item-row');
+  if(row) row.remove();
+  recalcRescisaoModal();
+}
+function collectRescItens(key){
+  const c=document.getElementById('resc-'+key+'-list'); if(!c) return [];
+  return Array.from(c.querySelectorAll('.outro-item-row')).map(row=>{
+    const ins=row.querySelectorAll('input');
+    const descricao=(ins[0]?.value||'').trim();
+    const valor=parseFloat(ins[1]?.value)||0;
+    return (descricao||valor)?{descricao,valor}:null;
+  }).filter(Boolean);
 }
 
 // Monta o objeto de rescisão a partir dos campos do modal
@@ -5840,10 +5881,8 @@ function _rescisaoFromModal(){
     pensao:numVal('resc-pensao'),
     adiantamentos:numVal('resc-adiantamentos'),
     avisoDescontado:numVal('resc-aviso-descontado'),
-    outrasVerbas:numVal('resc-outras-verbas'),
-    outrasVerbasDesc:val('resc-outras-verbas-desc'),
-    outrosDescontos:numVal('resc-outros-descontos'),
-    outrosDescontosDesc:val('resc-outros-descontos-desc'),
+    outrasVerbas:collectRescItens('verbas'),
+    outrosDescontos:collectRescItens('descontos'),
     pago:!!document.getElementById('resc-pago')?.checked,
     observacoes:val('resc-observacoes')
   };
@@ -5907,11 +5946,12 @@ function openRescisaoModal(id){
   const titleEl=document.getElementById('modal-rescisao-title');
   // Reset
   ['resc-id','resc-data-demissao','resc-ferias-venc-dias','resc-saldo-fgts',
-   'resc-pensao','resc-adiantamentos','resc-aviso-descontado','resc-outras-verbas',
-   'resc-outras-verbas-desc','resc-outros-descontos','resc-outros-descontos-desc',
+   'resc-pensao','resc-adiantamentos','resc-aviso-descontado',
    'resc-observacoes'].forEach(f=>setVal(f,''));
   setVal('resc-tipo','sem_justa_causa');
   setVal('resc-aviso-tipo','indenizado');
+  renderRescItens('verbas',[]);
+  renderRescItens('descontos',[]);
   const indChk=document.getElementById('resc-indeniz-adic'); if(indChk) indChk.checked=false;
   const pagoChk=document.getElementById('resc-pago'); if(pagoChk) pagoChk.checked=false;
   const empSel=document.getElementById('resc-employee');
@@ -5930,10 +5970,8 @@ function openRescisaoModal(id){
     setVal('resc-pensao',r.pensao||'');
     setVal('resc-adiantamentos',r.adiantamentos||'');
     setVal('resc-aviso-descontado',r.avisoDescontado||'');
-    setVal('resc-outras-verbas',r.outrasVerbas||'');
-    setVal('resc-outras-verbas-desc',r.outrasVerbasDesc||'');
-    setVal('resc-outros-descontos',r.outrosDescontos||'');
-    setVal('resc-outros-descontos-desc',r.outrosDescontosDesc||'');
+    renderRescItens('verbas',r.outrasVerbas);
+    renderRescItens('descontos',r.outrosDescontos);
     setVal('resc-observacoes',r.observacoes||'');
     empSel.disabled=true;
     _toggleRescisaoLock(r.status==='fechada');
@@ -5961,9 +5999,10 @@ function onRescEmployeeChange(){
 function _toggleRescisaoLock(locked){
   const ids=['resc-tipo','resc-data-demissao','resc-aviso-tipo','resc-ferias-venc-dias',
     'resc-saldo-fgts','resc-indeniz-adic','resc-pensao','resc-adiantamentos',
-    'resc-aviso-descontado','resc-outras-verbas','resc-outras-verbas-desc',
-    'resc-outros-descontos','resc-outros-descontos-desc','resc-observacoes'];
+    'resc-aviso-descontado','resc-observacoes'];
   ids.forEach(i=>{ const el=document.getElementById(i); if(el) el.disabled=locked; });
+  document.querySelectorAll('#resc-verbas-list input, #resc-descontos-list input').forEach(el=>el.disabled=locked);
+  document.querySelectorAll('#modal-rescisao button[onclick^="addRescItem"]').forEach(b=>b.disabled=locked);
   const btnSalvar=document.getElementById('resc-btn-salvar');
   const btnFechar=document.getElementById('resc-btn-fechar');
   const btnReabrir=document.getElementById('resc-btn-reabrir');
@@ -5999,8 +6038,8 @@ async function saveRescisao(fechar){
     indenizacaoAdicional:r.indenizacaoAdicional,
     pensao:r.pensao||0, adiantamentos:r.adiantamentos||0,
     avisoDescontado:r.avisoDescontado||0,
-    outrasVerbas:r.outrasVerbas||0, outrasVerbasDesc:r.outrasVerbasDesc||'',
-    outrosDescontos:r.outrosDescontos||0, outrosDescontosDesc:r.outrosDescontosDesc||'',
+    outrasVerbas:r.outrasVerbas||[],
+    outrosDescontos:r.outrosDescontos||[],
     pago:r.pago,
     observacoes:r.observacoes||'',
     // Snapshot dos valores calculados
@@ -6118,6 +6157,8 @@ function printTRCT(id){
   const tipoLabel=RESCISAO_TIPOS[r.tipo]?.label||r.tipo||'';
   const _m=v=>fmtMoney(v||0);
   const linha=(lbl,val)=>`<tr><td>${lbl}</td><td style="text-align:right">${_m(val)}</td></tr>`;
+  const itensVerbas=Array.isArray(r.outrasVerbas)?r.outrasVerbas:(parseFloat(r.outrasVerbas)>0?[{descricao:'Outras verbas',valor:parseFloat(r.outrasVerbas)}]:[]);
+  const itensDesc=Array.isArray(r.outrosDescontos)?r.outrosDescontos:(parseFloat(r.outrosDescontos)>0?[{descricao:'Outros descontos',valor:parseFloat(r.outrosDescontos)}]:[]);
   const w=window.open('','_blank');
   w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>TRCT — ${emp.nome||''}</title>
   <style>
@@ -6157,7 +6198,7 @@ function printTRCT(id){
     ${o.feriasVenc>0?linha('Férias vencidas + 1/3', o.feriasVenc):''}
     ${o.feriasProp>0?linha('Férias proporcionais + 1/3 ('+o.feriasPropAvos+'/12)', o.feriasProp):''}
     ${o.indenizAdic>0?linha('Indenização adicional (Lei 7.238/84)', o.indenizAdic):''}
-    ${o.outrasVerbas>0?linha('Outras verbas'+(r.outrasVerbasDesc?' — '+r.outrasVerbasDesc:''), o.outrasVerbas):''}
+    ${itensVerbas.map(it=>linha(it.descricao||'Outras verbas', it.valor)).join('')}
     <tr class="tot"><td>TOTAL DE VERBAS</td><td style="text-align:right">${_m(o.totalVerbas)}</td></tr>
   </table>
   <h2>Descontos</h2>
@@ -6167,7 +6208,7 @@ function printTRCT(id){
     ${o.pensao>0?linha('Pensão alimentícia', o.pensao):''}
     ${o.adiantamentos>0?linha('Adiantamentos', o.adiantamentos):''}
     ${o.avisoDescontado>0?linha('Aviso prévio não cumprido', o.avisoDescontado):''}
-    ${o.outrosDescontos>0?linha('Outros descontos'+(r.outrosDescontosDesc?' — '+r.outrosDescontosDesc:''), o.outrosDescontos):''}
+    ${itensDesc.map(it=>linha(it.descricao||'Outros descontos', it.valor)).join('')}
     <tr class="tot"><td>TOTAL DE DESCONTOS</td><td style="text-align:right">${_m(o.totalDescontos)}</td></tr>
   </table>
   <h2>FGTS</h2>

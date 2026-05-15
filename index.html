@@ -3374,12 +3374,14 @@
         </div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>Indenização adicional (R$)</label><input type="text" id="resc-v-indeniz" readonly class="input-readonly"></div>
-        <div class="form-group"><label>Outras verbas (R$)</label><input type="number" id="resc-outras-verbas" min="0" step="0.01" placeholder="0,00" oninput="recalcRescisaoModal()"></div>
+        <div class="form-group form-group-2"><label>Indenização adicional (R$)</label><input type="text" id="resc-v-indeniz" readonly class="input-readonly"></div>
       </div>
-      <div class="form-group">
-        <label>Descrição das outras verbas</label>
-        <input type="text" id="resc-outras-verbas-desc" placeholder="Ex.: comissões, gratificação, horas extras...">
+      <div style="margin-bottom:8px">
+        <label style="font-weight:600;font-size:13px;color:var(--text)"><i class="fa-solid fa-circle-plus" style="color:#2E7D32"></i> Outras verbas — adicione quantas precisar, com o nome de cada uma</label>
+        <div id="resc-verbas-list" style="margin-top:8px;display:flex;flex-direction:column;gap:8px"></div>
+        <button type="button" class="btn btn-outline" style="margin-top:8px;font-size:12px" onclick="addRescItem('verbas')">
+          <i class="fa-solid fa-plus"></i> Adicionar verba
+        </button>
       </div>
 
       <div class="divider"><span>Descontos</span></div>
@@ -3391,16 +3393,18 @@
         <div class="form-group"><label>Pensão alimentícia (R$)</label><input type="number" id="resc-pensao" min="0" step="0.01" placeholder="0,00" oninput="recalcRescisaoModal()"></div>
         <div class="form-group"><label>Adiantamentos (R$)</label><input type="number" id="resc-adiantamentos" min="0" step="0.01" placeholder="0,00" oninput="recalcRescisaoModal()"></div>
       </div>
-      <div class="form-row">
-        <div class="form-group" id="resc-aviso-descontado-wrap" style="display:none">
+      <div class="form-row" id="resc-aviso-descontado-wrap" style="display:none">
+        <div class="form-group">
           <label>Aviso prévio não cumprido — desconto (R$)</label>
           <input type="number" id="resc-aviso-descontado" min="0" step="0.01" placeholder="0,00" oninput="recalcRescisaoModal()">
         </div>
-        <div class="form-group"><label>Outros descontos (R$)</label><input type="number" id="resc-outros-descontos" min="0" step="0.01" placeholder="0,00" oninput="recalcRescisaoModal()"></div>
       </div>
-      <div class="form-group">
-        <label>Descrição dos outros descontos</label>
-        <input type="text" id="resc-outros-descontos-desc" placeholder="Ex.: vale, mensalidade sindical...">
+      <div style="margin-bottom:8px">
+        <label style="font-weight:600;font-size:13px;color:var(--text)"><i class="fa-solid fa-circle-minus" style="color:#C62828"></i> Outros descontos — adicione quantos precisar, com o nome de cada um</label>
+        <div id="resc-descontos-list" style="margin-top:8px;display:flex;flex-direction:column;gap:8px"></div>
+        <button type="button" class="btn btn-outline" style="margin-top:8px;font-size:12px" onclick="addRescItem('descontos')">
+          <i class="fa-solid fa-plus"></i> Adicionar desconto
+        </button>
       </div>
 
       <div class="divider"><span>FGTS</span></div>
@@ -4309,6 +4313,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260515r"></script>
+<script src="app.js?v=20260515s"></script>
 </body>
 </html>

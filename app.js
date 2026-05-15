@@ -13,7 +13,7 @@ const APP_VERSION = 'DRG-Kronos 3.0';
 // ============================================
 // ASAAS — URL do Worker proxy (Cloudflare)
 // ============================================
-const ASAAS_WORKER = 'https://drg-asaas.zett-romao.workers.dev';
+const ASAAS_WORKER = 'https://drg-rently-asaas.zett-romao.workers.dev';
 
 // ============================================
 // MÓDULO DB — CAMADA FIRESTORE

@@ -250,6 +250,7 @@
 <!-- Firebase SDK -->
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="firebase-config.js?v=20260507o"></script>
 
 <script>
@@ -379,6 +380,7 @@ async function doLogin() {
       cpf: emp.cpf, cargo: emp.cargo, posto: emp.posto, foto: emp.foto || ''
     }));
 
+    firebase.auth().signInAnonymously().catch(()=>{});
     await carregarHome();
 
   } catch (e) {
@@ -408,8 +410,11 @@ document.getElementById('login-pin').addEventListener('keydown', e => {
 window.addEventListener('load', () => {
   const saved = sessionStorage.getItem('drg_ponto_emp');
   if (saved) {
-    try { currentEmp = JSON.parse(saved); carregarHome(); }
-    catch (e) { sessionStorage.removeItem('drg_ponto_emp'); }
+    try {
+      currentEmp = JSON.parse(saved);
+      firebase.auth().signInAnonymously().catch(()=>{});
+      carregarHome();
+    } catch (e) { sessionStorage.removeItem('drg_ponto_emp'); }
   }
 });
 

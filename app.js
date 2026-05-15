@@ -790,6 +790,7 @@ async function doLogin(event){
     user.lastLogin=new Date().toISOString();
     await DB.save('users',user);
     Auth.saveSession(user);
+    firebase.auth().signInAnonymously().catch(()=>{});
     Auth.log('LOGIN_SUCCESS',username,`Perfil: ${roleLabel(user.role)}`);
     document.getElementById('login-screen').classList.add('hidden');
     setVal('login-username',''); setVal('login-password','');
@@ -805,6 +806,7 @@ async function doLogin(event){
 function doLogout(){
   Auth.log('LOGOUT', Auth.currentUser?Auth.currentUser.username:'');
   Auth.clearSession();
+  firebase.auth().signOut().catch(()=>{});
   document.getElementById('login-screen').classList.remove('hidden');
   AutoBackup.stop();
 }
@@ -9766,6 +9768,7 @@ async function init(){
   const sessionUser = Auth.loadSession();
   if(sessionUser){
     Auth.currentUser = sessionUser;
+    firebase.auth().signInAnonymously().catch(()=>{});
     document.getElementById('login-screen').classList.add('hidden');
     applyUserSession(sessionUser);
   }

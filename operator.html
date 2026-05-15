@@ -9,7 +9,7 @@
   <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-  <script src="firebase-config.js?v=20260508h"></script>
+  <script src="firebase-config.js?v=20260515a"></script>
   <style>
     :root {
       --primary: #1a3a6b;
@@ -288,6 +288,10 @@
         </div>
       </div>
       <div class="form-group">
+        <label>E-mail do responsável financeiro</label>
+        <input type="email" id="mt-email" placeholder="financeiro@empresa.com.br">
+      </div>
+      <div class="form-group">
         <label>Mensagem de bloqueio (aparece na tela de lock)</label>
         <input type="text" id="mt-msg-bloqueio" placeholder="Deixe em branco para usar a mensagem padrão">
       </div>
@@ -327,6 +331,68 @@
       <button class="btn btn-outline" id="mig-btn-fechar" onclick="document.getElementById('modal-migracao').classList.remove('open')">Fechar</button>
       <button class="btn btn-primary" id="mig-btn-executar" onclick="executarMigracao()">
         <i class="fa-solid fa-play"></i> Executar Migração
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ MODAL: GERAR COBRANÇA (ASAAS) ══ -->
+<div class="modal-overlay" id="modal-cobranca" onclick="closeModal(event)">
+  <div class="modal-dialog" style="width:560px">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-bolt" style="color:#2e7d32"></i> Gerar Cobrança — Asaas</h3>
+      <button class="modal-close" onclick="document.getElementById('modal-cobranca').classList.remove('open')">&times;</button>
+    </div>
+    <div class="modal-body" style="max-height:78vh;overflow-y:auto">
+      <input type="hidden" id="mc-tenant-id">
+      <div class="alert alert-info" style="margin-bottom:14px;display:flex;gap:10px;align-items:flex-start">
+        <i class="fa-solid fa-building" style="margin-top:2px"></i>
+        <div>
+          <strong id="mc-tenant-nome"></strong><br>
+          <span style="font-size:12px;color:#555">CNPJ: <span id="mc-tenant-cnpj"></span></span>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Valor (R$) *</label>
+          <input type="number" id="mc-valor" placeholder="297.00" step="0.01" min="0">
+        </div>
+        <div class="form-group">
+          <label>Vencimento *</label>
+          <input type="date" id="mc-vencimento">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Forma de cobrança</label>
+          <select id="mc-tipo">
+            <option value="PIX">PIX</option>
+            <option value="BOLETO">Boleto Bancário</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>E-mail do cliente (para notificação)</label>
+          <input type="email" id="mc-email" placeholder="financeiro@empresa.com">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Descrição</label>
+        <input type="text" id="mc-descricao" placeholder="Mensalidade DRG-Kronos — Maio/2026">
+      </div>
+      <!-- Resultado -->
+      <div id="mc-resultado" style="display:none;margin-top:4px"></div>
+      <!-- Histórico -->
+      <div style="margin-top:16px">
+        <div style="font-size:12px;font-weight:600;color:#555;margin-bottom:6px">
+          <i class="fa-solid fa-clock-rotate-left"></i> Últimas cobranças
+        </div>
+        <div id="mc-historico"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="document.getElementById('modal-cobranca').classList.remove('open')">Fechar</button>
+      <button class="btn btn-primary" id="btn-gerar-cobranca" onclick="executarCobranca()">
+        <i class="fa-solid fa-bolt"></i> Gerar Cobrança
       </button>
     </div>
   </div>
@@ -556,6 +622,9 @@ function renderTenants() {
           <button class="btn btn-outline btn-sm" onclick="abrirMigracao('${t.id}')" title="Migrar dados das coleções raiz para este tenant">
             <i class="fa-solid fa-database"></i> Migrar dados
           </button>
+          ${!isArquiv ? `<button class="btn btn-sm" onclick="gerarCobrancaTenant('${t.id}')" style="background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7" title="Gerar cobrança via Asaas">
+            <i class="fa-solid fa-bolt"></i> Cobrar
+          </button>` : ''}
         </div>
       </td>
     </tr>`;
@@ -828,6 +897,259 @@ function setRedBorderFavicon() {
   img.src = 'logo.png';
 }
 
+// ─── ASAAS INTEGRATION ───────────────────────────────────────────────────────
+const ASAAS_WORKER = 'https://drg-asaas.zett-romao.workers.dev';
+
+async function _asaasReq(method, path, body) {
+  const opts = {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+  };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(ASAAS_WORKER + path, opts);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const msg = data.errors?.[0]?.description || data.description || data.error || r.statusText;
+    throw new Error(msg);
+  }
+  return data;
+}
+const _asaasPost = (path, body) => _asaasReq('POST', path, body);
+const _asaasGet  = (path)       => _asaasReq('GET',  path);
+
+// ─── SALVAR + CARREGAR TENANT COM EMAIL ──────────────────────────────────────
+// Estas declarações substituem (hoisting) as definidas mais acima no script.
+async function saveTenant() {
+  const nome = document.getElementById('mt-nome').value.trim();
+  const cnpj = document.getElementById('mt-cnpj').value.replace(/\D/g,'');
+  if (!nome || !cnpj) { alert('Nome e CNPJ são obrigatórios.'); return; }
+  const existingId = document.getElementById('mt-id').value.trim();
+  const id = existingId || cnpj;
+  const rec = {
+    id, nome,
+    cnpj:        document.getElementById('mt-cnpj').value.trim(),
+    tipo:        document.getElementById('mt-tipo').value,
+    plano:       document.getElementById('mt-plano').value,
+    status:      document.getElementById('mt-status').value,
+    mensalidade: parseFloat(document.getElementById('mt-mensalidade').value)||0,
+    validade:    document.getElementById('mt-validade').value||null,
+    telefone:    document.getElementById('mt-tel').value.trim()||null,
+    email:       document.getElementById('mt-email').value.trim()||null,
+    msgBloqueio: document.getElementById('mt-msg-bloqueio').value.trim()||null,
+    obs:         document.getElementById('mt-obs').value.trim()||null,
+    updatedAt:   new Date().toISOString(),
+    criadoEm:    existingId ? (_tenants.find(t=>t.id===existingId)?.criadoEm || new Date().toISOString()) : new Date().toISOString(),
+  };
+  try {
+    await tenantRef(id).set(rec, {merge: true});
+    const idx = _tenants.findIndex(t=>t.id===id);
+    if (idx >= 0) _tenants[idx] = {..._tenants[idx], ...rec};
+    else _tenants.unshift(rec);
+    document.getElementById('modal-tenant').classList.remove('open');
+    renderStats(); renderTenants();
+  } catch(e) { alert('Erro ao salvar: ' + (e.message||e)); }
+}
+
+function openManageTenant(id) {
+  const t = _tenants.find(x=>x.id===id); if (!t) return;
+  document.getElementById('modal-tenant-title').innerHTML = '<i class="fa-solid fa-gear"></i> Gerenciar Tenant';
+  document.getElementById('mt-id').value           = t.id;
+  document.getElementById('mt-nome').value         = t.nome||'';
+  document.getElementById('mt-cnpj').value         = t.cnpj||'';
+  document.getElementById('mt-tipo').value         = t.tipo||'Portaria';
+  document.getElementById('mt-plano').value        = t.plano||'trial';
+  document.getElementById('mt-status').value       = t.status||'trial';
+  document.getElementById('mt-mensalidade').value  = t.mensalidade||'';
+  document.getElementById('mt-validade').value     = t.validade||'';
+  document.getElementById('mt-tel').value          = t.telefone||'';
+  document.getElementById('mt-email').value        = t.email||'';
+  document.getElementById('mt-msg-bloqueio').value = t.msgBloqueio||'';
+  document.getElementById('mt-obs').value          = t.obs||'';
+  document.getElementById('modal-tenant').classList.add('open');
+}
+
+function openAddTenant() {
+  document.getElementById('modal-tenant-title').innerHTML = '<i class="fa-solid fa-plus"></i> Novo Tenant';
+  ['mt-id','mt-nome','mt-cnpj','mt-mensalidade','mt-tel','mt-email','mt-msg-bloqueio','mt-obs'].forEach(fid=>{ document.getElementById(fid).value=''; });
+  document.getElementById('mt-tipo').value   = 'Portaria';
+  document.getElementById('mt-plano').value  = 'trial';
+  document.getElementById('mt-status').value = 'trial';
+  const d = new Date(); d.setDate(d.getDate()+30);
+  document.getElementById('mt-validade').value = d.toISOString().split('T')[0];
+  document.getElementById('modal-tenant').classList.add('open');
+}
+
+// ─── MODAL COBRANÇA ───────────────────────────────────────────────────────────
+function gerarCobrancaTenant(tenantId) {
+  const t = _tenants.find(x => x.id === tenantId);
+  if (!t) return;
+
+  document.getElementById('mc-tenant-id').value    = tenantId;
+  document.getElementById('mc-tenant-nome').textContent = t.nome;
+  document.getElementById('mc-tenant-cnpj').textContent = t.cnpj || tenantId;
+  document.getElementById('mc-valor').value    = t.mensalidade || '';
+  document.getElementById('mc-email').value    = t.email || '';
+  document.getElementById('mc-tipo').value     = 'PIX';
+
+  // Vencimento padrão: dia 10 do próximo mês
+  const hoje = new Date();
+  const venc = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 10);
+  document.getElementById('mc-vencimento').value = venc.toISOString().split('T')[0];
+
+  const mesNome = hoje.toLocaleDateString('pt-BR', {month: 'long', year: 'numeric'});
+  document.getElementById('mc-descricao').value = `Mensalidade DRG-Kronos — ${mesNome}`;
+
+  // Reset resultado
+  document.getElementById('mc-resultado').style.display = 'none';
+  document.getElementById('mc-resultado').innerHTML = '';
+  const btn = document.getElementById('btn-gerar-cobranca');
+  btn.style.display = 'inline-flex';
+  btn.disabled = false;
+  btn.innerHTML = '<i class="fa-solid fa-bolt"></i> Gerar Cobrança';
+
+  // Histórico de cobranças
+  _renderHistoricoCobrancas(t);
+  document.getElementById('modal-cobranca').classList.add('open');
+}
+
+function _renderHistoricoCobrancas(t) {
+  const hist = t.cobrancas || [];
+  const el = document.getElementById('mc-historico');
+  if (!hist.length) { el.innerHTML = '<p style="font-size:12px;color:#aaa;text-align:center;padding:8px">Nenhuma cobrança gerada ainda.</p>'; return; }
+  el.innerHTML = hist.slice(0,5).map(c => {
+    const cor = c.status==='RECEIVED'||c.status==='CONFIRMED' ? '#2e7d32' : c.status==='OVERDUE' ? '#c62828' : '#e65100';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #f0f0f0;font-size:12px">
+      <div><strong>R$ ${parseFloat(c.valor||0).toLocaleString('pt-BR',{minimumFractionDigits:2})}</strong> <span style="color:#888">${(c.vencimento||'').split('-').reverse().join('/')}</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="color:${cor};font-weight:600">${c.status||'?'}</span>
+        ${c.invoiceUrl ? `<a href="${c.invoiceUrl}" target="_blank" style="font-size:11px;color:#1a3a6b"><i class="fa-solid fa-external-link-alt"></i></a>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function executarCobranca() {
+  const tenantId  = document.getElementById('mc-tenant-id').value;
+  const t         = _tenants.find(x => x.id === tenantId);
+  const valor     = parseFloat(document.getElementById('mc-valor').value) || 0;
+  const venc      = document.getElementById('mc-vencimento').value;
+  const descricao = document.getElementById('mc-descricao').value.trim();
+  const tipo      = document.getElementById('mc-tipo').value;
+  const email     = document.getElementById('mc-email').value.trim();
+
+  if (!valor)  { alert('Informe o valor da cobrança.'); return; }
+  if (!venc)   { alert('Informe a data de vencimento.'); return; }
+  if (!email && tipo !== 'BOLETO') {
+    if (!confirm('Sem e-mail, o cliente não receberá notificação automática. Continuar?')) return;
+  }
+
+  const btn = document.getElementById('btn-gerar-cobranca');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Gerando...';
+  document.getElementById('mc-resultado').style.display = 'none';
+
+  try {
+    // 1. Encontrar ou criar cliente na Asaas
+    let customerId = t?.asaasCustomerId;
+    if (!customerId) {
+      const cnpj = (t?.cnpj || tenantId).replace(/\D/g, '');
+      const busca = await _asaasGet(`/customers?cpfCnpj=${cnpj}`);
+      if (busca.data && busca.data.length > 0) {
+        customerId = busca.data[0].id;
+      } else {
+        const cli = await _asaasPost('/customers', {
+          name:                 t.nome,
+          cpfCnpj:              cnpj,
+          email:                email || undefined,
+          phone:                t.telefone ? t.telefone.replace(/\D/g,'') : undefined,
+          notificationDisabled: !email,
+        });
+        customerId = cli.id;
+      }
+      // Salva customerId no tenant
+      await tenantRef(tenantId).set({ asaasCustomerId: customerId }, { merge: true });
+      if (t) t.asaasCustomerId = customerId;
+    }
+
+    // Atualiza email se informado
+    if (email) {
+      await tenantRef(tenantId).set({ email }, { merge: true });
+      if (t) t.email = email;
+    }
+
+    // 2. Criar cobrança
+    const cob = await _asaasPost('/payments', {
+      customer:          customerId,
+      billingType:       tipo,
+      value:             valor,
+      dueDate:           venc,
+      description:       descricao,
+      externalReference: tenantId,
+    });
+
+    // 3. Registrar no histórico do tenant
+    const cobrancas = t?.cobrancas || [];
+    cobrancas.unshift({
+      id:         cob.id,
+      valor,
+      vencimento: venc,
+      descricao,
+      tipo,
+      status:     cob.status,
+      criadoEm:   new Date().toISOString(),
+      invoiceUrl: cob.invoiceUrl || null,
+      bankSlipUrl:cob.bankSlipUrl || null,
+    });
+    await tenantRef(tenantId).set({ cobrancas: cobrancas.slice(0, 50) }, { merge: true });
+    if (t) t.cobrancas = cobrancas;
+    _renderHistoricoCobrancas(t);
+
+    // 4. Link de pagamento
+    const link = cob.invoiceUrl || cob.bankSlipUrl || '';
+    const wNum = (t?.telefone || '').replace(/\D/g, '');
+    const wMsg = encodeURIComponent(
+      `Olá ${t?.nome || ''}!\n\n` +
+      `Segue o link para pagamento da mensalidade DRG-Kronos:\n${link}\n\n` +
+      `Valor: R$ ${valor.toLocaleString('pt-BR', {minimumFractionDigits:2})}\n` +
+      `Vencimento: ${venc.split('-').reverse().join('/')}\n\nObrigado!`
+    );
+    const whatsUrl = wNum
+      ? `https://wa.me/55${wNum}?text=${wMsg}`
+      : `https://wa.me/?text=${wMsg}`;
+
+    const resEl = document.getElementById('mc-resultado');
+    resEl.style.display = 'block';
+    resEl.innerHTML = `
+      <div style="background:#e8f5e9;border:1px solid #a5d6a7;border-radius:9px;padding:16px;font-size:13px">
+        <div style="font-weight:700;color:#2e7d32;margin-bottom:10px">
+          <i class="fa-solid fa-circle-check"></i> Cobrança gerada com sucesso!
+        </div>
+        <div style="margin-bottom:3px"><strong>ID Asaas:</strong> <code style="background:#f0f9f0;padding:2px 6px;border-radius:4px;font-size:12px">${cob.id}</code></div>
+        <div style="margin-bottom:3px"><strong>Status:</strong> ${cob.status}</div>
+        <div style="margin-bottom:3px"><strong>Valor:</strong> R$ ${valor.toLocaleString('pt-BR',{minimumFractionDigits:2})} &nbsp;|&nbsp; <strong>Venc.:</strong> ${venc.split('-').reverse().join('/')}</div>
+        ${link ? `
+        <div style="margin-top:10px;margin-bottom:12px">
+          <strong>Link de pagamento:</strong><br>
+          <input type="text" value="${link}" readonly style="width:100%;margin-top:5px;padding:7px 10px;border:1px solid #ccc;border-radius:7px;font-size:12px;font-family:monospace;background:#f8fff8" onclick="this.select()">
+        </div>` : ''}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+          ${link ? `<button onclick="navigator.clipboard.writeText('${link}').then(()=>alert('✓ Link copiado!'))" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;background:#1a3a6b;color:#fff;border:none;border-radius:7px;cursor:pointer;font-size:13px;font-weight:600"><i class="fa-solid fa-copy"></i> Copiar Link</button>` : ''}
+          <button onclick="window.open('${whatsUrl}','_blank')" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;background:#25D366;color:#fff;border:none;border-radius:7px;cursor:pointer;font-size:13px;font-weight:600"><i class="fa-brands fa-whatsapp"></i> Enviar WhatsApp</button>
+          ${link ? `<button onclick="window.open('${link}','_blank')" style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;background:#f5f5f5;color:#333;border:1px solid #ddd;border-radius:7px;cursor:pointer;font-size:13px"><i class="fa-solid fa-external-link-alt"></i> Abrir</button>` : ''}
+        </div>
+      </div>`;
+    btn.style.display = 'none';
+
+  } catch(e) {
+    const resEl = document.getElementById('mc-resultado');
+    resEl.style.display = 'block';
+    resEl.innerHTML = `<div style="background:#fce4e4;border:1px solid #ef9a9a;border-radius:9px;padding:14px;font-size:13px;color:#c62828"><i class="fa-solid fa-triangle-exclamation"></i> <strong>Erro Asaas:</strong> ${e.message}</div>`;
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-rotate-right"></i> Tentar Novamente';
+  }
+}
+
+// ─── UTILITÁRIOS ─────────────────────────────────────────────────────────────
 // Inicializa
 window.addEventListener('load', () => {
   document.getElementById('op-senha').focus();

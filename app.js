@@ -11,6 +11,11 @@
 const APP_VERSION = 'DRG-Kronos 3.0';
 
 // ============================================
+// ASAAS — URL do Worker proxy (Cloudflare)
+// ============================================
+const ASAAS_WORKER = 'https://drg-asaas.zett-romao.workers.dev';
+
+// ============================================
 // MÓDULO DB — CAMADA FIRESTORE
 // ============================================
 const DB = {
@@ -4391,6 +4396,200 @@ async function reabrirFolha(){
   }catch(e){ toast('Erro ao reabrir folha.','error'); }
 }
 
+// ============================================
+// ASAAS — PAGAMENTO DE COLABORADORES VIA PIX
+// ============================================
+
+// Utilitários de chamada ao Worker
+async function _asaasReq(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(ASAAS_WORKER + path, opts);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const msg = data.errors?.[0]?.description || data.description || data.error || r.statusText;
+    throw new Error(msg);
+  }
+  return data;
+}
+const _asaasPost = (path, body) => _asaasReq('POST', path, body);
+
+// Detecta tipo da chave PIX automaticamente
+function detectPixKeyType(key) {
+  if (!key) return 'CPF';
+  const clean = key.replace(/\D/g, '');
+  if (key.includes('@')) return 'EMAIL';
+  if (clean.length === 14) return 'CNPJ';
+  if (clean.length === 11) return 'CPF';
+  if (clean.length === 10 || clean.length === 11) return 'PHONE';
+  return 'EVP';
+}
+
+// Abre modal de pagamento para o colaborador atual
+function openPagarColaborador() {
+  const empId = val('payroll-employee');
+  const emp   = State.employees.find(e => e.id === empId);
+  if (!emp) { toast('Selecione um colaborador.', 'warning'); return; }
+
+  const mes = parseInt(val('payroll-mes') || currentMes());
+  const ano = parseInt(val('payroll-ano') || currentAno());
+  const p   = State.payrolls.find(r => r.employeeId === empId && r.mes == mes && r.ano == ano);
+
+  if (!p || p.status !== 'fechada') {
+    toast('Feche a folha antes de efetuar o pagamento.', 'warning');
+    return;
+  }
+
+  const liquido   = p.totalLiquidoFinal || p.totalLiquido || 0;
+  const adiant    = p.adiantamento || 0;
+  const restante  = Math.max(0, liquido - adiant);
+  const pixKey    = emp.chavePix || '';
+
+  // Preenche info
+  setEl('asaas-pagar-nome',     emp.nome);
+  setEl('asaas-pagar-pix',      pixKey || '(sem chave PIX cadastrada)');
+  setEl('asaas-pagar-mes',      `${String(mes).padStart(2,'0')}/${ano}`);
+  setEl('asaas-pagar-liquido',  fmtMoney(liquido));
+  setEl('asaas-pagar-adiant',   fmtMoney(adiant));
+  setEl('asaas-pagar-restante', fmtMoney(restante));
+
+  setVal('asaas-pagar-empid',     empId);
+  setVal('asaas-pagar-payrollid', p.id || '');
+
+  // Opções de valor
+  const sel = document.getElementById('asaas-pagar-tipo');
+  sel.innerHTML = '';
+  if (adiant > 0 && adiant !== liquido)
+    sel.innerHTML += `<option value="${adiant}">Adiantamento: ${fmtMoney(adiant)}</option>`;
+  if (restante > 0)
+    sel.innerHTML += `<option value="${restante}" selected>Restante a pagar: ${fmtMoney(restante)}</option>`;
+  if (liquido > 0)
+    sel.innerHTML += `<option value="${liquido}">Total líquido: ${fmtMoney(liquido)}</option>`;
+  sel.innerHTML += `<option value="custom">Outro valor...</option>`;
+  onAsaasTipoChange();
+
+  // Data: hoje
+  setVal('asaas-pagar-data', new Date().toISOString().split('T')[0]);
+
+  // Tipo de chave
+  setVal('asaas-pagar-keytype', detectPixKeyType(pixKey));
+
+  // Reset resultado
+  const resEl = document.getElementById('asaas-pagar-resultado');
+  resEl.innerHTML = '';
+  resEl.style.display = 'none';
+
+  const btn = document.getElementById('btn-executar-pagamento');
+  btn.style.display = 'inline-flex';
+  btn.disabled = !pixKey;
+  if (!pixKey) toast('Colaborador sem chave PIX — cadastre em Colaboradores → Benefícios.', 'warning');
+
+  // Mostrar pagamento anterior se houver
+  if (p.pagamentoAsaas) {
+    const pag = p.pagamentoAsaas;
+    resEl.style.display = 'block';
+    resEl.innerHTML = `<div style="background:#FFF8E1;border:1px solid #FFE082;border-radius:8px;padding:12px;font-size:12px;color:#6D4C41">
+      <i class="fa-solid fa-circle-info"></i> <strong>Pagamento anterior registrado:</strong>
+      ${fmtMoney(pag.asaasValor)} em ${(pag.asaasData||'').split('-').reverse().join('/')} — Status: ${pag.asaasStatus} — ID: ${pag.asaasTransferId}
+    </div>`;
+  }
+
+  document.getElementById('modal-asaas-pagar').classList.remove('hidden');
+}
+
+function onAsaasTipoChange() {
+  const sel = document.getElementById('asaas-pagar-tipo'); if (!sel) return;
+  const row = document.getElementById('asaas-pagar-custom-row');
+  if (row) row.style.display = sel.value === 'custom' ? 'block' : 'none';
+}
+
+async function executarPagamentoAsaas() {
+  const empId     = val('asaas-pagar-empid');
+  const payrollId = val('asaas-pagar-payrollid');
+  const emp       = State.employees.find(e => e.id === empId);
+  if (!emp) return;
+
+  const sel   = document.getElementById('asaas-pagar-tipo');
+  const valor = sel.value === 'custom'
+    ? parseFloat((document.getElementById('asaas-pagar-custom')?.value || '0').replace(',', '.')) || 0
+    : parseFloat(sel.value) || 0;
+
+  if (valor <= 0) { toast('Valor inválido.', 'warning'); return; }
+
+  const pixKey  = emp.chavePix || '';
+  const keyType = val('asaas-pagar-keytype') || 'CPF';
+  const data    = val('asaas-pagar-data') || new Date().toISOString().split('T')[0];
+  const mes     = document.getElementById('asaas-pagar-mes')?.textContent || '';
+
+  const btn = document.getElementById('btn-executar-pagamento');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Enviando...';
+
+  const resEl = document.getElementById('asaas-pagar-resultado');
+  resEl.style.display = 'none';
+
+  try {
+    const body = {
+      value:              valor,
+      pixAddressKey:      pixKey,
+      pixAddressKeyType:  keyType,
+      description:        `Salário ${mes} — ${emp.nome}`,
+      scheduleDate:       data,
+    };
+
+    const resp = await _asaasPost('/transfers', body);
+
+    // Salva no payroll
+    const payroll = State.payrolls.find(p => p.id === payrollId);
+    const pagInfo = {
+      asaasTransferId: resp.id,
+      asaasTipo:       'pix',
+      asaasValor:      valor,
+      asaasStatus:     resp.status || 'PENDING',
+      asaasData:       data,
+      asaasPagoEm:     new Date().toISOString(),
+    };
+    await DB.merge('payrolls', payrollId, { pagamentoAsaas: pagInfo });
+    if (payroll) payroll.pagamentoAsaas = pagInfo;
+
+    // Registra no log
+    Auth.log('ASAAS_PAGAMENTO', null,
+      `${emp.nome} | R$ ${valor.toFixed(2)} | PIX ${pixKey} | ${data} | ID: ${resp.id}`);
+
+    // Exibe resultado
+    const hoje = new Date().toISOString().split('T')[0];
+    const agendado = data > hoje;
+    resEl.style.display = 'block';
+    resEl.innerHTML = `
+      <div style="background:#e8f5e9;border:1px solid #a5d6a7;border-radius:9px;padding:16px;font-size:13px">
+        <div style="font-weight:700;color:#2e7d32;margin-bottom:8px">
+          <i class="fa-solid fa-circle-check"></i> Transferência criada com sucesso!
+        </div>
+        <div style="margin-bottom:4px"><strong>ID Asaas:</strong> <code style="background:#f0f9f0;padding:2px 6px;border-radius:4px">${resp.id}</code></div>
+        <div style="margin-bottom:4px"><strong>Status:</strong> ${resp.status || 'PENDING'}</div>
+        <div style="margin-bottom:4px"><strong>Valor:</strong> ${fmtMoney(valor)} → <i class="fa-brands fa-pix" style="color:#00695C"></i> ${pixKey}</div>
+        ${agendado ? `<div style="margin-top:6px;color:#e65100;font-weight:600"><i class="fa-solid fa-calendar-check"></i> Agendada para ${data.split('-').reverse().join('/')}</div>` : ''}
+      </div>`;
+
+    btn.style.display = 'none';
+    toast(`Transferência de ${fmtMoney(valor)} enviada para ${emp.nome}!`, 'success');
+    _updateFolhaStatusBadge();
+
+  } catch(e) {
+    resEl.style.display = 'block';
+    resEl.innerHTML = `<div style="background:#fce4e4;border:1px solid #ef9a9a;border-radius:9px;padding:14px;font-size:13px;color:#c62828">
+      <i class="fa-solid fa-triangle-exclamation"></i> <strong>Erro Asaas:</strong> ${e.message}
+    </div>`;
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-brands fa-pix"></i> Tentar Novamente';
+  }
+}
+
+// Helper para setar textContent com segurança
+function setEl(id, txt) {
+  const el = document.getElementById(id); if (el) el.textContent = txt;
+}
+
 function _lockPayrollForm(isLocked){
   const form=document.querySelector('#section-payroll .payroll-form-col');
   if(!form) return;
@@ -4437,6 +4636,25 @@ function _updateFolhaStatusBadge(){
   // Botão "Reabrir esta Folha" — visível só quando fechada
   const btnReabrir=document.getElementById('btn-reabrir-folha');
   if(btnReabrir) btnReabrir.style.display=fechada?'inline-flex':'none';
+  // Botão "Pagar via PIX" — visível quando fechada + colaborador tem chave PIX + sem pagamento anterior
+  const btnPix=document.getElementById('btn-pagar-asaas');
+  const pixBadge=document.getElementById('asaas-pago-badge');
+  if(btnPix||pixBadge){
+    const emp=State.employees.find(e=>e.id===empId);
+    const temPix=!!(emp?.chavePix);
+    const jaPago=!!(p?.pagamentoAsaas);
+    if(btnPix) btnPix.style.display=(fechada&&temPix&&!jaPago)?'inline-flex':'none';
+    if(pixBadge){
+      if(fechada&&jaPago){
+        const pg=p.pagamentoAsaas;
+        pixBadge.style.display='inline-flex';
+        pixBadge.innerHTML=`<span style="background:#E0F2F1;color:#00695C;padding:3px 10px;border-radius:10px;font-size:12px;font-weight:700;white-space:nowrap;cursor:pointer" onclick="openPagarColaborador()" title="Ver pagamento Asaas"><i class="fa-brands fa-pix"></i> ${fmtMoney(pg.asaasValor)} pago</span>`;
+      } else {
+        pixBadge.style.display='none';
+        pixBadge.innerHTML='';
+      }
+    }
+  }
   _lockPayrollForm(fechada);
 }
 

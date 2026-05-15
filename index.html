@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title id="page-title">D.R. Global Multi Services — Sistema de Gestão de Colaboradores</title>
   <link rel="icon" href="logo.png" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20260508z">
+  <link rel="stylesheet" href="styles.css?v=20260515a">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -13,7 +13,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-  <script src="firebase-config.js?v=20260508z"></script>
+  <script src="firebase-config.js?v=20260515a"></script>
 </head>
 <body>
 
@@ -516,6 +516,10 @@
                     <button id="btn-reabrir-folha" class="btn btn-sm btn-outline" onclick="reabrirFolha()" style="display:none;color:#E65100;border-color:#E65100;font-size:12px">
                       <i class="fa-solid fa-lock-open"></i> Reabrir esta Folha
                     </button>
+                    <button id="btn-pagar-asaas" class="btn btn-sm btn-outline" onclick="openPagarColaborador()" style="display:none;color:#00695C;border-color:#00695C;font-size:12px" title="Transferir salário via PIX pela Asaas">
+                      <i class="fa-brands fa-pix"></i> Pagar via PIX
+                    </button>
+                    <span id="asaas-pago-badge"></span>
                   </div>
                 </div>
 
@@ -3544,9 +3548,76 @@
   </div>
 </div>
 
+<!-- ===== MODAL: PAGAR COLABORADOR VIA ASAAS ===== -->
+<div class="modal-overlay hidden" id="modal-asaas-pagar" onclick="closeModal('modal-asaas-pagar', event)">
+  <div class="modal-dialog">
+    <div class="modal-header">
+      <h3><i class="fa-brands fa-pix" style="color:#00695C"></i> Pagar Colaborador via PIX — Asaas</h3>
+      <button class="modal-close" onclick="closeModal('modal-asaas-pagar')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="asaas-pagar-empid">
+      <input type="hidden" id="asaas-pagar-payrollid">
+
+      <!-- Info do colaborador -->
+      <div style="background:#E0F2F1;border-radius:10px;padding:14px 16px;margin-bottom:16px">
+        <div style="font-size:15px;font-weight:700;color:#00695C;margin-bottom:6px" id="asaas-pagar-nome"></div>
+        <div style="font-size:12px;color:#555;margin-bottom:4px">
+          <i class="fa-solid fa-calendar-alt" style="color:#00897B"></i>
+          Folha: <strong id="asaas-pagar-mes"></strong>
+        </div>
+        <div style="font-size:12px;color:#555;margin-bottom:4px">
+          <i class="fa-brands fa-pix" style="color:#00897B"></i>
+          Chave PIX: <code id="asaas-pagar-pix" style="font-size:12px;font-family:monospace;background:#fff;padding:2px 6px;border-radius:4px"></code>
+        </div>
+        <div style="font-size:12px;color:#555;display:flex;gap:16px;flex-wrap:wrap;margin-top:8px">
+          <span>Total Líq.: <strong id="asaas-pagar-liquido" style="color:#00695C"></strong></span>
+          <span>Adiantamento: <strong id="asaas-pagar-adiant" style="color:#e65100"></strong></span>
+          <span>Restante: <strong id="asaas-pagar-restante" style="color:#1565C0"></strong></span>
+        </div>
+      </div>
+
+      <!-- Configuração do pagamento -->
+      <div class="form-group">
+        <label><i class="fa-solid fa-money-bill-wave"></i> O que pagar?</label>
+        <select id="asaas-pagar-tipo" onchange="onAsaasTipoChange()"></select>
+      </div>
+      <div id="asaas-pagar-custom-row" style="display:none" class="form-group">
+        <label>Valor personalizado (R$)</label>
+        <input type="number" id="asaas-pagar-custom" placeholder="0,00" step="0.01" min="0">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label><i class="fa-solid fa-key"></i> Tipo da chave PIX</label>
+          <select id="asaas-pagar-keytype">
+            <option value="CPF">CPF</option>
+            <option value="CNPJ">CNPJ</option>
+            <option value="EMAIL">E-mail</option>
+            <option value="PHONE">Telefone</option>
+            <option value="EVP">Chave Aleatória</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label><i class="fa-solid fa-calendar-day"></i> Data do pagamento</label>
+          <input type="date" id="asaas-pagar-data">
+        </div>
+      </div>
+
+      <!-- Resultado -->
+      <div id="asaas-pagar-resultado" style="display:none;margin-top:8px"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-asaas-pagar')">Fechar</button>
+      <button class="btn btn-primary" id="btn-executar-pagamento" onclick="executarPagamentoAsaas()" style="background:#00695C;border-color:#00695C">
+        <i class="fa-brands fa-pix"></i> Enviar via Asaas
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260508z"></script>
+<script src="app.js?v=20260515a"></script>
 </body>
 </html>

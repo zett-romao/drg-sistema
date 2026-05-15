@@ -17,7 +17,7 @@
 // ================================================================
 
 const FIREBASE_CONFIG = {
-  apiKey:            "AIzaSyDnIGSx-TkCeD3RKOj7LVzOpbzrmU_dCq8",
+  apiKey:            "AIzaSyDnIGSx-TkCeD3RKOj7LVrOpbzrmU_dCq8",
   authDomain:        "drg-sistema.firebaseapp.com",
   projectId:         "drg-sistema",
   storageBucket:     "drg-sistema.firebasestorage.app",

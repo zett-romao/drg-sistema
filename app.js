@@ -2754,6 +2754,7 @@ function openEmployeeModal(id=null){
   document.getElementById('modal-employee').classList.remove('hidden');
   populatePostoSelect();
   switchTab('tab-pessoal');
+  _resetCadastroImport();
   const titleEl=document.getElementById('modal-employee-title');
   if(id){
     const emp=State.employees.find(e=>e.id===id); if(!emp) return;
@@ -5123,6 +5124,207 @@ function applyExtraction(){
   setVal('payroll-faltas-justificadas',0);
   const r=numVal('ext-remuneracao'); if(r>0) setVal('payroll-remuneracao',r.toFixed(2));
   recalculate(); closeModal('modal-pdf'); toast('Dados da folha aplicados com sucesso!');
+}
+
+// ============================================
+// LEITURA DE DOCUMENTOS DO COLABORADOR COM IA (CADASTRO)
+// ============================================
+// Permite importar fotos/PDFs dos documentos (RG, CPF, CNH, CTPS, PIS,
+// título de eleitor, comprovante de residência) e preencher automaticamente
+// os campos das abas Dados Pessoais e Endereço. Usa o mesmo Worker proxy.
+let _cadastroDocs = [];
+
+function _resetCadastroImport(){
+  _cadastroDocs = [];
+  const fl=document.getElementById('emp-ia-filelist'); if(fl) fl.innerHTML='';
+  const st=document.getElementById('emp-ia-status');   if(st) st.innerHTML='';
+  const pb=document.getElementById('emp-ia-process');  if(pb){ pb.classList.add('hidden'); pb.disabled=false; }
+  const fi=document.getElementById('emp-ia-files');    if(fi) fi.value='';
+}
+
+function onCadastroDocsSelected(event){
+  const files=Array.from(event.target.files||[]);
+  for(const f of files){
+    if(!isArquivoAceito(f)){ toast(`"${f.name}" — formato não aceito (use PDF, JPG, PNG ou WEBP).`,'error'); continue; }
+    if(f.size > 15*1024*1024){ toast(`"${f.name}" é grande demais (máx. 15MB).`,'error'); continue; }
+    _cadastroDocs.push(f);
+  }
+  event.target.value='';
+  _renderCadastroDocList();
+}
+
+function _renderCadastroDocList(){
+  const fl=document.getElementById('emp-ia-filelist');
+  const pb=document.getElementById('emp-ia-process');
+  if(!fl) return;
+  if(!_cadastroDocs.length){ fl.innerHTML=''; if(pb) pb.classList.add('hidden'); return; }
+  fl.innerHTML=_cadastroDocs.map((f,i)=>{
+    const icon = f.type==='application/pdf' ? 'fa-file-pdf' : 'fa-file-image';
+    return `<div class="ia-import-file">
+      <i class="fa-solid ${icon}" style="color:#4F6BF5"></i>
+      <span class="fname">${f.name}</span>
+      <span style="color:#94A3B8">${formatBytes(f.size)}</span>
+      <button type="button" title="Remover" onclick="removeCadastroDoc(${i})"><i class="fa-solid fa-xmark"></i></button>
+    </div>`;
+  }).join('');
+  if(pb) pb.classList.remove('hidden');
+}
+
+function removeCadastroDoc(i){
+  _cadastroDocs.splice(i,1);
+  _renderCadastroDocList();
+}
+
+// Chama o Gemini para extrair os dados cadastrais de UM documento
+async function callGeminiCadastro(base64Data, mimeType){
+  const prompt=`Você é um sistema de leitura de documentos pessoais brasileiros (RG, CPF, CNH, CTPS, PIS/NIT, Título de Eleitor, comprovante de residência, fichas de cadastro). Analise o documento e extraia TODOS os dados pessoais que conseguir identificar com segurança.
+
+Retorne SOMENTE um JSON válido (sem markdown, sem comentários, sem explicação) neste formato exato. Para cada campo que NÃO conseguir ler com certeza, use null. NUNCA invente nem adivinhe dados.
+
+{
+  "nome": "nome completo da pessoa ou null",
+  "sexo": "Masculino ou Feminino ou null",
+  "rg": "número do RG/Carteira de Identidade ou null",
+  "rgExpedicao": "data de expedição do RG no formato AAAA-MM-DD ou null",
+  "rgOrgao": "órgão emissor do RG (ex: SSP/SP, DETRAN/RJ) ou null",
+  "cpf": "número do CPF, apenas dígitos, ou null",
+  "nascimento": "data de nascimento no formato AAAA-MM-DD ou null",
+  "estadoCivil": "um de: Solteiro(a), Casado(a), União Estável, Divorciado(a), Separado(a), Viúvo(a) — ou null",
+  "localNascimento": "cidade de naturalidade ou null",
+  "ufNascimento": "sigla (2 letras) do estado de nascimento ou null",
+  "raca": "um de: Branca, Preta, Parda, Amarela, Indígena — ou null",
+  "nomeMae": "nome completo da mãe ou null",
+  "nomePai": "nome completo do pai ou null",
+  "grauInstrucao": "um de: Analfabeto, Fundamental, Médio, Técnico, Superior, Pós-graduação, Mestrado, Doutorado — ou null",
+  "email": "endereço de e-mail ou null",
+  "celular": "telefone celular com DDD, apenas dígitos, ou null",
+  "pis": "número do PIS/PASEP/NIT ou null",
+  "pisData": "data de cadastro do PIS no formato AAAA-MM-DD ou null",
+  "tituloEleitor": "número do título de eleitor ou null",
+  "tituloZona": "zona eleitoral ou null",
+  "tituloSecao": "seção eleitoral ou null",
+  "ctpsNumero": "número da CTPS (Carteira de Trabalho) ou null",
+  "ctpsSerie": "série da CTPS ou null",
+  "ctpsEmissao": "data de emissão da CTPS no formato AAAA-MM-DD ou null",
+  "cnh": "número de registro da CNH ou null",
+  "cnhCategoria": "categoria da CNH (A, B, AB, C, AC, D, AD, E, AE) ou null",
+  "cep": "CEP do endereço, apenas dígitos, ou null",
+  "logradouro": "nome da rua/avenida do endereço ou null",
+  "numero": "número do imóvel ou null",
+  "complemento": "complemento do endereço (apto, bloco, casa) ou null",
+  "bairro": "bairro ou null",
+  "cidade": "cidade do endereço ou null",
+  "estado": "sigla (2 letras) do estado do endereço ou null"
+}
+
+REGRAS IMPORTANTES:
+1. Datas SEMPRE no formato AAAA-MM-DD. Se vier como DD/MM/AAAA, converta.
+2. Este arquivo pode conter apenas UM tipo de documento (ex: só um RG). Preencha os campos desse documento e deixe TODO o resto como null.
+3. NÃO confunda data de expedição/emissão com data de nascimento.
+4. NÃO confunda nome da pessoa com nome da mãe ou do pai.
+5. Retorne APENAS o JSON.`;
+
+  const resp=await fetch(GEMINI_PROXY_URL, {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ model: GEMINI_MODEL, prompt, mimeType, base64Data })
+  });
+  if(!resp.ok){
+    const err=await resp.json().catch(()=>({error:'Resposta inválida do servidor'}));
+    throw new Error(err.error?.message||err.error||'Erro na chamada Gemini via proxy');
+  }
+  const data=await resp.json();
+  const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
+  try {
+    return JSON.parse(text);
+  } catch(e){
+    const m=text.match(/\{[\s\S]*\}/);
+    if(!m) throw new Error('Resposta da IA não reconhecida: '+text.substring(0,200));
+    return JSON.parse(m[0]);
+  }
+}
+
+// Lê todos os documentos selecionados, mescla os resultados e preenche o formulário
+async function processCadastroDocs(){
+  if(!_cadastroDocs.length){ toast('Selecione ao menos um documento.','error'); return; }
+  const st=document.getElementById('emp-ia-status');
+  const pb=document.getElementById('emp-ia-process');
+  if(pb) pb.disabled=true;
+  const merged={};
+  let okCount=0, errCount=0;
+  for(let i=0;i<_cadastroDocs.length;i++){
+    const f=_cadastroDocs[i];
+    if(st) st.innerHTML=`<span style="color:#4F6BF5"><i class="fa-solid fa-spinner fa-spin"></i> 🤖 Lendo documento ${i+1} de ${_cadastroDocs.length}: <strong>${f.name}</strong>...</span>`;
+    try {
+      const base64=await fileToBase64(f);
+      const data=await callGeminiCadastro(base64, f.type);
+      for(const k in data){
+        const v=data[k];
+        const jaTem = merged[k]!==undefined && merged[k]!==null && String(merged[k]).trim()!=='';
+        if(!jaTem && v!==null && v!==undefined && String(v).trim()!==''){
+          merged[k]=v;
+        }
+      }
+      okCount++;
+    } catch(err){
+      errCount++;
+      console.error('Erro ao ler documento', f.name, err);
+    }
+  }
+  if(pb) pb.disabled=false;
+  if(!okCount){
+    if(st) st.innerHTML=`<span style="color:#C62828"><i class="fa-solid fa-circle-xmark"></i> Não foi possível ler os documentos. Tente fotos mais nítidas e bem iluminadas, ou preencha manualmente.</span>`;
+    return;
+  }
+  const filled=applyCadastroExtraction(merged);
+  let msg=`<span style="color:#15803D"><i class="fa-solid fa-circle-check"></i> <strong>${filled}</strong> campo(s) preenchido(s) a partir de ${okCount} documento(s).`;
+  if(errCount) msg+=` <span style="color:#C62828">${errCount} arquivo(s) não puderam ser lidos.</span>`;
+  msg+=` Confira todas as abas antes de salvar.</span>`;
+  if(st) st.innerHTML=msg;
+  toast(filled>0 ? `IA preencheu ${filled} campo(s). Revise antes de salvar.` : 'A IA não encontrou dados aproveitáveis nos documentos.', filled>0?'success':'warning');
+}
+
+// Aplica os dados extraídos nos campos do formulário de colaborador
+function applyCadastroExtraction(d){
+  const map={
+    nome:'emp-nome', sexo:'emp-sexo', rg:'emp-rg', rgExpedicao:'emp-rg-expedicao',
+    rgOrgao:'emp-rg-orgao', cpf:'emp-cpf', nascimento:'emp-nascimento',
+    estadoCivil:'emp-estado-civil', localNascimento:'emp-local-nascimento',
+    ufNascimento:'emp-uf-nascimento', raca:'emp-raca', nomeMae:'emp-mae', nomePai:'emp-pai',
+    grauInstrucao:'emp-grau-instrucao', email:'emp-email', celular:'emp-celular',
+    pis:'emp-pis', pisData:'emp-pis-data', tituloEleitor:'emp-titulo',
+    tituloZona:'emp-titulo-zona', tituloSecao:'emp-titulo-secao',
+    ctpsNumero:'emp-ctps-numero', ctpsSerie:'emp-ctps-serie', ctpsEmissao:'emp-ctps-emissao',
+    cnh:'emp-cnh', cnhCategoria:'emp-cnh-categoria', cep:'emp-cep', logradouro:'emp-endereco',
+    numero:'emp-numero', complemento:'emp-complemento', bairro:'emp-bairro',
+    cidade:'emp-cidade', estado:'emp-estado'
+  };
+  let count=0;
+  for(const key in map){
+    let v=d[key];
+    if(v===null||v===undefined||String(v).trim()==='') continue;
+    v=String(v).trim();
+    const el=document.getElementById(map[key]);
+    if(!el) continue;
+    if(el.tagName==='SELECT'){
+      const opt=Array.from(el.options).find(o=>
+        o.value.toLowerCase()===v.toLowerCase() || o.text.toLowerCase()===v.toLowerCase());
+      if(!opt) continue;
+      el.value=opt.value;
+    } else {
+      el.value=v;
+    }
+    if(map[key]==='emp-cpf')     maskCpf(el);
+    if(map[key]==='emp-celular') maskPhone(el);
+    if(map[key]==='emp-cep')     maskCep(el);
+    // Destaque visual temporário do campo preenchido
+    el.classList.remove('ia-filled-flash');
+    void el.offsetWidth;
+    el.classList.add('ia-filled-flash');
+    setTimeout(()=>el.classList.remove('ia-filled-flash'), 3200);
+    count++;
+  }
+  return count;
 }
 
 // ============================================

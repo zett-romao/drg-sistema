@@ -5749,13 +5749,32 @@ function _contaAvos(ini, fim){
   return Math.min(12, avos);
 }
 
+// Tempo de serviço detalhado: "X dias" / "X meses, Y dias" / "X anos, Y meses, Z dias"
+function _formatTempoServico(adm, dem){
+  if(!adm || !dem || dem<adm) return '—';
+  let anos=dem.getFullYear()-adm.getFullYear();
+  let meses=dem.getMonth()-adm.getMonth();
+  let dias=dem.getDate()-adm.getDate();
+  if(dias<0){
+    const ultimoDiaMesAnterior=new Date(dem.getFullYear(), dem.getMonth(), 0).getDate();
+    dias+=ultimoDiaMesAnterior;
+    meses--;
+  }
+  if(meses<0){ meses+=12; anos--; }
+  const partes=[];
+  if(anos>0)  partes.push(anos+(anos===1?' ano':' anos'));
+  if(meses>0) partes.push(meses+(meses===1?' mês':' meses'));
+  if(dias>0)  partes.push(dias+(dias===1?' dia':' dias'));
+  return partes.length ? partes.join(', ') : '0 dias';
+}
+
 // Motor de cálculo da rescisão — retorna todas as verbas e descontos
 function _calcRescisao(r){
   const pl=_pl();
   const emp=r.emp||{};
   const sal=parseFloat(emp.salarioBase)||0;
   const cfg=RESCISAO_TIPOS[r.tipo]||RESCISAO_TIPOS.sem_justa_causa;
-  const o={ avisoDias:0, anos:0, saldoSalario:0, avisoValor:0, decimo:0, decimoAvos:0,
+  const o={ avisoDias:0, anos:0, tempoServico:'—', saldoSalario:0, avisoValor:0, decimo:0, decimoAvos:0,
     feriasVenc:0, feriasProp:0, feriasPropAvos:0, indenizAdic:0, inss:0, irrf:0,
     fgtsMes:0, multaFgts:0, multaPct:0, pensao:0, adiantamentos:0, avisoDescontado:0,
     outrasVerbas:0, outrosDescontos:0, totalVerbas:0, totalDescontos:0, liquido:0,
@@ -5765,6 +5784,7 @@ function _calcRescisao(r){
   const dem=new Date(r.dataDemissao+'T00:00:00');
   if(isNaN(adm.getTime())||isNaN(dem.getTime())||dem<adm) return o;
   o.anos=Math.floor((dem-adm)/(1000*60*60*24*365.25));
+  o.tempoServico=_formatTempoServico(adm,dem);
   // Aviso prévio (dias)
   const avisoCheio=Math.min(pl.avisoMax, pl.avisoBase+pl.avisoPorAno*o.anos);
   if(cfg.aviso==='empregador') o.avisoDias=avisoCheio;
@@ -5904,7 +5924,7 @@ function recalcRescisaoModal(){
   setVal('resc-emp-admissao', emp.dataAdmissao?formatDateBr(emp.dataAdmissao):'—');
   setVal('resc-emp-salario', (parseFloat(emp.salarioBase)||0).toFixed(2));
   const o=_calcRescisao(r);
-  setVal('resc-tempo-servico', o.anos>0?`${o.anos} ano(s)`:'menos de 1 ano');
+  setVal('resc-tempo-servico', o.tempoServico||'—');
   setVal('resc-aviso-dias', o.avisoDias>0?`${o.avisoDias} dias`:'—');
   // Verbas
   setVal('resc-v-saldo',      o.saldoSalario.toFixed(2));
@@ -6189,6 +6209,7 @@ function printTRCT(id){
     <div><strong>Último salário:</strong> ${_m(emp.salarioBase)}</div>
     <div><strong>Causa do afastamento:</strong> ${tipoLabel}</div>
     <div><strong>Aviso prévio:</strong> ${o.avisoDias>0?o.avisoDias+' dias ('+(r.avisoTipo||'')+')':'não se aplica'}</div>
+    <div><strong>Tempo de serviço:</strong> ${o.tempoServico||'—'}</div>
   </div>
   <h2>Verbas Rescisórias</h2>
   <table>

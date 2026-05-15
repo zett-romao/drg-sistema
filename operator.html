@@ -774,7 +774,9 @@ async function executarMigracao() {
   }
   resEl.style.display = 'block';
   if (erros === 0) {
+    btn.disabled = false;
     btn.innerHTML = '<i class="fa-solid fa-check"></i> Concluído';
+    btn.onclick = () => document.getElementById('modal-migracao').classList.remove('open');
   }
 }
 

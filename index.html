@@ -760,6 +760,21 @@
                       <input type="number" id="payroll-he-valor" min="0" step="0.01" placeholder="0,00" readonly class="input-readonly">
                     </div>
                   </div>
+                  <div class="form-row" style="margin-top:6px">
+                    <div class="form-group form-group-2">
+                      <label><i class="fa-solid fa-route" style="color:#00897B"></i> Destino das horas extras</label>
+                      <select id="payroll-he-destino" onchange="recalculate()">
+                        <option value="folha">Pagar na folha (horas extras)</option>
+                        <option value="banco">Lançar no banco de horas (não pagar agora)</option>
+                      </select>
+                    </div>
+                    <div class="form-group" style="display:flex;align-items:flex-end">
+                      <button type="button" class="btn btn-outline" onclick="openBancoHorasFromPayroll()" style="font-size:12px;color:#00897B;border-color:#00897B">
+                        <i class="fa-solid fa-piggy-bank"></i> Banco de Horas
+                      </button>
+                    </div>
+                  </div>
+                  <div id="he-banco-note" style="display:none;margin-top:8px;padding:8px 10px;background:#E0F2F1;border-left:3px solid #00897B;border-radius:4px;font-size:12px;color:#00695C"></div>
                   <div style="font-size:11px;color:#5E35B1;margin-top:4px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
                     <span><i class="fa-solid fa-calculator"></i> Calculado automaticamente pelos horários. Ajuste o total manualmente se necessário.</span>
                     <button type="button" id="btn-revisar-he" class="btn btn-secondary hidden" onclick="openHEReview()" style="padding:4px 10px;font-size:12px"><i class="fa-solid fa-magnifying-glass" style="color:#E65100"></i> Revisar HE</button>
@@ -3043,6 +3058,24 @@
         </div>
       </div>
 
+      <!-- ============== Banco de Horas ============== -->
+      <div class="divider" style="margin-top:18px"><span><i class="fa-solid fa-piggy-bank" style="color:#00897B"></i> Banco de Horas</span></div>
+      <div class="info-banner" style="background:#E0F2F1;color:#00695C">
+        <i class="fa-solid fa-circle-info"></i>
+        Horas excedentes podem ir para o banco em vez de pagas. Defina o prazo para compensar antes de virarem pagamento obrigatório.
+      </div>
+      <div class="form-row">
+        <div class="form-group form-group-sm">
+          <label>Validade das horas (meses)</label>
+          <input type="number" id="cct-banco-validade" min="1" max="24" step="1" placeholder="12" value="12">
+          <span style="font-size:11px;color:var(--text-muted);margin-top:4px;display:block">Prazo para compensar antes de virar pagamento obrigatório</span>
+        </div>
+        <div class="form-group form-group-sm">
+          <label>Avisar quantos dias antes de expirar</label>
+          <input type="number" id="cct-banco-aviso" min="1" max="180" step="1" placeholder="30" value="30">
+        </div>
+      </div>
+
       <!-- ============== PLR — Parcelas e Lembretes ============== -->
       <div class="divider" style="margin-top:18px"><span><i class="fa-solid fa-gift" style="color:#7B1FA2"></i> PLR — Participação nos Lucros e Resultados</span></div>
       <div class="info-banner" style="background:#F3E5F5;color:#4A148C">
@@ -3116,6 +3149,47 @@
       <button class="btn btn-primary" onclick="saveCct()">
         <i class="fa-solid fa-floppy-disk"></i> Salvar CCT
       </button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: BANCO DE HORAS ===== -->
+<div class="modal-overlay hidden" id="modal-banco-horas" onclick="closeModal('modal-banco-horas', event)">
+  <div class="modal-dialog modal-md">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-piggy-bank" style="color:#00897B"></i> Banco de Horas — <span id="bh-emp-nome"></span></h3>
+      <button class="modal-close" onclick="closeModal('modal-banco-horas')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="bh-emp-id">
+      <div id="bh-resumo" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px"></div>
+      <div class="divider"><span>Dar baixa — compensação de horas</span></div>
+      <div class="info-banner" style="background:#E0F2F1;color:#00695C">
+        <i class="fa-solid fa-circle-info"></i>
+        Lance aqui as horas que o colaborador compensou (folga, saída antecipada). O saldo do banco diminui.
+      </div>
+      <div class="form-row" style="align-items:flex-end">
+        <div class="form-group form-group-sm">
+          <label>Data</label>
+          <input type="date" id="bh-deb-data">
+        </div>
+        <div class="form-group form-group-sm">
+          <label>Horas compensadas</label>
+          <input type="number" id="bh-deb-horas" min="0" step="0.25" placeholder="0,00">
+        </div>
+        <div class="form-group form-group-2">
+          <label>Observação</label>
+          <input type="text" id="bh-deb-obs" placeholder="Ex.: folga compensada em 12/05">
+        </div>
+        <div>
+          <button class="btn btn-primary" onclick="addBancoDebito()"><i class="fa-solid fa-circle-minus"></i> Lançar baixa</button>
+        </div>
+      </div>
+      <div class="divider"><span>Extrato de lançamentos</span></div>
+      <div id="bh-extrato"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-banco-horas')">Fechar</button>
     </div>
   </div>
 </div>
@@ -3937,6 +4011,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260515m"></script>
+<script src="app.js?v=20260515n"></script>
 </body>
 </html>

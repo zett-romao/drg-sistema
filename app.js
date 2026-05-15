@@ -192,6 +192,7 @@ const State = {
   postos:    [],
   contratos: [],
   escalas:   [],
+  bancoHoras: [],
   cct: null,
   empresa: {...EMPRESA_DEFAULTS},
   decimoTerceiro: [],
@@ -1075,6 +1076,7 @@ const LOG_TYPES={
   CONTRATO_CREATED:    {label:'Contrato cadastrado',  cls:'ev-contrato',   icon:'fa-file-signature'},
   CONTRATO_UPDATED:    {label:'Contrato editado',     cls:'ev-contrato',   icon:'fa-file-pen'},
   CONTRATO_DELETED:    {label:'Contrato excluído',    cls:'ev-contrato',   icon:'fa-file-circle-minus'},
+  BANCO_HORAS_DEBITO:  {label:'Baixa no banco de horas', cls:'ev-payroll', icon:'fa-piggy-bank'},
 };
 
 function renderLogTable(){
@@ -2310,6 +2312,25 @@ function renderAlerts(){
     }
   }
 
+  // Banco de Horas: horas próximas de expirar (FIFO)
+  {
+    const bancoAviso=State.cct?.bancoAvisoDias||30;
+    State.employees.filter(e=>(e.status||'ativo')==='ativo').forEach(e=>{
+      const exp=bancoProximaExpiracao(e.id);
+      if(!exp||!exp.validade) return;
+      const dv=new Date(exp.validade+'T00:00:00');
+      const dias=Math.round((dv-hoje)/(1000*60*60*24));
+      if(dias>bancoAviso) return;
+      const expirado=dias<0;
+      const cor=expirado?'var(--danger)':dias<=7?'#E65100':'#F57F17';
+      const txt=expirado
+        ?`⚠️ ${_fmtHoras(exp.horas)} EXPIRARAM há ${Math.abs(dias)} dia(s) — pague como horas extras`
+        :dias===0?`${_fmtHoras(exp.horas)} expiram HOJE — compense ou pague`
+        :`${_fmtHoras(exp.horas)} expiram em ${dias} dia(s) (${formatDateBr(exp.validade)})`;
+      alerts.push(`<div class="alert-item"><div class="alert-icon" style="color:${cor}"><i class="fa-solid fa-piggy-bank"></i></div><div><div class="alert-nome">${e.nome}</div><div class="alert-sub" style="color:${cor};font-weight:${expirado?'700':'600'}">Banco de horas — ${txt}</div></div><button class="btn-icon" onclick="openBancoHoras('${e.id}')" title="Abrir banco de horas"><i class="fa-solid fa-arrow-right"></i></button></div>`);
+    });
+  }
+
   // Contratos: reajuste nos próximos 30 dias
   const mods2=getUserModules(Auth.currentUser);
   if(mods2.contratos){
@@ -3092,6 +3113,7 @@ function _resetPayrollFieldsOnly(){
   setVal('payroll-adiantamento-ativo','nao');
   setVal('payroll-adiantamento-perc','40');
   setVal('payroll-he-perc','50');
+  setVal('payroll-he-destino','folha');
 }
 
 function calcAdNoturno(salarioBase, dias){
@@ -3960,7 +3982,25 @@ function recalculate(){
   const percHE = parseInt(val('payroll-he-perc')||'50');
   const valorHE = hETotalInformado>0 && salBase>0
     ? hETotalInformado * (salBase/220) * (1 + percHE/100) : 0;
-  setVal('payroll-he-valor', valorHE>0 ? valorHE.toFixed(2) : '0.00');
+  // Destino das horas extras: pagar na folha ou lançar no banco de horas
+  const heDestino = val('payroll-he-destino')||'folha';
+  const heBancoNote = document.getElementById('he-banco-note');
+  if(heDestino==='banco'){
+    // Vai para o banco — não entra no valor a pagar (he-valor = 0)
+    setVal('payroll-he-valor','0.00');
+    if(heBancoNote){
+      if(hETotalInformado>0){
+        const vmBanco = State.cct?.bancoValidadeMeses || 12;
+        heBancoNote.style.display='';
+        heBancoNote.innerHTML=`<i class="fa-solid fa-piggy-bank"></i> <strong>${hETotalInformado.toFixed(2).replace('.',',')} h</strong> serão lançadas no banco de horas ao salvar a folha (1 para 1, validade de ${vmBanco} meses). Não entram no valor a pagar.`;
+      } else {
+        heBancoNote.style.display='none';
+      }
+    }
+  } else {
+    setVal('payroll-he-valor', valorHE>0 ? valorHE.toFixed(2) : '0.00');
+    if(heBancoNote) heBancoNote.style.display='none';
+  }
 
   // --- HE Corrido (calculado a partir da Escala) ---
   // Para cada dia com tipo='corrido' na escala do colaborador no mês,
@@ -4103,6 +4143,7 @@ function loadPayrollRecord(id){
   setVal('payroll-he-total',  p.horasExtrasTotal||'');
   setVal('payroll-he-perc',   p.horasExtrasPerc||50);
   setVal('payroll-he-valor',  p.horasExtrasValor||'');
+  setVal('payroll-he-destino',p.heDestino||'folha');
   setVal('payroll-he-corrido-min',     p.heCorridoMin||'');
   setVal('payroll-he-corrido-detalhe', p.heCorridoDetalhe||'');
   setVal('payroll-he-corrido-valor',   p.heCorridoValor||'');
@@ -4119,6 +4160,10 @@ function confirmDeletePayroll(event,id){
   btn.innerHTML='<i class="fa-solid fa-trash"></i> Excluir';
   btn.onclick=async()=>{
     await DB.remove('payrolls',id);
+    // Remove o crédito de banco de horas gerado por esta folha (se houver)
+    if((State.bancoHoras||[]).some(b=>b.id==='bh_folha_'+id)){
+      await DB.remove('bancoHoras','bh_folha_'+id).catch(()=>{});
+    }
     const empNome=(State.employees.find(e=>e.id===p.employeeId)||{}).nome||'—';
     Auth.log('PAYROLL_DELETED', null, `${empNome} — ${MESES[p.mes]}/${p.ano}`);
     closeModal('modal-confirm'); renderPayrollHistory(val('payroll-employee'));
@@ -4186,6 +4231,7 @@ async function savePayroll(){
     horasExtrasTotal:numVal('payroll-he-total')||0,
     horasExtrasPerc:parseInt(val('payroll-he-perc')||'50'),
     horasExtrasValor:numVal('payroll-he-valor')||0,
+    heDestino:val('payroll-he-destino')||'folha',
     // HE Corrido (vinda da Escala — somatório de minutos por % de adicional)
     heCorridoMin:    numVal('payroll-he-corrido-min')||0,
     heCorridoDetalhe:val('payroll-he-corrido-detalhe')||'',
@@ -4217,6 +4263,8 @@ async function savePayroll(){
     // Sanitiza o record inteiro contra `undefined` (Firestore rejeita)
     const cleanRecord = _sanitizeForFirestore(record);
     await DB.save('payrolls', cleanRecord);
+    // Sincroniza o crédito de banco de horas gerado por esta folha
+    await _syncBancoFromPayroll(cleanRecord);
     const empNome=(State.employees.find(e=>e.id===empId)||{}).nome||'—';
     Auth.log(existing?'PAYROLL_UPDATED':'PAYROLL_CREATED', null, `${empNome} — ${MESES[parseInt(mes)]}/${ano}`);
     toast(existing?'Lançamento atualizado!':'Lançamento salvo!');
@@ -4241,12 +4289,208 @@ function clearPayrollForm(){
   setVal('payroll-adiantamento-ativo','nao');
   setVal('payroll-adiantamento-perc','40');
   setVal('payroll-he-perc','50');
+  setVal('payroll-he-destino','folha');
   clearPdf(null,true); recalculate();
 }
 
 function openPayrollForEmployee(empId){
   showSection('payroll');
   setTimeout(()=>{ setVal('payroll-employee',empId); onPayrollEmployeeChange(); },80);
+}
+
+// ============================================
+// BANCO DE HORAS
+// ============================================
+// Coleção `bancoHoras`: cada doc é um lançamento (crédito ou débito).
+//  - crédito de folha: id fixo `bh_folha_{payrollId}` (idempotente — re-salvar
+//    a folha não duplica; trocar para "pagar na folha" remove o crédito)
+//  - débito manual:    id via genId()
+// Crédito = { tipo:'credito', horas, data, validade, origem:'folha', competencia, payrollId }
+// Débito  = { tipo:'debito',  horas, data, origem:'manual', observacao }
+
+function _ultimoDiaMesISO(mes, ano){
+  const d=new Date(parseInt(ano), parseInt(mes), 0); // dia 0 do mês seguinte = último dia do mês
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function _addMonthsISO(iso, months){
+  const [y,m,d]=iso.split('-').map(Number);
+  const base=new Date(y, m-1+months, d);
+  return `${base.getFullYear()}-${String(base.getMonth()+1).padStart(2,'0')}-${String(base.getDate()).padStart(2,'0')}`;
+}
+function _fmtHoras(h){
+  const n=Math.round((parseFloat(h)||0)*60);
+  return n>0 ? minutesToStr(n) : '0h';
+}
+
+// Saldo total de horas do colaborador (créditos - débitos)
+function bancoSaldo(empId){
+  const movs=(State.bancoHoras||[]).filter(b=>b.employeeId===empId);
+  const cr=movs.filter(m=>m.tipo==='credito').reduce((s,m)=>s+(parseFloat(m.horas)||0),0);
+  const db=movs.filter(m=>m.tipo==='debito').reduce((s,m)=>s+(parseFloat(m.horas)||0),0);
+  return cr-db;
+}
+
+// FIFO: débitos consomem os créditos mais antigos. Retorna o crédito vivo
+// mais próximo de expirar { horas, validade } ou null se não há saldo.
+function bancoProximaExpiracao(empId){
+  const movs=(State.bancoHoras||[]).filter(b=>b.employeeId===empId);
+  const creditos=movs.filter(m=>m.tipo==='credito'&&(parseFloat(m.horas)||0)>0)
+    .map(m=>({horas:parseFloat(m.horas)||0, validade:m.validade||m.data||''}))
+    .sort((a,b)=>a.validade.localeCompare(b.validade));
+  let debito=movs.filter(m=>m.tipo==='debito').reduce((s,m)=>s+(parseFloat(m.horas)||0),0);
+  for(const c of creditos){
+    let rem=c.horas;
+    if(debito>0){ const use=Math.min(rem,debito); rem-=use; debito-=use; }
+    if(rem>0.0001) return { horas:rem, validade:c.validade };
+  }
+  return null;
+}
+
+// Sincroniza o crédito de banco de horas gerado por uma folha de ponto
+async function _syncBancoFromPayroll(record){
+  const docId='bh_folha_'+record.id;
+  const existing=(State.bancoHoras||[]).find(b=>b.id===docId);
+  if(record.heDestino==='banco' && (record.horasExtrasTotal||0)>0){
+    const validadeMeses=State.cct?.bancoValidadeMeses||12;
+    const dataLanc=_ultimoDiaMesISO(record.mes, record.ano);
+    const doc={
+      id:docId, employeeId:record.employeeId, tipo:'credito',
+      horas:record.horasExtrasTotal, data:dataLanc,
+      validade:_addMonthsISO(dataLanc, validadeMeses),
+      origem:'folha',
+      competencia:`${String(record.mes).padStart(2,'0')}/${record.ano}`,
+      payrollId:record.id, observacao:'',
+      createdAt:existing?.createdAt||new Date().toISOString(),
+      updatedAt:new Date().toISOString()
+    };
+    try { await DB.save('bancoHoras', doc); }
+    catch(e){ console.error('Erro ao lançar crédito no banco de horas:', e); }
+  } else if(existing){
+    try { await DB.remove('bancoHoras', docId); }
+    catch(e){ console.error('Erro ao remover crédito do banco de horas:', e); }
+  }
+}
+
+// --- Modal Banco de Horas ---
+function openBancoHorasFromPayroll(){
+  const empId=val('payroll-employee');
+  if(!empId){ toast('Selecione um colaborador na folha primeiro.','error'); return; }
+  openBancoHoras(empId);
+}
+function openBancoHoras(empId){
+  const emp=State.employees.find(e=>e.id===empId);
+  if(!emp){ toast('Colaborador não encontrado.','error'); return; }
+  setVal('bh-emp-id', empId);
+  document.getElementById('bh-emp-nome').textContent=emp.nome||'—';
+  setVal('bh-deb-data', new Date().toISOString().split('T')[0]);
+  setVal('bh-deb-horas','');
+  setVal('bh-deb-obs','');
+  document.getElementById('modal-banco-horas').classList.remove('hidden');
+  renderBancoHoras();
+}
+function renderBancoHoras(){
+  const empId=val('bh-emp-id'); if(!empId) return;
+  const movs=(State.bancoHoras||[]).filter(b=>b.employeeId===empId)
+    .slice().sort((a,b)=>(b.data||'').localeCompare(a.data||''));
+  const saldo=bancoSaldo(empId);
+  const exp=bancoProximaExpiracao(empId);
+  const hoje=new Date(); hoje.setHours(0,0,0,0);
+  // Card de próxima expiração
+  let expCard;
+  if(exp&&exp.validade){
+    const dv=new Date(exp.validade+'T00:00:00');
+    const dias=Math.round((dv-hoje)/(1000*60*60*24));
+    const cor=dias<0?'#C62828':dias<=30?'#E65100':'#00695C';
+    const txt=dias<0?`Expirou há ${Math.abs(dias)} dia(s)`:dias===0?'Expira hoje':`Expira em ${dias} dia(s)`;
+    expCard=`<div style="flex:1;min-width:170px;background:#fff;border:1px solid #B2DFDB;border-left:4px solid ${cor};border-radius:8px;padding:10px 12px">
+      <div style="font-size:11px;color:#607D8B;text-transform:uppercase;letter-spacing:.5px">Próxima a expirar</div>
+      <div style="font-size:18px;font-weight:700;color:${cor}">${_fmtHoras(exp.horas)}</div>
+      <div style="font-size:12px;color:${cor}">${txt} · ${formatDateBr(exp.validade)}</div>
+    </div>`;
+  } else {
+    expCard=`<div style="flex:1;min-width:170px;background:#fff;border:1px solid #E0E0E0;border-radius:8px;padding:10px 12px">
+      <div style="font-size:11px;color:#607D8B;text-transform:uppercase;letter-spacing:.5px">Próxima a expirar</div>
+      <div style="font-size:14px;color:#9E9E9E;margin-top:8px">Sem horas no banco</div>
+    </div>`;
+  }
+  document.getElementById('bh-resumo').innerHTML=`
+    <div style="flex:1;min-width:170px;background:#fff;border:1px solid #B2DFDB;border-left:4px solid #00897B;border-radius:8px;padding:10px 12px">
+      <div style="font-size:11px;color:#607D8B;text-transform:uppercase;letter-spacing:.5px">Saldo atual</div>
+      <div style="font-size:22px;font-weight:700;color:#00695C">${_fmtHoras(saldo)}</div>
+    </div>
+    ${expCard}`;
+  // Extrato
+  if(!movs.length){
+    document.getElementById('bh-extrato').innerHTML=`<div class="empty-state small"><i class="fa-solid fa-piggy-bank"></i><p>Nenhum lançamento no banco de horas</p></div>`;
+    return;
+  }
+  const rows=movs.map(m=>{
+    const isCred=m.tipo==='credito';
+    const cor=isCred?'#2E7D32':'#C62828';
+    const sinal=isCred?'+':'−';
+    const tipoLabel=isCred?'<span style="color:#2E7D32;font-weight:600">Crédito</span>':'<span style="color:#C62828;font-weight:600">Baixa</span>';
+    const desc=isCred
+      ? (m.origem==='folha'?`Folha ${m.competencia||''}`:'Crédito manual')
+      : (m.observacao||'Compensação');
+    const validade=(isCred&&m.validade)?`<span style="font-size:11px;color:#607D8B">val. ${formatDateBr(m.validade)}</span>`:'—';
+    const acao=(m.origem==='manual')
+      ? `<button class="btn-icon" onclick="removeBancoLancamento('${m.id}')" title="Excluir lançamento"><i class="fa-solid fa-trash" style="color:#C62828"></i></button>`
+      : `<span style="font-size:12px;color:#9E9E9E" title="Crédito gerado pela Folha de Ponto — altere lá">🔒</span>`;
+    return `<tr>
+      <td>${m.data?formatDateBr(m.data):'—'}</td>
+      <td>${tipoLabel}</td>
+      <td style="font-weight:700;color:${cor}">${sinal} ${_fmtHoras(m.horas)}</td>
+      <td>${desc}</td>
+      <td>${validade}</td>
+      <td style="text-align:center">${acao}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('bh-extrato').innerHTML=`
+    <table class="data-table" style="font-size:13px">
+      <thead><tr><th>Data</th><th>Tipo</th><th>Horas</th><th>Descrição</th><th>Validade</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+async function addBancoDebito(){
+  const empId=val('bh-emp-id'); if(!empId){ toast('Colaborador não definido.','error'); return; }
+  const data=val('bh-deb-data');
+  const horas=numVal('bh-deb-horas');
+  const obs=val('bh-deb-obs');
+  if(!data){ toast('Informe a data da baixa.','error'); return; }
+  if(!(horas>0)){ toast('Informe as horas compensadas.','error'); return; }
+  const saldo=bancoSaldo(empId);
+  if(horas>saldo+0.0001){
+    toast(`Baixa (${_fmtHoras(horas)}) maior que o saldo disponível (${_fmtHoras(saldo)}).`,'error');
+    return;
+  }
+  const doc={
+    id:genId(), employeeId:empId, tipo:'debito',
+    horas, data, origem:'manual', observacao:obs||'',
+    createdAt:new Date().toISOString(), updatedAt:new Date().toISOString()
+  };
+  try {
+    await DB.save('bancoHoras', doc);
+    const empNome=(State.employees.find(e=>e.id===empId)||{}).nome||'—';
+    Auth.log('BANCO_HORAS_DEBITO', null, `${empNome} — baixa de ${_fmtHoras(horas)}`);
+    setVal('bh-deb-horas',''); setVal('bh-deb-obs','');
+    toast('Baixa lançada no banco de horas.');
+    renderBancoHoras();
+  } catch(e){ toast('Erro ao lançar baixa: '+(e?.message||e),'error'); }
+}
+function removeBancoLancamento(id){
+  const m=(State.bancoHoras||[]).find(b=>b.id===id);
+  if(!m) return;
+  if(m.origem!=='manual'){ toast('Créditos da folha são alterados na Folha de Ponto.','warning'); return; }
+  document.getElementById('confirm-message').textContent=`Excluir esta baixa de ${_fmtHoras(m.horas)} do banco de horas?`;
+  const btn=document.getElementById('confirm-ok-btn');
+  btn.innerHTML='<i class="fa-solid fa-trash"></i> Excluir';
+  btn.onclick=async()=>{
+    try { await DB.remove('bancoHoras', id); } catch(e){}
+    closeModal('modal-confirm');
+    renderBancoHoras();
+    toast('Lançamento excluído.','warning');
+  };
+  document.getElementById('modal-confirm').classList.remove('hidden');
 }
 
 // ============================================
@@ -6678,6 +6922,8 @@ function openCctModal(){
     setVal('cct-plr-p2-valor',cct.plrP2Valor||'');
     setVal('cct-plr-p2-limite',cct.plrP2DataLimite||'');
     setVal('cct-plr-p2-pago',cct.plrP2DataPagamento||'');
+    setVal('cct-banco-validade',cct.bancoValidadeMeses||12);
+    setVal('cct-banco-aviso',cct.bancoAvisoDias||30);
   } else {
     infoEl.style.display='none';
     ['cct-vigencia','cct-salario-base','cct-vt-diario','cct-vr-diario','cct-va-mensal','cct-bonificacao','cct-plr',
@@ -6686,6 +6932,8 @@ function openCctModal(){
     setVal('cct-adicional-noturno',20);
     setVal('cct-salario-minimo',1518);
     setVal('cct-plr-aviso-dias',30);
+    setVal('cct-banco-validade',12);
+    setVal('cct-banco-aviso',30);
   }
 }
 
@@ -6711,6 +6959,8 @@ async function saveCct(){
     plrP2Valor:numVal('cct-plr-p2-valor')||0,
     plrP2DataLimite:val('cct-plr-p2-limite')||'',
     plrP2DataPagamento:val('cct-plr-p2-pago')||'',
+    bancoValidadeMeses:numVal('cct-banco-validade')||12,
+    bancoAvisoDias:numVal('cct-banco-aviso')||30,
     updatedAt:new Date().toISOString()
   };
   const btn=document.querySelector('#modal-cct .btn-primary');
@@ -8089,7 +8339,7 @@ ${isPreview?`<div class="preview-banner">
   <div class="info-item"><div class="info-label">Posto de Trabalho</div><div class="info-value">${posto.razaoSocial||'—'}</div></div>
   <div class="info-item"><div class="info-label">Salário Base</div><div class="info-value">${fmtMoney(salarioBase)}</div></div>
   <div class="info-item"><div class="info-label">Horário Contratual</div><div class="info-value">${emp.horarioEntrada||'—'} – ${emp.horarioSaida||'—'}${emp.semRefeicao?' <span style="font-size:10px;color:#C62828">(Sem refeição)</span>':((emp.horarioRefIni||emp.horarioRefFim)?` <span style="font-size:10px;color:#888">(Ref. ${emp.horarioRefIni||'—'}–${emp.horarioRefFim||'—'})</span>`:'')}</div></div>
-  <div class="info-item"><div class="info-label">Banco de Horas</div><div class="info-value">${emp.bancoHoras||'—'}</div></div>
+  <div class="info-item"><div class="info-label">Banco de Horas</div><div class="info-value">${(function(){const s=bancoSaldo(emp.id);return s>0.0001?_fmtHoras(s):'—';})()}</div></div>
   <div class="info-item"><div class="info-label">Status</div><div class="info-value">${(emp.status||'ativo').charAt(0).toUpperCase()+(emp.status||'ativo').slice(1)}</div></div>
 </div>
 
@@ -8116,7 +8366,7 @@ ${isPreview?`<div class="preview-banner">
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
   <table class="fin-table">
     <tr><td class="fin-label">Remuneração do Período</td><td class="fin-value">${fmtMoney(remuneracao)}</td></tr>
-    <tr><td class="fin-label">Horas Extras (${heTotal})</td><td class="fin-value">${fmtMoney(heValor)}</td></tr>
+    <tr><td class="fin-label">Horas Extras (${heTotal})${val('payroll-he-destino')==='banco'?' <small style="color:#00897B">&rarr; banco de horas</small>':''}</td><td class="fin-value">${fmtMoney(heValor)}</td></tr>
     ${heCorridoValor>0?`<tr><td class="fin-label">HE Hora Corrida ${heCorridoDetalhe?`<small style="color:#7B1FA2">— ${heCorridoDetalhe}</small>`:''}</td><td class="fin-value">${fmtMoney(heCorridoValor)}</td></tr>`:''}
     ${adNoturno>0?`<tr><td class="fin-label">Adicional Noturno</td><td class="fin-value">${fmtMoney(adNoturno)}</td></tr>`:''}
     ${acumulo>0?`<tr><td class="fin-label">Acúmulo de Função (+20%)</td><td class="fin-value">${fmtMoney(acumulo)}</td></tr>`:''}
@@ -8310,7 +8560,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
   <div class="info-item"><div class="info-label">Posto de Trabalho</div><div class="info-value">${posto.razaoSocial||'—'}</div></div>
   <div class="info-item"><div class="info-label">Salário Base</div><div class="info-value">${fmtMoney(emp.salarioBase||0)}</div></div>
   <div class="info-item"><div class="info-label">Horário Contratual</div><div class="info-value">${emp.horarioEntrada||'—'} – ${emp.horarioSaida||'—'}${emp.semRefeicao?' <span style="font-size:10px;color:#C62828">(Sem refeição)</span>':((emp.horarioRefIni||emp.horarioRefFim)?` <span style="font-size:10px;color:#888">(Ref. ${emp.horarioRefIni||'—'}–${emp.horarioRefFim||'—'})</span>`:'')}</div></div>
-  <div class="info-item"><div class="info-label">Banco de Horas</div><div class="info-value">${emp.bancoHoras||'—'}</div></div>
+  <div class="info-item"><div class="info-label">Banco de Horas</div><div class="info-value">${(function(){const s=bancoSaldo(emp.id);return s>0.0001?_fmtHoras(s):'—';})()}</div></div>
   <div class="info-item"><div class="info-label">Período</div><div class="info-value">${p.periodoDe||'—'} a ${p.periodoAte||'—'}</div></div>
 </div>
 
@@ -8340,6 +8590,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
     <table class="fin-table">
       <tr><td class="fin-label">Remuneração do Período</td><td class="fin-value">${fmtMoney(remuneracao)}</td></tr>
       ${heValor>0?`<tr><td class="fin-label">Horas Extras ${heTotal} (${hePerc}%)</td><td class="fin-value">${fmtMoney(heValor)}</td></tr>`:''}
+      ${(p.heDestino==='banco'&&heTotalHoras>0)?`<tr><td class="fin-label">Horas Extras (${heTotal}) <small style="color:#00897B">&rarr; banco de horas</small></td><td class="fin-value">&mdash;</td></tr>`:''}
       ${heCorridoValor>0?`<tr><td class="fin-label">HE Hora Corrida ${heCorridoDetalhe?`<small style="color:#7B1FA2">— ${heCorridoDetalhe}</small>`:''}</td><td class="fin-value">${fmtMoney(heCorridoValor)}</td></tr>`:''}
       ${adNoturno>0?`<tr><td class="fin-label">Adicional Noturno</td><td class="fin-value">${fmtMoney(adNoturno)}</td></tr>`:''}
       ${acumulo>0?`<tr><td class="fin-label">Acúmulo de Função (+20%)</td><td class="fin-value">${fmtMoney(acumulo)}</td></tr>`:''}
@@ -10119,6 +10370,12 @@ async function init(){
     State.escalas = data;
     if(State.currentSection==='escalas') renderEscalas();
     if(State.currentSection==='dashboard') renderDashboard();
+  });
+  DB.listen('bancoHoras', data => {
+    State.bancoHoras = data;
+    if(State.currentSection==='dashboard') renderDashboard();
+    const bhModal=document.getElementById('modal-banco-horas');
+    if(bhModal && !bhModal.classList.contains('hidden')) renderBancoHoras();
   });
 
   // 7. Configurar datas na UI

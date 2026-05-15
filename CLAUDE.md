@@ -82,6 +82,7 @@ Os relatórios **não** têm mais seção própria no sidebar. São acessados vi
 - `decimoTerceiro` — id `{empId}_{ano}` — cálculo de 13º com 1ª e 2ª parcela.
 - `ferias` — id `{empId}_{ano}_{inicio}` — período de gozo, abono, demonstrativo.
 - `cct` — documento único `id: 'current'`
+- `bancoHoras` — **coleção**. Cada doc é um lançamento. Crédito de folha: id fixo `bh_folha_{payrollId}` (idempotente) `{tipo:'credito', horas, data, validade, origem:'folha', competencia, payrollId}`. Débito manual: id `genId()` `{tipo:'debito', horas, data, origem:'manual', observacao}`. Saldo = créditos − débitos; expiração via FIFO (`bancoProximaExpiracao`). Listener em `init()`.
 - `users` — usuários do sistema (login custom, NÃO Firebase Auth)
 - `accessLog` — log de auditoria
 - `postos`, `contratos`, `perfis` — outros recursos
@@ -92,6 +93,8 @@ Os relatórios **não** têm mais seção própria no sidebar. São acessados vi
 - `cct.plrValorAnual`, `cct.plrAvisoDias`
 - `cct.plrP1Valor`, `cct.plrP1DataLimite`, `cct.plrP1DataPagamento`
 - `cct.plrP2Valor`, `cct.plrP2DataLimite`, `cct.plrP2DataPagamento`
+- `cct.bancoValidadeMeses` (default 12) — validade das horas no banco de horas
+- `cct.bancoAvisoDias` (default 30) — antecedência do alerta de expiração no Dashboard
 
 ### Folha de Ponto — Fechamento de Período
 
@@ -295,6 +298,7 @@ git push origin main
   - **Dashboard:** novo card laranja "Pendentes de revisar HE" mostra contagem (`heRevisaoEmps`, `heRevisaoDias`) baseada em `_detectHEDivergencia` de todos os payrolls do mês. Clique vai pra `_dashGotoHEReview()` que abre Folha de Ponto pré-filtrada e dispara `openHEReview()` no 1º colaborador pendente.
 - **2026-05-15**: Leitura de documentos com IA no cadastro de colaborador — nova caixa "Preenchimento automático com IA" no topo da aba Dados Pessoais do `modal-employee`. O gestor seleciona múltiplas fotos/PDFs de documentos (RG, CPF, CNH, CTPS, PIS/NIT, Título de Eleitor, comprovante de residência); cada arquivo vira uma chamada Gemini via o Cloudflare Worker existente (`callGeminiCadastro`), os resultados são mesclados (1ª ocorrência não-nula vence) e aplicados aos campos das abas Dados Pessoais e Endereço por `applyCadastroExtraction` — selects casados por value/text, máscaras de CPF/celular/CEP reaplicadas, campos preenchidos piscam em amarelo (`.ia-filled-flash`). Funções: `onCadastroDocsSelected`, `_renderCadastroDocList`, `removeCadastroDoc`, `processCadastroDocs`, `callGeminiCadastro`, `applyCadastroExtraction`, `_resetCadastroImport` (chamada em `openEmployeeModal`). Escopo: só dados pessoais/endereço — salário, escala, posto, benefícios e encargos seguem manuais (não existem em documentos).
 - **2026-05-15**: Memórias do projeto unificadas — os 4 arquivos da auto-memória interna do Claude (`MEMORY.md`, `user_profile.md`, `project_state.md`, `project_files.md`) foram consolidados neste `CLAUDE.md` e removidos. A partir daqui, este arquivo é a **única** fonte de memória/contexto do projeto.
+- **2026-05-15**: Banco de Horas — nova coleção `bancoHoras` + módulo completo. (1) **CCT** ganhou seção Banco de Horas: `bancoValidadeMeses` (12) e `bancoAvisoDias` (30). (2) **Folha de Ponto** — cartão Horas Extras ganhou seletor `payroll-he-destino` (`folha`|`banco`). Quando `banco`: `recalculate()` zera `payroll-he-valor` (não entra em totalBruto/totalLiquido) e mostra nota `#he-banco-note`; `savePayroll()` salva `heDestino` e chama `_syncBancoFromPayroll()` que faz upsert/delete do crédito `bh_folha_{payrollId}` (1:1, validade = último dia da competência + N meses). Excluir a folha remove o crédito. (3) **Modal `modal-banco-horas`** por colaborador (botão no cartão HE) — saldo, próxima expiração, extrato, e form de baixa manual (`addBancoDebito` cria débito; `removeBancoLancamento` só remove manuais). (4) **Dashboard** — `renderAlerts()` avisa quando a leva FIFO mais antiga está a ≤`bancoAvisoDias` de expirar (vermelho se já expirada). Helpers: `bancoSaldo`, `bancoProximaExpiracao` (FIFO), `_syncBancoFromPayroll`, `_ultimoDiaMesISO`, `_addMonthsISO`, `_fmtHoras`. Retrocompatível: folhas sem `heDestino` assumem `folha`. Folha impressa mostra saldo real do banco. Log: `BANCO_HORAS_DEBITO`.
 
 ---
 

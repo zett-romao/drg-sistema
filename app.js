@@ -2552,12 +2552,14 @@ function exportReportCsv(){
     const posto=emp?(emp.posto||'—'):'—';
     const escala=emp?escalaLabel(emp.escala||'5x2A'):'—';
     const pix=emp?(emp.chavePix||'—'):'—';
+    // Força texto no Excel: se PIX for numérico, usa ="valor" para evitar notação científica
+    const pixCsv = (pix !== '—' && /^[\d\s().+\-]+$/.test(pix)) ? `="${pix}"` : pix;
     const totalFaltas='faltasJustificadas' in p?(p.faltasJustificadas||0)+(p.faltasInjustificadas||0):(p.faltas||0);
     const num=emp&&emp.registro?String(emp.registro).padStart(4,'0'):String(i+1);
     rows.push([num,nome,posto,escala,p.diasTrabalhados,totalFaltas,
       (p.remuneracao||0).toFixed(2),(p.valeTransporte||0).toFixed(2),
       (p.valeRefeicao||0).toFixed(2),(p.valeAlimentacaoLiquido||0).toFixed(2),
-      (p.adNoturno||0).toFixed(2),(p.bonificacao||0).toFixed(2),pix].join(';'));
+      (p.adNoturno||0).toFixed(2),(p.bonificacao||0).toFixed(2),pixCsv].join(';'));
   });
   const blob=new Blob(['﻿'+rows.join('\n')],{type:'text/csv;charset=utf-8'});
   const url=URL.createObjectURL(blob);

@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DRG-Kronos — Cadastro Gratuito</title>
+  <link rel="icon" href="logo.png" type="image/png">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js?v=20260508h"></script>
+  <style>
+    :root {
+      --primary: #1a3a6b;
+      --primary-light: #2651a0;
+      --success: #2e7d32;
+      --border: #e0e0e0;
+      --muted: #777;
+      --bg: #f4f6fa;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: linear-gradient(135deg, #1a3a6b 0%, #2651a0 60%, #1565c0 100%);
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      padding: 20px;
+    }
+
+    .page-wrap { display: flex; gap: 40px; align-items: flex-start; max-width: 1000px; width: 100%; }
+
+    /* Coluna esquerda — marketing */
+    .marketing {
+      flex: 1; color: #fff; padding-top: 20px;
+    }
+    .marketing img { height: 52px; margin-bottom: 20px; }
+    .marketing h1 { font-size: 30px; font-weight: 700; line-height: 1.3; margin-bottom: 12px; }
+    .marketing p { font-size: 15px; opacity: .85; line-height: 1.6; margin-bottom: 24px; }
+    .features { list-style: none; }
+    .features li {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 14px; margin-bottom: 10px; opacity: .9;
+    }
+    .features li i { color: #81c784; width: 18px; }
+    .trial-badge {
+      display: inline-block; background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.3);
+      border-radius: 20px; padding: 6px 16px; font-size: 13px; margin-top: 20px;
+    }
+
+    /* Card de cadastro */
+    .card {
+      background: #fff; border-radius: 16px; padding: 36px 40px;
+      width: 440px; box-shadow: 0 12px 48px rgba(0,0,0,.25); flex-shrink: 0;
+    }
+    .card h2 { font-size: 20px; color: var(--primary); margin-bottom: 4px; }
+    .card .subtitle { font-size: 13px; color: var(--muted); margin-bottom: 24px; }
+
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; font-size: 12px; font-weight: 600; color: #444; margin-bottom: 5px; }
+    .form-group input, .form-group select {
+      width: 100%; padding: 11px 14px; border: 1px solid var(--border);
+      border-radius: 8px; font-size: 14px; outline: none; transition: border-color .2s;
+    }
+    .form-group input:focus, .form-group select:focus { border-color: var(--primary); }
+    .form-group input.error { border-color: #c62828; }
+    .form-row { display: flex; gap: 12px; }
+    .form-row .form-group { flex: 1; }
+    .field-hint { font-size: 11px; color: var(--muted); margin-top: 3px; }
+    .field-error { font-size: 11px; color: #c62828; margin-top: 3px; display: none; }
+
+    .btn-submit {
+      width: 100%; padding: 13px; background: var(--primary); color: #fff;
+      border: none; border-radius: 8px; font-size: 15px; font-weight: 700;
+      cursor: pointer; transition: background .2s; margin-top: 8px;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .btn-submit:hover:not(:disabled) { background: var(--primary-light); }
+    .btn-submit:disabled { opacity: .6; cursor: not-allowed; }
+
+    .alert { padding: 12px 16px; border-radius: 8px; font-size: 13px; margin-bottom: 16px; display: none; }
+    .alert-error { background: #fce4e4; color: #c62828; border: 1px solid #ef9a9a; }
+    .alert-success { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
+
+    /* Tela de sucesso */
+    #tela-sucesso { display: none; text-align: center; }
+    #tela-sucesso .check { font-size: 60px; color: #2e7d32; margin-bottom: 16px; }
+    #tela-sucesso h2 { color: var(--primary); font-size: 22px; margin-bottom: 8px; }
+    #tela-sucesso p { color: var(--muted); font-size: 14px; line-height: 1.5; margin-bottom: 20px; }
+    .btn-acessar {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 13px 28px; background: var(--primary); color: #fff;
+      border-radius: 8px; font-size: 15px; font-weight: 700; text-decoration: none;
+      transition: background .2s;
+    }
+    .btn-acessar:hover { background: var(--primary-light); }
+    .tenant-id-box {
+      background: #f4f6fa; border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px 16px; font-family: monospace; font-size: 13px; color: #333;
+      margin: 12px 0; word-break: break-all;
+    }
+
+    .ja-tem { text-align: center; margin-top: 16px; font-size: 13px; color: var(--muted); }
+    .ja-tem a { color: var(--primary); text-decoration: none; font-weight: 600; }
+
+    @media (max-width: 780px) {
+      .page-wrap { flex-direction: column; align-items: center; }
+      .marketing { text-align: center; }
+      .card { width: 100%; padding: 28px 24px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="page-wrap">
+
+  <!-- Marketing -->
+  <div class="marketing">
+    <img src="logo.png" alt="DRG-Kronos">
+    <h1>Gestão de colaboradores<br>simples e profissional</h1>
+    <p>DRG-Kronos 3.0 — controle completo da sua equipe, folha de ponto, 13º salário, férias e muito mais.</p>
+    <ul class="features">
+      <li><i class="fa-solid fa-check-circle"></i> Folha de ponto com leitura de PDF por IA</li>
+      <li><i class="fa-solid fa-check-circle"></i> Cálculo automático de INSS, IRRF e FGTS</li>
+      <li><i class="fa-solid fa-check-circle"></i> 13º Salário e Férias com recibos prontos</li>
+      <li><i class="fa-solid fa-check-circle"></i> App de ponto para colaboradores (PWA)</li>
+      <li><i class="fa-solid fa-check-circle"></i> Relatórios e exportação para contabilidade</li>
+      <li><i class="fa-solid fa-check-circle"></i> Dados 100% no Firebase — seguro e em nuvem</li>
+    </ul>
+    <div class="trial-badge"><i class="fa-solid fa-clock"></i> &nbsp;30 dias grátis — sem cartão de crédito</div>
+  </div>
+
+  <!-- Card de cadastro -->
+  <div class="card">
+
+    <!-- Formulário -->
+    <div id="tela-form">
+      <h2><i class="fa-solid fa-rocket" style="color:var(--primary);margin-right:6px"></i> Começar grátis</h2>
+      <div class="subtitle">Crie sua conta em menos de 1 minuto</div>
+
+      <div id="alert-error" class="alert alert-error"></div>
+
+      <div class="form-group">
+        <label>Nome da empresa *</label>
+        <input type="text" id="c-nome" placeholder="Ex: Condomínio Alfa">
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>CNPJ *</label>
+          <input type="text" id="c-cnpj" placeholder="00.000.000/0000-00" maxlength="18" oninput="mascaraCNPJ(this)">
+        </div>
+        <div class="form-group">
+          <label>Tipo</label>
+          <select id="c-tipo">
+            <option value="Portaria">Portaria</option>
+            <option value="Condomínio">Condomínio</option>
+            <option value="Imobiliária">Imobiliária</option>
+            <option value="Outros">Outros</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Seu nome *</label>
+        <input type="text" id="c-responsavel" placeholder="Nome do responsável">
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Usuário (login) *</label>
+          <input type="text" id="c-usuario" placeholder="Ex: admin">
+          <div class="field-hint">Letras e números, sem espaços</div>
+        </div>
+        <div class="form-group">
+          <label>Senha *</label>
+          <input type="password" id="c-senha" placeholder="Mín. 6 caracteres">
+        </div>
+      </div>
+
+      <button class="btn-submit" id="btn-cadastrar" onclick="doCadastro()">
+        <i class="fa-solid fa-rocket"></i> Criar minha conta grátis
+      </button>
+
+      <div class="ja-tem">Já tem conta? <a href="index.html">Acessar sistema</a></div>
+    </div>
+
+    <!-- Tela de sucesso -->
+    <div id="tela-sucesso">
+      <div class="check"><i class="fa-solid fa-circle-check"></i></div>
+      <h2>Conta criada com sucesso!</h2>
+      <p>Seu ambiente está pronto. Guarde o ID abaixo — você pode precisar dele para suporte:</p>
+      <div class="tenant-id-box" id="sucesso-tenant-id"></div>
+      <p style="font-size:12px;color:#999;margin-bottom:16px">Seu trial gratuito é válido por 30 dias.</p>
+      <a href="#" id="btn-acessar" class="btn-acessar">
+        <i class="fa-solid fa-arrow-right-to-bracket"></i> Acessar meu sistema
+      </a>
+    </div>
+
+  </div>
+</div>
+
+<script>
+'use strict';
+
+let fs = null;
+
+function initFirebase() {
+  if (fs) return true;
+  try {
+    if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+    fs = firebase.firestore();
+    return true;
+  } catch(e) { return false; }
+}
+
+function mascaraCNPJ(el) {
+  let v = el.value.replace(/\D/g,'').slice(0,14);
+  if (v.length > 12) v = v.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{0,2})/,'$1.$2.$3/$4-$5');
+  else if (v.length > 8) v = v.replace(/^(\d{2})(\d{3})(\d{3})(\d{0,4})/,'$1.$2.$3/$4');
+  else if (v.length > 5) v = v.replace(/^(\d{2})(\d{3})(\d{0,3})/,'$1.$2.$3');
+  else if (v.length > 2) v = v.replace(/^(\d{2})(\d{0,3})/,'$1.$2');
+  el.value = v;
+}
+
+function showError(msg) {
+  const el = document.getElementById('alert-error');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+function hideError() {
+  document.getElementById('alert-error').style.display = 'none';
+}
+
+async function sha256(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+async function doCadastro() {
+  hideError();
+  const nome       = document.getElementById('c-nome').value.trim();
+  const cnpjRaw    = document.getElementById('c-cnpj').value.replace(/\D/g,'');
+  const tipo       = document.getElementById('c-tipo').value;
+  const responsavel= document.getElementById('c-responsavel').value.trim();
+  const usuario    = document.getElementById('c-usuario').value.trim().toLowerCase().replace(/[^a-z0-9]/g,'');
+  const senha      = document.getElementById('c-senha').value;
+
+  // Validações
+  if (!nome)                          { showError('Informe o nome da empresa.'); return; }
+  if (cnpjRaw.length !== 14)          { showError('CNPJ inválido — verifique os 14 dígitos.'); return; }
+  if (!responsavel)                   { showError('Informe o nome do responsável.'); return; }
+  if (!usuario || usuario.length < 3) { showError('Usuário deve ter ao menos 3 caracteres (letras e números).'); return; }
+  if (senha.length < 6)               { showError('Senha deve ter ao menos 6 caracteres.'); return; }
+
+  if (!initFirebase()) { showError('Erro ao conectar ao Firebase. Verifique firebase-config.js.'); return; }
+
+  const btn = document.getElementById('btn-cadastrar');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Criando conta...';
+
+  const tenantId = cnpjRaw; // ID = CNPJ puro (14 dígitos)
+
+  try {
+    // Verifica se tenant já existe
+    const existing = await fs.collection('operator').doc('tenants')
+                              .collection('lista').doc(tenantId).get();
+    if (existing.exists) {
+      showError('Este CNPJ já possui uma conta. Acesse o sistema ou entre em contato com o suporte.');
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa-solid fa-rocket"></i> Criar minha conta grátis';
+      return;
+    }
+
+    // Calcula validade trial (30 dias)
+    const validade = new Date();
+    validade.setDate(validade.getDate() + 30);
+    const validadeStr = validade.toISOString().split('T')[0];
+
+    // 1. Cria metadata do tenant no painel operador
+    const tenantMeta = {
+      id: tenantId, nome, cnpj: document.getElementById('c-cnpj').value.trim(),
+      tipo, plano: 'trial', status: 'trial',
+      mensalidade: 0, validade: validadeStr,
+      responsavel, criadoEm: new Date().toISOString(), updatedAt: new Date().toISOString()
+    };
+    await fs.collection('operator').doc('tenants')
+            .collection('lista').doc(tenantId).set(tenantMeta);
+
+    // 2. Cria usuário master no tenant
+    const senhaHash = await sha256(senha);
+    const userId = 'master_' + tenantId;
+    const userDoc = {
+      id: userId, username: usuario, passwordHash: senhaHash,
+      role: 'master', active: true, criadoEm: new Date().toISOString()
+    };
+    await fs.collection('tenants').doc(tenantId)
+            .collection('users').doc(userId).set(userDoc);
+
+    // 3. Cria config inicial da empresa no tenant
+    const empresaDoc = {
+      nomeEmpresa: nome, cnpj: document.getElementById('c-cnpj').value.trim(),
+      descricao: tipo, subdesc: 'Sistema de Gestão de Colaboradores',
+      logoUrl: '', modoContabilidade: 'ambas'
+    };
+    await fs.collection('tenants').doc(tenantId)
+            .collection('configuracoes').doc('empresa').set(empresaDoc);
+
+    // Sucesso — mostra tela de acesso
+    localStorage.setItem('drg_tenant', tenantId);
+    document.getElementById('tela-form').style.display = 'none';
+    document.getElementById('tela-sucesso').style.display = 'block';
+    document.getElementById('sucesso-tenant-id').textContent = tenantId;
+    document.getElementById('btn-acessar').href = `index.html?tenant=${tenantId}`;
+
+  } catch(e) {
+    showError('Erro ao criar conta: ' + (e.message || String(e)));
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-rocket"></i> Criar minha conta grátis';
+  }
+}
+
+// Enter submete o form
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && document.getElementById('tela-form').style.display !== 'none') {
+    doCadastro();
+  }
+});
+</script>
+</body>
+</html>

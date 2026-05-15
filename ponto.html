@@ -256,7 +256,19 @@
 'use strict';
 
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
-const db      = firebase.firestore();
+const _fs     = firebase.firestore();
+// Tenant-aware: se a URL tiver ?tenant=X, todas as coleções ficam em tenants/X/
+const _tenantId = new URLSearchParams(window.location.search).get('tenant')
+                  || localStorage.getItem('drg_tenant')
+                  || null;
+// Função helper: retorna referência à coleção correta
+function dbCol(name) {
+  return _tenantId
+    ? _fs.collection('tenants').doc(_tenantId).collection(name)
+    : _fs.collection(name);
+}
+// Compatibilidade: db aponta para o fs direto (usado em db.collection fora das helpers)
+const db = _fs;
 const DIAS    = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 const MESES   = ['','Janeiro','Fevereiro','Março','Abril','Maio','Junho',
                   'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
@@ -324,13 +336,13 @@ async function doLogin() {
 
   try {
     // Busca por matrícula como número (sem filtro de status — verificamos em JS depois)
-    let snap = await db.collection('employees')
+    let snap = await dbCol('employees')
       .where('registro', '==', parseInt(mat))
       .limit(1).get();
 
     // Fallback: busca como string (caso registro tenha sido salvo como texto)
     if (snap.empty) {
-      snap = await db.collection('employees')
+      snap = await dbCol('employees')
         .where('registro', '==', mat)
         .limit(1).get();
     }
@@ -429,7 +441,7 @@ async function carregarPayroll() {
   const mes = now.getMonth() + 1;
   const ano = now.getFullYear();
   try {
-    const snap = await db.collection('payrolls')
+    const snap = await dbCol('payrolls')
       .where('employeeId', '==', currentEmp.id)
       .where('mes', '==', mes)
       .where('ano', '==', ano)
@@ -548,7 +560,7 @@ async function baterPonto() {
       createdAt: currentPayroll?.createdAt || new Date().toISOString(),
     };
 
-    await db.collection('payrolls').doc(id).set(record, { merge: true });
+    await dbCol('payrolls').doc(id).set(record, { merge: true });
     // Atualiza cache local mesclando com o que já tínhamos (preserva campos do gestor em memória)
     currentPayroll = { ...(currentPayroll || {}), ...record };
 

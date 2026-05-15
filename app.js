@@ -17,6 +17,22 @@ const DB = {
   fs: null,
   storage: null,
   _unsubs: [],
+  tenantId: null,   // null = modo legado (coleções raiz); string = multi-tenant
+
+  // Retorna referência à coleção correta: raiz ou subcoleção do tenant
+  col(name) {
+    if (this.tenantId && this.fs) {
+      return this.fs.collection('tenants').doc(this.tenantId).collection(name);
+    }
+    return this.fs ? this.fs.collection(name) : null;
+  },
+
+  // Referência direta ao documento de metadata do tenant no painel operador
+  tenantDoc() {
+    if (!this.fs || !this.tenantId) return null;
+    return this.fs.collection('operator').doc('tenants')
+               .collection('lista').doc(this.tenantId);
+  },
 
   isConfigured() {
     return FIREBASE_CONFIG.apiKey !== 'COLE_AQUI';
@@ -45,29 +61,47 @@ const DB = {
     }
   },
 
-  // Salva/atualiza um documento (merge)
+  // Salva/atualiza um documento (replace)
   async save(col, record) {
-    if (!this.fs) return;
-    await this.fs.collection(col).doc(record.id).set(record);
+    const ref = this.col(col); if (!ref) return;
+    await ref.doc(record.id).set(record);
+  },
+
+  // Atualiza campos específicos de um documento (merge parcial)
+  async merge(col, id, data) {
+    const ref = this.col(col); if (!ref) return;
+    await ref.doc(id).set(data, {merge: true});
+  },
+
+  // Salva num sub-path fixo (ex: 'configuracoes', 'empresa')
+  async saveDoc(col, docId, data, mergeFlag = false) {
+    const ref = this.col(col); if (!ref) return;
+    await ref.doc(docId).set(data, mergeFlag ? {merge:true} : undefined);
+  },
+
+  // Lê um único documento por ID
+  async getDoc(col, docId) {
+    const ref = this.col(col); if (!ref) return null;
+    const doc = await ref.doc(docId).get();
+    return doc.exists ? doc.data() : null;
   },
 
   // Exclui um documento
   async remove(col, id) {
-    if (!this.fs) return;
-    await this.fs.collection(col).doc(id).delete();
+    const ref = this.col(col); if (!ref) return;
+    await ref.doc(id).delete();
   },
 
   // Leitura única de uma coleção
   async getAll(col) {
-    if (!this.fs) return [];
-    const snap = await this.fs.collection(col).get();
+    const ref = this.col(col); if (!ref) return [];
+    const snap = await ref.get();
     return snap.docs.map(d => d.data());
   },
 
   // Listener em tempo real — retorna função de cancelamento
   listen(col, callback, orderByField = null, limitN = null) {
-    if (!this.fs) return () => {};
-    let ref = this.fs.collection(col);
+    let ref = this.col(col); if (!ref) return () => {};
     if (orderByField) ref = ref.orderBy(orderByField, 'desc');
     if (limitN)       ref = ref.limit(limitN);
     const unsub = ref.onSnapshot(snap => {
@@ -100,7 +134,6 @@ const DB = {
       ];
       await Promise.all(tasks);
 
-      // Limpa localStorage após migração bem-sucedida
       ['drg_employees','drg_payrolls','drg_users','drg_access_log'].forEach(k =>
         localStorage.removeItem(k)
       );
@@ -109,6 +142,29 @@ const DB = {
       console.error('Migração:', e);
       return false;
     }
+  },
+
+  // Migra dados das coleções raiz para o namespace do tenant (one-shot)
+  async migrateRootToTenant(tenantId) {
+    if (!this.fs || !tenantId) return false;
+    const cols = ['employees','payrolls','users','accessLog','cct','perfis',
+                  'postos','contratos','decimoTerceiro','ferias','escalas','configuracoes'];
+    let total = 0;
+    for (const col of cols) {
+      const snap = await this.fs.collection(col).get();
+      if (snap.empty) continue;
+      const batch = this.fs.batch();
+      snap.docs.forEach(doc => {
+        const dest = this.fs.collection('tenants').doc(tenantId)
+                       .collection(col).doc(doc.id);
+        batch.set(dest, doc.data());
+      });
+      await batch.commit();
+      total += snap.size;
+      console.log(`Migrado: ${col} (${snap.size} docs)`);
+    }
+    console.log(`Migração concluída: ${total} documentos → tenant "${tenantId}"`);
+    return total;
   }
 };
 
@@ -150,9 +206,9 @@ function _e(field){ return (State.empresa&&State.empresa[field]) || EMPRESA_DEFA
 
 async function loadEmpresaConfig(){
   try {
-    const doc = await DB.fs.collection('configuracoes').doc('empresa').get();
-    if(doc.exists){
-      State.empresa = { ...EMPRESA_DEFAULTS, ...doc.data() };
+    const data = await DB.getDoc('configuracoes','empresa');
+    if(data){
+      State.empresa = { ...EMPRESA_DEFAULTS, ...data };
     }
   } catch(e){ /* sem dados — usa defaults */ }
   applyEmpresaConfig();
@@ -263,7 +319,7 @@ async function saveEmpresaConfig(){
     updatedAt:         new Date().toISOString()
   };
   try {
-    await DB.fs.collection('configuracoes').doc('empresa').set(dados, {merge:true});
+    await DB.saveDoc('configuracoes','empresa',dados,true);
     State.empresa = { ...EMPRESA_DEFAULTS, ...dados };
     applyEmpresaConfig();
     _applyModoBanners(dados.modoContabilidade||'ambas');
@@ -4217,8 +4273,8 @@ async function _updatePainelFechamento(mes,ano){
   // Carregar config do Firestore
   let conf={};
   try{
-    const snap=await DB.fs.collection('configuracoes').doc(`fechamento_${key}`).get();
-    if(snap.exists) conf=snap.data();
+    const confDoc=await DB.getDoc('configuracoes',`fechamento_${key}`);
+    if(confDoc) conf=confDoc;
   }catch(e){ console.warn('Conf fechamento não carregada:',e); }
   State.confFolha=State.confFolha||{};
   State.confFolha[key]=conf;
@@ -4255,7 +4311,7 @@ async function configurarDataFechamento(){
   const conf=State.confFolha?.[key]||{};
   const novaConf={ ...conf, dataFechamento:data, updatedAt:new Date().toISOString() };
   try{
-    await DB.fs.collection('configuracoes').doc(`fechamento_${key}`).set(novaConf,{merge:true});
+    await DB.saveDoc('configuracoes',`fechamento_${key}`,novaConf,true);
     State.confFolha=State.confFolha||{};
     State.confFolha[key]=novaConf;
     toast(`Data de fechamento de ${MESES[mes]}/${ano} definida para ${new Date(data+'T12:00:00').toLocaleDateString('pt-BR')}.`);
@@ -4278,10 +4334,10 @@ async function _executarFechamentoPeriodo(mes,ano,key,conf,automatico){
   const agora=new Date().toISOString();
   try{
     await Promise.all(folhasAbertas.map(p=>
-      DB.fs.collection('payrolls').doc(p.id).set({status:'fechada',fechadoEm:agora},{merge:true})
+      DB.merge('payrolls',p.id,{status:'fechada',fechadoEm:agora})
     ));
     const novaConf={...conf,fechado:true,fechadoEm:agora,updatedAt:agora};
-    await DB.fs.collection('configuracoes').doc(`fechamento_${key}`).set(novaConf,{merge:true});
+    await DB.saveDoc('configuracoes',`fechamento_${key}`,novaConf,true);
     State.confFolha=State.confFolha||{};
     State.confFolha[key]=novaConf;
     // Atualiza State local
@@ -4309,7 +4365,7 @@ async function fecharFolhaIndividual(){
   if(!confirm(`Fechar a folha de ${emp.nome} — ${MESES[mes]}/${ano}?\n\nA folha ficará bloqueada para edição. Você poderá reabrir se necessário.`)) return;
   try{
     const agora=new Date().toISOString();
-    await DB.fs.collection('payrolls').doc(p.id).set({status:'fechada',fechadoEm:agora},{merge:true});
+    await DB.merge('payrolls',p.id,{status:'fechada',fechadoEm:agora});
     const s=State.payrolls.find(r=>r.id===p.id); if(s){ s.status='fechada'; s.fechadoEm=agora; }
     Auth.log('PAYROLL_FECHADO_INDIVIDUAL',null,`${emp.nome} — ${MESES[mes]}/${ano}`);
     toast(`Folha de ${emp.nome} fechada.`);
@@ -4327,7 +4383,7 @@ async function reabrirFolha(){
   if(!p){ toast('Folha não encontrada.','error'); return; }
   if(!confirm(`Reabrir a folha de ${emp.nome} — ${MESES[mes]}/${ano}?\n\nA folha voltará a ser editável. O período geral continuará fechado para os demais.`)) return;
   try{
-    await DB.fs.collection('payrolls').doc(p.id).set({status:'aberta',reabertoEm:new Date().toISOString()},{merge:true});
+    await DB.merge('payrolls',p.id,{status:'aberta',reabertoEm:new Date().toISOString()});
     const s=State.payrolls.find(r=>r.id===p.id); if(s) s.status='aberta';
     Auth.log('PAYROLL_REABERTO',null,`${emp.nome} — ${MESES[mes]}/${ano}`);
     toast(`Folha de ${emp.nome} reaberta para edição.`);
@@ -5842,7 +5898,7 @@ async function openPontoManual(){
   // Busca direta no Firestore para garantir dados frescos do app de ponto
   let payrollSalvo = State.payrolls.find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
   try {
-    const snap = await DB.fs.collection('payrolls')
+    const snap = await DB.col('payrolls')
       .where('employeeId','==',empId)
       .where('mes','==',mes)
       .where('ano','==',ano)
@@ -8590,8 +8646,43 @@ async function toggleShowLog(userId){
 async function checkLicenca(){
   if(!DB.fs) return true;
   try {
-    const doc=await DB.fs.collection('config').doc('licenca').get();
-    if(!doc.exists) return true; // sem controle de licença = livre
+    // Modo multi-tenant: lê metadata do tenant no painel operador
+    if(DB.tenantId){
+      const tenantRef = DB.tenantDoc();
+      if(!tenantRef) return true;
+      const doc = await tenantRef.get();
+      if(!doc.exists) return true; // tenant ainda não registrado no operador = livre
+      const t = doc.data();
+      const hoje = new Date().toISOString().split('T')[0];
+      // Bloqueado pelo operador
+      if(t.status==='bloqueado'){
+        showLicencaLock(t.msgBloqueio||'Sistema bloqueado. Entre em contato com o suporte.');
+        return false;
+      }
+      // Arquivado
+      if(t.status==='arquivado'){
+        showLicencaLock('Este tenant foi arquivado. Entre em contato com o suporte.');
+        return false;
+      }
+      // Trial ou ativo com validade expirada
+      if(t.validade && hoje > t.validade){
+        const planoLabel = t.plano==='trial' ? 'Trial' : 'Licença';
+        showLicencaLock(`${planoLabel} expirado em ${formatDateBr(t.validade)}. Entre em contato para renovar.`);
+        return false;
+      }
+      // Aviso de vencimento próximo (7 dias)
+      if(t.validade){
+        const diasRestantes=Math.floor((new Date(t.validade)-new Date())/86400000);
+        if(diasRestantes<=7){
+          const planoLabel = t.plano==='trial' ? 'Trial' : 'Licença';
+          setTimeout(()=>toast(`⚠ ${planoLabel} vence em ${diasRestantes} dia(s)! Contate o suporte.`,'warning'),3000);
+        }
+      }
+      return true;
+    }
+    // Modo legado: lê de config/licenca (coleção raiz)
+    const doc = await DB.fs.collection('config').doc('licenca').get();
+    if(!doc.exists) return true;
     const lic=doc.data();
     if(!lic.ativa){
       showLicencaLock('Sistema bloqueado pelo administrador. Entre em contato com o suporte.');
@@ -8611,8 +8702,30 @@ async function checkLicenca(){
     return true;
   } catch(e){
     console.warn('Licença: erro ao verificar (continuando normalmente):',e);
-    return true; // em caso de erro de rede, não bloqueia
+    return true;
   }
+}
+
+async function showTrialBanner(){
+  if(!DB.fs || !DB.tenantId) return;
+  try {
+    const tenantRef = DB.tenantDoc(); if(!tenantRef) return;
+    const doc = await tenantRef.get(); if(!doc.exists) return;
+    const t = doc.data();
+    if(!t.validade) return;
+    const hoje = new Date().toISOString().split('T')[0];
+    if(hoje > t.validade) return; // já bloqueado pelo checkLicenca
+    const dias = Math.floor((new Date(t.validade) - new Date()) / 86400000);
+    if(t.status === 'trial'){
+      const banner = document.getElementById('trial-banner');
+      const msg = document.getElementById('trial-banner-msg');
+      if(banner && msg){
+        msg.textContent = `Trial: ${dias} dia(s) restante(s) — entre em contato para continuar usando o sistema.`;
+        banner.classList.remove('hidden');
+        banner.style.background = dias <= 3 ? '#c62828' : '#e65100';
+      }
+    }
+  } catch(e){ /* silencioso */ }
 }
 
 function showLicencaLock(msg){
@@ -8640,6 +8753,18 @@ async function init(){
   // 1. Verificar se Firebase está configurado
   if(!DB.isConfigured()){ showSetup(); return; }
 
+  // 1b. Resolver tenantId: URL ?tenant= → localStorage → null (modo legado)
+  const _urlParams = new URLSearchParams(window.location.search);
+  const _tenantFromUrl = _urlParams.get('tenant');
+  if(_tenantFromUrl){
+    DB.tenantId = _tenantFromUrl;
+    localStorage.setItem('drg_tenant', _tenantFromUrl);
+  } else {
+    DB.tenantId = localStorage.getItem('drg_tenant') || null;
+  }
+  // Expõe o tenantId atual no título para debug
+  if(DB.tenantId) console.info(`[DRG] Tenant ativo: ${DB.tenantId}`);
+
   showLoading('Conectando ao Firebase...');
 
   // 2. Inicializar Firebase
@@ -8656,9 +8781,9 @@ async function init(){
       DB.getAll('employees'),
       DB.getAll('payrolls'),
       DB.getAll('users'),
-      DB.fs.collection('accessLog').orderBy('timestamp','desc').limit(200).get()
+      DB.col('accessLog').orderBy('timestamp','desc').limit(200).get()
         .then(s=>s.docs.map(d=>d.data())),
-      DB.fs.collection('cct').get().then(s=>s.docs.map(d=>d.data())),
+      DB.col('cct').get().then(s=>s.docs.map(d=>d.data())),
       DB.getAll('perfis')
     ]);
     State.employees = employees;
@@ -8765,6 +8890,7 @@ async function init(){
   // 8. Verificar licença
   const licencaOk = await checkLicenca();
   if(!licencaOk) return;
+  showTrialBanner(); // assíncrono, não bloqueia
 
   // 8b. Verificar sessão existente
   hideLoading();

@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DRG-Kronos — Painel do Operador</title>
+  <link rel="icon" href="logo.png" type="image/png">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js?v=20260508h"></script>
+  <style>
+    :root {
+      --primary: #1a3a6b;
+      --primary-light: #2651a0;
+      --success: #2e7d32;
+      --warning: #e65100;
+      --danger: #c62828;
+      --muted: #888;
+      --border: #e0e0e0;
+      --bg: #f4f6fa;
+      --white: #fff;
+      --radius: 10px;
+      --shadow: 0 2px 12px rgba(0,0,0,.08);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: #222; min-height: 100vh; }
+
+    /* ── LOGIN ── */
+    #login-screen {
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; background: linear-gradient(135deg, #1a3a6b 0%, #2651a0 100%);
+    }
+    .login-card {
+      background: var(--white); border-radius: 16px; padding: 40px 48px;
+      width: 380px; box-shadow: 0 8px 40px rgba(0,0,0,.25); text-align: center;
+    }
+    .login-card img { width: 64px; margin-bottom: 16px; }
+    .login-card h2 { color: var(--primary); font-size: 20px; margin-bottom: 4px; }
+    .login-card p { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+    .login-card input {
+      width: 100%; padding: 11px 14px; border: 1px solid var(--border);
+      border-radius: 8px; font-size: 14px; margin-bottom: 12px; outline: none;
+    }
+    .login-card input:focus { border-color: var(--primary); }
+    .btn-login {
+      width: 100%; padding: 12px; background: var(--primary); color: #fff;
+      border: none; border-radius: 8px; font-size: 15px; font-weight: 600;
+      cursor: pointer; transition: background .2s;
+    }
+    .btn-login:hover { background: var(--primary-light); }
+    #login-error { color: #c62828; font-size: 13px; margin-top: 8px; min-height: 18px; }
+
+    /* ── PAINEL PRINCIPAL ── */
+    #operator-panel { display: none; }
+    .topbar {
+      background: var(--primary); color: #fff; padding: 0 28px;
+      height: 60px; display: flex; align-items: center; justify-content: space-between;
+      position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 8px rgba(0,0,0,.2);
+    }
+    .topbar-brand { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 17px; }
+    .topbar-brand img { height: 34px; }
+    .topbar-right { display: flex; align-items: center; gap: 16px; font-size: 13px; }
+    .topbar-right a { color: rgba(255,255,255,.8); text-decoration: none; cursor: pointer; }
+    .topbar-right a:hover { color: #fff; }
+
+    .container { max-width: 1300px; margin: 0 auto; padding: 28px 20px; }
+
+    .page-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 24px; flex-wrap: wrap; gap: 12px;
+    }
+    .page-header h1 { font-size: 22px; color: var(--primary); }
+    .page-header p { color: var(--muted); font-size: 13px; margin-top: 2px; }
+
+    /* Stats */
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .stat-card {
+      background: var(--white); border-radius: var(--radius); padding: 18px 20px;
+      box-shadow: var(--shadow); border-left: 4px solid var(--primary);
+    }
+    .stat-card .stat-value { font-size: 28px; font-weight: 700; color: var(--primary); }
+    .stat-card .stat-label { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+    /* Table */
+    .card { background: var(--white); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+    .card-header {
+      padding: 16px 20px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+    }
+    .card-header h2 { font-size: 15px; color: var(--primary); font-weight: 600; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { background: #f8f9fc; color: var(--primary); font-weight: 600; padding: 10px 12px; text-align: left; border-bottom: 2px solid var(--border); white-space: nowrap; }
+    td { padding: 12px 12px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
+    tr:hover td { background: #fafbff; }
+    tr.meu-tenant td { background: #f0f9f0; }
+
+    /* Badges */
+    .badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 600; white-space: nowrap;
+    }
+    .badge-trial    { background: #fff3e0; color: #e65100; }
+    .badge-ativo    { background: #e8f5e9; color: #2e7d32; }
+    .badge-bloq     { background: #fce4e4; color: #c62828; }
+    .badge-arquiv   { background: #f5f5f5; color: #888; }
+    .badge-ativo-now { background: #e3f2fd; color: #1565c0; }
+    .badge-meu      { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
+
+    /* Botões */
+    .btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid transparent; transition: all .15s; white-space: nowrap; }
+    .btn-primary   { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: var(--primary-light); }
+    .btn-operate   { background: #1a3a6b; color: #fff; }
+    .btn-operate:hover { background: #2651a0; }
+    .btn-outline   { background: var(--white); border-color: var(--border); color: #333; }
+    .btn-outline:hover { border-color: var(--primary); color: var(--primary); }
+    .btn-danger    { background: #fce4e4; color: var(--danger); border-color: #ef9a9a; }
+    .btn-danger:hover { background: var(--danger); color: #fff; }
+    .btn-sm { padding: 5px 10px; font-size: 11px; }
+
+    /* Modal */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.5); z-index: 200; align-items: center; justify-content: center;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal-dialog { background: var(--white); border-radius: 14px; width: 520px; max-width: 95vw; box-shadow: 0 8px 40px rgba(0,0,0,.25); }
+    .modal-header { padding: 20px 24px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+    .modal-header h3 { font-size: 16px; color: var(--primary); }
+    .modal-close { background: none; border: none; font-size: 20px; cursor: pointer; color: var(--muted); }
+    .modal-body { padding: 20px 24px; }
+    .modal-footer { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; gap: 10px; justify-content: flex-end; }
+    .form-group { margin-bottom: 14px; }
+    .form-group label { display: block; font-size: 12px; font-weight: 600; color: #555; margin-bottom: 5px; }
+    .form-group input, .form-group select, .form-group textarea {
+      width: 100%; padding: 9px 12px; border: 1px solid var(--border);
+      border-radius: 7px; font-size: 13px; outline: none;
+    }
+    .form-group input:focus, .form-group select:focus { border-color: var(--primary); }
+    .form-row { display: flex; gap: 12px; }
+    .form-row .form-group { flex: 1; }
+    .alert { padding: 10px 14px; border-radius: 7px; font-size: 13px; margin-bottom: 14px; }
+    .alert-info { background: #e3f2fd; color: #1565c0; border: 1px solid #90caf9; }
+    .alert-warn { background: #fff3e0; color: #e65100; border: 1px solid #ffcc80; }
+
+    @media (max-width: 600px) {
+      .page-header { flex-direction: column; align-items: flex-start; }
+      .form-row { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ══ TELA DE LOGIN ══ -->
+<div id="login-screen">
+  <div class="login-card">
+    <img src="logo.png" alt="DRG">
+    <h2>DRG-Kronos</h2>
+    <p>Painel do Operador — acesso restrito</p>
+    <input type="password" id="op-senha" placeholder="Senha do operador" onkeydown="if(event.key==='Enter') doLogin()">
+    <button class="btn-login" onclick="doLogin()"><i class="fa-solid fa-right-to-bracket"></i> Entrar</button>
+    <div id="login-error"></div>
+  </div>
+</div>
+
+<!-- ══ PAINEL PRINCIPAL ══ -->
+<div id="operator-panel">
+
+  <div class="topbar">
+    <div class="topbar-brand">
+      <img src="logo.png" alt="DRG">
+      DRG-Kronos &nbsp;<span style="font-weight:400;opacity:.7;font-size:13px">Painel do Operador</span>
+    </div>
+    <div class="topbar-right">
+      <a onclick="openAddTenant()"><i class="fa-solid fa-plus"></i> Novo Tenant</a>
+      <a onclick="doLogout()" style="color:rgba(255,255,255,.6)"><i class="fa-solid fa-right-from-bracket"></i> Sair</a>
+    </div>
+  </div>
+
+  <div class="container">
+
+    <div class="page-header">
+      <div>
+        <h1><i class="fa-solid fa-server"></i> Clientes / Tenants</h1>
+        <p id="op-data"></p>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <input type="text" id="op-busca" placeholder="Buscar cliente..." style="padding:8px 12px;border:1px solid var(--border);border-radius:7px;font-size:13px;width:220px" oninput="renderTenants()">
+        <button class="btn btn-primary" onclick="openAddTenant()"><i class="fa-solid fa-plus"></i> Novo Tenant</button>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-grid" id="op-stats"></div>
+
+    <!-- Tabela -->
+    <div class="card">
+      <div class="card-header">
+        <h2><i class="fa-solid fa-list"></i> Todos os Clientes</h2>
+        <span id="op-count" style="font-size:12px;color:var(--muted)"></span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Cliente</th>
+              <th>Tipo</th>
+              <th>Plano</th>
+              <th>Mensalidade</th>
+              <th>Próx. venc.</th>
+              <th>Status</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="op-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══ MODAL: GERENCIAR / NOVO TENANT ══ -->
+<div class="modal-overlay" id="modal-tenant" onclick="closeModal(event)">
+  <div class="modal-dialog">
+    <div class="modal-header">
+      <h3 id="modal-tenant-title"><i class="fa-solid fa-building"></i> Gerenciar Tenant</h3>
+      <button class="modal-close" onclick="document.getElementById('modal-tenant').classList.remove('open')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="mt-id">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Nome da Empresa *</label>
+          <input type="text" id="mt-nome" placeholder="Ex: Condomínio Alfa">
+        </div>
+        <div class="form-group" style="flex:0 0 180px">
+          <label>CNPJ *</label>
+          <input type="text" id="mt-cnpj" placeholder="00.000.000/0000-00">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Tipo</label>
+          <select id="mt-tipo">
+            <option value="Portaria">Portaria</option>
+            <option value="Condomínio">Condomínio</option>
+            <option value="Imobiliária">Imobiliária</option>
+            <option value="Corretor">Corretor</option>
+            <option value="Outros">Outros</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Plano</label>
+          <select id="mt-plano">
+            <option value="trial">Trial</option>
+            <option value="pro">Pro</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Mensalidade (R$)</label>
+          <input type="number" id="mt-mensalidade" placeholder="0,00" step="0.01" min="0">
+        </div>
+        <div class="form-group">
+          <label>Válido até</label>
+          <input type="date" id="mt-validade">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Status</label>
+          <select id="mt-status">
+            <option value="trial">Trial</option>
+            <option value="ativo">Ativo</option>
+            <option value="bloqueado">Bloqueado</option>
+            <option value="arquivado">Arquivado</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Telefone / WhatsApp</label>
+          <input type="text" id="mt-tel" placeholder="(11) 9 0000-0000">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Mensagem de bloqueio (aparece na tela de lock)</label>
+        <input type="text" id="mt-msg-bloqueio" placeholder="Deixe em branco para usar a mensagem padrão">
+      </div>
+      <div class="form-group">
+        <label>Observações internas</label>
+        <textarea id="mt-obs" rows="2" placeholder="Notas sobre este cliente..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="document.getElementById('modal-tenant').classList.remove('open')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveTenant()"><i class="fa-solid fa-floppy-disk"></i> Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ MODAL: CONFIRMAR ARQUIVAR ══ -->
+<div class="modal-overlay" id="modal-confirm" onclick="closeModal(event)">
+  <div class="modal-dialog" style="width:400px">
+    <div class="modal-header">
+      <h3 id="confirm-title">Confirmar</h3>
+      <button class="modal-close" onclick="document.getElementById('modal-confirm').classList.remove('open')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p id="confirm-msg" style="font-size:14px;line-height:1.5"></p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="document.getElementById('modal-confirm').classList.remove('open')">Cancelar</button>
+      <button class="btn btn-danger" id="confirm-ok">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ─── CONFIG ─────────────────────────────────────────────────────────────────
+// Senha do operador armazenada em /operator/config/master no Firestore
+// Se não existir, qualquer senha cria o documento (primeiro acesso)
+const OPERATOR_COLLECTION = 'operator';
+let fs = null;
+let _tenants = [];
+let _operatorAuthed = false;
+
+// ─── FIREBASE ────────────────────────────────────────────────────────────────
+function initFirebase() {
+  try {
+    if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+    fs = firebase.firestore();
+    return true;
+  } catch(e) { console.error('Firebase:', e); return false; }
+}
+
+// Referência ao documento de tenant
+function tenantRef(id) {
+  return fs.collection(OPERATOR_COLLECTION).doc('tenants')
+            .collection('lista').doc(id);
+}
+
+// Referência à lista de tenants
+function tenantsCol() {
+  return fs.collection(OPERATOR_COLLECTION).doc('tenants').collection('lista');
+}
+
+// ─── AUTH DO OPERADOR ─────────────────────────────────────────────────────────
+async function doLogin() {
+  const senha = document.getElementById('op-senha').value.trim();
+  const errEl = document.getElementById('login-error');
+  errEl.textContent = '';
+  if (!senha) { errEl.textContent = 'Digite a senha.'; return; }
+  if (!initFirebase()) { errEl.textContent = 'Erro ao conectar ao Firebase.'; return; }
+
+  try {
+    const cfgDoc = await fs.collection(OPERATOR_COLLECTION).doc('config').get();
+    if (!cfgDoc.exists) {
+      // Primeiro acesso: cria a senha master
+      const hash = await sha256(senha);
+      await fs.collection(OPERATOR_COLLECTION).doc('config').set({
+        senhaHash: hash, criadoEm: new Date().toISOString()
+      });
+      enterPanel();
+    } else {
+      const hash = await sha256(senha);
+      if (hash !== cfgDoc.data().senhaHash) {
+        errEl.textContent = 'Senha incorreta.';
+      } else {
+        enterPanel();
+      }
+    }
+  } catch(e) {
+    errEl.textContent = 'Erro de conexão: ' + (e.message || e);
+  }
+}
+
+async function sha256(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+function enterPanel() {
+  _operatorAuthed = true;
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('operator-panel').style.display = 'block';
+  document.getElementById('op-data').textContent =
+    new Date().toLocaleDateString('pt-BR', {weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  loadTenants();
+}
+
+function doLogout() {
+  _operatorAuthed = false;
+  document.getElementById('operator-panel').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('op-senha').value = '';
+}
+
+// ─── CARREGAR TENANTS ─────────────────────────────────────────────────────────
+async function loadTenants() {
+  try {
+    const snap = await tenantsCol().orderBy('criadoEm','desc').get();
+    _tenants = snap.docs.map(d => d.data());
+  } catch(e) {
+    // fallback sem orderBy se não há índice
+    const snap = await tenantsCol().get();
+    _tenants = snap.docs.map(d => d.data());
+    _tenants.sort((a,b) => (b.criadoEm||'') > (a.criadoEm||'') ? 1 : -1);
+  }
+  renderStats();
+  renderTenants();
+}
+
+// ─── STATS ────────────────────────────────────────────────────────────────────
+function renderStats() {
+  const total   = _tenants.length;
+  const ativos  = _tenants.filter(t=>t.status==='ativo').length;
+  const trials  = _tenants.filter(t=>t.status==='trial').length;
+  const bloq    = _tenants.filter(t=>t.status==='bloqueado').length;
+  const receita = _tenants.filter(t=>t.status==='ativo')
+                          .reduce((s,t)=>s+(parseFloat(t.mensalidade)||0),0);
+
+  document.getElementById('op-stats').innerHTML = `
+    <div class="stat-card" style="border-color:#2e7d32">
+      <div class="stat-value" style="color:#2e7d32">${total}</div>
+      <div class="stat-label">Total de Clientes</div>
+    </div>
+    <div class="stat-card" style="border-color:#1a3a6b">
+      <div class="stat-value" style="color:#1a3a6b">${ativos}</div>
+      <div class="stat-label">Ativos</div>
+    </div>
+    <div class="stat-card" style="border-color:#e65100">
+      <div class="stat-value" style="color:#e65100">${trials}</div>
+      <div class="stat-label">Em Trial</div>
+    </div>
+    <div class="stat-card" style="border-color:#c62828">
+      <div class="stat-value" style="color:#c62828">${bloq}</div>
+      <div class="stat-label">Bloqueados</div>
+    </div>
+    <div class="stat-card" style="border-color:#2e7d32">
+      <div class="stat-value" style="color:#2e7d32;font-size:22px">R$ ${receita.toLocaleString('pt-BR',{minimumFractionDigits:0})}</div>
+      <div class="stat-label">Receita Mensal (Ativos)</div>
+    </div>
+  `;
+}
+
+// ─── TABELA DE TENANTS ────────────────────────────────────────────────────────
+function renderTenants() {
+  const busca = (document.getElementById('op-busca')?.value||'').toLowerCase();
+  let lista = _tenants;
+  if (busca) lista = lista.filter(t =>
+    (t.nome||'').toLowerCase().includes(busca) ||
+    (t.cnpj||'').includes(busca)
+  );
+
+  document.getElementById('op-count').textContent = `${lista.length} cliente(s)`;
+
+  const hoje = new Date().toISOString().split('T')[0];
+  const tbody = document.getElementById('op-tbody');
+  if (lista.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:30px;color:#aaa">Nenhum cliente cadastrado.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = lista.map(t => {
+    const isMeu    = t.meuTenant;
+    const isAtivo  = t.status === 'ativo';
+    const isTrial  = t.status === 'trial';
+    const isBloq   = t.status === 'bloqueado';
+    const isArquiv = t.status === 'arquivado';
+
+    const statusBadge = isTrial  ? '<span class="badge badge-trial"><i class="fa-solid fa-clock"></i> Trial</span>'
+                      : isAtivo  ? '<span class="badge badge-ativo"><i class="fa-solid fa-circle-check"></i> Ativo</span>'
+                      : isBloq   ? '<span class="badge badge-bloq"><i class="fa-solid fa-ban"></i> Bloqueado</span>'
+                      :            '<span class="badge badge-arquiv"><i class="fa-solid fa-box-archive"></i> Arquivado</span>';
+
+    const tipoBadge  = `<span class="badge" style="background:#f0f4ff;color:#1a3a6b"><i class="fa-solid fa-building"></i> ${t.tipo||'—'}</span>`;
+    const planoBadge = isTrial ? 'Trial' : (t.plano||'—');
+
+    const venc    = t.validade || null;
+    let vencLabel = '—';
+    if (venc) {
+      const diff = Math.floor((new Date(venc) - new Date()) / 86400000);
+      const cor  = diff < 0 ? '#c62828' : diff <= 7 ? '#e65100' : '#333';
+      const suf  = diff < 0 ? `(${Math.abs(diff)}d vencido)` : diff === 0 ? '(hoje)' : `(em ${diff}d)`;
+      vencLabel  = `<span style="color:${cor}">${venc.split('-').reverse().join('/')} <small>${suf}</small></span>`;
+    }
+
+    const mensLabel = t.mensalidade > 0
+      ? `R$ ${parseFloat(t.mensalidade).toLocaleString('pt-BR',{minimumFractionDigits:2})}`
+      : '—';
+
+    const badges = `
+      ${isMeu ? '<span class="badge badge-meu"><i class="fa-solid fa-house"></i> MEU TENANT</span>' : ''}
+    `;
+
+    return `<tr class="${isMeu?'meu-tenant':''}">
+      <td>
+        <div style="font-weight:600">${t.nome||'—'} ${badges}</div>
+        <div style="font-size:11px;color:var(--muted)">${t.cnpj||''}</div>
+      </td>
+      <td>${tipoBadge}</td>
+      <td>${planoBadge}</td>
+      <td>${mensLabel}</td>
+      <td>${vencLabel}</td>
+      <td>${statusBadge}</td>
+      <td>
+        <div style="display:flex;gap:5px;flex-wrap:wrap">
+          <button class="btn btn-outline btn-sm" onclick="openManageTenant('${t.id}')">
+            <i class="fa-solid fa-gear"></i> Gerenciar
+          </button>
+          <button class="btn btn-operate btn-sm" onclick="operateTenant('${t.id}')">
+            <i class="fa-solid fa-arrow-right-to-bracket"></i> Operar aqui
+          </button>
+          ${!isMeu ? `<button class="btn btn-outline btn-sm" onclick="marcarMeu('${t.id}')">
+            <i class="fa-solid fa-house"></i> Marcar como meu
+          </button>` : ''}
+          ${!isArquiv ? `<button class="btn btn-danger btn-sm" onclick="confirmarArquivar('${t.id}')">
+            <i class="fa-solid fa-box-archive"></i> Arquivar
+          </button>` : ''}
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// ─── AÇÕES ────────────────────────────────────────────────────────────────────
+function operateTenant(id) {
+  const t = _tenants.find(x=>x.id===id); if (!t) return;
+  // Salva no localStorage e abre o app com o tenant selecionado
+  localStorage.setItem('drg_tenant', id);
+  window.open(`index.html?tenant=${id}`, '_blank');
+}
+
+async function marcarMeu(id) {
+  // Remove flag de todos, marca apenas este
+  const batch = fs.batch();
+  _tenants.forEach(t => {
+    if (t.meuTenant) batch.update(tenantRef(t.id), {meuTenant: false});
+  });
+  batch.update(tenantRef(id), {meuTenant: true});
+  await batch.commit();
+  _tenants.forEach(t => { t.meuTenant = t.id === id; });
+  renderTenants();
+}
+
+async function confirmarArquivar(id) {
+  const t = _tenants.find(x=>x.id===id); if (!t) return;
+  document.getElementById('confirm-title').textContent = 'Arquivar Cliente';
+  document.getElementById('confirm-msg').innerHTML =
+    `Deseja arquivar <strong>${t.nome}</strong>?<br>O acesso será bloqueado. Você pode reativar depois em Gerenciar.`;
+  document.getElementById('confirm-ok').onclick = async () => {
+    await tenantRef(id).set({status:'arquivado',arquivadoEm:new Date().toISOString()},{merge:true});
+    const ten = _tenants.find(x=>x.id===id);
+    if (ten) ten.status = 'arquivado';
+    document.getElementById('modal-confirm').classList.remove('open');
+    renderStats(); renderTenants();
+  };
+  document.getElementById('modal-confirm').classList.add('open');
+}
+
+// ─── MODAL GERENCIAR / NOVO TENANT ───────────────────────────────────────────
+function openAddTenant() {
+  document.getElementById('modal-tenant-title').innerHTML = '<i class="fa-solid fa-plus"></i> Novo Tenant';
+  document.getElementById('mt-id').value          = '';
+  document.getElementById('mt-nome').value        = '';
+  document.getElementById('mt-cnpj').value        = '';
+  document.getElementById('mt-tipo').value        = 'Portaria';
+  document.getElementById('mt-plano').value       = 'trial';
+  document.getElementById('mt-status').value      = 'trial';
+  document.getElementById('mt-mensalidade').value = '';
+  document.getElementById('mt-tel').value         = '';
+  document.getElementById('mt-msg-bloqueio').value= '';
+  document.getElementById('mt-obs').value         = '';
+  // Validade padrão: +30 dias para trial
+  const d = new Date(); d.setDate(d.getDate()+30);
+  document.getElementById('mt-validade').value = d.toISOString().split('T')[0];
+  document.getElementById('modal-tenant').classList.add('open');
+}
+
+function openManageTenant(id) {
+  const t = _tenants.find(x=>x.id===id); if (!t) return;
+  document.getElementById('modal-tenant-title').innerHTML = '<i class="fa-solid fa-gear"></i> Gerenciar Tenant';
+  document.getElementById('mt-id').value          = t.id;
+  document.getElementById('mt-nome').value        = t.nome||'';
+  document.getElementById('mt-cnpj').value        = t.cnpj||'';
+  document.getElementById('mt-tipo').value        = t.tipo||'Portaria';
+  document.getElementById('mt-plano').value       = t.plano||'trial';
+  document.getElementById('mt-status').value      = t.status||'trial';
+  document.getElementById('mt-mensalidade').value = t.mensalidade||'';
+  document.getElementById('mt-validade').value    = t.validade||'';
+  document.getElementById('mt-tel').value         = t.telefone||'';
+  document.getElementById('mt-msg-bloqueio').value= t.msgBloqueio||'';
+  document.getElementById('mt-obs').value         = t.obs||'';
+  document.getElementById('modal-tenant').classList.add('open');
+}
+
+async function saveTenant() {
+  const nome = document.getElementById('mt-nome').value.trim();
+  const cnpj = document.getElementById('mt-cnpj').value.replace(/\D/g,'');
+  if (!nome || !cnpj) { alert('Nome e CNPJ são obrigatórios.'); return; }
+
+  const existingId = document.getElementById('mt-id').value.trim();
+  const id = existingId || cnpj; // ID = CNPJ limpo
+
+  const rec = {
+    id,
+    nome,
+    cnpj: document.getElementById('mt-cnpj').value.trim(),
+    tipo:        document.getElementById('mt-tipo').value,
+    plano:       document.getElementById('mt-plano').value,
+    status:      document.getElementById('mt-status').value,
+    mensalidade: parseFloat(document.getElementById('mt-mensalidade').value)||0,
+    validade:    document.getElementById('mt-validade').value||null,
+    telefone:    document.getElementById('mt-tel').value.trim()||null,
+    msgBloqueio: document.getElementById('mt-msg-bloqueio').value.trim()||null,
+    obs:         document.getElementById('mt-obs').value.trim()||null,
+    updatedAt:   new Date().toISOString(),
+    criadoEm:    existingId ? (_tenants.find(t=>t.id===existingId)?.criadoEm || new Date().toISOString()) : new Date().toISOString()
+  };
+
+  try {
+    await tenantRef(id).set(rec, {merge: true});
+    // Atualiza cache local
+    const idx = _tenants.findIndex(t=>t.id===id);
+    if (idx >= 0) _tenants[idx] = {..._tenants[idx], ...rec};
+    else _tenants.unshift(rec);
+    document.getElementById('modal-tenant').classList.remove('open');
+    renderStats(); renderTenants();
+  } catch(e) { alert('Erro ao salvar: ' + (e.message||e)); }
+}
+
+// ─── UTILITÁRIOS ─────────────────────────────────────────────────────────────
+function closeModal(e) {
+  if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
+}
+
+// Inicializa
+window.addEventListener('load', () => {
+  document.getElementById('op-senha').focus();
+});
+</script>
+</body>
+</html>

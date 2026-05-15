@@ -4590,6 +4590,274 @@ function setEl(id, txt) {
   const el = document.getElementById(id); if (el) el.textContent = txt;
 }
 
+// ============================================
+// ASAAS — PAGAMENTO EM LOTE
+// ============================================
+
+// Dados do lote (preenchidos ao abrir o modal)
+let _loteData = []; // [{emp, payroll, valor, pixKey, keyType, selecionado}]
+
+function openPagarEmLote() {
+  const mes = parseInt(val('pag-mes') || currentMes());
+  const ano = parseInt(val('pag-ano') || currentAno());
+
+  // Coleta colaboradores com folha FECHADA no período
+  const emps = State.employees.filter(e => (e.status || 'ativo') === 'ativo');
+  _loteData = [];
+
+  emps.forEach(emp => {
+    const p = State.payrolls.find(r => r.employeeId === emp.id && r.mes == mes && r.ano == ano);
+    if (!p || p.status !== 'fechada') return; // só folhas fechadas
+
+    const liquido  = p.totalLiquidoFinal || p.totalLiquido || 0;
+    const adiant   = p.adiantamento || 0;
+    const restante = Math.max(0, liquido - adiant);
+    const pixKey   = emp.chavePix || '';
+    const jaPago   = !!(p.pagamentoAsaas);
+
+    _loteData.push({
+      empId:    emp.id,
+      nome:     emp.nome,
+      registro: emp.registro,
+      payrollId:p.id,
+      liquido, adiant, restante,
+      pixKey,
+      keyType:  detectPixKeyType(pixKey),
+      semPix:   !pixKey,
+      jaPago,
+      status:   jaPago ? 'pago' : (!pixKey ? 'sem-pix' : 'pendente'),
+      selecionado: !jaPago && !!pixKey, // pré-seleciona só os elegíveis
+    });
+  });
+
+  if (_loteData.length === 0) {
+    toast('Nenhuma folha fechada encontrada para este período. Feche as folhas antes de pagar.', 'warning');
+    return;
+  }
+
+  // Data padrão: hoje
+  setVal('lote-data', new Date().toISOString().split('T')[0]);
+  setVal('lote-tipo-valor', 'restante');
+
+  // Reset progresso
+  document.getElementById('lote-progresso').style.display = 'none';
+  document.getElementById('lote-progress-log').innerHTML  = '';
+  document.getElementById('lote-progress-bar').style.width = '0%';
+
+  const btn = document.getElementById('btn-executar-lote');
+  btn.disabled = false;
+  btn.innerHTML = '<i class="fa-brands fa-pix"></i> Confirmar e Pagar Selecionados';
+
+  refreshLoteTabela();
+  document.getElementById('modal-pagar-lote').classList.remove('hidden');
+}
+
+function _loteValorPara(item) {
+  const tipo = val('lote-tipo-valor') || 'restante';
+  if (tipo === 'liquido')      return item.liquido;
+  if (tipo === 'adiantamento') return item.adiant;
+  return item.restante; // restante (padrão)
+}
+
+function refreshLoteTabela() {
+  const tbody = document.getElementById('lote-tbody');
+  if (!tbody) return;
+
+  let totalSel = 0, totalVal = 0, semPix = 0, jaPagos = 0;
+
+  tbody.innerHTML = _loteData.map((item, idx) => {
+    const valor  = _loteValorPara(item);
+    const rowBg  = idx % 2 === 0 ? '#fff' : '#f9fafb';
+    const disabled = item.semPix || item.jaPago;
+
+    if (item.jaPago) { jaPagos++; }
+    else if (item.semPix) { semPix++; }
+    else if (item.selecionado) { totalSel++; totalVal += valor; }
+
+    // Badge de status
+    let statusBadge;
+    if (item.jaPago) {
+      statusBadge = `<span style="background:#E0F2F1;color:#00695C;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">✓ Pago</span>`;
+    } else if (item.semPix) {
+      statusBadge = `<span style="background:#FFF3E0;color:#E65100;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">Sem PIX</span>`;
+    } else {
+      statusBadge = `<span style="background:#E8F5E9;color:#2e7d32;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">Pendente</span>`;
+    }
+
+    const matr = item.registro ? String(item.registro).padStart(4,'0') : '—';
+    const pixDisplay = item.pixKey
+      ? `<span style="font-family:monospace;font-size:11px;color:#00695C">${item.pixKey}</span>`
+      : `<span style="color:#bbb;font-size:11px">—</span>`;
+
+    return `<tr style="background:${rowBg};opacity:${disabled ? .55 : 1}">
+      <td style="padding:8px 12px;text-align:center">
+        <input type="checkbox" data-idx="${idx}" ${item.selecionado ? 'checked' : ''} ${disabled ? 'disabled' : ''}
+          onchange="_loteData[${idx}].selecionado=this.checked; refreshLoteResumo()">
+      </td>
+      <td style="padding:8px 12px"><strong>${item.nome}</strong> <span style="font-size:11px;color:#aaa">${matr}</span></td>
+      <td style="padding:8px 12px;text-align:right">${fmtMoney(item.liquido)}</td>
+      <td style="padding:8px 12px;text-align:right;color:#e65100">${item.adiant > 0 ? fmtMoney(item.adiant) : '—'}</td>
+      <td style="padding:8px 12px;text-align:right;font-weight:700;color:#00695C">${valor > 0 ? fmtMoney(valor) : '<span style="color:#ccc">—</span>'}</td>
+      <td style="padding:8px 12px">${pixDisplay}</td>
+      <td style="padding:8px 12px;text-align:center">${statusBadge}</td>
+    </tr>`;
+  }).join('');
+
+  refreshLoteResumo();
+}
+
+function refreshLoteResumo() {
+  let totalSel = 0, totalVal = 0;
+  _loteData.forEach(item => {
+    if (item.selecionado && !item.semPix && !item.jaPago) {
+      totalSel++;
+      totalVal += _loteValorPara(item);
+    }
+  });
+
+  const semPix  = _loteData.filter(i => i.semPix).length;
+  const jaPagos = _loteData.filter(i => i.jaPago).length;
+
+  document.getElementById('lote-counter').textContent =
+    `${totalSel} selecionado(s) · Total: ${fmtMoney(totalVal)}`;
+
+  let resumoHtml = `<strong>${totalSel}</strong> colaborador(es) selecionados · Total a pagar: <strong style="color:#00695C">${fmtMoney(totalVal)}</strong>`;
+  if (semPix  > 0) resumoHtml += ` &nbsp;|&nbsp; <span style="color:#e65100">${semPix} sem chave PIX (não serão pagos)</span>`;
+  if (jaPagos > 0) resumoHtml += ` &nbsp;|&nbsp; <span style="color:#00695C">${jaPagos} já pagos</span>`;
+  document.getElementById('lote-resumo').innerHTML = resumoHtml;
+
+  // Atualiza checkbox geral
+  const elegíveis = _loteData.filter(i => !i.semPix && !i.jaPago);
+  const chkAll = document.getElementById('lote-chk-all');
+  if (chkAll) {
+    chkAll.checked       = elegíveis.length > 0 && elegíveis.every(i => i.selecionado);
+    chkAll.indeterminate = elegíveis.some(i => i.selecionado) && !chkAll.checked;
+  }
+}
+
+function loteSelectAll(checked) {
+  _loteData.forEach(item => {
+    if (!item.semPix && !item.jaPago) item.selecionado = checked;
+  });
+  const chkAll = document.getElementById('lote-chk-all');
+  if (chkAll) chkAll.checked = checked;
+  refreshLoteTabela();
+}
+
+function _loteLog(msg, cor = '#81d4fa') {
+  const el = document.getElementById('lote-progress-log'); if (!el) return;
+  const ts = new Date().toLocaleTimeString('pt-BR');
+  el.innerHTML += `<span style="color:#aaa">[${ts}]</span> <span style="color:${cor}">${msg}</span>\n`;
+  el.scrollTop = el.scrollHeight;
+}
+
+async function executarPagamentoLote() {
+  const selecionados = _loteData.filter(i => i.selecionado && !i.semPix && !i.jaPago);
+
+  if (selecionados.length === 0) {
+    toast('Nenhum colaborador selecionado para pagamento.', 'warning');
+    return;
+  }
+
+  const data     = val('lote-data') || new Date().toISOString().split('T')[0];
+  const hoje     = new Date().toISOString().split('T')[0];
+  const agendado = data > hoje;
+  const dataLabel = data.split('-').reverse().join('/');
+  const mes = parseInt(val('pag-mes') || currentMes());
+  const ano = parseInt(val('pag-ano') || currentAno());
+  const mesLabel = `${String(mes).padStart(2,'0')}/${ano}`;
+
+  const confirmMsg = agendado
+    ? `Agendar ${selecionados.length} pagamento(s) PIX para ${dataLabel}?\nTotal: ${fmtMoney(selecionados.reduce((s,i) => s + _loteValorPara(i), 0))}`
+    : `Enviar ${selecionados.length} pagamento(s) PIX AGORA para ${dataLabel}?\nTotal: ${fmtMoney(selecionados.reduce((s,i) => s + _loteValorPara(i), 0))}`;
+
+  if (!confirm(confirmMsg)) return;
+
+  // UI: início
+  const btn = document.getElementById('btn-executar-lote');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processando...';
+  document.getElementById('lote-progresso').style.display = 'block';
+  document.getElementById('lote-progress-log').innerHTML  = '';
+  document.getElementById('lote-progress-bar').style.width = '0%';
+
+  _loteLog(`Iniciando ${selecionados.length} transferências PIX para ${dataLabel}...`, '#fff176');
+
+  let ok = 0, erros = 0;
+
+  for (let i = 0; i < selecionados.length; i++) {
+    const item  = selecionados[i];
+    const valor = _loteValorPara(item);
+
+    if (valor <= 0) {
+      _loteLog(`⚠ ${item.nome}: valor zero — pulado`, '#ffcc02');
+      continue;
+    }
+
+    try {
+      const resp = await _asaasPost('/transfers', {
+        value:             valor,
+        pixAddressKey:     item.pixKey,
+        pixAddressKeyType: item.keyType,
+        description:       `Salário ${mesLabel} — ${item.nome}`,
+        scheduleDate:      data,
+      });
+
+      // Persiste no payroll
+      const pagInfo = {
+        asaasTransferId: resp.id,
+        asaasTipo:       'pix',
+        asaasValor:      valor,
+        asaasStatus:     resp.status || 'PENDING',
+        asaasData:       data,
+        asaasPagoEm:     new Date().toISOString(),
+        asaasLote:       true,
+      };
+      await DB.merge('payrolls', item.payrollId, { pagamentoAsaas: pagInfo });
+
+      // Atualiza cache local
+      const pr = State.payrolls.find(p => p.id === item.payrollId);
+      if (pr) pr.pagamentoAsaas = pagInfo;
+      item.jaPago = true;
+      item.selecionado = false;
+
+      ok++;
+      _loteLog(`✓ ${item.nome}: ${fmtMoney(valor)} → ${item.pixKey} (ID: ${resp.id})`, '#a5d6a7');
+      Auth.log('ASAAS_PAGAMENTO_LOTE', null,
+        `${item.nome} | R$ ${valor.toFixed(2)} | PIX ${item.pixKey} | ${data} | ID: ${resp.id}`);
+
+    } catch(e) {
+      erros++;
+      _loteLog(`✗ ${item.nome}: ERRO — ${e.message}`, '#ef9a9a');
+    }
+
+    // Progresso
+    document.getElementById('lote-progress-bar').style.width =
+      `${Math.round(((i + 1) / selecionados.length) * 100)}%`;
+
+    // Pequena pausa para não sobrecarregar a API
+    if (i < selecionados.length - 1) await new Promise(r => setTimeout(r, 400));
+  }
+
+  // Resultado final
+  const corFinal = erros === 0 ? '#fff176' : '#ffcc02';
+  _loteLog(`\nConcluído: ${ok} transferência(s) enviada(s)${erros > 0 ? `, ${erros} com erro` : ' com sucesso'}.`, corFinal);
+
+  btn.disabled = false;
+  if (erros === 0) {
+    btn.innerHTML = '<i class="fa-solid fa-check"></i> Concluído';
+    btn.onclick = () => closeModal('modal-pagar-lote');
+    toast(`${ok} pagamento(s) PIX enviados via Asaas!`, 'success');
+  } else {
+    btn.innerHTML = '<i class="fa-brands fa-pix"></i> Tentar Novamente (com erros)';
+    btn.onclick = executarPagamentoLote;
+    toast(`${ok} enviados, ${erros} com erro. Verifique o log.`, 'warning');
+  }
+
+  // Atualiza tabela para refletir os pagos
+  refreshLoteTabela();
+}
+
 function _lockPayrollForm(isLocked){
   const form=document.querySelector('#section-payroll .payroll-form-col');
   if(!form) return;

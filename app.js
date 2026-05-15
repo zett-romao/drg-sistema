@@ -5433,7 +5433,12 @@ async function executarAdmCobranca() {
       await _admTenantRef(tenantId).set({ asaasCustomerId: customerId }, {merge:true});
       if (t) t.asaasCustomerId = customerId;
     }
-    if (email) { await _admTenantRef(tenantId).set({ email }, {merge:true}); if (t) t.email = email; }
+    // Atualiza e-mail do cliente na Asaas (garante notificação automática)
+    if (email) {
+      await _admTenantRef(tenantId).set({ email }, {merge:true});
+      if (t) t.email = email;
+      try { await _asaasReq('PUT', `/customers/${customerId}`, { email, notificationDisabled: false }); } catch(_){}
+    }
 
     // 2. Criar cobrança avulsa (/payments) ou assinatura recorrente (/subscriptions)
     let cob;
@@ -5455,6 +5460,11 @@ async function executarAdmCobranca() {
     const cobId     = cob.id;
     const cobStatus = cob.status;
     const link      = cob.invoiceUrl || cob.bankSlipUrl || '';
+
+    // Dispara notificação por e-mail via Asaas (avulsa apenas)
+    if (email && modo !== 'recorrente' && cobId) {
+      try { await _asaasPost(`/payments/${cobId}/sendNotification`); } catch(_){}
+    }
 
     // 3. Registrar histórico
     const cobrancas = [...(t?.cobrancas || [])];
@@ -5478,6 +5488,7 @@ async function executarAdmCobranca() {
     resEl.innerHTML = `<div style="background:#e8f5e9;border:1px solid #a5d6a7;border-radius:9px;padding:14px;font-size:13px">
       <strong style="color:#2e7d32"><i class="fa-solid fa-circle-check"></i> ${modo==='recorrente' ? 'Assinatura criada!' : 'Cobrança gerada!'}</strong><br>
       <span style="color:#555">ID: <code>${cobId}</code> | Status: ${cobStatus}${modo==='recorrente' ? ` | ${cicloLabels[ciclo]||ciclo}` : ''}</span>
+      ${email ? `<br><span style="color:#1a73e8;font-size:12px"><i class="fa-solid fa-envelope"></i> E-mail enviado para <strong>${email}</strong></span>` : ''}
       ${link ? `<br><input type="text" value="${link}" readonly style="width:100%;margin-top:8px;padding:6px 10px;border:1px solid #ccc;border-radius:6px;font-size:12px;font-family:monospace" onclick="this.select()">` : ''}
       <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
         ${link ? `<button onclick="navigator.clipboard.writeText('${link}').then(()=>toast('Link copiado!','success'))" class="btn btn-primary btn-sm"><i class="fa-solid fa-copy"></i> Copiar Link</button>` : ''}

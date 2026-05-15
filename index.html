@@ -1695,6 +1695,7 @@
                 <option value="ativo">Ativos</option>
                 <option value="inativo">Inativos</option>
                 <option value="afastado">Afastados</option>
+                <option value="licenca-maternidade">Lic. Maternidade</option>
               </select>
             </div>
           </div>
@@ -1814,6 +1815,9 @@
             </button>
             <button class="btn btn-outline" onclick="exportReportCsv()" id="btn-export-csv" style="display:none">
               <i class="fa-solid fa-file-csv"></i> Exportar CSV
+            </button>
+            <button class="btn" onclick="printSelectedReport()" id="btn-print-selected" style="display:none;background:#e65100;color:#fff">
+              <i class="fa-solid fa-check-square"></i> Imprimir Selecionados
             </button>
           </div>
         </div>
@@ -3898,6 +3902,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260515i"></script>
+<script src="app.js?v=20260515l"></script>
 </body>
 </html>

@@ -2542,21 +2542,26 @@ function exportReportCsv(){
   const mes=parseInt(val('report-mes')), ano=parseInt(val('report-ano'));
   if(!mes||!ano){ toast('Gere o relatório primeiro.','warning'); return; }
   const records=State.payrolls.filter(p=>p.mes===mes&&p.ano===ano);
-  if(records.length===0){ toast('Nenhum dado para exportar.','warning'); return; }
+  // Filtra por status conforme seleção (padrão: todos)
+  const statusFilt = val('report-status-filter') || 'all';
+  const todosEmps=[...State.employees]
+    .filter(e => statusFilt === 'all' || (e.status||'ativo') === statusFilt)
+    .sort((a,b)=>(a.nome||'').localeCompare(b.nome));
+  if(todosEmps.length===0){ toast('Nenhum colaborador cadastrado.','warning'); return; }
   const cols=['Nº','Nome','Posto','Escala','Dias Trabalhados','Faltas','Remuneração (R$)',
     'VT (R$)','VR (R$)','VA Líquido (R$)','Adic. Noturno (R$)','Bonificação (R$)','Chave PIX'];
   const rows=[cols.join(';')];
-  records.forEach((p,i)=>{
-    const emp=State.employees.find(e=>e.id===p.employeeId);
-    const nome=emp?emp.nome:'(removido)';
-    const posto=emp?(emp.posto||'—'):'—';
-    const escala=emp?escalaLabel(emp.escala||'5x2A'):'—';
-    const pix=emp?(emp.chavePix||'—'):'—';
+  todosEmps.forEach((emp,i)=>{
+    const p=records.find(r=>r.employeeId===emp.id)||{};
+    const nome=emp.nome||'—';
+    const posto=emp.posto||'—';
+    const escala=escalaLabel(emp.escala||'5x2A');
+    const pix=emp.chavePix||'—';
     // Força texto no Excel: se PIX for numérico, usa ="valor" para evitar notação científica
     const pixCsv = (pix !== '—' && /^[\d\s().+\-]+$/.test(pix)) ? `="${pix}"` : pix;
     const totalFaltas='faltasJustificadas' in p?(p.faltasJustificadas||0)+(p.faltasInjustificadas||0):(p.faltas||0);
-    const num=emp&&emp.registro?String(emp.registro).padStart(4,'0'):String(i+1);
-    rows.push([num,nome,posto,escala,p.diasTrabalhados,totalFaltas,
+    const num=String(emp.registro||'').padStart(4,'0')||String(i+1);
+    rows.push([num,nome,posto,escala,p.diasTrabalhados||0,totalFaltas,
       (p.remuneracao||0).toFixed(2),(p.valeTransporte||0).toFixed(2),
       (p.valeRefeicao||0).toFixed(2),(p.valeAlimentacaoLiquido||0).toFixed(2),
       (p.adNoturno||0).toFixed(2),(p.bonificacao||0).toFixed(2),pixCsv].join(';'));
@@ -5834,15 +5839,87 @@ function _reportHeader(titulo, subtitulo){
   document.getElementById('report-output').classList.remove('hidden');
   document.getElementById('btn-print').style.display='';
   document.getElementById('btn-export-csv').style.display='';
+  const btnSel = document.getElementById('btn-print-selected');
+  if (btnSel) btnSel.style.display='none';
   document.getElementById('report-output').scrollIntoView({behavior:'smooth'});
 }
 
 function _empTable(cols, rows, tfoot=''){
-  return `<div class="table-responsive"><table class="report-table">
-    <thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead>
-    <tbody>${rows}</tbody>
+  const rowsWithCheck = rows.replace(/<tr>/g,
+    `<tr><td style="width:28px;text-align:center;padding:2px"><input type="checkbox" class="report-row-check" onchange="_updatePrintSelectedBtn()"></td>`);
+  return `<div class="table-responsive"><table class="report-table" id="report-main-table">
+    <thead><tr>
+      <th style="width:28px;text-align:center"><input type="checkbox" title="Marcar todos" onchange="toggleAllReportChecks(this)"></th>
+      ${cols.map(c=>`<th>${c}</th>`).join('')}
+    </tr></thead>
+    <tbody>${rowsWithCheck}</tbody>
     ${tfoot?`<tfoot>${tfoot}</tfoot>`:''}
   </table></div>`;
+}
+
+function toggleAllReportChecks(masterCb) {
+  document.querySelectorAll('.report-row-check').forEach(cb => cb.checked = masterCb.checked);
+  _updatePrintSelectedBtn();
+}
+
+function _updatePrintSelectedBtn() {
+  const n = document.querySelectorAll('.report-row-check:checked').length;
+  const btn = document.getElementById('btn-print-selected');
+  if (!btn) return;
+  btn.style.display = n > 0 ? '' : 'none';
+  btn.innerHTML = `<i class="fa-solid fa-check-square"></i> Imprimir ${n} selecionado${n !== 1 ? 's' : ''}`;
+}
+
+function printSelectedReport() {
+  const table = document.getElementById('report-main-table');
+  if (!table) return;
+  const headers = [...table.querySelectorAll('thead th')].slice(1).map(th => th.outerHTML).join('');
+  const checkedRows = [...table.querySelectorAll('tbody tr')]
+    .filter(tr => tr.querySelector('.report-row-check')?.checked)
+    .map(tr => {
+      const tds = [...tr.querySelectorAll('td')].slice(1).map(td => td.outerHTML).join('');
+      return `<tr>${tds}</tr>`;
+    }).join('');
+  if (!checkedRows) { toast('Nenhum colaborador selecionado.','warning'); return; }
+  const subtitle = document.getElementById('report-subtitle')?.textContent || '';
+  const period   = document.getElementById('report-period-label')?.textContent || '';
+  const genDate  = document.getElementById('report-gen-date')?.textContent || '';
+  const n = document.querySelectorAll('.report-row-check:checked').length;
+  const landscape = ['cadastral','contatos','financeiro','contratos-rel','postos-cadastro'].includes(_currentReportType);
+  const html = `<!DOCTYPE html><html lang="pt-BR"><head>
+  <meta charset="UTF-8"><title>${subtitle}</title>
+  <style>
+    @page { size: A4 ${landscape?'landscape':'portrait'}; margin: 10mm 12mm; }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:Arial,sans-serif;font-size:10px;color:#222}
+    .ph{display:flex;align-items:center;gap:12px;border-bottom:2px solid #1a3a6b;padding-bottom:8px;margin-bottom:12px}
+    .ph img{width:44px;height:44px;border-radius:50%}
+    .ph h2{color:#1a3a6b;font-size:14px;font-weight:700}
+    .ph p{color:#666;font-size:10px;margin-top:2px}
+    .pm{margin-left:auto;text-align:right;font-size:9px;color:#888}
+    table{width:100%;border-collapse:collapse;margin-top:6px}
+    th{background:#1a3a6b;color:#fff;padding:4px 5px;font-size:9px;text-align:left;white-space:nowrap}
+    td{padding:3px 5px;font-size:9px;border-bottom:1px solid #eee;vertical-align:top}
+    tr:nth-child(even) td{background:#f5f7fb}
+    .badge{display:inline-block;padding:1px 5px;border-radius:10px;font-size:9px;font-weight:700}
+    .badge-status-ativo{background:#e8f5e9;color:#2e7d32}
+    .badge-status-inativo{background:#ffebee;color:#c62828}
+    .badge-status-afastado{background:#fff3e0;color:#e65100}
+    .badge-success{background:#e8f5e9;color:#2e7d32}
+    .badge-muted{background:#f1f5f9;color:#64748b}
+    strong{font-weight:700}
+  </style></head><body>
+  <div class="ph">
+    <img src="logo.png" alt="">
+    <div><h2>${_e('nomeEmpresa')}</h2><p>${subtitle}${period?' — '+period:''} — ${n} selecionado${n!==1?'s':''}</p></div>
+    <div class="pm">Gerado em: ${genDate}</div>
+  </div>
+  <table><thead><tr>${headers}</tr></thead><tbody>${checkedRows}</tbody></table>
+</body></html>`;
+  const win = window.open('','_blank');
+  if (!win) { toast('Permita pop-ups para imprimir.','warning'); return; }
+  win.document.write(html+'<scr'+'ipt>window.onload=function(){window.print();window.onafterprint=function(){window.close();}}<\/scr'+'ipt>');
+  win.document.close();
 }
 
 function generateReportNew(){

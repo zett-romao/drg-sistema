@@ -282,6 +282,17 @@ const PUNCH_CFG = {
   completo: { label:'Ponto Completo',      icon:'✅', cls:'completo'},
 };
 
+// ─── AUTH ANÔNIMO (aguarda auth estar pronto antes de qualquer query) ─────────
+const _authReady = new Promise(resolve => {
+  const unsub = firebase.auth().onAuthStateChanged(async user => {
+    unsub();
+    if (!user) {
+      try { await firebase.auth().signInAnonymously(); } catch(e) {}
+    }
+    resolve();
+  });
+});
+
 // ─── ESTADO ───────────────────────────────────────────────────────────────────
 let currentEmp     = null;
 let currentPayroll = null;
@@ -336,6 +347,9 @@ async function doLogin() {
   btn.disabled    = true;
 
   try {
+    // Garante auth anônimo antes de consultar o Firestore
+    await _authReady;
+
     // Busca por matrícula como número (sem filtro de status — verificamos em JS depois)
     let snap = await dbCol('employees')
       .where('registro', '==', parseInt(mat))
@@ -380,7 +394,6 @@ async function doLogin() {
       cpf: emp.cpf, cargo: emp.cargo, posto: emp.posto, foto: emp.foto || ''
     }));
 
-    firebase.auth().signInAnonymously().catch(()=>{});
     await carregarHome();
 
   } catch (e) {
@@ -407,12 +420,12 @@ document.getElementById('login-pin').addEventListener('keydown', e => {
 });
 
 // Restaura sessão ao abrir o app
-window.addEventListener('load', () => {
+window.addEventListener('load', async () => {
   const saved = sessionStorage.getItem('drg_ponto_emp');
   if (saved) {
     try {
       currentEmp = JSON.parse(saved);
-      firebase.auth().signInAnonymously().catch(()=>{});
+      await _authReady;
       carregarHome();
     } catch (e) { sessionStorage.removeItem('drg_ponto_emp'); }
   }

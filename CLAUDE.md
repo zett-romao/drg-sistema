@@ -129,6 +129,7 @@ NÃO usa Firebase Auth. Tem módulo próprio (`Auth` em `app.js` linha ~130) com
 - Sessão em `sessionStorage`
 - Roles: `master`, `admin`, `gestor`
 - Módulos granulares por usuário (`getUserModules()`)
+- **Código de recuperação de acesso:** `DRGlobal@Master2025` — digitado no modal de recuperação da tela de login, recria o usuário `master-default` com a senha `Admin@DRGlobal25`
 
 App do colaborador (`ponto.html`) usa **PIN** = 4 últimos dígitos do CPF, validado contra `employees`.
 
@@ -292,8 +293,19 @@ git push origin main
   - **Botão "Editar" (substitui antigo "Abonar")**: clicar abre formulário inline com 4 inputs (entrada/saida/intIni/intFim) pré-preenchidos com os valores atuais. `_startHEReviewEdit/_cancelHEReviewEdit/_applyHEReviewEdit` controlam o ciclo. Ao Aplicar, recalcula divergência com novos valores: se ≤ 10min agora, dia some da lista no save (heReview limpo); se > 10min, mantém na lista para nova decisão. Campos editados são salvos com `_origem='manual'` no `pontoManualDias[d]` — refletem com asterisco no Ponto Manual. Records legados com `status='abonado'` continuam funcionais (são tratados visualmente como pendente).
   - **Permissão `aprovaHE`** em MODULOS_LABELS + getUserModules (master sempre, operador não por default, perfis customizados configuráveis via checkbox no modal-perfil). Botão `btn-revisar-he` no card "Horas Extras" da Folha de Ponto fica `hidden` se sem permissão (`applyUserSession` toggla).
   - **Dashboard:** novo card laranja "Pendentes de revisar HE" mostra contagem (`heRevisaoEmps`, `heRevisaoDias`) baseada em `_detectHEDivergencia` de todos os payrolls do mês. Clique vai pra `_dashGotoHEReview()` que abre Folha de Ponto pré-filtrada e dispara `openHEReview()` no 1º colaborador pendente.
+- **2026-05-15**: Leitura de documentos com IA no cadastro de colaborador — nova caixa "Preenchimento automático com IA" no topo da aba Dados Pessoais do `modal-employee`. O gestor seleciona múltiplas fotos/PDFs de documentos (RG, CPF, CNH, CTPS, PIS/NIT, Título de Eleitor, comprovante de residência); cada arquivo vira uma chamada Gemini via o Cloudflare Worker existente (`callGeminiCadastro`), os resultados são mesclados (1ª ocorrência não-nula vence) e aplicados aos campos das abas Dados Pessoais e Endereço por `applyCadastroExtraction` — selects casados por value/text, máscaras de CPF/celular/CEP reaplicadas, campos preenchidos piscam em amarelo (`.ia-filled-flash`). Funções: `onCadastroDocsSelected`, `_renderCadastroDocList`, `removeCadastroDoc`, `processCadastroDocs`, `callGeminiCadastro`, `applyCadastroExtraction`, `_resetCadastroImport` (chamada em `openEmployeeModal`). Escopo: só dados pessoais/endereço — salário, escala, posto, benefícios e encargos seguem manuais (não existem em documentos).
+- **2026-05-15**: Memórias do projeto unificadas — os 4 arquivos da auto-memória interna do Claude (`MEMORY.md`, `user_profile.md`, `project_state.md`, `project_files.md`) foram consolidados neste `CLAUDE.md` e removidos. A partir daqui, este arquivo é a **única** fonte de memória/contexto do projeto.
 
 ---
+
+## Sobre o usuário (Donizete)
+
+- **Nome:** Donizete Romão — dono da **D.R. Global Multi Services** (portaria/vigilância de condomínios)
+- **Porte da empresa:** ~100 funcionários ativos
+- **Perfil técnico:** não programa — precisa de instruções claras, objetivas e passo a passo
+- **Ambiente:** Windows 11, Google Chrome
+- **Contas:** Google / Firebase / Google Cloud / Drive em `zett.romao@gmail.com` · GitHub `zett-romao`
+- **Fluxo de trabalho:** Claude edita os arquivos locais e faz `git push` → GitHub Pages publica automaticamente (o usuário só confere o site depois)
 
 ## Estilo de comunicação que o usuário prefere
 

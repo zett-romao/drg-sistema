@@ -9641,6 +9641,9 @@ async function init(){
   // 2. Inicializar Firebase
   if(!DB.init()){ showSetup(); return; }
 
+  // 2a. Autenticação anônima — obrigatória antes de qualquer leitura do Firestore
+  try { await firebase.auth().signInAnonymously(); } catch(e){ console.warn('Auth anon:', e.message); }
+
   showLoading('Carregando dados...');
 
   // 2b. Carregar config da empresa (em paralelo — não bloqueia)

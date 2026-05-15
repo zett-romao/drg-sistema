@@ -479,6 +479,7 @@ async function doLogin() {
   if (!initFirebase()) { errEl.textContent = 'Erro ao conectar ao Firebase.'; return; }
 
   try {
+    await firebase.auth().signInAnonymously();
     const cfgDoc = await fs.collection(OPERATOR_COLLECTION).doc('config').get();
     if (!cfgDoc.exists) {
       // Primeiro acesso: cria a senha master

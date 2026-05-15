@@ -303,6 +303,35 @@
   </div>
 </div>
 
+<!-- ══ MODAL: MIGRAÇÃO DE DADOS ══ -->
+<div class="modal-overlay" id="modal-migracao" onclick="closeModal(event)">
+  <div class="modal-dialog" style="width:520px">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-database"></i> Migrar Dados para Tenant</h3>
+      <button class="modal-close" onclick="document.getElementById('modal-migracao').classList.remove('open')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="alert alert-warn" style="display:block">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        <strong> Atenção:</strong> esta operação copia os dados das coleções raiz do Firebase para o namespace deste tenant.
+        Execute apenas <strong>uma vez</strong> por tenant. Os dados originais <strong>não são apagados</strong> — ficam na raiz como backup por 30 dias.
+      </div>
+      <div id="mig-tenant-info" style="background:#f4f6fa;border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:13px"></div>
+      <div id="mig-progress" style="display:none">
+        <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:#1a3a6b">Progresso da migração:</div>
+        <div id="mig-log" style="font-family:monospace;font-size:12px;background:#1a1a2e;color:#81d4fa;border-radius:8px;padding:14px;max-height:220px;overflow-y:auto;line-height:1.8"></div>
+      </div>
+      <div id="mig-resultado" style="display:none;margin-top:12px"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="mig-btn-fechar" onclick="document.getElementById('modal-migracao').classList.remove('open')">Fechar</button>
+      <button class="btn btn-primary" id="mig-btn-executar" onclick="executarMigracao()">
+        <i class="fa-solid fa-play"></i> Executar Migração
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- ══ MODAL: CONFIRMAR ARQUIVAR ══ -->
 <div class="modal-overlay" id="modal-confirm" onclick="closeModal(event)">
   <div class="modal-dialog" style="width:400px">
@@ -524,6 +553,9 @@ function renderTenants() {
           ${!isArquiv ? `<button class="btn btn-danger btn-sm" onclick="confirmarArquivar('${t.id}')">
             <i class="fa-solid fa-box-archive"></i> Arquivar
           </button>` : ''}
+          <button class="btn btn-outline btn-sm" onclick="abrirMigracao('${t.id}')" title="Migrar dados das coleções raiz para este tenant">
+            <i class="fa-solid fa-database"></i> Migrar dados
+          </button>
         </div>
       </td>
     </tr>`;
@@ -634,6 +666,116 @@ async function saveTenant() {
     document.getElementById('modal-tenant').classList.remove('open');
     renderStats(); renderTenants();
   } catch(e) { alert('Erro ao salvar: ' + (e.message||e)); }
+}
+
+// ─── MIGRAÇÃO DE DADOS ───────────────────────────────────────────────────────
+let _migTenantId = null;
+
+function abrirMigracao(tenantId) {
+  const t = _tenants.find(x => x.id === tenantId); if (!t) return;
+  _migTenantId = tenantId;
+
+  document.getElementById('mig-tenant-info').innerHTML = `
+    <strong>Tenant destino:</strong> ${t.nome}<br>
+    <strong>ID:</strong> <code style="background:#e8f0ff;padding:2px 6px;border-radius:4px">${tenantId}</code><br>
+    <strong>Coleções que serão copiadas:</strong>
+    employees, payrolls, users, accessLog, cct, perfis, postos, contratos, decimoTerceiro, ferias, escalas, configuracoes
+  `;
+  document.getElementById('mig-progress').style.display   = 'none';
+  document.getElementById('mig-resultado').style.display  = 'none';
+  document.getElementById('mig-log').innerHTML            = '';
+  document.getElementById('mig-btn-executar').disabled    = false;
+  document.getElementById('mig-btn-executar').innerHTML   = '<i class="fa-solid fa-play"></i> Executar Migração';
+  document.getElementById('modal-migracao').classList.add('open');
+}
+
+function migLog(msg, cor = '#81d4fa') {
+  const el = document.getElementById('mig-log');
+  const ts = new Date().toLocaleTimeString('pt-BR');
+  el.innerHTML += `<span style="color:#aaa">[${ts}]</span> <span style="color:${cor}">${msg}</span>\n`;
+  el.scrollTop = el.scrollHeight;
+}
+
+async function executarMigracao() {
+  if (!_migTenantId) return;
+  const btn = document.getElementById('mig-btn-executar');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Migrando...';
+  document.getElementById('mig-progress').style.display  = 'block';
+  document.getElementById('mig-resultado').style.display = 'none';
+  document.getElementById('mig-log').innerHTML = '';
+
+  const COLS = [
+    'employees','payrolls','users','accessLog','cct','perfis',
+    'postos','contratos','decimoTerceiro','ferias','escalas','configuracoes'
+  ];
+  let totalDocs = 0;
+  let erros = 0;
+
+  migLog(`Iniciando migração para tenant: ${_migTenantId}`, '#fff176');
+
+  for (const col of COLS) {
+    try {
+      const snap = await fs.collection(col).get();
+      if (snap.empty) {
+        migLog(`${col}: vazia — pulando`, '#b0bec5');
+        continue;
+      }
+      // Escreve em lotes de 499 (limite Firestore)
+      const docs = snap.docs;
+      const BATCH_SIZE = 400;
+      let written = 0;
+      for (let i = 0; i < docs.length; i += BATCH_SIZE) {
+        const batch = fs.batch();
+        docs.slice(i, i + BATCH_SIZE).forEach(doc => {
+          const dest = fs.collection('tenants').doc(_migTenantId)
+                         .collection(col).doc(doc.id);
+          batch.set(dest, doc.data());
+        });
+        await batch.commit();
+        written += Math.min(BATCH_SIZE, docs.length - i);
+      }
+      totalDocs += written;
+      migLog(`✓ ${col}: ${written} documento(s) copiado(s)`, '#a5d6a7');
+    } catch (e) {
+      migLog(`✗ ${col}: ERRO — ${e.message || e}`, '#ef9a9a');
+      erros++;
+    }
+  }
+
+  // Resultado final
+  const resEl = document.getElementById('mig-resultado');
+  if (erros === 0) {
+    migLog(`\nMigração concluída! ${totalDocs} documentos copiados para tenant "${_migTenantId}".`, '#fff176');
+    resEl.innerHTML = `
+      <div style="background:#e8f5e9;border:1px solid #a5d6a7;border-radius:8px;padding:14px;font-size:13px">
+        <i class="fa-solid fa-circle-check" style="color:#2e7d32"></i>
+        <strong style="color:#2e7d32"> Migração concluída com sucesso!</strong><br>
+        <span style="color:#555">${totalDocs} documentos copiados para <code>tenants/${_migTenantId}/</code></span><br><br>
+        <strong>Próximos passos:</strong><br>
+        1. Acesse o sistema via <strong>"Operar aqui"</strong> e verifique se os dados aparecem corretamente.<br>
+        2. Os dados originais continuam na raiz do Firebase como backup — apague manualmente em 30 dias se tudo estiver OK.<br>
+        3. A partir de agora o link de acesso é: <code>index.html?tenant=${_migTenantId}</code>
+      </div>`;
+    // Marca como migrado no metadata do tenant
+    try {
+      await tenantRef(_migTenantId).set({migradoEm: new Date().toISOString()}, {merge: true});
+    } catch(e) {}
+  } else {
+    migLog(`\n${erros} coleção(ões) com erro. Verifique o log acima.`, '#ef9a9a');
+    resEl.innerHTML = `
+      <div style="background:#fce4e4;border:1px solid #ef9a9a;border-radius:8px;padding:14px;font-size:13px">
+        <i class="fa-solid fa-triangle-exclamation" style="color:#c62828"></i>
+        <strong style="color:#c62828"> Migração com ${erros} erro(s).</strong><br>
+        Verifique as regras do Firestore e tente novamente.
+      </div>`;
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-rotate-right"></i> Tentar novamente';
+  }
+  resEl.style.display = 'block';
+  if (erros === 0) {
+    btn.innerHTML = '<i class="fa-solid fa-check"></i> Concluído';
+  }
 }
 
 // ─── UTILITÁRIOS ─────────────────────────────────────────────────────────────

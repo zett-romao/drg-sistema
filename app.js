@@ -5330,23 +5330,51 @@ function renderAdminFaturamento() {
     return;
   }
   tbody.innerHTML = rows.slice(0,100).map(r => {
-    const cor = r.status==='RECEIVED'||r.status==='CONFIRMED' ? '#2e7d32' : r.status==='OVERDUE' ? '#c62828' : '#e65100';
+    const cor = r.status==='RECEIVED'||r.status==='CONFIRMED' ? '#2e7d32' : r.status==='OVERDUE' ? '#c62828' : r.status==='CANCELLED' ? '#888' : '#e65100';
     const link = r.invoiceUrl || r.bankSlipUrl || '';
+    const cancellable = ['PENDING','OVERDUE'].includes(r.status);
+    const cobId = (r.id||'').replace(/'/g,'');
+    const modo  = (r.modo||'avulsa').replace(/'/g,'');
+    const tId   = (r.tenantId||'').replace(/'/g,'');
     return `<tr>
       <td style="font-size:12px"><strong>${r.tenantNome}</strong></td>
       <td style="font-size:12px">${r.descricao||'—'}</td>
       <td style="font-weight:700">${fmtMoney(r.valor||0)}</td>
       <td style="font-size:12px">${(r.vencimento||'').split('-').reverse().join('/')}</td>
-      <td style="font-size:11px">${r.tipo||'—'}</td>
+      <td style="font-size:11px">${r.modo==='recorrente'?'♻ Recorrente':r.tipo||'—'}</td>
       <td style="color:${cor};font-weight:600;font-size:12px">${r.status||'?'}</td>
       <td>
         <div style="display:flex;gap:4px">
-          <button class="btn-icon" onclick="openAdmCobranca('${r.tenantId}')" title="Nova cobrança"><i class="fa-solid fa-bolt" style="color:#2e7d32"></i></button>
+          <button class="btn-icon" onclick="openAdmCobranca('${tId}')" title="Nova cobrança"><i class="fa-solid fa-bolt" style="color:#2e7d32"></i></button>
           ${link ? `<a href="${link}" target="_blank" class="btn-icon" title="Abrir link de pagamento"><i class="fa-solid fa-external-link-alt" style="color:var(--primary)"></i></a>` : ''}
+          ${cancellable ? `<button class="btn-icon" onclick="cancelarAdmCobranca('${tId}','${cobId}','${modo}')" title="Cancelar cobrança"><i class="fa-solid fa-ban" style="color:#c62828"></i></button>` : ''}
         </div>
       </td>
     </tr>`;
   }).join('');
+}
+
+async function cancelarAdmCobranca(tenantId, cobId, modo) {
+  if (!cobId) { toast('ID da cobrança não encontrado.','warning'); return; }
+  if (!confirm('Cancelar esta cobrança? A ação não pode ser desfeita.')) return;
+  try {
+    if (modo === 'recorrente') {
+      await _asaasReq('DELETE', `/subscriptions/${cobId}`);
+    } else {
+      await _asaasReq('POST', `/payments/${cobId}/cancel`);
+    }
+    // Atualiza status no Firestore
+    const t = _admTenants.find(x => x.id === tenantId);
+    if (t) {
+      const cobrancas = (t.cobrancas || []).map(c => c.id === cobId ? {...c, status:'CANCELLED'} : c);
+      await _admTenantRef(tenantId).set({ cobrancas }, {merge:true});
+      t.cobrancas = cobrancas;
+    }
+    toast('Cobrança cancelada.','success');
+    renderAdminFaturamento();
+  } catch(e) {
+    toast('Erro ao cancelar: ' + e.message,'error');
+  }
 }
 
 function openAdmCobrancaRapida() {

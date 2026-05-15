@@ -247,6 +247,28 @@
 
 </div>
 
+<!-- Aviso de horário (disciplina) -->
+<div id="aviso-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:999;align-items:center;justify-content:center;padding:20px">
+  <div style="background:#fff;border-radius:16px;max-width:380px;width:100%;padding:22px;box-shadow:0 10px 40px rgba(0,0,0,.3)">
+    <div id="aviso-icone" style="font-size:42px;text-align:center">⚠️</div>
+    <div id="aviso-titulo" style="font-size:18px;font-weight:700;text-align:center;margin:6px 0;color:#1e293b"></div>
+    <div id="aviso-msg" style="font-size:14px;color:#475569;text-align:center;line-height:1.5;margin-bottom:14px"></div>
+    <label style="font-size:13px;font-weight:600;color:#334155">Motivo do registro fora do horário</label>
+    <select id="aviso-motivo" style="width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px;margin:5px 0 14px;background:#fff">
+      <option value="">— Selecione o motivo —</option>
+      <option>Autorizado pelo supervisor</option>
+      <option>Hora extra autorizada</option>
+      <option>Atraso no transporte / trânsito</option>
+      <option>Consulta médica / assunto pessoal</option>
+      <option>Cheguei adiantado ao posto</option>
+      <option>Esqueci de bater no horário</option>
+      <option>Outro motivo</option>
+    </select>
+    <button id="aviso-confirmar" style="width:100%;padding:13px;background:#16a34a;color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer">Confirmar registro</button>
+    <button id="aviso-cancelar" style="width:100%;padding:11px;background:none;color:#64748b;border:none;font-size:14px;cursor:pointer;margin-top:6px">Cancelar</button>
+  </div>
+</div>
+
 <!-- Firebase SDK -->
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
@@ -529,6 +551,72 @@ function linkMaps(geo) {
   return `https://maps.google.com/?q=${geo.lat},${geo.lng}`;
 }
 
+// ─── DISCIPLINA DE HORÁRIO ────────────────────────────────────────────────────
+const TOLERANCIA_MIN = 5; // tolerância em minutos (CLT Art. 58)
+
+function timeToMin(t){
+  const p=(t||'').split(':'); const h=parseInt(p[0])||0, m=parseInt(p[1])||0;
+  return h*60+m;
+}
+
+// Horário previsto (do cadastro do colaborador) para cada batida
+function _horarioEsperado(prox){
+  const e=currentEmp||{};
+  if(prox==='entrada') return e.horarioEntrada||'';
+  if(prox==='saida')   return e.horarioSaida||'';
+  if(prox==='intIni')  return e.semRefeicao?'':(e.horarioRefIni||'');
+  if(prox==='intFim')  return e.semRefeicao?'':(e.horarioRefFim||'');
+  return '';
+}
+
+// Analisa se a batida está fora da tolerância. he=true quando gera hora extra.
+function analisarHorario(prox, now){
+  const out={aviso:false, he:false, esperado:'', diff:0};
+  const esp=_horarioEsperado(prox);
+  if(!esp) return out;
+  out.esperado=esp;
+  const atual=now.getHours()*60+now.getMinutes();
+  const diff=atual-timeToMin(esp);
+  out.diff=diff;
+  if(prox==='saida'){
+    if(diff>TOLERANCIA_MIN){ out.aviso=true; out.he=true; }   // saiu depois → hora extra
+    else if(diff<-TOLERANCIA_MIN){ out.aviso=true; }          // saiu antes do horário
+  } else if(prox==='entrada'){
+    if(Math.abs(diff)>TOLERANCIA_MIN) out.aviso=true;         // chegou cedo ou atrasado
+  } else {
+    if(Math.abs(diff)>TOLERANCIA_MIN) out.aviso=true;         // intervalo fora do horário
+  }
+  return out;
+}
+
+// Mostra o aviso e devolve {motivo} se confirmado, ou null se cancelado
+function mostrarAvisoHorario(prox, hora, analise){
+  return new Promise(resolve=>{
+    const ov=document.getElementById('aviso-overlay');
+    const nomes={entrada:'a ENTRADA',intIni:'o INÍCIO DO INTERVALO',intFim:'o FIM DO INTERVALO',saida:'a SAÍDA'};
+    document.getElementById('aviso-icone').textContent = analise.he?'⏰':'⚠️';
+    document.getElementById('aviso-titulo').textContent = analise.he?'Isto vai gerar hora extra':'Fora do horário previsto';
+    document.getElementById('aviso-msg').textContent = analise.he
+      ? `Você está batendo ${nomes[prox]} às ${hora}, além do horário previsto (${analise.esperado}). Isto vai gerar HORA EXTRA. Você está autorizado a fazer hora extra?`
+      : `Você está batendo ${nomes[prox]} às ${hora}, fora do horário previsto (${analise.esperado}). Você está autorizado a registrar fora do horário?`;
+    const motSel=document.getElementById('aviso-motivo');
+    motSel.value='';
+    ov.style.display='flex';
+    const btnOk=document.getElementById('aviso-confirmar');
+    const btnCancel=document.getElementById('aviso-cancelar');
+    const fechar=resultado=>{
+      ov.style.display='none';
+      btnOk.onclick=null; btnCancel.onclick=null;
+      resolve(resultado);
+    };
+    btnOk.onclick=()=>{
+      if(!motSel.value){ toast('Selecione o motivo para continuar.','error'); return; }
+      fechar({motivo:motSel.value});
+    };
+    btnCancel.onclick=()=>fechar(null);
+  });
+}
+
 // ─── BATER PONTO ──────────────────────────────────────────────────────────────
 async function baterPonto() {
   const prox = getProxima();
@@ -541,6 +629,15 @@ async function baterPonto() {
   const ano  = now.getFullYear();
   const dia  = now.getDate();
   const dsem = now.getDay();
+
+  // Disciplina de horário — avisa se a batida estiver fora do horário previsto
+  const analise = analisarHorario(prox, now);
+  let avisoMotivo = '';
+  if(analise.aviso){
+    const decisao = await mostrarAvisoHorario(prox, hora, analise);
+    if(!decisao){ renderBotao(); return; }   // colaborador cancelou — não registra
+    avisoMotivo = decisao.motivo;
+  }
 
   const btn = document.getElementById('punch-btn');
   btn.disabled  = true;
@@ -562,6 +659,11 @@ async function baterPonto() {
     dayEntry[prox] = hora;
     // Marca origem da batida (app vs manual pelo operador no gestor)
     dayEntry[prox + '_origem'] = 'app';
+    // Disciplina de horário — registra quando o colaborador bateu fora do horário
+    if(analise.aviso){
+      dayEntry[prox + '_foraHorario'] = true;
+      dayEntry[prox + '_motivo'] = avisoMotivo;
+    }
     // Salva coordenadas junto com o registro
     if (geo) dayEntry[prox + '_geo'] = geo;
 

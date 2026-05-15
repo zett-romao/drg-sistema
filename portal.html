@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DRG-Kronos — Acesso</title>
+  <link rel="icon" href="logo.png" type="image/png">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      min-height: 100vh;
+      background: linear-gradient(135deg, #0d2347 0%, #1a3a6b 60%, #2651a0 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    /* ── Header ── */
+    .header {
+      text-align: center;
+      margin-bottom: 48px;
+      color: #fff;
+    }
+    .header img {
+      width: 80px;
+      height: 80px;
+      object-fit: contain;
+      border-radius: 18px;
+      box-shadow: 0 4px 24px rgba(0,0,0,.35);
+      margin-bottom: 18px;
+    }
+    .header h1 {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: .5px;
+      margin-bottom: 6px;
+    }
+    .header p {
+      font-size: 14px;
+      color: rgba(255,255,255,.65);
+    }
+
+    /* ── Cards ── */
+    .cards {
+      display: flex;
+      gap: 24px;
+      flex-wrap: wrap;
+      justify-content: center;
+      width: 100%;
+      max-width: 740px;
+    }
+
+    .card {
+      background: rgba(255,255,255,.07);
+      border: 1px solid rgba(255,255,255,.14);
+      border-radius: 20px;
+      padding: 40px 36px;
+      flex: 1 1 280px;
+      max-width: 340px;
+      cursor: pointer;
+      text-decoration: none;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 16px;
+      transition: background .2s, transform .18s, box-shadow .2s;
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      position: relative;
+      overflow: hidden;
+    }
+    .card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(255,255,255,.06) 0%, transparent 60%);
+      pointer-events: none;
+    }
+    .card:hover {
+      background: rgba(255,255,255,.13);
+      transform: translateY(-4px);
+      box-shadow: 0 12px 40px rgba(0,0,0,.3);
+    }
+    .card:active { transform: translateY(-1px); }
+
+    .card-icon {
+      width: 72px;
+      height: 72px;
+      border-radius: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 30px;
+    }
+    .icon-kronos  { background: rgba(100,160,255,.22); color: #82b4ff; }
+    .icon-operador { background: rgba(255,80,80,.22);  color: #ff8a80; }
+
+    .card h2 { font-size: 20px; font-weight: 700; line-height: 1.2; }
+    .card p  { font-size: 13px; color: rgba(255,255,255,.65); line-height: 1.5; }
+
+    .card-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 20px;
+      margin-top: 4px;
+    }
+    .badge-kronos  { background: rgba(100,160,255,.2); color: #82b4ff; }
+    .badge-operador { background: rgba(255,80,80,.2);  color: #ff8a80; }
+
+    .card-arrow {
+      position: absolute;
+      bottom: 20px;
+      right: 22px;
+      font-size: 16px;
+      color: rgba(255,255,255,.3);
+      transition: color .2s, right .2s;
+    }
+    .card:hover .card-arrow { color: rgba(255,255,255,.7); right: 18px; }
+
+    /* ── Footer ── */
+    .footer {
+      margin-top: 48px;
+      text-align: center;
+      color: rgba(255,255,255,.35);
+      font-size: 12px;
+    }
+    .footer span { color: rgba(255,255,255,.55); font-weight: 600; }
+
+    /* ── Data/hora ── */
+    #portal-datetime {
+      font-size: 13px;
+      color: rgba(255,255,255,.5);
+      margin-top: 4px;
+    }
+
+    @media (max-width: 480px) {
+      .header h1   { font-size: 22px; }
+      .cards       { gap: 16px; }
+      .card        { padding: 30px 24px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <img src="logo.png" alt="DRG Logo">
+    <h1>DRG-Kronos 3.0</h1>
+    <p>Sistema de Gestão — D.R. Global Multi Services</p>
+    <div id="portal-datetime"></div>
+  </div>
+
+  <div class="cards">
+
+    <!-- Kronos -->
+    <a class="card" href="index.html" id="card-kronos">
+      <div class="card-icon icon-kronos">
+        <i class="fa-solid fa-clock-rotate-left"></i>
+      </div>
+      <div>
+        <h2>DRG-Kronos</h2>
+        <p>Gestão de colaboradores, folha de ponto, pagamentos, escalas e relatórios.</p>
+        <span class="card-badge badge-kronos">
+          <i class="fa-solid fa-users"></i> Sistema Principal
+        </span>
+      </div>
+      <i class="fa-solid fa-arrow-right card-arrow"></i>
+    </a>
+
+    <!-- Operador -->
+    <a class="card" href="operator.html" id="card-operador">
+      <div class="card-icon icon-operador">
+        <i class="fa-solid fa-server"></i>
+      </div>
+      <div>
+        <h2>Painel do Operador</h2>
+        <p>Gerenciamento de tenants, cobranças, licenças e migração de dados.</p>
+        <span class="card-badge badge-operador">
+          <i class="fa-solid fa-shield-halved"></i> Acesso Restrito
+        </span>
+      </div>
+      <i class="fa-solid fa-arrow-right card-arrow"></i>
+    </a>
+
+  </div>
+
+  <div class="footer">
+    <span>DRG-Kronos 3.0</span> &nbsp;·&nbsp; D.R. Global Multi Services &nbsp;·&nbsp;
+    <a href="https://github.com/zett-romao/drg-sistema" target="_blank"
+       style="color:rgba(255,255,255,.35);text-decoration:none">GitHub</a>
+  </div>
+
+  <script>
+    // Data e hora atualizadas a cada segundo
+    function updateDatetime() {
+      const now = new Date();
+      const opts = { weekday:'long', day:'numeric', month:'long', year:'numeric' };
+      const hora = now.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
+      document.getElementById('portal-datetime').textContent =
+        now.toLocaleDateString('pt-BR', opts) + ' · ' + hora;
+    }
+    updateDatetime();
+    setInterval(updateDatetime, 1000);
+
+    // Preserva o tenant_id no link do Kronos se existir
+    const tenantId = localStorage.getItem('drg_tenant');
+    if (tenantId) {
+      const kronos = document.getElementById('card-kronos');
+      kronos.href = `index.html?tenant=${tenantId}`;
+    }
+  </script>
+
+</body>
+</html>

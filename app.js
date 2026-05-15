@@ -714,7 +714,12 @@ function showSection(name){
   if(name==='contabilidade')   { _applyModoBanners(State.empresa?.modoContabilidade||'ambas'); renderContabilidade(); }
   if(name==='configuracoes')  renderConfiguracoes();
   if(name==='postos')    renderPostosTable();
-  if(name==='contratos') { renderContratosTable(); populateContratoPostoSelect(); }
+  if(name==='contratos') {
+    // Garante aba Tenants ativa e carrega dados
+    switchAdminTab('tenants');
+    loadAdminTenants();
+    populateContratoPostoSelect();
+  }
   if(name==='users'){
     renderUsersTable(); renderPerfisTable(); renderLogTable();
     // Se usuário só tem acesso ao log (não a gestão de usuários), ocultar cards de usuários e perfis
@@ -5124,6 +5129,342 @@ function switchContratoTab(tab){
   renderContratosTable();
 }
 
+// ============================================
+// MÓDULO ADMINISTRAÇÃO (master only)
+// ============================================
+let _admTenants = [];
+
+function _admTenantRef(id) {
+  return DB.fs.collection('operator').doc('tenants').collection('lista').doc(id);
+}
+function _admTenantsCol() {
+  return DB.fs.collection('operator').doc('tenants').collection('lista');
+}
+
+// ── Troca de abas ────────────────────────────────────────────────────────────
+function switchAdminTab(tab) {
+  ['tenants','faturamento','contratos'].forEach(t => {
+    const content = document.getElementById(`adm-tab-${t}`);
+    const btn     = document.getElementById(`adm-tab-btn-${t}`);
+    if (content) content.style.display = t === tab ? '' : 'none';
+    if (btn) btn.classList.toggle('active', t === tab);
+  });
+  if (tab === 'faturamento') renderAdminFaturamento();
+  if (tab === 'contratos')   renderContratosTable();
+}
+
+// ── Carrega tenants do Firestore ─────────────────────────────────────────────
+async function loadAdminTenants() {
+  if (!DB.fs) return;
+  try {
+    const snap = await _admTenantsCol().get();
+    _admTenants = snap.docs.map(d => d.data());
+    _admTenants.sort((a,b) => (b.criadoEm||'') > (a.criadoEm||'') ? 1 : -1);
+  } catch(e) {
+    console.warn('Admin tenants:', e);
+    _admTenants = [];
+  }
+  renderAdminStats();
+  renderAdminTenants();
+  _populateAdmFatSelect();
+}
+
+// ── Stats ────────────────────────────────────────────────────────────────────
+function renderAdminStats() {
+  const el = document.getElementById('adm-stats'); if (!el) return;
+  const total   = _admTenants.length;
+  const ativos  = _admTenants.filter(t => t.status === 'ativo').length;
+  const trials  = _admTenants.filter(t => t.status === 'trial').length;
+  const bloq    = _admTenants.filter(t => t.status === 'bloqueado').length;
+  const receita = _admTenants.filter(t => t.status === 'ativo')
+                             .reduce((s,t) => s + (parseFloat(t.mensalidade)||0), 0);
+  el.innerHTML = `
+    <div class="stat-card"><div class="stat-icon" style="background:rgba(27,94,32,.1)"><i class="fa-solid fa-server" style="color:var(--success)"></i></div>
+      <div class="stat-info"><div class="stat-label">Total Clientes</div><div class="stat-value">${total}</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:rgba(27,94,32,.1)"><i class="fa-solid fa-circle-check" style="color:var(--success)"></i></div>
+      <div class="stat-info"><div class="stat-label">Ativos</div><div class="stat-value" style="color:var(--success)">${ativos}</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:rgba(230,81,0,.1)"><i class="fa-solid fa-clock" style="color:#E65100"></i></div>
+      <div class="stat-info"><div class="stat-label">Em Trial</div><div class="stat-value" style="color:#E65100">${trials}</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:rgba(198,40,40,.1)"><i class="fa-solid fa-ban" style="color:#c62828"></i></div>
+      <div class="stat-info"><div class="stat-label">Bloqueados</div><div class="stat-value" style="color:#c62828">${bloq}</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:rgba(27,94,32,.1)"><i class="fa-solid fa-sack-dollar" style="color:var(--success)"></i></div>
+      <div class="stat-info"><div class="stat-label">Receita Mensal</div><div class="stat-value" style="color:var(--success);font-size:16px">${fmtMoney(receita)}</div></div></div>`;
+}
+
+// ── Tabela de tenants ─────────────────────────────────────────────────────────
+function renderAdminTenants() {
+  const tbody = document.getElementById('adm-tbody'); if (!tbody) return;
+  const q     = (document.getElementById('adm-busca')?.value || '').toLowerCase();
+  let lista   = _admTenants;
+  if (q) lista = lista.filter(t =>
+    (t.nome||'').toLowerCase().includes(q) || (t.cnpj||'').includes(q));
+
+  const title = document.getElementById('adm-tenant-title');
+  if (title) title.innerHTML = `<i class="fa-solid fa-list"></i> Clientes <small style="font-weight:400;font-size:12px;color:#888">(${lista.length})</small>`;
+
+  if (!lista.length) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-row">Nenhum cliente cadastrado.</td></tr>`;
+    return;
+  }
+
+  const hoje = new Date().toISOString().split('T')[0];
+  tbody.innerHTML = lista.map(t => {
+    const statusBadge =
+      t.status==='ativo'      ? `<span class="badge badge-success">✓ Ativo</span>` :
+      t.status==='trial'      ? `<span class="badge badge-warning">⏳ Trial</span>` :
+      t.status==='bloqueado'  ? `<span class="badge badge-danger">✗ Bloqueado</span>` :
+                                `<span class="badge">Arquivado</span>`;
+    const venc = t.validade || null;
+    let vencLabel = '—';
+    if (venc) {
+      const diff = Math.floor((new Date(venc) - new Date()) / 86400000);
+      const cor  = diff < 0 ? '#c62828' : diff <= 7 ? '#e65100' : 'inherit';
+      const suf  = diff < 0 ? ` (${Math.abs(diff)}d vencido)` : diff <= 7 ? ` (em ${diff}d)` : '';
+      vencLabel  = `<span style="color:${cor}">${venc.split('-').reverse().join('/')}${suf}</span>`;
+    }
+    const mens = t.mensalidade > 0 ? fmtMoney(t.mensalidade) : '—';
+    return `<tr>
+      <td><strong>${t.nome||'—'}</strong><br><span style="font-size:11px;color:#aaa">${t.cnpj||''}</span></td>
+      <td style="font-size:12px">${t.plano||'—'}</td>
+      <td style="font-weight:600">${mens}</td>
+      <td style="font-size:12px">${vencLabel}</td>
+      <td>${statusBadge}</td>
+      <td>
+        <div style="display:flex;gap:4px;flex-wrap:wrap">
+          <button class="btn-icon" onclick="openAdmManageTenant('${t.id}')" title="Editar"><i class="fa-solid fa-gear" style="color:var(--primary)"></i></button>
+          <button class="btn-icon" onclick="openAdmCobranca('${t.id}')" title="Gerar cobrança"><i class="fa-solid fa-bolt" style="color:#2e7d32"></i></button>
+          <button class="btn-icon" onclick="admOperateTenant('${t.id}')" title="Operar como este tenant"><i class="fa-solid fa-arrow-right-to-bracket" style="color:#1565C0"></i></button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// ── CRUD Tenant ───────────────────────────────────────────────────────────────
+function openAdmAddTenant() {
+  document.getElementById('adm-tenant-modal-title').innerHTML = '<i class="fa-solid fa-plus"></i> Novo Cliente';
+  ['adm-mt-id','adm-mt-nome','adm-mt-cnpj','adm-mt-mensalidade','adm-mt-tel','adm-mt-email','adm-mt-obs'].forEach(id => setVal(id,''));
+  setVal('adm-mt-plano','trial'); setVal('adm-mt-status','trial');
+  const d = new Date(); d.setDate(d.getDate()+30);
+  setVal('adm-mt-validade', d.toISOString().split('T')[0]);
+  document.getElementById('modal-adm-tenant').classList.remove('hidden');
+}
+
+function openAdmManageTenant(id) {
+  const t = _admTenants.find(x => x.id === id); if (!t) return;
+  document.getElementById('adm-tenant-modal-title').innerHTML = '<i class="fa-solid fa-gear"></i> Editar Cliente';
+  setVal('adm-mt-id',         t.id);
+  setVal('adm-mt-nome',       t.nome||'');
+  setVal('adm-mt-cnpj',       t.cnpj||'');
+  setVal('adm-mt-plano',      t.plano||'trial');
+  setVal('adm-mt-status',     t.status||'trial');
+  setVal('adm-mt-mensalidade',t.mensalidade||'');
+  setVal('adm-mt-validade',   t.validade||'');
+  setVal('adm-mt-tel',        t.telefone||'');
+  setVal('adm-mt-email',      t.email||'');
+  setVal('adm-mt-obs',        t.obs||'');
+  document.getElementById('modal-adm-tenant').classList.remove('hidden');
+}
+
+async function saveAdmTenant() {
+  const nome = val('adm-mt-nome').trim();
+  const cnpj = val('adm-mt-cnpj').replace(/\D/g,'');
+  if (!nome || !cnpj) { toast('Nome e CNPJ são obrigatórios.','error'); return; }
+  const existingId = val('adm-mt-id').trim();
+  const id = existingId || cnpj;
+  const rec = {
+    id, nome,
+    cnpj:        val('adm-mt-cnpj').trim(),
+    plano:       val('adm-mt-plano'),
+    status:      val('adm-mt-status'),
+    mensalidade: parseFloat(val('adm-mt-mensalidade'))||0,
+    validade:    val('adm-mt-validade')||null,
+    telefone:    val('adm-mt-tel').trim()||null,
+    email:       val('adm-mt-email').trim()||null,
+    obs:         val('adm-mt-obs').trim()||null,
+    updatedAt:   new Date().toISOString(),
+    criadoEm:    existingId ? (_admTenants.find(t=>t.id===existingId)?.criadoEm || new Date().toISOString()) : new Date().toISOString(),
+  };
+  try {
+    await _admTenantRef(id).set(rec, {merge:true});
+    const idx = _admTenants.findIndex(t => t.id === id);
+    if (idx >= 0) _admTenants[idx] = {..._admTenants[idx], ...rec};
+    else _admTenants.unshift(rec);
+    closeModal('modal-adm-tenant');
+    renderAdminStats(); renderAdminTenants(); _populateAdmFatSelect();
+    toast('Cliente salvo!', 'success');
+  } catch(e) { toast('Erro ao salvar: ' + (e.message||e), 'error'); }
+}
+
+function admOperateTenant(id) {
+  localStorage.setItem('drg_tenant', id);
+  window.open(`index.html?tenant=${id}`, '_blank');
+}
+
+// ── Faturamento ───────────────────────────────────────────────────────────────
+function _populateAdmFatSelect() {
+  const sel = document.getElementById('adm-fat-tenant'); if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">— Todos os clientes —</option>';
+  _admTenants.forEach(t => {
+    sel.innerHTML += `<option value="${t.id}">${t.nome}</option>`;
+  });
+  if (cur) sel.value = cur;
+}
+
+function renderAdminFaturamento() {
+  const tenantFilt = val('adm-fat-tenant') || '';
+  const tbody = document.getElementById('adm-fat-tbody'); if (!tbody) return;
+  let rows = [];
+  const lista = tenantFilt ? _admTenants.filter(t => t.id === tenantFilt) : _admTenants;
+  lista.forEach(t => {
+    (t.cobrancas || []).forEach(c => {
+      rows.push({...c, tenantNome: t.nome, tenantId: t.id});
+    });
+  });
+  rows.sort((a,b) => (b.criadoEm||'') > (a.criadoEm||'') ? 1 : -1);
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-row">Nenhuma cobrança registrada.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.slice(0,100).map(r => {
+    const cor = r.status==='RECEIVED'||r.status==='CONFIRMED' ? '#2e7d32' : r.status==='OVERDUE' ? '#c62828' : '#e65100';
+    const link = r.invoiceUrl || r.bankSlipUrl || '';
+    return `<tr>
+      <td style="font-size:12px"><strong>${r.tenantNome}</strong></td>
+      <td style="font-size:12px">${r.descricao||'—'}</td>
+      <td style="font-weight:700">${fmtMoney(r.valor||0)}</td>
+      <td style="font-size:12px">${(r.vencimento||'').split('-').reverse().join('/')}</td>
+      <td style="font-size:11px">${r.tipo||'—'}</td>
+      <td style="color:${cor};font-weight:600;font-size:12px">${r.status||'?'}</td>
+      <td>
+        <div style="display:flex;gap:4px">
+          <button class="btn-icon" onclick="openAdmCobranca('${r.tenantId}')" title="Nova cobrança"><i class="fa-solid fa-bolt" style="color:#2e7d32"></i></button>
+          ${link ? `<a href="${link}" target="_blank" class="btn-icon" title="Abrir link de pagamento"><i class="fa-solid fa-external-link-alt" style="color:var(--primary)"></i></a>` : ''}
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function openAdmCobrancaRapida() {
+  // Abre seletor de tenant primeiro se não houver filtro
+  const tenantFilt = val('adm-fat-tenant');
+  if (!tenantFilt) { toast('Selecione um cliente no filtro primeiro.','warning'); return; }
+  openAdmCobranca(tenantFilt);
+}
+
+function openAdmCobranca(tenantId) {
+  const t = _admTenants.find(x => x.id === tenantId); if (!t) return;
+  setVal('adm-mc-tenant-id', tenantId);
+  setEl('adm-mc-tenant-nome', t.nome);
+  setEl('adm-mc-tenant-cnpj', t.cnpj || tenantId);
+  setVal('adm-mc-valor',   t.mensalidade || '');
+  setVal('adm-mc-email',   t.email || '');
+  setVal('adm-mc-tipo',    'PIX');
+  const d = new Date(); d.setMonth(d.getMonth()+1); d.setDate(10);
+  setVal('adm-mc-vencimento', d.toISOString().split('T')[0]);
+  const mesNome = new Date().toLocaleDateString('pt-BR', {month:'long', year:'numeric'});
+  setVal('adm-mc-descricao', `Mensalidade DRG-Kronos — ${mesNome}`);
+  document.getElementById('adm-mc-resultado').style.display = 'none';
+  document.getElementById('adm-mc-resultado').innerHTML = '';
+  const btn = document.getElementById('adm-btn-gerar-cobranca');
+  btn.style.display='inline-flex'; btn.disabled=false;
+  btn.innerHTML = '<i class="fa-solid fa-bolt"></i> Gerar Cobrança';
+  // Histórico
+  const hist = t.cobrancas || [];
+  const histEl = document.getElementById('adm-mc-historico');
+  histEl.innerHTML = hist.length === 0
+    ? '<p style="color:#aaa;text-align:center;padding:6px">Nenhuma cobrança ainda.</p>'
+    : hist.slice(0,5).map(c => {
+        const cor = c.status==='RECEIVED'||c.status==='CONFIRMED' ? '#2e7d32' : c.status==='OVERDUE' ? '#c62828' : '#e65100';
+        return `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f0f0f0;font-size:12px">
+          <span><strong>${fmtMoney(c.valor||0)}</strong> <span style="color:#888">${(c.vencimento||'').split('-').reverse().join('/')}</span></span>
+          <span style="color:${cor};font-weight:600">${c.status||'?'}</span>
+        </div>`;
+      }).join('');
+  document.getElementById('modal-adm-cobranca').classList.remove('hidden');
+}
+
+async function executarAdmCobranca() {
+  const tenantId  = val('adm-mc-tenant-id');
+  const t         = _admTenants.find(x => x.id === tenantId);
+  const valor     = parseFloat(val('adm-mc-valor')) || 0;
+  const venc      = val('adm-mc-vencimento');
+  const descricao = val('adm-mc-descricao').trim();
+  const tipo      = val('adm-mc-tipo');
+  const email     = val('adm-mc-email').trim();
+
+  if (!valor || !venc) { toast('Preencha valor e vencimento.','warning'); return; }
+
+  const btn = document.getElementById('adm-btn-gerar-cobranca');
+  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Gerando...';
+
+  try {
+    // 1. Criar/buscar cliente Asaas
+    let customerId = t?.asaasCustomerId;
+    if (!customerId) {
+      const cnpj = (t?.cnpj || tenantId).replace(/\D/g,'');
+      const busca = await _asaasReq('GET', `/customers?cpfCnpj=${cnpj}`);
+      customerId = busca.data?.[0]?.id;
+      if (!customerId) {
+        const cli = await _asaasPost('/customers', {
+          name: t.nome, cpfCnpj: cnpj,
+          email: email || undefined,
+          phone: t.telefone ? t.telefone.replace(/\D/g,'') : undefined,
+          notificationDisabled: !email,
+        });
+        customerId = cli.id;
+      }
+      await _admTenantRef(tenantId).set({ asaasCustomerId: customerId }, {merge:true});
+      if (t) t.asaasCustomerId = customerId;
+    }
+    if (email) { await _admTenantRef(tenantId).set({ email }, {merge:true}); if (t) t.email = email; }
+
+    // 2. Criar cobrança
+    const cob = await _asaasPost('/payments', {
+      customer: customerId, billingType: tipo,
+      value: valor, dueDate: venc,
+      description: descricao, externalReference: tenantId,
+    });
+
+    // 3. Registrar histórico
+    const cobrancas = [...(t?.cobrancas || [])];
+    cobrancas.unshift({ id: cob.id, valor, vencimento: venc, descricao, tipo,
+      status: cob.status, criadoEm: new Date().toISOString(),
+      invoiceUrl: cob.invoiceUrl || null, bankSlipUrl: cob.bankSlipUrl || null });
+    await _admTenantRef(tenantId).set({ cobrancas: cobrancas.slice(0,50) }, {merge:true});
+    if (t) t.cobrancas = cobrancas;
+
+    // 4. Resultado
+    const link = cob.invoiceUrl || cob.bankSlipUrl || '';
+    const wNum = (t?.telefone || '').replace(/\D/g,'');
+    const wMsg = encodeURIComponent(`Olá ${t?.nome}!\n\nLink de pagamento DRG-Kronos:\n${link}\n\nValor: ${fmtMoney(valor)} | Venc.: ${venc.split('-').reverse().join('/')}\n\nObrigado!`);
+    const whatsUrl = wNum ? `https://wa.me/55${wNum}?text=${wMsg}` : `https://wa.me/?text=${wMsg}`;
+
+    const resEl = document.getElementById('adm-mc-resultado');
+    resEl.style.display = 'block';
+    resEl.innerHTML = `<div style="background:#e8f5e9;border:1px solid #a5d6a7;border-radius:9px;padding:14px;font-size:13px">
+      <strong style="color:#2e7d32"><i class="fa-solid fa-circle-check"></i> Cobrança gerada!</strong><br>
+      <span style="color:#555">ID: <code>${cob.id}</code> | Status: ${cob.status}</span>
+      ${link ? `<br><input type="text" value="${link}" readonly style="width:100%;margin-top:8px;padding:6px 10px;border:1px solid #ccc;border-radius:6px;font-size:12px;font-family:monospace" onclick="this.select()">` : ''}
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+        ${link ? `<button onclick="navigator.clipboard.writeText('${link}').then(()=>toast('Link copiado!','success'))" class="btn btn-primary btn-sm"><i class="fa-solid fa-copy"></i> Copiar Link</button>` : ''}
+        <button onclick="window.open('${whatsUrl}','_blank')" class="btn btn-sm" style="background:#25D366;color:#fff;border:none"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>
+      </div>
+    </div>`;
+    btn.style.display = 'none';
+    renderAdminFaturamento();
+    toast('Cobrança gerada com sucesso!', 'success');
+
+  } catch(e) {
+    const resEl = document.getElementById('adm-mc-resultado');
+    resEl.style.display = 'block';
+    resEl.innerHTML = `<div style="background:#fce4e4;border:1px solid #ef9a9a;border-radius:9px;padding:12px;font-size:13px;color:#c62828"><i class="fa-solid fa-triangle-exclamation"></i> ${e.message}</div>`;
+    btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-bolt"></i> Tentar Novamente';
+  }
+}
+
 function renderContratosTable(){
   const q=(val('contratos-search')||'').toLowerCase();
   const tbody=document.getElementById('contratos-tbody'); if(!tbody) return;
@@ -9009,7 +9350,7 @@ const MODULOS_LABELS={
   ferias:          'Férias',
   contabilidade:   'Contabilidade',
   postos:          'Postos de Trabalho',
-  contratos:       'Contratos',
+  contratos:       'Administração',
   users:           'Usuários & Acessos',
   log:             'Log de Acessos'
 };

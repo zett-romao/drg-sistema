@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title id="page-title">D.R. Global Multi Services — Sistema de Gestão de Colaboradores</title>
   <link rel="icon" href="logo.png" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20260515b">
+  <link rel="stylesheet" href="styles.css?v=20260515c">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -13,7 +13,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-  <script src="firebase-config.js?v=20260515b"></script>
+  <script src="firebase-config.js?v=20260515c"></script>
 </head>
 <body>
 
@@ -196,8 +196,8 @@
       </li>
       <li id="nav-contratos-li" class="hidden">
         <a class="nav-link" id="nav-contratos" onclick="showSection('contratos')">
-          <i class="fa-solid fa-file-signature"></i>
-          <span>Contratos</span>
+          <i class="fa-solid fa-shield-halved"></i>
+          <span>Administração</span>
         </a>
       </li>
       <li id="nav-users-li" class="hidden">
@@ -976,60 +976,148 @@
         </div>
       </section>
 
-      <!-- ===== CONTRATOS ===== -->
+      <!-- ===== ADMINISTRAÇÃO (master only) ===== -->
       <section id="section-contratos" class="section">
         <div class="page-header">
           <div>
-            <h2>Contratos</h2>
-            <p>Gestão de contratos com postos de trabalho</p>
+            <h2><i class="fa-solid fa-shield-halved" style="color:var(--primary)"></i> Administração</h2>
+            <p>Gestão de clientes, faturamento e contratos de serviço — acesso exclusivo master</p>
           </div>
-          <div style="display:flex;gap:8px">
-            <button class="btn btn-outline" onclick="openReportsModal(['contratos-rel'], 'Relatório de Contratos')">
+          <div id="adm-header-actions" style="display:flex;gap:8px"></div>
+        </div>
+
+        <!-- Abas principais -->
+        <div class="contrato-tabs" style="margin-bottom:0">
+          <button class="contrato-tab active" id="adm-tab-btn-tenants" onclick="switchAdminTab('tenants')">
+            <i class="fa-solid fa-server"></i> Clientes / Tenants
+          </button>
+          <button class="contrato-tab" id="adm-tab-btn-faturamento" onclick="switchAdminTab('faturamento')">
+            <i class="fa-solid fa-bolt" style="color:#2e7d32"></i> Faturamento
+          </button>
+          <button class="contrato-tab" id="adm-tab-btn-contratos" onclick="switchAdminTab('contratos')">
+            <i class="fa-solid fa-file-signature"></i> Contratos de Serviço
+          </button>
+        </div>
+
+        <!-- ── ABA: TENANTS ── -->
+        <div id="adm-tab-tenants" style="margin-top:0">
+          <!-- Stats -->
+          <div class="stats-grid" id="adm-stats" style="margin:16px 0"></div>
+
+          <!-- Tabela de tenants -->
+          <div class="card">
+            <div class="card-header">
+              <h3 id="adm-tenant-title"><i class="fa-solid fa-list"></i> Clientes</h3>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                <div class="search-box" style="width:200px">
+                  <i class="fa-solid fa-magnifying-glass"></i>
+                  <input type="text" id="adm-busca" placeholder="Buscar cliente..." oninput="renderAdminTenants()">
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="openAdmAddTenant()">
+                  <i class="fa-solid fa-plus"></i> Novo Cliente
+                </button>
+              </div>
+            </div>
+            <div class="card-body p0">
+              <div style="overflow-x:auto">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Cliente</th>
+                      <th>Plano</th>
+                      <th>Mensalidade</th>
+                      <th>Válido até</th>
+                      <th>Status</th>
+                      <th>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody id="adm-tbody">
+                    <tr><td colspan="6" class="empty-row"><i class="fa-solid fa-spinner fa-spin"></i> Carregando...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── ABA: FATURAMENTO ── -->
+        <div id="adm-tab-faturamento" style="display:none;margin-top:16px">
+          <div class="card">
+            <div class="card-header">
+              <h3><i class="fa-solid fa-receipt" style="color:#2e7d32"></i> Histórico de Cobranças</h3>
+              <div style="display:flex;gap:8px;align-items:center">
+                <select id="adm-fat-tenant" style="padding:6px 10px;border:1px solid var(--border-color,#e0e0e0);border-radius:6px;font-size:13px" onchange="renderAdminFaturamento()">
+                  <option value="">— Todos os clientes —</option>
+                </select>
+                <button class="btn btn-primary btn-sm" style="background:#2e7d32;border-color:#2e7d32" onclick="openAdmCobrancaRapida()">
+                  <i class="fa-solid fa-bolt"></i> Nova Cobrança
+                </button>
+              </div>
+            </div>
+            <div class="card-body p0">
+              <div style="overflow-x:auto">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Cliente</th>
+                      <th>Descrição</th>
+                      <th>Valor</th>
+                      <th>Vencimento</th>
+                      <th>Tipo</th>
+                      <th>Status</th>
+                      <th>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody id="adm-fat-tbody">
+                    <tr><td colspan="7" class="empty-row">Selecione um cliente ou carregue o histórico</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── ABA: CONTRATOS DE SERVIÇO ── -->
+        <div id="adm-tab-contratos" style="display:none;margin-top:0">
+          <div style="display:flex;justify-content:flex-end;gap:8px;margin:16px 0 12px">
+            <button class="btn btn-outline btn-sm" onclick="openReportsModal(['contratos-rel'], 'Relatório de Contratos')">
               <i class="fa-solid fa-chart-bar"></i> Relatório
             </button>
-            <button class="btn btn-primary" onclick="openContratoModal()">
+            <button class="btn btn-primary btn-sm" onclick="openContratoModal()">
               <i class="fa-solid fa-plus"></i> Novo Contrato
             </button>
           </div>
-        </div>
-
-        <!-- Tabs -->
-        <div class="contrato-tabs">
-          <button class="contrato-tab active" id="tab-contratos-ativos" onclick="switchContratoTab('ativos')">
-            <i class="fa-solid fa-circle-check"></i> Ativos <span class="tab-count" id="count-contratos-ativos">0</span>
-          </button>
-          <button class="contrato-tab" id="tab-contratos-inativos" onclick="switchContratoTab('inativos')">
-            <i class="fa-solid fa-circle-xmark"></i> Inativos <span class="tab-count" id="count-contratos-inativos">0</span>
-          </button>
-        </div>
-
-        <div class="card" style="margin-top:0;border-radius:0 var(--radius) var(--radius) var(--radius)">
-          <div class="card-toolbar">
-            <div class="search-box">
-              <i class="fa-solid fa-magnifying-glass"></i>
-              <input type="text" id="contratos-search" placeholder="Buscar por posto, objeto..." oninput="renderContratosTable()">
+          <div class="contrato-tabs" style="margin-bottom:0">
+            <button class="contrato-tab active" id="tab-contratos-ativos" onclick="switchContratoTab('ativos')">
+              <i class="fa-solid fa-circle-check"></i> Ativos <span class="tab-count" id="count-contratos-ativos">0</span>
+            </button>
+            <button class="contrato-tab" id="tab-contratos-inativos" onclick="switchContratoTab('inativos')">
+              <i class="fa-solid fa-circle-xmark"></i> Inativos <span class="tab-count" id="count-contratos-inativos">0</span>
+            </button>
+          </div>
+          <div class="card" style="margin-top:0;border-radius:0 var(--radius) var(--radius) var(--radius)">
+            <div class="card-toolbar">
+              <div class="search-box">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input type="text" id="contratos-search" placeholder="Buscar por posto, objeto..." oninput="renderContratosTable()">
+              </div>
+            </div>
+            <div class="card-body p0">
+              <table class="data-table" id="contratos-table">
+                <thead>
+                  <tr>
+                    <th>Posto / Cliente</th><th>Objeto</th><th>Valor Mensal</th>
+                    <th>Início</th><th>Reajuste</th><th>Término</th><th>Arquivo</th><th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="contratos-tbody">
+                  <tr><td colspan="8" class="empty-row"><i class="fa-solid fa-spinner fa-spin"></i> Carregando...</td></tr>
+                </tbody>
+              </table>
             </div>
           </div>
-          <div class="card-body p0">
-            <table class="data-table" id="contratos-table">
-              <thead>
-                <tr>
-                  <th>Posto / Cliente</th>
-                  <th>Objeto</th>
-                  <th>Valor Mensal</th>
-                  <th>Início</th>
-                  <th>Reajuste</th>
-                  <th>Término</th>
-                  <th>Arquivo</th>
-                  <th>Ações</th>
-                </tr>
-              </thead>
-              <tbody id="contratos-tbody">
-                <tr><td colspan="8" class="empty-row"><i class="fa-solid fa-spinner fa-spin"></i> Carregando...</td></tr>
-              </tbody>
-            </table>
-          </div>
         </div>
+
       </section>
 
       <!-- ===== USUÁRIOS & ACESSOS ===== -->
@@ -3551,6 +3639,91 @@
   </div>
 </div>
 
+<!-- ===== MODAL: GERENCIAR TENANT (ADMIN) ===== -->
+<div class="modal-overlay hidden" id="modal-adm-tenant" onclick="closeModal('modal-adm-tenant', event)">
+  <div class="modal-dialog">
+    <div class="modal-header">
+      <h3 id="adm-tenant-modal-title"><i class="fa-solid fa-building"></i> Cliente</h3>
+      <button class="modal-close" onclick="closeModal('modal-adm-tenant')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="adm-mt-id">
+      <div class="form-row">
+        <div class="form-group"><label>Nome da Empresa *</label><input type="text" id="adm-mt-nome" placeholder="Ex: Condomínio Alfa"></div>
+        <div class="form-group" style="flex:0 0 180px"><label>CNPJ *</label><input type="text" id="adm-mt-cnpj" placeholder="00.000.000/0000-00"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Plano</label>
+          <select id="adm-mt-plano">
+            <option value="trial">Trial</option><option value="pro">Pro</option><option value="custom">Custom</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select id="adm-mt-status">
+            <option value="trial">Trial</option><option value="ativo">Ativo</option>
+            <option value="bloqueado">Bloqueado</option><option value="arquivado">Arquivado</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Mensalidade (R$)</label><input type="number" id="adm-mt-mensalidade" placeholder="0,00" step="0.01" min="0"></div>
+        <div class="form-group"><label>Válido até</label><input type="date" id="adm-mt-validade"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Telefone / WhatsApp</label><input type="text" id="adm-mt-tel" placeholder="(11) 9 0000-0000"></div>
+        <div class="form-group"><label>E-mail (notificações Asaas)</label><input type="email" id="adm-mt-email" placeholder="financeiro@empresa.com"></div>
+      </div>
+      <div class="form-group"><label>Observações internas</label><textarea id="adm-mt-obs" rows="2" placeholder="Notas sobre este cliente..."></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-adm-tenant')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveAdmTenant()"><i class="fa-solid fa-floppy-disk"></i> Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: COBRANÇA ASAAS (ADMIN) ===== -->
+<div class="modal-overlay hidden" id="modal-adm-cobranca" onclick="closeModal('modal-adm-cobranca', event)">
+  <div class="modal-dialog" style="max-width:560px">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-bolt" style="color:#2e7d32"></i> Gerar Cobrança — Asaas</h3>
+      <button class="modal-close" onclick="closeModal('modal-adm-cobranca')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body" style="max-height:75vh;overflow-y:auto">
+      <input type="hidden" id="adm-mc-tenant-id">
+      <div style="background:#E3F2FD;border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:13px">
+        <strong id="adm-mc-tenant-nome" style="color:var(--primary)"></strong><br>
+        <span style="color:#555;font-size:12px">CNPJ: <span id="adm-mc-tenant-cnpj"></span></span>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Valor (R$) *</label><input type="number" id="adm-mc-valor" placeholder="297.00" step="0.01" min="0"></div>
+        <div class="form-group"><label>Vencimento *</label><input type="date" id="adm-mc-vencimento"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Forma</label>
+          <select id="adm-mc-tipo"><option value="PIX">PIX</option><option value="BOLETO">Boleto</option></select>
+        </div>
+        <div class="form-group"><label>E-mail do cliente</label><input type="email" id="adm-mc-email" placeholder="financeiro@empresa.com"></div>
+      </div>
+      <div class="form-group"><label>Descrição</label><input type="text" id="adm-mc-descricao"></div>
+      <div id="adm-mc-resultado" style="display:none;margin-top:8px"></div>
+      <div style="margin-top:16px">
+        <div style="font-size:12px;font-weight:600;color:#555;margin-bottom:6px"><i class="fa-solid fa-clock-rotate-left"></i> Últimas cobranças</div>
+        <div id="adm-mc-historico" style="font-size:12px"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-adm-cobranca')">Fechar</button>
+      <button class="btn btn-primary" id="adm-btn-gerar-cobranca" onclick="executarAdmCobranca()" style="background:#2e7d32;border-color:#2e7d32">
+        <i class="fa-solid fa-bolt"></i> Gerar Cobrança
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== MODAL: PAGAR EM LOTE VIA PIX (ASAAS) ===== -->
 <div class="modal-overlay hidden" id="modal-pagar-lote" onclick="closeModal('modal-pagar-lote', event)">
   <div class="modal-dialog" style="max-width:720px;width:95vw">
@@ -3699,6 +3872,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260515b"></script>
+<script src="app.js?v=20260515c"></script>
 </body>
 </html>

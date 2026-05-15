@@ -1144,7 +1144,7 @@ async function executarCobranca() {
       status:      cob.status,
       criadoEm:    new Date().toISOString(),
       modo,
-      ciclo:       modo==='recorrente' ? ciclo : undefined,
+      ...(modo==='recorrente' ? {ciclo} : {}),
       invoiceUrl:  cob.invoiceUrl || null,
       bankSlipUrl: cob.bankSlipUrl || null,
     });

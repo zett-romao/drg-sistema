@@ -5461,7 +5461,7 @@ async function executarAdmCobranca() {
     cobrancas.unshift({
       id: cobId, valor, vencimento: venc, descricao, tipo,
       status: cobStatus, criadoEm: new Date().toISOString(),
-      modo, ciclo: modo==='recorrente' ? ciclo : undefined,
+      modo, ...(modo==='recorrente' ? {ciclo} : {}),
       invoiceUrl: cob.invoiceUrl || null, bankSlipUrl: cob.bankSlipUrl || null,
     });
     await _admTenantRef(tenantId).set({ cobrancas: cobrancas.slice(0,50) }, {merge:true});

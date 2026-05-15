@@ -183,6 +183,12 @@
           <span>Férias</span>
         </a>
       </li>
+      <li id="nav-rescisao-li" class="hidden">
+        <a class="nav-link" id="nav-rescisao" onclick="showSection('rescisao')">
+          <i class="fa-solid fa-file-circle-xmark"></i>
+          <span>Rescisões</span>
+        </a>
+      </li>
       <li id="nav-contabilidade-li">
         <a class="nav-link" id="nav-contabilidade" onclick="showSection('contabilidade')">
           <i class="fa-solid fa-calculator"></i>
@@ -1633,6 +1639,26 @@
       </section>
 
       <!-- ===== CONFIGURAÇÕES DA EMPRESA ===== -->
+      <section id="section-rescisao" class="section">
+        <div class="page-header">
+          <h2>Rescisões</h2>
+          <p>Cálculo de rescisão e geração do TRCT — Termo de Rescisão do Contrato de Trabalho</p>
+        </div>
+        <div style="margin-bottom:14px">
+          <button class="btn btn-primary" onclick="openRescisaoModal()">
+            <i class="fa-solid fa-plus"></i> Nova Rescisão
+          </button>
+        </div>
+        <div class="card">
+          <div class="card-body" style="padding:0;overflow-x:auto">
+            <table class="data-table">
+              <thead><tr><th>Colaborador</th><th>Tipo</th><th>Data demissão</th><th>Líquido</th><th>Status</th><th>Ações</th></tr></thead>
+              <tbody id="rescisoes-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
       <section id="section-configuracoes" class="section">
         <div class="page-header">
           <h2>Configurações</h2>
@@ -1683,6 +1709,19 @@
                 <i class="fa-solid fa-eye"></i> Pré-visualizar
               </button>
             </div>
+          </div>
+        </div>
+        <div class="card" style="max-width:680px;margin-top:18px">
+          <div class="card-header">
+            <h3><i class="fa-solid fa-scale-balanced" style="color:#5C6BC0"></i> Parâmetros Legais</h3>
+          </div>
+          <div class="card-body">
+            <p style="font-size:13px;color:var(--text-muted);margin:0 0 12px">
+              Tabelas oficiais de INSS, IRRF, FGTS, salário mínimo e aviso prévio. Atualize quando a legislação mudar — esses valores alimentam os cálculos da Folha de Ponto, Pagamentos e Rescisão em todo o sistema.
+            </p>
+            <button class="btn btn-primary" onclick="openParametrosLegais()">
+              <i class="fa-solid fa-sliders"></i> Configurar Parâmetros Legais
+            </button>
           </div>
         </div>
       </section>
@@ -3177,6 +3216,239 @@
   </div>
 </div>
 
+<!-- ===== MODAL: PARÂMETROS LEGAIS ===== -->
+<div class="modal-overlay hidden" id="modal-parametros-legais" onclick="closeModal('modal-parametros-legais', event)">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-scale-balanced" style="color:#5C6BC0"></i> Parâmetros Legais — Tabelas Oficiais</h3>
+      <button class="modal-close" onclick="closeModal('modal-parametros-legais')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <style>#modal-parametros-legais td input{width:100%;padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:13px}</style>
+      <div class="info-banner" style="background:#E8EAF6;color:#283593">
+        <i class="fa-solid fa-circle-info"></i>
+        Atualize estas tabelas quando a lei mudar (normalmente na virada do ano). Os valores alimentam os cálculos de INSS, IRRF, FGTS e Rescisão em todo o sistema.
+      </div>
+      <div class="form-row">
+        <div class="form-group form-group-sm">
+          <label>Ano de referência</label>
+          <input type="number" id="pl-ano" min="2020" max="2099" step="1" placeholder="2026">
+        </div>
+        <div class="form-group">
+          <label>Salário Mínimo Nacional (R$)</label>
+          <input type="number" id="pl-salario-minimo" min="0" step="0.01" placeholder="1518,00">
+        </div>
+        <div class="form-group">
+          <label>Teto do INSS (R$)</label>
+          <input type="number" id="pl-inss-teto" min="0" step="0.01" placeholder="8157,41">
+        </div>
+      </div>
+
+      <div class="divider"><span><i class="fa-solid fa-table"></i> Tabela INSS — Faixas Progressivas</span></div>
+      <table class="data-table" style="font-size:13px">
+        <thead><tr><th>Faixa</th><th>Limite até (R$)</th><th>Alíquota (%)</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td><input type="number" id="pl-inss1-lim" step="0.01"></td><td><input type="number" id="pl-inss1-aliq" step="0.01"></td></tr>
+          <tr><td>2</td><td><input type="number" id="pl-inss2-lim" step="0.01"></td><td><input type="number" id="pl-inss2-aliq" step="0.01"></td></tr>
+          <tr><td>3</td><td><input type="number" id="pl-inss3-lim" step="0.01"></td><td><input type="number" id="pl-inss3-aliq" step="0.01"></td></tr>
+          <tr><td>4</td><td><input type="number" id="pl-inss4-lim" step="0.01"></td><td><input type="number" id="pl-inss4-aliq" step="0.01"></td></tr>
+        </tbody>
+      </table>
+
+      <div class="divider"><span><i class="fa-solid fa-table"></i> Tabela IRRF — Faixas Progressivas</span></div>
+      <div class="form-group form-group-sm">
+        <label>Dedução por dependente (R$)</label>
+        <input type="number" id="pl-irrf-dep" step="0.01" placeholder="189,59">
+      </div>
+      <table class="data-table" style="font-size:13px;margin-top:8px">
+        <thead><tr><th>Faixa</th><th>Base até (R$)</th><th>Alíquota (%)</th><th>Parcela a deduzir (R$)</th></tr></thead>
+        <tbody>
+          <tr><td>1 — Isenta</td><td><input type="number" id="pl-irrf1-lim" step="0.01"></td><td colspan="2" style="color:#888;text-align:center">isento</td></tr>
+          <tr><td>2</td><td><input type="number" id="pl-irrf2-lim" step="0.01"></td><td><input type="number" id="pl-irrf2-aliq" step="0.01"></td><td><input type="number" id="pl-irrf2-ded" step="0.01"></td></tr>
+          <tr><td>3</td><td><input type="number" id="pl-irrf3-lim" step="0.01"></td><td><input type="number" id="pl-irrf3-aliq" step="0.01"></td><td><input type="number" id="pl-irrf3-ded" step="0.01"></td></tr>
+          <tr><td>4</td><td><input type="number" id="pl-irrf4-lim" step="0.01"></td><td><input type="number" id="pl-irrf4-aliq" step="0.01"></td><td><input type="number" id="pl-irrf4-ded" step="0.01"></td></tr>
+          <tr><td>5 — Acima</td><td style="color:#888;text-align:center">—</td><td><input type="number" id="pl-irrf5-aliq" step="0.01"></td><td><input type="number" id="pl-irrf5-ded" step="0.01"></td></tr>
+        </tbody>
+      </table>
+
+      <div class="divider"><span><i class="fa-solid fa-percent"></i> FGTS</span></div>
+      <div class="form-row">
+        <div class="form-group form-group-sm"><label>Alíquota FGTS (%)</label><input type="number" id="pl-fgts-aliq" step="0.01" placeholder="8"></div>
+        <div class="form-group form-group-sm"><label>Multa rescisória — sem justa causa (%)</label><input type="number" id="pl-fgts-multa40" step="0.01" placeholder="40"></div>
+        <div class="form-group form-group-sm"><label>Multa rescisória — acordo (%)</label><input type="number" id="pl-fgts-multa20" step="0.01" placeholder="20"></div>
+      </div>
+
+      <div class="divider"><span><i class="fa-solid fa-calendar-day"></i> Aviso Prévio (Lei 12.506/2011)</span></div>
+      <div class="form-row">
+        <div class="form-group form-group-sm"><label>Dias-base</label><input type="number" id="pl-aviso-base" step="1" placeholder="30"></div>
+        <div class="form-group form-group-sm"><label>Dias adicionais por ano trabalhado</label><input type="number" id="pl-aviso-ano" step="1" placeholder="3"></div>
+        <div class="form-group form-group-sm"><label>Máximo de dias</label><input type="number" id="pl-aviso-max" step="1" placeholder="90"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-parametros-legais')">Cancelar</button>
+      <button class="btn btn-outline" onclick="openParametrosLegais(true)" style="color:#E65100;border-color:#E65100"><i class="fa-solid fa-rotate-left"></i> Restaurar 2026</button>
+      <button class="btn btn-primary" onclick="saveParametrosLegais()"><i class="fa-solid fa-floppy-disk"></i> Salvar Parâmetros</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: RESCISÃO (TRCT) ===== -->
+<div class="modal-overlay hidden" id="modal-rescisao" onclick="closeModal('modal-rescisao', event)">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-header">
+      <h3 id="modal-rescisao-title"><i class="fa-solid fa-file-circle-xmark"></i> Nova Rescisão</h3>
+      <button class="modal-close" onclick="closeModal('modal-rescisao')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="resc-id">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:6px">
+        <span id="resc-status-badge" style="padding:3px 10px;border-radius:10px;font-size:12px;font-weight:600;background:#E8F5E9;color:#1B5E20"></span>
+      </div>
+
+      <div class="divider"><span>Dados da Rescisão</span></div>
+      <div class="form-row">
+        <div class="form-group form-group-2">
+          <label>Colaborador <span class="required">*</span></label>
+          <select id="resc-employee" onchange="onRescEmployeeChange()"></select>
+        </div>
+        <div class="form-group">
+          <label>Data de Demissão <span class="required">*</span></label>
+          <input type="date" id="resc-data-demissao" onchange="recalcRescisaoModal()">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group form-group-2">
+          <label>Tipo / Causa da Rescisão</label>
+          <select id="resc-tipo" onchange="recalcRescisaoModal()">
+            <option value="sem_justa_causa">Dispensa sem justa causa</option>
+            <option value="pedido_demissao">Pedido de demissão</option>
+            <option value="justa_causa">Dispensa por justa causa</option>
+            <option value="acordo">Acordo (art. 484-A)</option>
+            <option value="fim_contrato">Término de contrato (experiência/determinado)</option>
+            <option value="indireta">Rescisão indireta</option>
+            <option value="aposentadoria">Aposentadoria</option>
+            <option value="falecimento">Falecimento do colaborador</option>
+          </select>
+        </div>
+        <div class="form-group" id="resc-aviso-wrap">
+          <label>Aviso prévio</label>
+          <select id="resc-aviso-tipo" onchange="recalcRescisaoModal()">
+            <option value="indenizado">Indenizado (pago)</option>
+            <option value="trabalhado">Trabalhado (cumprido)</option>
+            <option value="dispensado">Dispensado / não se aplica</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Cargo / Setor</label><input type="text" id="resc-emp-cargo" readonly class="input-readonly"></div>
+        <div class="form-group"><label>Admissão</label><input type="text" id="resc-emp-admissao" readonly class="input-readonly"></div>
+        <div class="form-group"><label>Tempo de serviço</label><input type="text" id="resc-tempo-servico" readonly class="input-readonly"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Último salário (R$)</label><input type="text" id="resc-emp-salario" readonly class="input-readonly"></div>
+        <div class="form-group"><label>Aviso prévio (dias)</label><input type="text" id="resc-aviso-dias" readonly class="input-readonly"></div>
+        <div class="form-group">
+          <label>Dias de férias vencidas</label>
+          <input type="number" id="resc-ferias-venc-dias" min="0" max="60" step="1" placeholder="0" oninput="recalcRescisaoModal()">
+        </div>
+      </div>
+
+      <div class="divider"><span>Verbas Rescisórias</span></div>
+      <div class="form-row">
+        <div class="form-group"><label>Saldo de salário (R$)</label><input type="text" id="resc-v-saldo" readonly class="input-readonly"></div>
+        <div class="form-group"><label>Aviso prévio indenizado (R$)</label><input type="text" id="resc-v-aviso" readonly class="input-readonly"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>13º proporcional (R$) <small id="resc-v-13-avos" style="color:#888"></small></label><input type="text" id="resc-v-13" readonly class="input-readonly"></div>
+        <div class="form-group"><label>Férias vencidas + 1/3 (R$)</label><input type="text" id="resc-v-ferias-venc" readonly class="input-readonly"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Férias proporcionais + 1/3 (R$) <small id="resc-v-ferias-prop-avos" style="color:#888"></small></label><input type="text" id="resc-v-ferias-prop" readonly class="input-readonly"></div>
+        <div class="form-group">
+          <label>&nbsp;</label>
+          <div class="checkbox-group" style="padding:9px 0">
+            <input type="checkbox" id="resc-indeniz-adic" onchange="recalcRescisaoModal()">
+            <label for="resc-indeniz-adic" style="font-size:13px;font-weight:600;cursor:pointer">Indenização adicional — Lei 7.238/84 (1 salário)</label>
+          </div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Indenização adicional (R$)</label><input type="text" id="resc-v-indeniz" readonly class="input-readonly"></div>
+        <div class="form-group"><label>Outras verbas (R$)</label><input type="number" id="resc-outras-verbas" min="0" step="0.01" placeholder="0,00" oninput="recalcRescisaoModal()"></div>
+      </div>
+      <div class="form-group">
+        <label>Descrição das outras verbas</label>
+        <input type="text" id="resc-outras-verbas-desc" placeholder="Ex.: comissões, gratificação, horas extras...">
+      </div>
+
+      <div class="divider"><span>Descontos</span></div>
+      <div class="form-row">
+        <div class="form-group"><label>INSS (R$)</label><input type="text" id="resc-d-inss" readonly class="input-readonly"></div>
+        <div class="form-group"><label>IRRF (R$)</label><input type="text" id="resc-d-irrf" readonly class="input-readonly"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Pensão alimentícia (R$)</label><input type="number" id="resc-pensao" min="0" step="0.01" placeholder="0,00" oninput="recalcRescisaoModal()"></div>
+        <div class="form-group"><label>Adiantamentos (R$)</label><input type="number" id="resc-adiantamentos" min="0" step="0.01" placeholder="0,00" oninput="recalcRescisaoModal()"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group" id="resc-aviso-descontado-wrap" style="display:none">
+          <label>Aviso prévio não cumprido — desconto (R$)</label>
+          <input type="number" id="resc-aviso-descontado" min="0" step="0.01" placeholder="0,00" oninput="recalcRescisaoModal()">
+        </div>
+        <div class="form-group"><label>Outros descontos (R$)</label><input type="number" id="resc-outros-descontos" min="0" step="0.01" placeholder="0,00" oninput="recalcRescisaoModal()"></div>
+      </div>
+      <div class="form-group">
+        <label>Descrição dos outros descontos</label>
+        <input type="text" id="resc-outros-descontos-desc" placeholder="Ex.: vale, mensalidade sindical...">
+      </div>
+
+      <div class="divider"><span>FGTS</span></div>
+      <div class="info-banner" style="background:#FFF3E0;color:#E65100">
+        <i class="fa-solid fa-circle-info"></i>
+        Informe o saldo de FGTS depositado durante o contrato (consulte o extrato na Caixa). A multa rescisória é calculada sobre esse saldo.
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Saldo de FGTS depositado (R$)</label><input type="number" id="resc-saldo-fgts" min="0" step="0.01" placeholder="0,00" oninput="recalcRescisaoModal()"></div>
+        <div class="form-group"><label>FGTS sobre as verbas do mês (R$)</label><input type="text" id="resc-fgts-mes" readonly class="input-readonly"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Multa rescisória do FGTS <small id="resc-multa-pct" style="color:#888"></small></label><input type="text" id="resc-multa-fgts" readonly class="input-readonly"></div>
+      </div>
+
+      <div class="divider"><span>Resumo</span></div>
+      <div class="form-row">
+        <div class="form-group"><label>Total de Verbas (R$)</label><input type="text" id="resc-total-verbas" readonly class="input-readonly"></div>
+        <div class="form-group"><label>Total de Descontos (R$)</label><input type="text" id="resc-total-descontos" readonly class="input-readonly"></div>
+        <div class="form-group"><label>Prazo de pagamento</label><input type="text" id="resc-prazo-pagamento" readonly class="input-readonly"></div>
+      </div>
+      <div style="background:#1A237E;color:#fff;padding:10px 14px;border-radius:8px;display:flex;justify-content:space-between;align-items:center;margin-top:4px">
+        <span style="font-weight:600">LÍQUIDO DAS VERBAS RESCISÓRIAS (R$)</span>
+        <input type="text" id="resc-liquido" readonly style="background:transparent;border:none;color:#fff;font-size:20px;font-weight:700;text-align:right;width:160px">
+      </div>
+
+      <div class="form-row" style="margin-top:10px">
+        <div class="form-group" style="grid-column:1 / -1">
+          <div class="checkbox-group">
+            <input type="checkbox" id="resc-pago">
+            <label for="resc-pago" style="font-size:13px;font-weight:600;cursor:pointer">Verbas rescisórias já pagas ao colaborador</label>
+          </div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Observações</label>
+        <textarea id="resc-observacoes" rows="2" placeholder="Anotações sobre a rescisão" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-rescisao')">Cancelar</button>
+      <button class="btn btn-outline" id="resc-btn-reabrir" onclick="reabrirRescisao()" style="display:none;color:#E65100;border-color:#E65100"><i class="fa-solid fa-lock-open"></i> Reabrir</button>
+      <button class="btn btn-outline" id="resc-btn-fechar" onclick="fecharRescisao()" style="color:#C62828;border-color:#C62828"><i class="fa-solid fa-lock"></i> Fechar Rescisão</button>
+      <button class="btn btn-primary" id="resc-btn-salvar" onclick="saveRescisao(false)"><i class="fa-solid fa-floppy-disk"></i> Salvar</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== MODAL: BANCO DE HORAS ===== -->
 <div class="modal-overlay hidden" id="modal-banco-horas" onclick="closeModal('modal-banco-horas', event)">
   <div class="modal-dialog modal-md">
@@ -3746,6 +4018,7 @@
           <label class="checkbox-label"><input type="checkbox" name="mod" value="pagamentos"> <span><i class="fa-solid fa-money-bill-wave" style="width:14px;color:var(--primary)"></i> Pagamentos</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="decimoterceiro"> <span><i class="fa-solid fa-gift" style="width:14px;color:var(--primary)"></i> 13º Salário</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="ferias"> <span><i class="fa-solid fa-umbrella-beach" style="width:14px;color:var(--primary)"></i> Férias</span></label>
+          <label class="checkbox-label"><input type="checkbox" name="mod" value="rescisao"> <span><i class="fa-solid fa-file-circle-xmark" style="width:14px;color:var(--primary)"></i> Rescisões</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="contabilidade"> <span><i class="fa-solid fa-calculator" style="width:14px;color:var(--primary)"></i> Contabilidade</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="postos"> <span><i class="fa-solid fa-building" style="width:14px;color:var(--primary)"></i> Postos de Trabalho</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="contratos"> <span><i class="fa-solid fa-file-signature" style="width:14px;color:var(--primary)"></i> Contratos</span></label>
@@ -4036,6 +4309,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260515p"></script>
+<script src="app.js?v=20260515r"></script>
 </body>
 </html>

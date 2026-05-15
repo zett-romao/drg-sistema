@@ -9641,8 +9641,17 @@ async function init(){
   // 2. Inicializar Firebase
   if(!DB.init()){ showSetup(); return; }
 
-  // 2a. Autenticação anônima — obrigatória antes de qualquer leitura do Firestore
-  try { await firebase.auth().signInAnonymously(); } catch(e){ console.warn('Auth anon:', e.message); }
+  // 2a. Autenticação anônima — espera auth estar completamente pronta antes do Firestore
+  await new Promise((resolve, reject) => {
+    const unsub = firebase.auth().onAuthStateChanged(async user => {
+      unsub();
+      if (user) { resolve(user); }
+      else {
+        try { resolve(await firebase.auth().signInAnonymously()); }
+        catch(e) { console.warn('Auth anon falhou:', e.message); resolve(null); }
+      }
+    }, reject);
+  });
 
   showLoading('Carregando dados...');
 

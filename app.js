@@ -6249,7 +6249,63 @@ function _reportContratos(){
 
 // Manter compatibilidade com chamada antiga
 function generateReport(){ generateReportNew(); }
-function printReport(){ window.print(); }
+
+function printReport() {
+  const subtitle = document.getElementById('report-subtitle')?.textContent  || '';
+  const period   = document.getElementById('report-period-label')?.textContent || '';
+  const genDate  = document.getElementById('report-gen-date')?.textContent    || '';
+  const bodyHtml = document.getElementById('report-body-area')?.innerHTML      || '';
+  const summHtml = document.getElementById('report-summary')?.innerHTML        || '';
+  const empresa  = _e('nomeEmpresa');
+
+  // Paisagem para relatórios com muitas colunas
+  const landscape = ['cadastral','contatos','financeiro','contratos-rel','postos-cadastro'].includes(_currentReportType);
+
+  const html = `<!DOCTYPE html><html lang="pt-BR"><head>
+  <meta charset="UTF-8">
+  <title>${subtitle}</title>
+  <style>
+    @page { size: A4 ${landscape ? 'landscape' : 'portrait'}; margin: 10mm 12mm; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; font-size: 10px; color: #222; }
+    .print-header { display: flex; align-items: center; gap: 12px; border-bottom: 2px solid #1a3a6b; padding-bottom: 8px; margin-bottom: 12px; }
+    .print-logo { width: 44px; height: 44px; border-radius: 50%; }
+    .print-title h2 { color: #1a3a6b; font-size: 14px; font-weight: 700; }
+    .print-title p { color: #666; font-size: 10px; margin-top: 2px; }
+    .print-meta { margin-left: auto; text-align: right; font-size: 9px; color: #888; }
+    table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+    th { background: #1a3a6b; color: #fff; padding: 4px 5px; font-size: 9px; text-align: left; white-space: nowrap; }
+    td { padding: 3px 5px; font-size: 9px; border-bottom: 1px solid #eee; vertical-align: top; }
+    tr:nth-child(even) td { background: #f5f7fb; }
+    tfoot td { background: #e8edf5 !important; font-weight: 700; border-top: 2px solid #1a3a6b; }
+    .table-responsive { overflow: visible; }
+    .badge { display: inline-block; padding: 1px 5px; border-radius: 10px; font-size: 9px; font-weight: 700; }
+    .badge-status-ativo    { background: #e8f5e9; color: #2e7d32; }
+    .badge-status-inativo  { background: #ffebee; color: #c62828; }
+    .badge-status-afastado { background: #fff3e0; color: #e65100; }
+    .badge-success { background: #e8f5e9; color: #2e7d32; }
+    .badge-muted   { background: #f1f5f9; color: #64748b; }
+    .report-summary { margin-bottom: 10px; }
+    strong { font-weight: 700; }
+  </style>
+</head><body>
+  <div class="print-header">
+    <img class="print-logo" src="logo.png" alt="Logo">
+    <div class="print-title">
+      <h2>${empresa}</h2>
+      <p>${subtitle}${period ? ' — ' + period : ''}</p>
+    </div>
+    <div class="print-meta">Gerado em: ${genDate}</div>
+  </div>
+  ${summHtml ? `<div class="report-summary">${summHtml}</div>` : ''}
+  ${bodyHtml}
+</body></html>`;
+
+  const win = window.open('', '_blank');
+  if (!win) { toast('Permita pop-ups para imprimir.', 'warning'); return; }
+  win.document.write(html + '<scr'+'ipt>window.onload=function(){window.print();window.onafterprint=function(){window.close();}}<\/scr'+'ipt>');
+  win.document.close();
+}
 
 // ============================================
 // MODAIS

@@ -1338,7 +1338,7 @@ function renderDashboard(){
     if(hasPendente) heRevisaoEmps++;
   });
   const stats=document.getElementById('dashboard-stats'); if(!stats) return;
-  const cctInfo=State.cct?`<div class="stat-card" style="border-color:#7B1FA2;border-left-width:4px"><div class="stat-icon" style="background:#F3E5F5;color:#7B1FA2"><i class="fa-solid fa-file-contract"></i></div><div><div class="stat-value" style="font-size:14px">CCT vigente</div><div class="stat-label">desde ${formatDateBr(State.cct.vigencia)}</div></div></div>`:'';
+  const cctInfo=State.cct?`<div class="stat-card" style="border-color:#7B1FA2;border-left-width:4px"><div class="stat-icon" style="background:#F3E5F5;color:#7B1FA2"><i class="fa-solid fa-file-contract"></i></div><div><div class="stat-label" style="font-weight:700;color:#7B1FA2;font-size:13px">CCT vigente</div><div class="stat-label">desde ${formatDateBr(State.cct.vigencia)}</div></div></div>`:'';
   stats.innerHTML=`
     <div class="stat-card blue" style="cursor:pointer" onclick="showSection('employees');setEmployeeFilter('ativo')" title="Ver colaboradores ativos">
       <div class="stat-icon"><i class="fa-solid fa-user-check"></i></div>
@@ -1360,21 +1360,21 @@ function renderDashboard(){
       <div>
         <div class="stat-value" style="color:#E65100">${heRevisaoEmps}</div>
         <div class="stat-label">Pendentes de revisar HE</div>
-        <div style="font-size:10px;color:#E65100;margin-top:2px"><i class="fa-solid fa-triangle-exclamation"></i> ${heRevisaoDias} dia(s) — clique pra revisar</div>
+        <div class="stat-sub" style="color:#E65100"><i class="fa-solid fa-triangle-exclamation"></i> ${heRevisaoDias} dia(s) — clique pra revisar</div>
       </div></div>`:''}
     ${(colabsHoje.length>0||colabsSemana.length>0)?`<div class="stat-card" style="border-color:#0288D1;border-left-width:4px;cursor:pointer" onclick="openBeneficiosPagar()" title="Ver benefícios a pagar hoje e nesta semana">
       <div class="stat-icon" style="background:#E1F5FE;color:#0288D1"><i class="fa-solid fa-money-check-dollar"></i></div>
       <div>
-        <div class="stat-value" style="color:#0288D1;font-size:14px">Benefícios a pagar</div>
-        <div class="stat-label">Hoje: <strong>${colabsHoje.length}</strong> colab. (${fmtMoney(totalBenHoje)})</div>
-        <div style="font-size:10px;color:#01579B;margin-top:2px"><i class="fa-solid fa-calendar-week"></i> Semana: <strong>${colabsSemana.length}</strong> colab. (${fmtMoney(totalBenSemana)})</div>
+        <div class="stat-value" style="color:#0288D1">${colabsHoje.length}</div>
+        <div class="stat-label">Benefícios a pagar hoje · ${fmtMoney(totalBenHoje)}</div>
+        <div class="stat-sub" style="color:#01579B"><i class="fa-solid fa-calendar-week"></i> Semana: ${colabsSemana.length} colab. · ${fmtMoney(totalBenSemana)}</div>
       </div></div>`:''}
     <div class="stat-card" style="border-color:#6A1B9A;border-left-width:4px;cursor:pointer" onclick="showSection('escalas')" title="Ver escalas do mês">
       <div class="stat-icon" style="background:#F3E5F5;color:#6A1B9A"><i class="fa-solid fa-calendar-days"></i></div>
       <div>
         <div class="stat-value" style="color:#6A1B9A">${escalasMes}</div>
         <div class="stat-label">Escalas — ${MESES[mes]}/${ano}</div>
-        ${escalasPend>0?`<div style="font-size:10px;color:#E65100;margin-top:2px"><i class="fa-solid fa-triangle-exclamation"></i> ${escalasPend} pendente(s) de revisão</div>`:'<div style="font-size:10px;color:#1B5E20;margin-top:2px"><i class="fa-solid fa-check-circle"></i> Todas projetadas</div>'}
+        ${escalasPend>0?`<div class="stat-sub" style="color:#E65100"><i class="fa-solid fa-triangle-exclamation"></i> ${escalasPend} pendente(s) de revisão</div>`:'<div class="stat-sub" style="color:#1B5E20"><i class="fa-solid fa-check-circle"></i> Todas projetadas</div>'}
       </div></div>
     ${(()=>{
       const modo=State.empresa?.modoContabilidade||'ambas';
@@ -1389,7 +1389,6 @@ function renderDashboard(){
           <div>
             <div class="stat-value" style="color:#1B5E20">${fmtMoney(usaExterna&&!encargosCalc?totalEsp:totalLiqFinal)}</div>
             <div class="stat-label">Folha ${MESES[mes]} — ${payThisMonth.length} holerite(s)</div>
-            ${encargosCalc?`<div style="font-size:10px;color:#666;margin-top:2px">INSS ${fmtMoney(totalINSS)} · FGTS ${fmtMoney(totalFGTS)}</div>`:''}
           </div></div>`;
       }
       if(usaExterna&&!usaInterna){
@@ -1399,7 +1398,7 @@ function renderDashboard(){
           <div>
             <div class="stat-value">${fmtMoney(totalEsp)}</div>
             <div class="stat-label">Remunerações ${MESES[mes]} — ${payThisMonth.length} folha(s)</div>
-            <div style="font-size:10px;color:#777;margin-top:2px">Exportar para contador externo</div>
+            <div class="stat-sub" style="color:#777">Exportar para contador externo</div>
           </div></div>`;
       }
       return card;

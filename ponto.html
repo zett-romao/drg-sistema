@@ -493,9 +493,33 @@ async function carregarPayroll() {
   }
 }
 
+// Dia da JORNADA — turno noturno: registros após a meia-noite pertencem
+// à jornada que começou na véspera (uma noite de trabalho = um só dia).
+function _diaJornada(){
+  const now=new Date();
+  const base={dia:now.getDate(), mes:now.getMonth()+1, ano:now.getFullYear()};
+  const emp=currentEmp||{};
+  const ehNoturno = !!emp.turnoNoturno ||
+    (emp.horarioEntrada && emp.horarioSaida && timeToMin(emp.horarioSaida) < timeToMin(emp.horarioEntrada));
+  if(!ehNoturno) return base;
+  // Antes do horário de entrada previsto, ainda pode ser a jornada da noite anterior
+  const limiteEntrada = emp.horarioEntrada ? timeToMin(emp.horarioEntrada) : 14*60;
+  const agoraMin = now.getHours()*60 + now.getMinutes();
+  if(agoraMin >= limiteEntrada) return base;
+  const ontem=new Date(now); ontem.setDate(ontem.getDate()-1);
+  // Virada de mês fica fora deste ajuste (a folha do mês anterior não está carregada)
+  if(ontem.getMonth()+1!==base.mes || ontem.getFullYear()!==base.ano) return base;
+  const dOntem=(currentPayroll?.pontoManualDias||[]).find(d=>d.dia===ontem.getDate());
+  // Jornada de ontem aberta (tem entrada e ainda não tem saída) → registros vão para ontem
+  if(dOntem && dOntem.entrada && !dOntem.saida){
+    return {dia:ontem.getDate(), mes:base.mes, ano:base.ano};
+  }
+  return base;
+}
+
 function getDiaHoje() {
-  const dia = new Date().getDate();
-  return (currentPayroll?.pontoManualDias || []).find(d => d.dia === dia) || {};
+  const j = _diaJornada();
+  return (currentPayroll?.pontoManualDias || []).find(d => d.dia === j.dia) || {};
 }
 
 function renderHoje() {
@@ -625,10 +649,11 @@ async function baterPonto() {
   const now  = new Date();
   const pad  = n => String(n).padStart(2,'0');
   const hora = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-  const mes  = now.getMonth() + 1;
-  const ano  = now.getFullYear();
-  const dia  = now.getDate();
-  const dsem = now.getDay();
+  const j    = _diaJornada();
+  const mes  = j.mes;
+  const ano  = j.ano;
+  const dia  = j.dia;
+  const dsem = new Date(j.ano, j.mes-1, j.dia).getDay();
 
   // Disciplina de horário — avisa se a batida estiver fora do horário previsto
   const analise = analisarHorario(prox, now);

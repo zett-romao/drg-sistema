@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title id="page-title">D.R. Global Multi Services — Sistema de Gestão de Colaboradores</title>
   <link rel="icon" href="logo.png" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20260515j">
+  <link rel="stylesheet" href="styles.css?v=20260515k">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -310,6 +310,14 @@
         <div class="page-header">
           <h2>Visão Geral</h2>
           <p id="dashboard-welcome-empresa">Bem-vindo ao sistema de gestão de colaboradores D.R. Global Multi Services</p>
+        </div>
+        <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+          <button class="btn btn-outline" id="btn-dash-edit" onclick="toggleDashEdit()" style="font-size:13px">
+            <i class="fa-solid fa-sliders"></i> Personalizar cards
+          </button>
+        </div>
+        <div id="dash-edit-hint" class="info-banner" style="display:none;background:#E8EAF6;color:#283593;margin-bottom:10px">
+          <i class="fa-solid fa-circle-info"></i> Use as setas para ordenar e <strong>Ocultar / Mostrar</strong> para escolher os cards. Clique em <strong>Concluir</strong> ao terminar.
         </div>
         <div class="stats-grid" id="dashboard-stats"></div>
         <div class="dashboard-cards">
@@ -4313,6 +4321,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260515w"></script>
+<script src="app.js?v=20260515x"></script>
 </body>
 </html>

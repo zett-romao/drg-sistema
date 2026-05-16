@@ -1310,7 +1310,86 @@ function _statCard(o){
   </div>`;
 }
 
+// --- Personalização do Dashboard (por usuário) ---
+let _dashConfig = { ordem:[], ocultos:[] };
+let _dashConfigLoadedFor = null;
+let _dashEditMode = false;
+let _dashOrderedKeys = [];
+
+async function saveDashConfig(){
+  const uid=Auth.currentUser?.id; if(!uid) return;
+  try {
+    await DB.saveDoc('configuracoes','dashboard_'+uid,
+      { ordem:_dashConfig.ordem||[], ocultos:_dashConfig.ocultos||[], updatedAt:new Date().toISOString() }, true);
+  } catch(e){ console.error('Erro ao salvar layout do dashboard:',e); }
+}
+
+function toggleDashEdit(){
+  _dashEditMode=!_dashEditMode;
+  const btn=document.getElementById('btn-dash-edit');
+  const hint=document.getElementById('dash-edit-hint');
+  if(btn) btn.innerHTML=_dashEditMode
+    ? '<i class="fa-solid fa-check"></i> Concluir'
+    : '<i class="fa-solid fa-sliders"></i> Personalizar cards';
+  if(hint) hint.style.display=_dashEditMode?'':'none';
+  renderDashboard();
+}
+
+function _dashMove(key,dir){
+  const keys=[..._dashOrderedKeys];
+  const i=keys.indexOf(key); if(i<0) return;
+  const j=i+dir; if(j<0||j>=keys.length) return;
+  [keys[i],keys[j]]=[keys[j],keys[i]];
+  _dashConfig.ordem=keys;
+  saveDashConfig();
+  renderDashboard();
+}
+
+function _dashToggle(key){
+  const oc=_dashConfig.ocultos;
+  const i=oc.indexOf(key);
+  if(i>=0) oc.splice(i,1); else oc.push(key);
+  saveDashConfig();
+  renderDashboard();
+}
+
+// Renderiza os cards aplicando ordem e ocultos do usuário
+function _renderDashCards(catalogo){
+  const stats=document.getElementById('dashboard-stats'); if(!stats) return;
+  const cfg=_dashConfig;
+  const ordered=[...catalogo].sort((a,b)=>{
+    let ia=cfg.ordem.indexOf(a.key), ib=cfg.ordem.indexOf(b.key);
+    if(ia<0) ia=999; if(ib<0) ib=999;
+    return ia-ib;
+  });
+  _dashOrderedKeys=ordered.map(c=>c.key);
+  if(_dashEditMode){
+    stats.innerHTML=ordered.map((c,i)=>{
+      const oculto=cfg.ocultos.includes(c.key);
+      return `<div class="dash-edit-wrap${oculto?' dash-oculto':''}">
+        ${c.html}
+        <div class="dash-edit-bar">
+          <button onclick="_dashMove('${c.key}',-1)" ${i===0?'disabled':''} title="Mover para cima"><i class="fa-solid fa-arrow-up"></i></button>
+          <button onclick="_dashMove('${c.key}',1)" ${i===ordered.length-1?'disabled':''} title="Mover para baixo"><i class="fa-solid fa-arrow-down"></i></button>
+          <button class="dash-edit-toggle" onclick="_dashToggle('${c.key}')">${oculto?'<i class="fa-solid fa-eye"></i> Mostrar':'<i class="fa-solid fa-eye-slash"></i> Ocultar'}</button>
+        </div>
+      </div>`;
+    }).join('');
+  } else {
+    stats.innerHTML=ordered.filter(c=>!cfg.ocultos.includes(c.key)).map(c=>c.html).join('');
+  }
+}
+
 function renderDashboard(){
+  // Carrega a personalização do dashboard do usuário (uma vez por usuário)
+  const _uid=Auth.currentUser?.id;
+  if(_uid && _dashConfigLoadedFor!==_uid){
+    _dashConfigLoadedFor=_uid;
+    DB.getDoc('configuracoes','dashboard_'+_uid).then(d=>{
+      _dashConfig = d ? { ordem:d.ordem||[], ocultos:d.ocultos||[] } : { ordem:[], ocultos:[] };
+      if(State.currentSection==='dashboard') renderDashboard();
+    }).catch(()=>{});
+  }
   const mes=currentMes(), ano=currentAno();
   const payThisMonth=State.payrolls.filter(p=>p.mes==mes&&p.ano==ano);
   const totalEsp     =payThisMonth.reduce((s,p)=>s+(p.remuneracao||0),0);
@@ -1358,59 +1437,59 @@ function renderDashboard(){
     if(hasPendente) heRevisaoEmps++;
   });
   const stats=document.getElementById('dashboard-stats'); if(!stats) return;
-  const cards=[];
-  cards.push(_statCard({label:'Colaboradores ativos', value:ativos, icon:'fa-user-check',
+  const catalogo=[];
+  catalogo.push({key:'ativos', html:_statCard({label:'Colaboradores ativos', value:ativos, icon:'fa-user-check',
     accent:'var(--primary)', iconBg:'var(--primary-light)', iconColor:'var(--primary)',
-    onclick:"showSection('employees');setEmployeeFilter('ativo')", title:'Ver colaboradores ativos'}));
-  cards.push(_statCard({label:'Afastados INSS', value:afastados, icon:'fa-user-clock',
+    onclick:"showSection('employees');setEmployeeFilter('ativo')", title:'Ver colaboradores ativos'})});
+  catalogo.push({key:'afastados', html:_statCard({label:'Afastados INSS', value:afastados, icon:'fa-user-clock',
     accent:'#00838F', iconBg:'#E0F7FA', iconColor:'#00838F',
-    onclick:"showSection('employees');setEmployeeFilter('afastado')", title:'Ver afastados INSS'}));
-  if(licMaternidade>0) cards.push(_statCard({label:'Licença Maternidade', value:licMaternidade, icon:'fa-baby',
+    onclick:"showSection('employees');setEmployeeFilter('afastado')", title:'Ver afastados INSS'})});
+  if(licMaternidade>0) catalogo.push({key:'licMaternidade', html:_statCard({label:'Licença Maternidade', value:licMaternidade, icon:'fa-baby',
     accent:'#E91E63', iconBg:'#FCE4EC', iconColor:'#E91E63', valueColor:'#E91E63',
-    onclick:"showSection('employees');setEmployeeFilter('licenca-maternidade')", title:'Ver licenças maternidade'}));
-  cards.push(_statCard({label:'Colaboradores inativos', value:inativos, icon:'fa-user-slash',
+    onclick:"showSection('employees');setEmployeeFilter('licenca-maternidade')", title:'Ver licenças maternidade'})});
+  catalogo.push({key:'inativos', html:_statCard({label:'Colaboradores inativos', value:inativos, icon:'fa-user-slash',
     accent:'#9E9E9E', iconBg:'#F5F5F5', iconColor:'#757575',
-    onclick:"showSection('employees');setEmployeeFilter('inativo')", title:'Ver colaboradores inativos'}));
-  cards.push(_statCard({label:'Postos de trabalho', value:totalPostos, icon:'fa-building',
+    onclick:"showSection('employees');setEmployeeFilter('inativo')", title:'Ver colaboradores inativos'})});
+  catalogo.push({key:'postos', html:_statCard({label:'Postos de trabalho', value:totalPostos, icon:'fa-building',
     accent:'#1565C0', iconBg:'#E3F2FD', iconColor:'#1565C0', valueColor:'#1565C0',
-    onclick:"showSection('postos')", title:'Ver postos de trabalho'}));
-  if(heRevisaoEmps>0) cards.push(_statCard({label:'Pendentes de revisar HE', value:heRevisaoEmps, icon:'fa-magnifying-glass',
+    onclick:"showSection('postos')", title:'Ver postos de trabalho'})});
+  if(heRevisaoEmps>0) catalogo.push({key:'heRevisao', html:_statCard({label:'Pendentes de revisar HE', value:heRevisaoEmps, icon:'fa-magnifying-glass',
     accent:'#E65100', iconBg:'#FFF3E0', iconColor:'#E65100', valueColor:'#E65100',
     sub:`<i class="fa-solid fa-triangle-exclamation"></i> ${heRevisaoDias} dia(s) — clique pra revisar`, subColor:'#E65100',
-    onclick:"_dashGotoHEReview()", title:'Colaboradores com HE acima da tolerância CLT aguardando revisão'}));
-  if(colabsHoje.length>0||colabsSemana.length>0) cards.push(_statCard({label:'Benefícios a pagar hoje', value:colabsHoje.length, icon:'fa-money-check-dollar',
+    onclick:"_dashGotoHEReview()", title:'Colaboradores com HE acima da tolerância CLT aguardando revisão'})});
+  if(colabsHoje.length>0||colabsSemana.length>0) catalogo.push({key:'beneficios', html:_statCard({label:'Benefícios a pagar hoje', value:colabsHoje.length, icon:'fa-money-check-dollar',
     accent:'#0288D1', iconBg:'#E1F5FE', iconColor:'#0288D1', valueColor:'#0288D1',
     sub:`${fmtMoney(totalBenHoje)} hoje &middot; Semana: ${colabsSemana.length} colab. ${fmtMoney(totalBenSemana)}`, subColor:'#01579B',
-    onclick:"openBeneficiosPagar()", title:'Ver benefícios a pagar hoje e nesta semana'}));
-  cards.push(_statCard({label:`Escalas — ${MESES[mes]}/${ano}`, value:escalasMes, icon:'fa-calendar-days',
+    onclick:"openBeneficiosPagar()", title:'Ver benefícios a pagar hoje e nesta semana'})});
+  catalogo.push({key:'escalas', html:_statCard({label:`Escalas — ${MESES[mes]}/${ano}`, value:escalasMes, icon:'fa-calendar-days',
     accent:'#6A1B9A', iconBg:'#F3E5F5', iconColor:'#6A1B9A', valueColor:'#6A1B9A',
     sub: escalasPend>0?`<i class="fa-solid fa-triangle-exclamation"></i> ${escalasPend} pendente(s) de revisão`:'<i class="fa-solid fa-check-circle"></i> Todas projetadas',
     subColor: escalasPend>0?'#E65100':'#1B5E20',
-    onclick:"showSection('escalas')", title:'Ver escalas do mês'}));
+    onclick:"showSection('escalas')", title:'Ver escalas do mês'})});
   {
     const modo=State.empresa?.modoContabilidade||'ambas';
     const usaInterna=modo==='interna'||modo==='ambas';
     const usaExterna=modo==='externa'||modo==='ambas';
     const encargosCalc=totalINSS>0;
-    if(usaInterna) cards.push(_statCard({label:`Folha de ${MESES[mes]}<span style="display:block;font-weight:400;font-size:11px;color:var(--text-muted);margin-top:2px">${payThisMonth.length} Holerite${payThisMonth.length!==1?'s':''}</span>`,
+    if(usaInterna) catalogo.push({key:'folha', html:_statCard({label:`Folha de ${MESES[mes]}<span style="display:block;font-weight:400;font-size:11px;color:var(--text-muted);margin-top:2px">${payThisMonth.length} Holerite${payThisMonth.length!==1?'s':''}</span>`,
       value:fmtMoney(usaExterna&&!encargosCalc?totalEsp:totalLiqFinal), icon:'fa-money-bill-wave',
       accent:'#1B5E20', iconBg:'#E8F5E9', iconColor:'#1B5E20', valueColor:'#1B5E20',
-      onclick:"showSection('pagamentos')", title:'Ver pagamentos do mês'}));
-    if(usaExterna&&!usaInterna) cards.push(_statCard({label:`Remunerações ${MESES[mes]} — ${payThisMonth.length} folha(s)`,
+      onclick:"showSection('pagamentos')", title:'Ver pagamentos do mês'})});
+    if(usaExterna&&!usaInterna) catalogo.push({key:'contabilidade', html:_statCard({label:`Remunerações ${MESES[mes]} — ${payThisMonth.length} folha(s)`,
       value:fmtMoney(totalEsp), icon:'fa-calculator',
       accent:'#F57F17', iconBg:'#FFF3E0', iconColor:'#F57F17',
       sub:'Exportar para contador externo', subColor:'#777',
-      onclick:"showSection('contabilidade')", title:'Ver planilha de contabilidade'}));
+      onclick:"showSection('contabilidade')", title:'Ver planilha de contabilidade'})});
   }
-  cards.push(_statCard({label:`Folhas lançadas em ${MESES[mes]}`, value:payThisMonth.length, icon:'fa-file-circle-check',
+  catalogo.push({key:'folhasLancadas', html:_statCard({label:`Folhas lançadas em ${MESES[mes]}`, value:payThisMonth.length, icon:'fa-file-circle-check',
     accent:'var(--success)', iconBg:'var(--success-light)', iconColor:'var(--success)', valueColor:'var(--success)',
-    onclick:"showSection('payroll')", title:'Ver folha de ponto'}));
-  cards.push(_statCard({label:'Contratos ativos', value:(State.contratos||[]).filter(c=>!c.status||c.status!=='inativo').length, icon:'fa-file-signature',
+    onclick:"showSection('payroll')", title:'Ver folha de ponto'})});
+  catalogo.push({key:'contratos', html:_statCard({label:'Contratos ativos', value:(State.contratos||[]).filter(c=>!c.status||c.status!=='inativo').length, icon:'fa-file-signature',
     accent:'#2E7D32', iconBg:'#F1F8E9', iconColor:'#2E7D32', valueColor:'#2E7D32',
-    onclick:"showSection('contratos')", title:'Ver contratos'}));
-  if(State.cct) cards.push(_statCard({label:'CCT vigente', value:`desde ${formatDateBr(State.cct.vigencia)}`, icon:'fa-file-contract',
-    accent:'#7B1FA2', iconBg:'#F3E5F5', iconColor:'#7B1FA2', valueColor:'#7B1FA2', smallValue:true}));
-  stats.innerHTML=cards.join('');
+    onclick:"showSection('contratos')", title:'Ver contratos'})});
+  if(State.cct) catalogo.push({key:'cct', html:_statCard({label:'CCT vigente', value:`desde ${formatDateBr(State.cct.vigencia)}`, icon:'fa-file-contract',
+    accent:'#7B1FA2', iconBg:'#F3E5F5', iconColor:'#7B1FA2', valueColor:'#7B1FA2', smallValue:true})});
+  _renderDashCards(catalogo);
   renderBirthdays();
   renderAlerts();
   const recEl=document.getElementById('recent-payrolls'); if(!recEl) return;

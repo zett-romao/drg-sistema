@@ -296,6 +296,19 @@ ul { list-style: none; }
 .stat-label { font-size: 12px; font-weight: 600; color: var(--text); line-height: 1.35; flex: 1; }
 .stat-sub   { font-size: 10px; font-weight: 400; margin-top: 4px; line-height: 1.35; }
 
+/* Modo de personalização do Dashboard */
+.dash-edit-wrap { display: flex; flex-direction: column; }
+.dash-edit-wrap .stat-card { pointer-events: none; }
+.dash-oculto .stat-card { opacity: 0.4; }
+.dash-edit-bar { display: flex; gap: 6px; margin-top: 6px; }
+.dash-edit-bar button {
+  padding: 5px 9px; font-size: 12px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: #fff; color: var(--text);
+}
+.dash-edit-bar button:disabled { opacity: 0.35; cursor: default; }
+.dash-edit-bar .dash-edit-toggle { flex: 1; }
+
 /* ---- Dashboard Cards ---- */
 .dashboard-cards {
   display: grid; grid-template-columns: 1fr 1fr; gap: 18px;

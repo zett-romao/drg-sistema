@@ -182,7 +182,17 @@ const EMPRESA_DEFAULTS = {
   descricao:           'Gestão de Portaria e Segurança',
   subdesc:             'Sistema de Gestão de Colaboradores',
   logoUrl:             '',
-  modoContabilidade:   'ambas'   // 'interna' | 'externa' | 'ambas'
+  modoContabilidade:   'ambas',  // 'interna' | 'externa' | 'ambas'
+  cnae:                '',
+  endereco:            '',
+  numero:              '',
+  complemento:         '',
+  bairro:              '',
+  cidade:              '',
+  uf:                  '',
+  cep:                 '',
+  telefone:            '',
+  email:               ''
 };
 
 // Parâmetros legais — tabelas oficiais atualizáveis (INSS/IRRF/FGTS/aviso prévio).
@@ -412,6 +422,16 @@ async function saveEmpresaConfig(){
     logoUrl:           val('cfg-logo-url').trim(),
     subdesc:           val('cfg-subdesc').trim(),
     modoContabilidade: val('cfg-modo-contabilidade') || 'ambas',
+    cnae:              val('cfg-cnae').trim(),
+    endereco:          val('cfg-endereco').trim(),
+    numero:            val('cfg-numero').trim(),
+    complemento:       val('cfg-complemento').trim(),
+    bairro:            val('cfg-bairro').trim(),
+    cidade:            val('cfg-cidade').trim(),
+    uf:                val('cfg-uf').trim().toUpperCase(),
+    cep:               val('cfg-cep').trim(),
+    telefone:          val('cfg-telefone').trim(),
+    email:             val('cfg-email').trim(),
     updatedAt:         new Date().toISOString()
   };
   try {
@@ -433,6 +453,16 @@ function renderConfiguracoes(){
   setVal('cfg-logo-url',           e.logoUrl||'');
   setVal('cfg-subdesc',            e.subdesc||'');
   setVal('cfg-modo-contabilidade', e.modoContabilidade||'ambas');
+  setVal('cfg-cnae',               e.cnae||'');
+  setVal('cfg-endereco',           e.endereco||'');
+  setVal('cfg-numero',             e.numero||'');
+  setVal('cfg-complemento',        e.complemento||'');
+  setVal('cfg-bairro',             e.bairro||'');
+  setVal('cfg-cidade',             e.cidade||'');
+  setVal('cfg-uf',                 e.uf||'');
+  setVal('cfg-cep',                e.cep||'');
+  setVal('cfg-telefone',           e.telefone||'');
+  setVal('cfg-email',              e.email||'');
 }
 
 // ============================================
@@ -1301,12 +1331,12 @@ function _statCard(o){
   const sub=o.sub?`<div class="stat-sub"${o.subColor?` style="color:${o.subColor}"`:''}>${o.sub}</div>`:'';
   const cursor=o.onclick?'cursor:pointer;':'';
   return `<div class="stat-card" style="${cursor}border-color:${accent}"${o.onclick?` onclick="${o.onclick}"`:''}${o.title?` title="${o.title}"`:''}>
-    <div class="stat-card-head">
-      <span class="stat-label">${o.label}</span>
-      <span class="stat-icon" style="background:${o.iconBg||'var(--primary-light)'};color:${o.iconColor||'var(--primary)'}"><i class="fa-solid ${o.icon}"></i></span>
+    <div class="stat-icon" style="background:${o.iconBg||'var(--primary-light)'};color:${o.iconColor||'var(--primary)'}"><i class="fa-solid ${o.icon}"></i></div>
+    <div>
+      <div class="stat-value"${valueStyle}>${o.value}</div>
+      <div class="stat-label">${o.label}</div>
+      ${sub}
     </div>
-    <div class="stat-value"${valueStyle}>${o.value}</div>
-    ${sub}
   </div>`;
 }
 
@@ -6246,6 +6276,17 @@ function renderRescisoes(){
 }
 
 // Impressão do TRCT
+// Monta o endereço completo da empresa em uma linha
+function _empEnderecoTxt(e){
+  let s=[e.endereco,e.numero].filter(Boolean).join(', ');
+  if(e.complemento) s+=(s?' - ':'')+e.complemento;
+  if(e.bairro)      s+=(s?' — ':'')+e.bairro;
+  if(e.cidade)      s+=(s?', ':'')+e.cidade+(e.uf?'/'+e.uf:'');
+  else if(e.uf)     s+=(s?' ':'')+e.uf;
+  if(e.cep)         s+=(s?' — CEP ':'CEP ')+e.cep;
+  return s||'—';
+}
+
 function _trctHtml(r, emp, o){
   const e=State.empresa||{};
   const tipoLabel=RESCISAO_TIPOS[r.tipo]?.label||r.tipo||'';
@@ -6269,8 +6310,16 @@ function _trctHtml(r, emp, o){
     .obs{font-size:11px;color:#555;margin-top:8px}
   </style></head><body>
   <h1>TERMO DE RESCISÃO DO CONTRATO DE TRABALHO</h1>
-  <div style="text-align:center;font-size:11px;color:#555;margin-bottom:6px">${e.nomeEmpresa||'D.R. Global Multi Services'} — CNPJ ${e.cnpj||'—'}</div>
-  <h2>Identificação</h2>
+  <h2>Empregador</h2>
+  <div class="grid">
+    <div style="grid-column:1 / -1"><strong>Razão social:</strong> ${e.nomeEmpresa||'—'}</div>
+    <div><strong>CNPJ:</strong> ${e.cnpj||'—'}</div>
+    <div><strong>CNAE / Atividade:</strong> ${e.cnae||e.descricao||'—'}</div>
+    <div style="grid-column:1 / -1"><strong>Endereço:</strong> ${_empEnderecoTxt(e)}</div>
+    <div><strong>Telefone:</strong> ${e.telefone||'—'}</div>
+    <div><strong>E-mail:</strong> ${e.email||'—'}</div>
+  </div>
+  <h2>Identificação do Trabalhador</h2>
   <div class="grid">
     <div><strong>Colaborador:</strong> ${emp.nome||'—'}</div>
     <div><strong>CPF:</strong> ${emp.cpf||'—'}</div>

@@ -228,6 +228,7 @@ const State = {
   postos:    [],
   contratos: [],
   escalas:   [],
+  escalasModelos: [],
   bancoHoras: [],
   atestados:  [],
   rescisoes: [],
@@ -1272,6 +1273,8 @@ const LOG_TYPES={
   CONTRATO_DELETED:    {label:'Contrato excluído',    cls:'ev-contrato',   icon:'fa-file-circle-minus'},
   BANCO_HORAS_DEBITO:  {label:'Baixa no banco de horas', cls:'ev-payroll', icon:'fa-piggy-bank'},
   ATESTADO_LANCADO:    {label:'Atestado lançado',     cls:'ev-payroll',    icon:'fa-notes-medical'},
+  ESCALA_MODELO_CREATED:{label:'Modelo de escala criado', cls:'ev-system', icon:'fa-calendar-days'},
+  ESCALA_MODELO_UPDATED:{label:'Modelo de escala editado',cls:'ev-system', icon:'fa-calendar-days'},
   PARAMS_LEGAIS_UPDATED:{label:'Parâmetros legais atualizados', cls:'ev-system', icon:'fa-scale-balanced'},
   RESCISAO_CREATED:    {label:'Rescisão criada',       cls:'ev-employee',   icon:'fa-file-circle-xmark'},
   RESCISAO_UPDATED:    {label:'Rescisão editada',      cls:'ev-employee',   icon:'fa-file-pen'},
@@ -3070,6 +3073,7 @@ function openEmployeeModal(id=null){
   State.editingEmployeeId=id;
   document.getElementById('modal-employee').classList.remove('hidden');
   populatePostoSelect();
+  populateEscalaSelect();
   switchTab('tab-pessoal');
   _resetCadastroImport();
   const titleEl=document.getElementById('modal-employee-title');
@@ -3437,14 +3441,25 @@ function minutesToStr(min){
 // Retorna a família da escala (para cálculos)
 function escalaFamilia(escala){
   if(!escala) return '5x2';
+  if(escala.startsWith('m_')) return escala;       // modelo customizado
   if(escala.startsWith('5x2')) return '5x2';
   if(escala.startsWith('6x1')) return '6x1';
   if(escala==='12x36') return '12x36';
   return escala;
 }
 
+// Retorna o modelo de escala customizado (escala no formato m_{id}) ou null
+function _escalaModelo(escala){
+  if(!escala || typeof escala!=='string' || !escala.startsWith('m_')) return null;
+  return (State.escalasModelos||[]).find(m=>m.id===escala.slice(2)) || null;
+}
+
 // Retorna label legível da escala
 function escalaLabel(escala){
+  if(escala && escala.startsWith('m_')){
+    const m=(State.escalasModelos||[]).find(x=>x.id===escala.slice(2));
+    return m ? m.nome : 'Escala personalizada';
+  }
   const labels={
     '5x2A':'5x2 — Var. A (08h–18h)',
     '5x2B':'5x2 — Var. B (07h–17h)',
@@ -3459,6 +3474,15 @@ function escalaLabel(escala){
 // Calcula quantos dias de trabalho ocorrem em um mês conforme escala
 function calcDiasEscala(mes, ano, escala){
   const diasNoMes=new Date(ano,mes,0).getDate();
+  const _mod=_escalaModelo(escala);
+  if(_mod){
+    let n=0;
+    for(let d=1;d<=diasNoMes;d++){
+      const md=_mod.dias[new Date(ano,mes-1,d).getDay()]||{};
+      if(md.tipo==='trabalho'||md.tipo==='corrido') n++;
+    }
+    return n;
+  }
   const fam=escalaFamilia(escala);
   if(fam==='5x2') return Math.floor(diasNoMes*5/7);
   if(fam==='6x1') return Math.floor(diasNoMes*6/7);
@@ -3962,6 +3986,11 @@ function _colabTrabalhaNoDia(emp, dataISO){
     if(d2 && d2.entrada && d2.saida) return true;
   }
   // 3) Fallback por escala contratual
+  const _mod=_escalaModelo(emp.escala);
+  if(_mod){
+    const md=_mod.dias[d.getDay()]||{tipo:'folga'};
+    return md.tipo==='trabalho'||md.tipo==='corrido';
+  }
   const fam = escalaFamilia(emp.escala || '5x2A');
   const ds = d.getDay();
   if(fam === '5x2') return ds >= 1 && ds <= 5;
@@ -8360,6 +8389,12 @@ function _getExpectedDay(emp, mes, ano, dia){
       };
     }
   }
+  // 1b) Modelo de escala customizado
+  const _mod=_escalaModelo(emp.escala);
+  if(_mod){
+    const md=_mod.dias[new Date(ano, mes-1, dia).getDay()]||{tipo:'folga'};
+    return { tipo:md.tipo||'folga', entrada:md.entrada||'', saida:md.saida||'', intIni:md.intIni||'', intFim:md.intFim||'' };
+  }
   // 2) Fallback: horários contratuais do cadastro (assume trabalho em dia útil)
   const diaSem = new Date(ano, mes-1, dia).getDay();
   const isWknd = diaSem===0 || diaSem===6;
@@ -10385,6 +10420,11 @@ const ESCALA_HORARIOS_DEFAULT = {
 // Retorna horários default para um colaborador num dia da semana específico
 function _escalaHorariosDia(emp, diaSem){
   const escala = emp.escala || '5x2A';
+  const _mod=_escalaModelo(escala);
+  if(_mod){
+    const md=_mod.dias[diaSem]||{};
+    return { entrada:md.entrada||'', intIni:md.intIni||'', intFim:md.intFim||'', saida:md.saida||'' };
+  }
   const noturno = !!emp.turnoNoturno;
   const def = ESCALA_HORARIOS_DEFAULT[escala] || ESCALA_HORARIOS_DEFAULT['5x2A'];
   let entrada = emp.horarioEntrada || def.entrada;
@@ -10438,7 +10478,25 @@ function _getPrevMonthDias(empId, mes, ano){
 }
 
 // Projeta a escala completa de um colaborador para um mês
+// Projeta a escala de um modelo customizado (padrão semanal)
+function _projectEscalaModelo(emp, mes, ano, modelo){
+  const dias=[];
+  const dpm=new Date(ano, mes, 0).getDate();
+  for(let d=1; d<=dpm; d++){
+    const ds=new Date(ano, mes-1, d).getDay();
+    const md=modelo.dias[ds]||{tipo:'folga'};
+    const tipo=md.tipo||'folga';
+    const h=(tipo!=='folga')
+      ? {entrada:md.entrada||'', intIni:md.intIni||'', intFim:md.intFim||'', saida:md.saida||''}
+      : {entrada:'',intIni:'',intFim:'',saida:''};
+    dias.push({dia:d, diaSem:ds, tipo, ...h});
+  }
+  return dias;
+}
+
 function _projectEscala(emp, mes, ano, prevDias){
+  const _mod=_escalaModelo(emp.escala);
+  if(_mod) return _projectEscalaModelo(emp, mes, ano, _mod);
   const fam = escalaFamilia(emp.escala || '5x2A');
   if(fam==='5x2')   return _projectEscala5x2(emp, mes, ano);
   if(fam==='6x1'){
@@ -10541,6 +10599,141 @@ function _projectEscala12x36(emp, mes, ano, prevDias){
 // ============================================
 // ESCALAS — Render & UI
 // ============================================
+// ============================================
+// MODELOS DE ESCALA (escalas customizadas)
+// ============================================
+const _DIAS_SEMANA=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+
+function populateEscalaSelect(){
+  const sel=document.getElementById('emp-escala'); if(!sel) return;
+  const atual=sel.value;
+  Array.from(sel.querySelectorAll('option[data-custom]')).forEach(o=>o.remove());
+  (State.escalasModelos||[]).slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''))
+    .forEach(m=>{
+      const o=document.createElement('option');
+      o.value='m_'+m.id; o.textContent='★ '+m.nome; o.setAttribute('data-custom','1');
+      sel.appendChild(o);
+    });
+  if(atual) sel.value=atual;
+}
+
+function openEscalaModelos(){
+  document.getElementById('modal-escala-modelos').classList.remove('hidden');
+  _escModMostrarLista();
+}
+function _escModMostrarLista(){
+  document.getElementById('esc-mod-form-panel').style.display='none';
+  document.getElementById('esc-mod-lista-panel').style.display='';
+  document.getElementById('esc-mod-btn-voltar').style.display='none';
+  document.getElementById('esc-mod-btn-salvar').style.display='none';
+  renderEscalaModelosList();
+}
+function _escModMostrarForm(){
+  document.getElementById('esc-mod-lista-panel').style.display='none';
+  document.getElementById('esc-mod-form-panel').style.display='';
+  document.getElementById('esc-mod-btn-voltar').style.display='';
+  document.getElementById('esc-mod-btn-salvar').style.display='';
+}
+function renderEscalaModelosList(){
+  const c=document.getElementById('esc-mod-lista'); if(!c) return;
+  const arr=(State.escalasModelos||[]).slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+  if(!arr.length){
+    c.innerHTML='<div class="empty-state small"><i class="fa-solid fa-calendar-days"></i><p>Nenhum modelo de escala criado</p></div>';
+    return;
+  }
+  c.innerHTML=arr.map(m=>{
+    const trab=(m.dias||[]).filter(d=>d.tipo==='trabalho'||d.tipo==='corrido').length;
+    return `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px">
+      <i class="fa-solid fa-calendar-days" style="color:var(--primary)"></i>
+      <span style="flex:1"><strong>${m.nome||'—'}</strong> <span style="font-size:11px;color:var(--text-muted)">— ${trab} dia(s) de trabalho por semana</span></span>
+      <button class="btn-icon" onclick="editEscalaModelo('${m.id}')" title="Editar"><i class="fa-solid fa-pen" style="color:#1565C0"></i></button>
+      <button class="btn-icon" onclick="confirmDeleteEscalaModelo('${m.id}')" title="Excluir"><i class="fa-solid fa-trash" style="color:#C62828"></i></button>
+    </div>`;
+  }).join('');
+}
+function _renderEscalaModeloDias(dias){
+  const tb=document.getElementById('esc-mod-dias'); if(!tb) return;
+  tb.innerHTML=_DIAS_SEMANA.map((nome,i)=>{
+    const d=(dias&&dias[i])||{tipo:'folga'};
+    const t=d.tipo||'folga';
+    return `<tr>
+      <td style="font-weight:600;font-size:12px">${nome}</td>
+      <td><select class="em-tipo"><option value="folga"${t==='folga'?' selected':''}>Folga</option><option value="trabalho"${t==='trabalho'?' selected':''}>Trabalho</option><option value="corrido"${t==='corrido'?' selected':''}>Hora corrida</option></select></td>
+      <td><input type="time" class="em-entrada" value="${d.entrada||''}"></td>
+      <td><input type="time" class="em-intIni" value="${d.intIni||''}"></td>
+      <td><input type="time" class="em-intFim" value="${d.intFim||''}"></td>
+      <td><input type="time" class="em-saida" value="${d.saida||''}"></td>
+    </tr>`;
+  }).join('');
+}
+function novoEscalaModelo(){
+  setVal('esc-mod-id','');
+  setVal('esc-mod-nome','');
+  const def=[];
+  for(let i=0;i<7;i++){
+    def.push((i>=1&&i<=5)
+      ? {tipo:'trabalho',entrada:'08:00',intIni:'12:00',intFim:'13:00',saida:'17:00'}
+      : {tipo:'folga'});
+  }
+  _renderEscalaModeloDias(def);
+  document.getElementById('esc-mod-form-titulo').textContent='Novo modelo de escala';
+  _escModMostrarForm();
+}
+function editEscalaModelo(id){
+  const m=(State.escalasModelos||[]).find(x=>x.id===id); if(!m) return;
+  setVal('esc-mod-id',m.id);
+  setVal('esc-mod-nome',m.nome||'');
+  _renderEscalaModeloDias(m.dias||[]);
+  document.getElementById('esc-mod-form-titulo').textContent='Editar modelo de escala';
+  _escModMostrarForm();
+}
+async function saveEscalaModelo(){
+  const nome=val('esc-mod-nome').trim();
+  if(!nome){ toast('Dê um nome ao modelo de escala.','error'); return; }
+  const dias=[];
+  document.querySelectorAll('#esc-mod-dias tr').forEach(tr=>{
+    dias.push({
+      tipo:tr.querySelector('.em-tipo').value,
+      entrada:tr.querySelector('.em-entrada').value||'',
+      intIni:tr.querySelector('.em-intIni').value||'',
+      intFim:tr.querySelector('.em-intFim').value||'',
+      saida:tr.querySelector('.em-saida').value||''
+    });
+  });
+  if(!dias.some(d=>d.tipo==='trabalho'||d.tipo==='corrido')){
+    toast('O modelo precisa ter ao menos um dia de trabalho.','error'); return;
+  }
+  const id=val('esc-mod-id');
+  const existente=id?(State.escalasModelos||[]).find(x=>x.id===id):null;
+  const doc={
+    id:id||genId(), nome, dias,
+    createdAt:existente?.createdAt||new Date().toISOString(),
+    updatedAt:new Date().toISOString()
+  };
+  const btn=document.getElementById('esc-mod-btn-salvar');
+  setBtnLoading(btn,true,'');
+  try {
+    await DB.save('escalasModelos', doc);
+    Auth.log(existente?'ESCALA_MODELO_UPDATED':'ESCALA_MODELO_CREATED', null, nome);
+    toast('Modelo de escala salvo!');
+    _escModMostrarLista();
+  } catch(e){ toast('Erro ao salvar modelo.','error'); }
+  finally { setBtnLoading(btn,false,'<i class="fa-solid fa-floppy-disk"></i> Salvar Modelo'); }
+}
+function confirmDeleteEscalaModelo(id){
+  const m=(State.escalasModelos||[]).find(x=>x.id===id); if(!m) return;
+  document.getElementById('confirm-message').innerHTML=`Excluir o modelo de escala <strong>${m.nome}</strong>?<br><br>Colaboradores que usam este modelo ficarão sem escala definida — reatribua a escala deles depois.`;
+  const btn=document.getElementById('confirm-ok-btn');
+  btn.innerHTML='<i class="fa-solid fa-trash"></i> Excluir';
+  btn.onclick=async()=>{
+    try { await DB.remove('escalasModelos', id); } catch(e){}
+    closeModal('modal-confirm');
+    renderEscalaModelosList();
+    toast('Modelo excluído.','warning');
+  };
+  document.getElementById('modal-confirm').classList.remove('hidden');
+}
+
 function renderEscalas(){
   // Inicializa selects de mês/ano
   const yearSel = document.getElementById('escala-ano');
@@ -11607,6 +11800,13 @@ async function init(){
   DB.listen('atestados', data => {
     State.atestados = data;
     if(State.currentSection==='payroll'){ renderAtestadosFolha(); recalculate(); }
+  });
+  DB.listen('escalasModelos', data => {
+    State.escalasModelos = data;
+    const m=document.getElementById('modal-escala-modelos');
+    if(m && !m.classList.contains('hidden')) renderEscalaModelosList();
+    if(State.currentSection==='escalas') renderEscalas();
+    populateEscalaSelect();
   });
   DB.listen('rescisoes', data => {
     State.rescisoes = data;

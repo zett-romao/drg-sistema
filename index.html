@@ -1280,6 +1280,7 @@
             <p style="color:var(--text-muted);font-size:13px;margin-top:2px">Projeção mensal por colaborador — edite, salve e exporte</p>
           </div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button class="btn btn-outline" onclick="openEscalaModelos()" style="font-size:13px" title="Criar e editar escalas personalizadas"><i class="fa-solid fa-sliders"></i> Modelos de Escala</button>
             <button class="btn btn-secondary" onclick="changeEscalaMes(-1)" title="Mês anterior"><i class="fa-solid fa-chevron-left"></i></button>
             <select id="escala-mes" onchange="onEscalaMesChange()" style="font-weight:700">
               <option value="1">Janeiro</option><option value="2">Fevereiro</option><option value="3">Março</option>
@@ -3530,6 +3531,48 @@
   </div>
 </div>
 
+<!-- ===== MODAL: MODELOS DE ESCALA ===== -->
+<div class="modal-overlay hidden" id="modal-escala-modelos" onclick="closeModal('modal-escala-modelos', event)">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-calendar-days" style="color:var(--primary)"></i> Modelos de Escala</h3>
+      <button class="modal-close" onclick="closeModal('modal-escala-modelos')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <style>
+        #esc-mod-dias td{padding:3px 4px}
+        #esc-mod-dias select,#esc-mod-dias input{width:100%;padding:5px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px}
+      </style>
+      <div id="esc-mod-lista-panel">
+        <div class="info-banner" style="background:#E3F2FD;color:#0D47A1">
+          <i class="fa-solid fa-circle-info"></i>
+          Crie escalas personalizadas conforme cada cliente pede. Para cada dia da semana você define se é trabalho, folga ou hora corrida, e os horários.
+        </div>
+        <button class="btn btn-primary" onclick="novoEscalaModelo()" style="margin-bottom:10px"><i class="fa-solid fa-plus"></i> Novo modelo</button>
+        <div id="esc-mod-lista"></div>
+      </div>
+      <div id="esc-mod-form-panel" style="display:none">
+        <input type="hidden" id="esc-mod-id">
+        <div style="font-weight:700;margin-bottom:8px" id="esc-mod-form-titulo">Novo modelo de escala</div>
+        <div class="form-group">
+          <label>Nome do modelo</label>
+          <input type="text" id="esc-mod-nome" placeholder="Ex.: Cliente Tal — Portaria 5x1">
+        </div>
+        <table class="data-table" style="font-size:12px;margin-top:6px">
+          <thead><tr><th>Dia</th><th>Situação</th><th>Entrada</th><th>Início interv.</th><th>Fim interv.</th><th>Saída</th></tr></thead>
+          <tbody id="esc-mod-dias"></tbody>
+        </table>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:6px"><i class="fa-solid fa-circle-info"></i> Em dias de folga os horários são ignorados. "Hora corrida" = trabalho sem intervalo.</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="esc-mod-btn-voltar" onclick="_escModMostrarLista()" style="display:none">Voltar à lista</button>
+      <button class="btn btn-outline" onclick="closeModal('modal-escala-modelos')">Fechar</button>
+      <button class="btn btn-primary" id="esc-mod-btn-salvar" onclick="saveEscalaModelo()" style="display:none"><i class="fa-solid fa-floppy-disk"></i> Salvar Modelo</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== MODAL: ATESTADO ===== -->
 <div class="modal-overlay hidden" id="modal-atestado" onclick="closeModal('modal-atestado', event)">
   <div class="modal-dialog modal-md">
@@ -4451,6 +4494,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260516g"></script>
+<script src="app.js?v=20260516h"></script>
 </body>
 </html>

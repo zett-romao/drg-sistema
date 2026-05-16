@@ -1392,7 +1392,7 @@ function renderDashboard(){
     const usaInterna=modo==='interna'||modo==='ambas';
     const usaExterna=modo==='externa'||modo==='ambas';
     const encargosCalc=totalINSS>0;
-    if(usaInterna) cards.push(_statCard({label:`Folha ${MESES[mes]} — ${payThisMonth.length} holerite(s)`,
+    if(usaInterna) cards.push(_statCard({label:`Folha de ${MESES[mes]}<span style="display:block;font-weight:400;font-size:11px;color:var(--text-muted);margin-top:2px">${payThisMonth.length} Holerite${payThisMonth.length!==1?'s':''}</span>`,
       value:fmtMoney(usaExterna&&!encargosCalc?totalEsp:totalLiqFinal), icon:'fa-money-bill-wave',
       accent:'#1B5E20', iconBg:'#E8F5E9', iconColor:'#1B5E20', valueColor:'#1B5E20',
       onclick:"showSection('pagamentos')", title:'Ver pagamentos do mês'}));

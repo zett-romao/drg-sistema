@@ -536,22 +536,24 @@ function _diaJornada(){
   const now=new Date();
   const base={dia:now.getDate(), mes:now.getMonth()+1, ano:now.getFullYear()};
   const emp=currentEmp||{};
-  const ehNoturno = !!emp.turnoNoturno ||
-    (emp.horarioEntrada && emp.horarioSaida && timeToMin(emp.horarioSaida) < timeToMin(emp.horarioEntrada));
+  const ent=emp.horarioEntrada?timeToMin(emp.horarioEntrada):null;
+  const sai=emp.horarioSaida?timeToMin(emp.horarioSaida):null;
+  // Turno noturno: flag marcada, OU saída antes da entrada (cruza meia-noite),
+  // OU entrada a partir das 17h (forte indício de turno da noite).
+  const ehNoturno = !!emp.turnoNoturno
+    || (ent!=null && sai!=null && sai<ent)
+    || (ent!=null && ent>=17*60);
   if(!ehNoturno) return base;
-  // Antes do horário de entrada previsto, ainda pode ser a jornada da noite anterior
-  const limiteEntrada = emp.horarioEntrada ? timeToMin(emp.horarioEntrada) : 14*60;
-  const agoraMin = now.getHours()*60 + now.getMinutes();
-  if(agoraMin >= limiteEntrada) return base;
+  // Ponto de virada da jornada: meio do caminho entre a saída e a entrada previstas
+  // (ex.: saída 07h + entrada 19h → vira às 13h). Antes desse horário, o registro
+  // pertence à jornada que começou na véspera. Sem horários definidos, usa 14h.
+  let corte = 14*60;
+  if(ent!=null && sai!=null && sai<ent) corte = Math.round((sai+ent)/2);
+  if(now.getHours()*60+now.getMinutes() >= corte) return base;
   const ontem=new Date(now); ontem.setDate(ontem.getDate()-1);
   // Virada de mês fica fora deste ajuste (a folha do mês anterior não está carregada)
   if(ontem.getMonth()+1!==base.mes || ontem.getFullYear()!==base.ano) return base;
-  const dOntem=(currentPayroll?.pontoManualDias||[]).find(d=>d.dia===ontem.getDate());
-  // Jornada de ontem aberta (tem entrada e ainda não tem saída) → registros vão para ontem
-  if(dOntem && dOntem.entrada && !dOntem.saida){
-    return {dia:ontem.getDate(), mes:base.mes, ano:base.ano};
-  }
-  return base;
+  return {dia:ontem.getDate(), mes:base.mes, ano:base.ano};
 }
 
 function getDiaHoje() {

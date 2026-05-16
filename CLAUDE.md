@@ -332,6 +332,7 @@ node --check ponto-sw.js
 ## Estilo de comunicação que o usuário prefere
 
 - Português direto, sem rodeios
+- **Usar gíria e termos de programador normalmente** — o usuário pediu explicitamente (ex.: "bumpar", "cache", "commit", "deploy", "merge", "refatorar", "hardcoded", "endpoint"). Não precisa traduzir nem evitar jargão; explicar o termo só na primeira vez ou se ele perguntar.
 - Diagnósticos curtos antes de propor solução
 - Passo a passo numerado quando há trabalho de UI
 - Honestidade sobre risco e trade-offs (ex: "isso pode quebrar X", "essa abordagem é hacky mas resolve")

@@ -1,5 +1,5 @@
 /* ============================================
-   D.R. Global Multi Services — Sistema de Gestão
+   D.R. Global Gestão de Condomínios e BPO — Sistema de Gestão
    app.js  (v4 — Firebase Firestore)
    ============================================ */
 
@@ -177,22 +177,23 @@ const DB = {
 // ESTADO GLOBAL
 // ============================================
 const EMPRESA_DEFAULTS = {
-  nomeEmpresa:         'D.R. Global Multi Services',
-  cnpj:                '47.619.085/0001-98',
-  descricao:           'Gestão de Portaria e Segurança',
+  nomeEmpresa:         'D.R. Global Gestão de Condomínios e BPO',
+  razaoSocial:         'D.R. Global - Gestão de Condomínios, Imóveis, Assessoria Financeira e Administrativa Ltda',
+  cnpj:                '49.698.112/0001-57',
+  descricao:           'Gestão de Condomínios e BPO',
   subdesc:             'Sistema de Gestão de Colaboradores',
   logoUrl:             '',
   modoContabilidade:   'ambas',  // 'interna' | 'externa' | 'ambas'
-  cnae:                '',
-  endereco:            '',
-  numero:              '',
-  complemento:         '',
-  bairro:              '',
-  cidade:              '',
-  uf:                  '',
-  cep:                 '',
-  telefone:            '',
-  email:               ''
+  cnae:                '6822-6/00',
+  endereco:            'Alameda Rio Negro',
+  numero:              '1030',
+  complemento:         'Cond. Stadium, Esc. 206',
+  bairro:              'Alphaville Centro Industrial e Empresarial',
+  cidade:              'Barueri',
+  uf:                  'SP',
+  cep:                 '06454-000',
+  telefone:            '(11) 99734-7272',
+  email:               'atendimento@drglobal.com.br'
 };
 
 // Parâmetros legais — tabelas oficiais atualizáveis (INSS/IRRF/FGTS/aviso prévio).
@@ -377,6 +378,7 @@ function applyEmpresaConfig(){
   // formulário de configurações (se estiver visível)
   if(document.getElementById('cfg-nome-empresa')){
     setVal('cfg-nome-empresa',       e.nomeEmpresa||'');
+    setVal('cfg-razao-social',       e.razaoSocial||'');
     setVal('cfg-cnpj',               e.cnpj||'');
     setVal('cfg-descricao',          e.descricao||'');
     setVal('cfg-logo-url',           e.logoUrl||'');
@@ -425,6 +427,7 @@ async function saveEmpresaConfig(){
   if(Auth.currentUser?.role!=='master'){ toast('Apenas o master pode alterar as configurações','error'); return; }
   const dados = {
     nomeEmpresa:       val('cfg-nome-empresa').trim() || EMPRESA_DEFAULTS.nomeEmpresa,
+    razaoSocial:       val('cfg-razao-social').trim(),
     cnpj:              val('cfg-cnpj').trim(),
     descricao:         val('cfg-descricao').trim(),
     logoUrl:           val('cfg-logo-url').trim(),
@@ -456,6 +459,7 @@ async function saveEmpresaConfig(){
 function renderConfiguracoes(){
   const e = State.empresa;
   setVal('cfg-nome-empresa',       e.nomeEmpresa||'');
+  setVal('cfg-razao-social',       e.razaoSocial||'');
   setVal('cfg-cnpj',               e.cnpj||'');
   setVal('cfg-descricao',          e.descricao||'');
   setVal('cfg-logo-url',           e.logoUrl||'');
@@ -6394,7 +6398,7 @@ function _trctHtml(r, emp, o){
     <colgroup>${'<col>'.repeat(24)}</colgroup>
     <tr><td colspan="24" class="title">Termo de Rescisão do Contrato de Trabalho</td></tr>
     <tr><td colspan="24" class="band">IDENTIFICAÇÃO DO EMPREGADOR</td></tr>
-    <tr>${fld('01','CNPJ/CEI',e.cnpj,8)}${fld('02','Razão Social/Nome',e.nomeEmpresa,16)}</tr>
+    <tr>${fld('01','CNPJ/CEI',e.cnpj,8)}${fld('02','Razão Social/Nome',e.razaoSocial||e.nomeEmpresa,16)}</tr>
     <tr>${fld('03','Endereço (logradouro, nº, andar, apartamento)',endEmp,18)}${fld('04','Bairro',e.bairro,6)}</tr>
     <tr>${fld('05','Município',e.cidade,6)}${fld('06','UF',e.uf,2)}${fld('07','CEP',e.cep,4)}${fld('08','CNAE',e.cnae,6)}${fld('09','CNPJ/CEI Tomador/Obra','',6)}</tr>
     <tr><td colspan="24" class="band">IDENTIFICAÇÃO DO TRABALHADOR</td></tr>
@@ -6422,7 +6426,7 @@ function _trctHtml(r, emp, o){
   <div class="note">Prazo de pagamento das verbas rescisórias (CLT art. 477, §6º): até <strong>${o.prazoPagamento||'—'}</strong>. Tempo de serviço: ${o.tempoServico||'—'}.</div>
   ${r.observacoes?`<div class="note"><strong>Observações:</strong> ${r.observacoes}</div>`:''}
   <div class="ass">
-    <div>${e.nomeEmpresa||'Empregador'}<br>Assinatura do Empregador</div>
+    <div>${e.razaoSocial||e.nomeEmpresa||'Empregador'}<br>Assinatura do Empregador</div>
     <div>${emp.nome||'Trabalhador'}<br>Assinatura do Trabalhador</div>
   </div>
   <div class="foot">Documento gerado por ${APP_VERSION} em ${new Date().toLocaleDateString('pt-BR')} — demonstrativo de conferência, não substitui o eSocial.</div>

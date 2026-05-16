@@ -9,7 +9,7 @@ Este arquivo serve como memória de contexto pro Claude (ou outra IA) que abrir 
 **Nome comercial do software: DRG-Kronos 3.0**
 A versão é controlada pela constante `APP_VERSION` no topo de `app.js` — altere apenas lá, ela alimenta automaticamente a tela de login e o rodapé do sidebar.
 
-Sistema de gestão de colaboradores para a empresa **D.R. Global Multi Services** (portaria/condomínios). Inclui:
+Sistema de gestão de colaboradores para a empresa **D.R. Global Gestão de Condomínios e BPO** — razão social `D.R. Global - Gestão de Condomínios, Imóveis, Assessoria Financeira e Administrativa Ltda`, CNPJ `49.698.112/0001-57`. Inclui:
 
 - Cadastro de colaboradores (dados pessoais, endereço, contrato, benefícios, férias, documentos, refeição)
 - Folha de ponto mensal (com leitura automática de PDF via IA + ponto manual com suporte a turno noturno cross-midnight)
@@ -311,12 +311,14 @@ node --check ponto-sw.js
 - **2026-05-15**: Atraso automático na Folha de Ponto — `calcResumoManual` e `applyPontoManual` passam a computar o atraso do mês a partir do ponto diário, de forma simétrica ao HE. Por dia trabalhado (com horário esperado e tipo≠folga): `faltaDia = _liqMin(expectedDay) − effLiq`; se passar de 10min (tolerância CLT Art. 58) soma em `totalAtrasoMin`. `applyPontoManual` preenche `payroll-atraso-min` automaticamente e o modal Ponto Manual ganhou o item "X de atraso" no resumo (`#ponto-resumo-atraso`). Novo helper `_liqMin(dia)`. O valor preenchido continua editável e pode ser abonado/justificado pelo gestor.
 - **2026-05-15**: Node.js 24.15.0 LTS instalado na máquina do usuário (via `winget install OpenJS.NodeJS.LTS`). Passa a fazer parte do fluxo: rodar `node --check <arquivo>.js` antes de cada `git push` para validar a sintaxe e evitar publicar código quebrado.
 - **2026-05-15**: Banco de Horas — nova coleção `bancoHoras` + módulo completo. (1) **CCT** ganhou seção Banco de Horas: `bancoValidadeMeses` (12) e `bancoAvisoDias` (30). (2) **Folha de Ponto** — cartão Horas Extras ganhou seletor `payroll-he-destino` (`folha`|`banco`). Quando `banco`: `recalculate()` zera `payroll-he-valor` (não entra em totalBruto/totalLiquido) e mostra nota `#he-banco-note`; `savePayroll()` salva `heDestino` e chama `_syncBancoFromPayroll()` que faz upsert/delete do crédito `bh_folha_{payrollId}` (1:1, validade = último dia da competência + N meses). Excluir a folha remove o crédito. (3) **Modal `modal-banco-horas`** por colaborador (botão no cartão HE) — saldo, próxima expiração, extrato, e form de baixa manual (`addBancoDebito` cria débito; `removeBancoLancamento` só remove manuais). (4) **Dashboard** — `renderAlerts()` avisa quando a leva FIFO mais antiga está a ≤`bancoAvisoDias` de expirar (vermelho se já expirada). Helpers: `bancoSaldo`, `bancoProximaExpiracao` (FIFO), `_syncBancoFromPayroll`, `_ultimoDiaMesISO`, `_addMonthsISO`, `_fmtHoras`. Retrocompatível: folhas sem `heDestino` assumem `folha`. Folha impressa mostra saldo real do banco. Log: `BANCO_HORAS_DEBITO`.
+- **2026-05-16**: Correção dos dados da empresa empregadora — o sistema usava um placeholder errado (`D.R. Global Multi Services` / CNPJ `47.619.085/0001-98`). A empregadora real, confirmada pelo usuário e pela base da Receita, é **D.R. Global Gestão de Condomínios e BPO** (razão social `D.R. Global - Gestão de Condomínios, Imóveis, Assessoria Financeira e Administrativa Ltda`, CNPJ `49.698.112/0001-57`). `EMPRESA_DEFAULTS` preenchido com razão social, CNPJ, CNAE `6822-6/00`, endereço completo (Alameda Rio Negro 1030 · Cond. Stadium Esc. 206 · Alphaville Centro Industrial e Empresarial · Barueri/SP · CEP 06454-000), telefone e e-mail. Novo campo `razaoSocial` separado de `nomeEmpresa` (fantasia): o TRCT (`_trctHtml`) usa `e.razaoSocial||e.nomeEmpresa` no campo legal 02 e na assinatura do empregador; o fantasia segue como marca de exibição em todo o sistema. Campo "Razão Social" adicionado ao formulário de Configurações (`cfg-razao-social`), com save/load em `saveEmpresaConfig`/`renderConfiguracoes`/`applyEmpresaConfig`. Resolve o TRCT da rescisão saindo sem o endereço da empresa.
+- **2026-05-16**: `node --check` não pôde ser rodado nesta sessão — Node.js não está instalado/no PATH (ausente em Program Files, winget e shims); a nota de 2026-05-15 está desatualizada. A sintaxe do `app.js` foi validada por inspeção dos blocos editados. Reinstalar o Node (`winget install OpenJS.NodeJS.LTS`) para restaurar o fluxo `node --check`.
 
 ---
 
 ## Sobre o usuário (Donizete)
 
-- **Nome:** Donizete Romão — dono da **D.R. Global Multi Services** (portaria/vigilância de condomínios)
+- **Nome:** Donizete Romão — dono da **D.R. Global Gestão de Condomínios e BPO** (gestão de condomínios, imóveis e BPO)
 - **Porte da empresa:** ~100 funcionários ativos
 - **Perfil técnico:** não programa — precisa de instruções claras, objetivas e passo a passo
 - **Ambiente:** Windows 11, Google Chrome

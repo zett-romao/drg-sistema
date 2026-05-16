@@ -1362,39 +1362,15 @@ ul { list-style: none; }
 .checkbox-label input:disabled { opacity: .5; }
 .checkbox-label small { color: #5C8DB8; font-size: 11px; }
 
-/* ---- Perfis / Seletor de nível por módulo ---- */
-.perfil-mod-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  padding: 8px 12px;
-  border-radius: 8px;
-  border: 1.5px solid #BBDEFB;
-  background: #F0F8FF;
-  color: #1565C0;
-  transition: background .15s, border-color .15s;
+/* ---- Perfis / Caixa "Editar" por módulo ---- */
+.checkbox-label.perm-card { justify-content: space-between; gap: 8px; }
+.perm-card .perm-mod { display: flex; align-items: center; gap: 10px; cursor: pointer; flex: 1; min-width: 0; }
+.perm-card .perm-edit {
+  display: flex; align-items: center; gap: 5px; cursor: pointer;
+  font-size: 11px; font-weight: 700; white-space: nowrap;
+  padding-left: 8px; border-left: 1px solid #BBDEFB;
 }
-.perfil-mod-nome { display: flex; align-items: center; gap: 9px; }
-.perfil-mod-perm {
-  font-size: 12px;
-  font-weight: 600;
-  padding: 5px 8px;
-  border-radius: 7px;
-  border: 1.5px solid #90CAF9;
-  background: #fff;
-  color: #1565C0;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-.perfil-mod-row:has(.perfil-mod-perm option[value="none"]:checked) {
-  background: #F5F5F5; border-color: #E0E0E0; color: #90A4AE;
-}
-.perfil-mod-row:has(.perfil-mod-perm option[value="edit"]:checked) {
-  background: #E3F2FD; border-color: #42A5F5;
-}
+.perm-card .perm-edit input { accent-color: var(--primary); width: 15px; height: 15px; }
 
 /* ---- Modo somente leitura (perfil "visualizar") ---- */
 .view-only-banner {

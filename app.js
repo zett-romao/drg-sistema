@@ -11062,10 +11062,10 @@ function openPerfilModal(id=null){
   const titleEl=document.getElementById('modal-perfil-title');
   // Aplica o nível de um módulo ao controle correspondente (select de 3 níveis ou checkbox)
   const setMod=(mod,modules,perm)=>{
-    const sel=document.querySelector(`#perfil-modulos select[data-mod="${mod}"]`);
-    if(sel){ sel.value = !modules[mod] ? 'none' : (perm[mod]==='view'?'view':'edit'); return; }
     const chk=document.querySelector(`#perfil-modulos input[value="${mod}"]`);
     if(chk) chk.checked=!!modules[mod];
+    const ed=document.querySelector(`#perfil-modulos input[data-edit="${mod}"]`);
+    if(ed) ed.checked = !!modules[mod] && perm[mod]!=='view';
   };
   if(id){
     const p=State.perfis.find(p=>p.id===id); if(!p) return;
@@ -11089,14 +11089,10 @@ async function savePerfil(){
   if(!nome){ toast('Nome do perfil obrigatório.','error'); return; }
   const modules={dashboard:true}, modulesPerm={};
   Object.keys(MODULOS_LABELS).forEach(mod=>{
-    const sel=document.querySelector(`#perfil-modulos select[data-mod="${mod}"]`);
-    if(sel){
-      modules[mod]=sel.value!=='none';
-      if(sel.value==='view'||sel.value==='edit') modulesPerm[mod]=sel.value;
-      return;
-    }
     const chk=document.querySelector(`#perfil-modulos input[value="${mod}"]`);
     modules[mod]=chk?chk.checked:false;
+    const ed=document.querySelector(`#perfil-modulos input[data-edit="${mod}"]`);
+    if(ed && modules[mod]) modulesPerm[mod]= ed.checked ? 'edit' : 'view';
   });
   const id=val('perfil-id')||genId();
   const perfil={id,nome,modules,modulesPerm,updatedAt:new Date().toISOString()};

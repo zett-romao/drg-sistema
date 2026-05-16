@@ -3454,6 +3454,32 @@ function _escalaModelo(escala){
   return (State.escalasModelos||[]).find(m=>m.id===escala.slice(2)) || null;
 }
 
+// Template do dia (tipo + horários) de um modelo para uma data específica.
+// Semanal: posição = dia da semana. Cíclico: posição = (data - âncora) % N.
+function _modeloDiaTemplate(modelo, dateObj){
+  if(!modelo || !Array.isArray(modelo.dias) || !modelo.dias.length) return {tipo:'folga'};
+  if(modelo.tipo==='ciclo'){
+    const N=modelo.dias.length;
+    if(!modelo.dataInicio) return {tipo:'folga'};
+    const ini=new Date(modelo.dataInicio+'T00:00:00');
+    if(isNaN(ini.getTime())) return {tipo:'folga'};
+    const a=Date.UTC(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate());
+    const b=Date.UTC(ini.getFullYear(), ini.getMonth(), ini.getDate());
+    const offset=Math.round((a-b)/86400000);
+    return modelo.dias[((offset%N)+N)%N] || {tipo:'folga'};
+  }
+  return modelo.dias[dateObj.getDay()] || {tipo:'folga'};
+}
+
+// Jornada contratada típica de um modelo (minutos líquidos de um dia de trabalho)
+function _modeloMinContratados(modelo){
+  if(!modelo || !Array.isArray(modelo.dias)) return 480;
+  const w=modelo.dias.find(d=>(d.tipo==='trabalho'||d.tipo==='corrido') && d.entrada && d.saida);
+  if(!w) return 480;
+  const m=_liqMin(w);
+  return m>0 ? m : 480;
+}
+
 // Retorna label legível da escala
 function escalaLabel(escala){
   if(escala && escala.startsWith('m_')){
@@ -3478,7 +3504,7 @@ function calcDiasEscala(mes, ano, escala){
   if(_mod){
     let n=0;
     for(let d=1;d<=diasNoMes;d++){
-      const md=_mod.dias[new Date(ano,mes-1,d).getDay()]||{};
+      const md=_modeloDiaTemplate(_mod, new Date(ano,mes-1,d));
       if(md.tipo==='trabalho'||md.tipo==='corrido') n++;
     }
     return n;
@@ -3988,7 +4014,7 @@ function _colabTrabalhaNoDia(emp, dataISO){
   // 3) Fallback por escala contratual
   const _mod=_escalaModelo(emp.escala);
   if(_mod){
-    const md=_mod.dias[d.getDay()]||{tipo:'folga'};
+    const md=_modeloDiaTemplate(_mod, d);
     return md.tipo==='trabalho'||md.tipo==='corrido';
   }
   const fam = escalaFamilia(emp.escala || '5x2A');
@@ -8392,7 +8418,7 @@ function _getExpectedDay(emp, mes, ano, dia){
   // 1b) Modelo de escala customizado
   const _mod=_escalaModelo(emp.escala);
   if(_mod){
-    const md=_mod.dias[new Date(ano, mes-1, dia).getDay()]||{tipo:'folga'};
+    const md=_modeloDiaTemplate(_mod, new Date(ano, mes-1, dia));
     return { tipo:md.tipo||'folga', entrada:md.entrada||'', saida:md.saida||'', intIni:md.intIni||'', intFim:md.intFim||'' };
   }
   // 2) Fallback: horários contratuais do cadastro (assume trabalho em dia útil)
@@ -8714,6 +8740,8 @@ function calcResumoManual(){
   let minContratados=480;
   if(fam==='6x1') minContratados=440;
   else if(fam==='12x36') minContratados=660;
+  const _modMC=emp?_escalaModelo(emp.escala):null;
+  if(_modMC) minContratados=_modeloMinContratados(_modMC);
   const existingPayroll=State.payrolls.find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
   cards.forEach(card=>{
     const dia=parseInt(card.dataset.dia);
@@ -9258,6 +9286,8 @@ async function applyPontoManual(){
   let minContratados=480;
   if(fam==='6x1') minContratados=440;
   else if(fam==='12x36') minContratados=660;
+  const _modMC=emp?_escalaModelo(emp.escala):null;
+  if(_modMC) minContratados=_modeloMinContratados(_modMC);
   const existingPayroll=State.payrolls.find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
   cards.forEach(card=>{
     const dia=parseInt(card.dataset.dia);
@@ -10422,7 +10452,9 @@ function _escalaHorariosDia(emp, diaSem){
   const escala = emp.escala || '5x2A';
   const _mod=_escalaModelo(escala);
   if(_mod){
-    const md=_mod.dias[diaSem]||{};
+    const md = _mod.tipo==='ciclo'
+      ? ((_mod.dias||[]).find(d=>d.tipo==='trabalho'||d.tipo==='corrido')||{})
+      : (_mod.dias[diaSem]||{});
     return { entrada:md.entrada||'', intIni:md.intIni||'', intFim:md.intFim||'', saida:md.saida||'' };
   }
   const noturno = !!emp.turnoNoturno;
@@ -10483,8 +10515,9 @@ function _projectEscalaModelo(emp, mes, ano, modelo){
   const dias=[];
   const dpm=new Date(ano, mes, 0).getDate();
   for(let d=1; d<=dpm; d++){
-    const ds=new Date(ano, mes-1, d).getDay();
-    const md=modelo.dias[ds]||{tipo:'folga'};
+    const dObj=new Date(ano, mes-1, d);
+    const ds=dObj.getDay();
+    const md=_modeloDiaTemplate(modelo, dObj);
     const tipo=md.tipo||'folga';
     const h=(tipo!=='folga')
       ? {entrada:md.entrada||'', intIni:md.intIni||'', intFim:md.intFim||'', saida:md.saida||''}
@@ -10651,12 +10684,15 @@ function renderEscalaModelosList(){
     </div>`;
   }).join('');
 }
-function _renderEscalaModeloDias(dias){
+function _renderEscalaModeloDias(tipo, dias){
   const tb=document.getElementById('esc-mod-dias'); if(!tb) return;
-  tb.innerHTML=_DIAS_SEMANA.map((nome,i)=>{
+  const n = tipo==='ciclo' ? ((dias&&dias.length)||0) : 7;
+  let html='';
+  for(let i=0;i<n;i++){
     const d=(dias&&dias[i])||{tipo:'folga'};
     const t=d.tipo||'folga';
-    return `<tr>
+    const nome = tipo==='ciclo' ? ('Dia '+(i+1)) : _DIAS_SEMANA[i];
+    html+=`<tr>
       <td style="font-weight:600;font-size:12px">${nome}</td>
       <td><select class="em-tipo"><option value="folga"${t==='folga'?' selected':''}>Folga</option><option value="trabalho"${t==='trabalho'?' selected':''}>Trabalho</option><option value="corrido"${t==='corrido'?' selected':''}>Hora corrida</option></select></td>
       <td><input type="time" class="em-entrada" value="${d.entrada||''}"></td>
@@ -10664,35 +10700,13 @@ function _renderEscalaModeloDias(dias){
       <td><input type="time" class="em-intFim" value="${d.intFim||''}"></td>
       <td><input type="time" class="em-saida" value="${d.saida||''}"></td>
     </tr>`;
-  }).join('');
-}
-function novoEscalaModelo(){
-  setVal('esc-mod-id','');
-  setVal('esc-mod-nome','');
-  const def=[];
-  for(let i=0;i<7;i++){
-    def.push((i>=1&&i<=5)
-      ? {tipo:'trabalho',entrada:'08:00',intIni:'12:00',intFim:'13:00',saida:'17:00'}
-      : {tipo:'folga'});
   }
-  _renderEscalaModeloDias(def);
-  document.getElementById('esc-mod-form-titulo').textContent='Novo modelo de escala';
-  _escModMostrarForm();
+  tb.innerHTML=html;
 }
-function editEscalaModelo(id){
-  const m=(State.escalasModelos||[]).find(x=>x.id===id); if(!m) return;
-  setVal('esc-mod-id',m.id);
-  setVal('esc-mod-nome',m.nome||'');
-  _renderEscalaModeloDias(m.dias||[]);
-  document.getElementById('esc-mod-form-titulo').textContent='Editar modelo de escala';
-  _escModMostrarForm();
-}
-async function saveEscalaModelo(){
-  const nome=val('esc-mod-nome').trim();
-  if(!nome){ toast('Dê um nome ao modelo de escala.','error'); return; }
-  const dias=[];
+function _escModColetarDias(){
+  const arr=[];
   document.querySelectorAll('#esc-mod-dias tr').forEach(tr=>{
-    dias.push({
+    arr.push({
       tipo:tr.querySelector('.em-tipo').value,
       entrada:tr.querySelector('.em-entrada').value||'',
       intIni:tr.querySelector('.em-intIni').value||'',
@@ -10700,13 +10714,70 @@ async function saveEscalaModelo(){
       saida:tr.querySelector('.em-saida').value||''
     });
   });
+  return arr;
+}
+function _escModDefSemanal(){
+  const def=[];
+  for(let i=0;i<7;i++) def.push((i>=1&&i<=5)
+    ? {tipo:'trabalho',entrada:'08:00',intIni:'12:00',intFim:'13:00',saida:'17:00'}
+    : {tipo:'folga'});
+  return def;
+}
+function onEscModTipoChange(){
+  const ciclo=val('esc-mod-tipo')==='ciclo';
+  document.querySelectorAll('.esc-mod-ciclo-cfg').forEach(el=>el.style.display=ciclo?'':'none');
+  if(ciclo) _escModRegenCiclo(true);
+  else _renderEscalaModeloDias('semanal', _escModDefSemanal());
+}
+function _escModRegenCiclo(novo){
+  const n=Math.max(2,Math.min(60,parseInt(val('esc-mod-ciclo-n'))||6));
+  setVal('esc-mod-ciclo-n',n);
+  const atual=novo?[]:_escModColetarDias();
+  const dias=[];
+  for(let i=0;i<n;i++) dias.push(atual[i]||{tipo:'trabalho',entrada:'07:00',intIni:'',intFim:'',saida:'19:00'});
+  _renderEscalaModeloDias('ciclo',dias);
+}
+function novoEscalaModelo(){
+  setVal('esc-mod-id','');
+  setVal('esc-mod-nome','');
+  setVal('esc-mod-tipo','semanal');
+  setVal('esc-mod-ciclo-n',6);
+  setVal('esc-mod-ciclo-inicio','');
+  document.querySelectorAll('.esc-mod-ciclo-cfg').forEach(el=>el.style.display='none');
+  _renderEscalaModeloDias('semanal', _escModDefSemanal());
+  document.getElementById('esc-mod-form-titulo').textContent='Novo modelo de escala';
+  _escModMostrarForm();
+}
+function editEscalaModelo(id){
+  const m=(State.escalasModelos||[]).find(x=>x.id===id); if(!m) return;
+  const tipo=m.tipo||'semanal';
+  setVal('esc-mod-id',m.id);
+  setVal('esc-mod-nome',m.nome||'');
+  setVal('esc-mod-tipo',tipo);
+  setVal('esc-mod-ciclo-n', tipo==='ciclo'?((m.dias&&m.dias.length)||6):6);
+  setVal('esc-mod-ciclo-inicio',m.dataInicio||'');
+  document.querySelectorAll('.esc-mod-ciclo-cfg').forEach(el=>el.style.display=tipo==='ciclo'?'':'none');
+  _renderEscalaModeloDias(tipo, m.dias||[]);
+  document.getElementById('esc-mod-form-titulo').textContent='Editar modelo de escala';
+  _escModMostrarForm();
+}
+async function saveEscalaModelo(){
+  const nome=val('esc-mod-nome').trim();
+  if(!nome){ toast('Dê um nome ao modelo de escala.','error'); return; }
+  const tipo=val('esc-mod-tipo')||'semanal';
+  const dias=_escModColetarDias();
   if(!dias.some(d=>d.tipo==='trabalho'||d.tipo==='corrido')){
     toast('O modelo precisa ter ao menos um dia de trabalho.','error'); return;
+  }
+  let dataInicio='';
+  if(tipo==='ciclo'){
+    dataInicio=val('esc-mod-ciclo-inicio');
+    if(!dataInicio){ toast('Informe a data de início do ciclo (a âncora do plantão).','error'); return; }
   }
   const id=val('esc-mod-id');
   const existente=id?(State.escalasModelos||[]).find(x=>x.id===id):null;
   const doc={
-    id:id||genId(), nome, dias,
+    id:id||genId(), nome, tipo, dias, dataInicio,
     createdAt:existente?.createdAt||new Date().toISOString(),
     updatedAt:new Date().toISOString()
   };

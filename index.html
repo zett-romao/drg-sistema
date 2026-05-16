@@ -3558,11 +3558,28 @@
           <label>Nome do modelo</label>
           <input type="text" id="esc-mod-nome" placeholder="Ex.: Cliente Tal — Portaria 5x1">
         </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Tipo de escala</label>
+            <select id="esc-mod-tipo" onchange="onEscModTipoChange()">
+              <option value="semanal">Semanal — repete toda semana</option>
+              <option value="ciclo">Ciclo / plantão — repete a cada N dias</option>
+            </select>
+          </div>
+          <div class="form-group form-group-sm esc-mod-ciclo-cfg" style="display:none">
+            <label>Dias no ciclo</label>
+            <input type="number" id="esc-mod-ciclo-n" min="2" max="60" value="6" onchange="_escModRegenCiclo()">
+          </div>
+          <div class="form-group esc-mod-ciclo-cfg" style="display:none">
+            <label>Início do ciclo (data-âncora)</label>
+            <input type="date" id="esc-mod-ciclo-inicio">
+          </div>
+        </div>
         <table class="data-table" style="font-size:12px;margin-top:6px">
           <thead><tr><th>Dia</th><th>Situação</th><th>Entrada</th><th>Início interv.</th><th>Fim interv.</th><th>Saída</th></tr></thead>
           <tbody id="esc-mod-dias"></tbody>
         </table>
-        <div style="font-size:11px;color:var(--text-muted);margin-top:6px"><i class="fa-solid fa-circle-info"></i> Em dias de folga os horários são ignorados. "Hora corrida" = trabalho sem intervalo.</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:6px"><i class="fa-solid fa-circle-info"></i> Em dias de folga os horários são ignorados. "Hora corrida" = trabalho sem intervalo. No ciclo, a <strong>data-âncora</strong> é uma data em que o "Dia 1" do ciclo aconteceu.</div>
       </div>
     </div>
     <div class="modal-footer">
@@ -4494,6 +4511,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260516h"></script>
+<script src="app.js?v=20260516i"></script>
 </body>
 </html>

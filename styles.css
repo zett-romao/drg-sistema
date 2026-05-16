@@ -1362,6 +1362,52 @@ ul { list-style: none; }
 .checkbox-label input:disabled { opacity: .5; }
 .checkbox-label small { color: #5C8DB8; font-size: 11px; }
 
+/* ---- Perfis / Seletor de nível por módulo ---- */
+.perfil-mod-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1.5px solid #BBDEFB;
+  background: #F0F8FF;
+  color: #1565C0;
+  transition: background .15s, border-color .15s;
+}
+.perfil-mod-nome { display: flex; align-items: center; gap: 9px; }
+.perfil-mod-perm {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 8px;
+  border-radius: 7px;
+  border: 1.5px solid #90CAF9;
+  background: #fff;
+  color: #1565C0;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.perfil-mod-row:has(.perfil-mod-perm option[value="none"]:checked) {
+  background: #F5F5F5; border-color: #E0E0E0; color: #90A4AE;
+}
+.perfil-mod-row:has(.perfil-mod-perm option[value="edit"]:checked) {
+  background: #E3F2FD; border-color: #42A5F5;
+}
+
+/* ---- Modo somente leitura (perfil "visualizar") ---- */
+.view-only-banner {
+  display: flex; align-items: center; gap: 9px;
+  background: #FFF8E1; border: 1.5px solid #FFE082;
+  color: #8D6E00; font-size: 13px; font-weight: 600;
+  padding: 10px 14px; border-radius: 8px; margin-bottom: 14px;
+}
+.view-only-banner i { color: #F9A825; font-size: 15px; }
+.section.view-locked button:has(.fa-trash),
+.section.view-locked .btn-danger-icon { display: none !important; }
+.section.view-locked button:disabled { opacity: .45; cursor: not-allowed; }
+
 /* ---- Print ---- */
 @media print {
   .sidebar, .topbar, .page-header, nav, header,

@@ -69,18 +69,21 @@ const DB = {
   // Salva/atualiza um documento (replace)
   async save(col, record) {
     const ref = this.col(col); if (!ref) return;
+    _dbAssertWrite(col);
     await ref.doc(record.id).set(record);
   },
 
   // Atualiza campos específicos de um documento (merge parcial)
   async merge(col, id, data) {
     const ref = this.col(col); if (!ref) return;
+    _dbAssertWrite(col);
     await ref.doc(id).set(data, {merge: true});
   },
 
   // Salva num sub-path fixo (ex: 'configuracoes', 'empresa')
   async saveDoc(col, docId, data, mergeFlag = false) {
     const ref = this.col(col); if (!ref) return;
+    _dbAssertWrite(col);
     await ref.doc(docId).set(data, mergeFlag ? {merge:true} : undefined);
   },
 
@@ -94,6 +97,7 @@ const DB = {
   // Exclui um documento
   async remove(col, id) {
     const ref = this.col(col); if (!ref) return;
+    _dbAssertWrite(col);
     await ref.doc(id).delete();
   },
 
@@ -866,8 +870,60 @@ function showSection(name){
     if(perfilCard) perfilCard.style.display  = logOnly?'none':'';
     if(pageHeader) pageHeader.style.display  = logOnly?'none':'';
   }
+  _applyViewLock(name);
   // Fechar menu automaticamente no celular ao navegar
   if(window.innerWidth<=768) closeSidebarMobile();
+}
+
+// Modais de cada seção que devem ser travados quando o perfil é "somente visualizar".
+const SECTION_MODALS={
+  employees:['modal-employee'],
+  payroll:['modal-ponto-manual','modal-banco-horas','modal-he-review'],
+  escalas:['modal-corrido-perc','modal-bulk-refeicao'],
+  decimoterceiro:['modal-decimo-terceiro'],
+  ferias:['modal-ferias-modulo'],
+  rescisao:['modal-rescisao'],
+  postos:['modal-posto'],
+  contratos:['modal-contrato','modal-adm-tenant','modal-adm-cobranca']
+};
+// Trava campos e o botão Salvar de um modal (mantém imprimir/exportar/fechar).
+function _lockModalView(modalId){
+  const m=document.getElementById(modalId); if(!m) return;
+  m.querySelectorAll('input,select,textarea').forEach(el=>{ el.disabled=true; });
+  m.querySelectorAll('.modal-footer button, button.btn-primary').forEach(b=>{
+    const txt=(b.textContent||'').trim();
+    if(/cancelar|fechar|voltar|imprimir|exportar|pr[ée]via|pdf|csv|excel/i.test(txt)) return;
+    b.disabled=true;
+  });
+}
+
+// ── Modo "somente visualizar": trava a UI de uma seção conforme o nível do perfil ──
+// Mostra um aviso e desabilita os botões de ação. A segurança real é o guarda do DB;
+// isto é a camada visual. Re-executado a cada navegação (idempotente).
+function _applyViewLock(sectionName){
+  const section=document.getElementById('section-'+sectionName);
+  if(!section) return;
+  const viewOnly=CRUD_MODULES.includes(sectionName) && !canEditModule(sectionName);
+  section.classList.toggle('view-locked', viewOnly);
+  let banner=section.querySelector('.view-only-banner');
+  if(viewOnly && !banner){
+    banner=document.createElement('div');
+    banner.className='view-only-banner';
+    banner.innerHTML='<i class="fa-solid fa-eye"></i> <strong>Modo somente leitura.</strong> Seu perfil permite consultar e imprimir neste módulo, mas não alterar dados.';
+    section.insertBefore(banner, section.firstChild);
+  } else if(!viewOnly && banner){
+    banner.remove();
+  }
+  if(!viewOnly) return;
+  // Desabilita botões de ação (criar/editar/excluir/salvar) — best-effort por texto/ícone.
+  const EDIT_RE=/salvar|adicionar|cadastrar|excluir|remover|\bnov[oa]\b|lançar|aprovar|importar|reabrir|fechar/i;
+  section.querySelectorAll('button').forEach(btn=>{
+    const txt=(btn.textContent||'').replace(/\s+/g,' ').trim();
+    const ic=btn.querySelector('i');
+    const isTrash=ic && /fa-trash/.test(ic.className||'');
+    if(isTrash || (txt && EDIT_RE.test(txt))) btn.disabled=true;
+  });
+  (SECTION_MODALS[sectionName]||[]).forEach(_lockModalView);
 }
 
 function toggleSidebar(){
@@ -6604,6 +6660,7 @@ function openAdmManageTenant(id) {
 }
 
 async function saveAdmTenant() {
+  if(!canEditModule('contratos')){ toast('Seu perfil é somente de visualização.','error'); return; }
   const nome = val('adm-mt-nome').trim();
   const cnpj = val('adm-mt-cnpj').replace(/\D/g,'');
   if (!nome || !cnpj) { toast('Nome e CNPJ são obrigatórios.','error'); return; }
@@ -10943,25 +11000,77 @@ function getUserModules(user){
   return {dashboard:true,payroll:true,escalas:true,reports:true};
 }
 
+// Módulos com cadastro/edição onde o nível "editar vs só visualizar" faz sentido.
+// (aprovaHE, reports e log ficam de fora — são ação ou somente leitura.)
+const CRUD_MODULES=['employees','payroll','escalas','pagamentos','decimoterceiro','ferias','rescisao','contabilidade','postos','contratos','users'];
+
+// Nível de permissão por módulo: 'edit' | 'view'. Master e operador = edit em tudo.
+// Perfis antigos sem `modulesPerm` assumem 'edit' nos módulos acessíveis
+// (retrocompatível — comportamento idêntico ao anterior à feature).
+function getUserPerms(user){
+  const perms={};
+  if(!user) return perms;
+  if(user.role==='master'||user.role==='operador'){
+    CRUD_MODULES.forEach(m=>perms[m]='edit');
+    return perms;
+  }
+  if(user.role&&user.role.startsWith('p_')){
+    const perfil=(State.perfis||[]).find(p=>p.id===user.role.replace('p_',''));
+    const mp=(perfil&&perfil.modulesPerm)||{};
+    CRUD_MODULES.forEach(m=>{ perms[m]=(mp[m]==='view')?'view':'edit'; });
+    return perms;
+  }
+  CRUD_MODULES.forEach(m=>perms[m]='edit');
+  return perms;
+}
+
+// true se o usuário atual pode EDITAR o módulo. Módulos fora de CRUD_MODULES
+// (aprovaHE/reports/log/dashboard) não têm restrição de nível.
+function canEditModule(mod){
+  const u=Auth.currentUser;
+  if(!u) return false;
+  if(u.role==='master') return true;
+  if(!CRUD_MODULES.includes(mod)) return true;
+  return getUserPerms(u)[mod]!=='view';
+}
+
+// ── Bloqueio central de gravação para perfis "somente visualizar" ──
+// Mapeia coleção do Firestore → módulo. Coleções fora do mapa não têm restrição
+// (ex.: accessLog, configuracoes — sempre liberadas).
+const COLL_MODULE={employees:'employees',payrolls:'payroll',escalas:'escalas',rescisoes:'rescisao',decimoTerceiro:'decimoterceiro',ferias:'ferias',postos:'postos',contratos:'contratos',bancoHoras:'payroll'};
+// Lança erro (e avisa o usuário) se o perfil atual não pode gravar na coleção.
+// Chamado dentro dos métodos de escrita do DB — rede de segurança do "só visualizar".
+function _dbAssertWrite(col){
+  const mod=COLL_MODULE[col];
+  if(!mod || !Auth.currentUser || canEditModule(mod)) return;
+  toast('Seu perfil é somente de visualização — esta alteração não é permitida.','error');
+  const err=new Error('view-only'); err._viewOnly=true; throw err;
+}
+
 function openPerfilModal(id=null){
   if(Auth.currentUser?.role!=='master') return;
   document.getElementById('modal-perfil').classList.remove('hidden');
   const titleEl=document.getElementById('modal-perfil-title');
+  // Aplica o nível de um módulo ao controle correspondente (select de 3 níveis ou checkbox)
+  const setMod=(mod,modules,perm)=>{
+    const sel=document.querySelector(`#perfil-modulos select[data-mod="${mod}"]`);
+    if(sel){ sel.value = !modules[mod] ? 'none' : (perm[mod]==='view'?'view':'edit'); return; }
+    const chk=document.querySelector(`#perfil-modulos input[value="${mod}"]`);
+    if(chk) chk.checked=!!modules[mod];
+  };
   if(id){
     const p=State.perfis.find(p=>p.id===id); if(!p) return;
     titleEl.innerHTML='<i class="fa-solid fa-shield-halved"></i> Editar Perfil';
     setVal('perfil-id',p.id); setVal('perfil-nome',p.nome);
-    Object.keys(MODULOS_LABELS).forEach(mod=>{
-      const chk=document.querySelector(`#perfil-modulos input[value="${mod}"]`);
-      if(chk) chk.checked=!!((p.modules||{})[mod]);
-    });
+    const modules=p.modules||{}, perm=p.modulesPerm||{};
+    Object.keys(MODULOS_LABELS).forEach(mod=>setMod(mod,modules,perm));
   } else {
     titleEl.innerHTML='<i class="fa-solid fa-shield-halved"></i> Novo Perfil';
     setVal('perfil-id',''); setVal('perfil-nome','');
-    Object.keys(MODULOS_LABELS).forEach(mod=>{
-      const chk=document.querySelector(`#perfil-modulos input[value="${mod}"]`);
-      if(chk) chk.checked=mod!=='users';
-    });
+    // Novo perfil: acesso de edição a tudo, exceto Usuários & Acessos
+    const defModules={}, defPerm={};
+    Object.keys(MODULOS_LABELS).forEach(m=>{ defModules[m]=m!=='users'; defPerm[m]='edit'; });
+    Object.keys(MODULOS_LABELS).forEach(mod=>setMod(mod,defModules,defPerm));
   }
 }
 
@@ -10969,13 +11078,19 @@ async function savePerfil(){
   if(Auth.currentUser?.role!=='master') return;
   const nome=val('perfil-nome').trim();
   if(!nome){ toast('Nome do perfil obrigatório.','error'); return; }
-  const modules={dashboard:true};
+  const modules={dashboard:true}, modulesPerm={};
   Object.keys(MODULOS_LABELS).forEach(mod=>{
+    const sel=document.querySelector(`#perfil-modulos select[data-mod="${mod}"]`);
+    if(sel){
+      modules[mod]=sel.value!=='none';
+      if(sel.value==='view'||sel.value==='edit') modulesPerm[mod]=sel.value;
+      return;
+    }
     const chk=document.querySelector(`#perfil-modulos input[value="${mod}"]`);
     modules[mod]=chk?chk.checked:false;
   });
   const id=val('perfil-id')||genId();
-  const perfil={id,nome,modules,updatedAt:new Date().toISOString()};
+  const perfil={id,nome,modules,modulesPerm,updatedAt:new Date().toISOString()};
   const btn=document.querySelector('#modal-perfil .btn-primary');
   setBtnLoading(btn,true,'');
   try {
@@ -11001,7 +11116,10 @@ function renderPerfisTable(){
   </tr>`).join('');
   if(State.perfis.length>0){
     rows+=State.perfis.map(p=>{
-      const modList=Object.entries(p.modules||{}).filter(([k,v])=>v&&k!=='dashboard').map(([k])=>MODULOS_LABELS[k]||k).join(', ')||'—';
+      const modList=Object.entries(p.modules||{}).filter(([k,v])=>v&&k!=='dashboard').map(([k])=>{
+        const lbl=MODULOS_LABELS[k]||k;
+        return (p.modulesPerm&&p.modulesPerm[k]==='view')?lbl+' <span style="color:#90A4AE">(ver)</span>':lbl;
+      }).join(', ')||'—';
       return `<tr>
         <td><strong>${p.nome}</strong></td>
         <td style="font-size:12px;color:var(--text-muted)">${modList}</td>

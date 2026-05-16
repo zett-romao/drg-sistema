@@ -218,6 +218,12 @@
           </button>
         </div>
 
+        <div style="text-align:center;margin-top:14px">
+          <button onclick="abrirAtestadoApp()" style="background:none;border:1px solid #cbd5e1;color:#475569;padding:10px 18px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer">
+            📋 Enviar atestado
+          </button>
+        </div>
+
       </div>
     </div>
 
@@ -269,10 +275,41 @@
   </div>
 </div>
 
+<!-- Enviar atestado -->
+<div id="atestado-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:999;align-items:center;justify-content:center;padding:20px;overflow-y:auto">
+  <div style="background:#fff;border-radius:16px;max-width:400px;width:100%;padding:22px;box-shadow:0 10px 40px rgba(0,0,0,.3);margin:auto">
+    <div style="font-size:34px;text-align:center">📋</div>
+    <div style="font-size:18px;font-weight:700;text-align:center;margin:4px 0 2px;color:#1e293b">Enviar atestado</div>
+    <div style="font-size:13px;color:#64748b;text-align:center;margin-bottom:14px">O gestor vai conferir e aprovar.</div>
+    <label style="font-size:13px;font-weight:600;color:#334155">Tipo</label>
+    <select id="at-app-tipo" onchange="_atestAppTipoChange()" style="width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px;margin:5px 0 12px;background:#fff">
+      <option value="dia">Dia(s) inteiro(s)</option>
+      <option value="horas">Horas</option>
+    </select>
+    <label style="font-size:13px;font-weight:600;color:#334155">Data de início</label>
+    <input type="date" id="at-app-inicio" style="width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px;margin:5px 0 12px">
+    <div id="at-app-fim-wrap">
+      <label style="font-size:13px;font-weight:600;color:#334155">Data de fim</label>
+      <input type="date" id="at-app-fim" style="width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px;margin:5px 0 12px">
+    </div>
+    <div id="at-app-horas-wrap" style="display:none">
+      <label style="font-size:13px;font-weight:600;color:#334155">Quantas horas</label>
+      <input type="number" id="at-app-horas" min="0" step="0.5" placeholder="0" style="width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px;margin:5px 0 12px">
+    </div>
+    <label style="font-size:13px;font-weight:600;color:#334155">Observação (opcional)</label>
+    <input type="text" id="at-app-obs" placeholder="Ex.: consulta médica" style="width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px;margin:5px 0 12px">
+    <label style="font-size:13px;font-weight:600;color:#334155">Foto do atestado</label>
+    <input type="file" id="at-app-arquivo" accept="image/*,.pdf" capture="environment" style="width:100%;font-size:13px;margin:6px 0 14px">
+    <button id="at-app-enviar" onclick="enviarAtestadoApp()" style="width:100%;padding:13px;background:#16a34a;color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer">Enviar atestado</button>
+    <button onclick="fecharAtestadoApp()" style="width:100%;padding:11px;background:none;color:#64748b;border:none;font-size:14px;cursor:pointer;margin-top:6px">Cancelar</button>
+  </div>
+</div>
+
 <!-- Firebase SDK -->
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
 <script src="firebase-config.js?v=20260515a"></script>
 
 <script>
@@ -719,6 +756,70 @@ async function baterPonto() {
     console.error(e);
     toast('Erro ao registrar. Verifique sua conexão.', 'error');
     renderBotao();
+  }
+}
+
+// ─── ENVIAR ATESTADO ──────────────────────────────────────────────────────────
+function abrirAtestadoApp(){
+  document.getElementById('at-app-tipo').value='dia';
+  document.getElementById('at-app-inicio').value='';
+  document.getElementById('at-app-fim').value='';
+  document.getElementById('at-app-horas').value='';
+  document.getElementById('at-app-obs').value='';
+  document.getElementById('at-app-arquivo').value='';
+  _atestAppTipoChange();
+  document.getElementById('atestado-overlay').style.display='flex';
+}
+function fecharAtestadoApp(){
+  document.getElementById('atestado-overlay').style.display='none';
+}
+function _atestAppTipoChange(){
+  const h=document.getElementById('at-app-tipo').value==='horas';
+  document.getElementById('at-app-fim-wrap').style.display=h?'none':'';
+  document.getElementById('at-app-horas-wrap').style.display=h?'':'none';
+}
+async function enviarAtestadoApp(){
+  if(!currentEmp){ toast('Sessão expirada. Entre novamente.','error'); return; }
+  const tipo=document.getElementById('at-app-tipo').value;
+  const inicio=document.getElementById('at-app-inicio').value;
+  if(!inicio){ toast('Informe a data de início.','error'); return; }
+  let fim=inicio, dias=0, horas=0;
+  if(tipo==='horas'){
+    horas=parseFloat(document.getElementById('at-app-horas').value)||0;
+    if(!(horas>0)){ toast('Informe as horas.','error'); return; }
+  } else {
+    fim=document.getElementById('at-app-fim').value||inicio;
+    const a=new Date(inicio+'T00:00:00'), b=new Date(fim+'T00:00:00');
+    if(b<a){ toast('A data de fim não pode ser antes do início.','error'); return; }
+    dias=Math.round((b-a)/(1000*60*60*24))+1;
+  }
+  const file=document.getElementById('at-app-arquivo').files[0];
+  if(!file){ toast('Anexe a foto do atestado.','error'); return; }
+  const btn=document.getElementById('at-app-enviar');
+  btn.disabled=true; btn.textContent='Enviando...';
+  try{
+    const d=new Date(inicio+'T00:00:00');
+    const id=Date.now().toString(36)+Math.random().toString(36).substr(2);
+    const ext=((file.name||'foto').split('.').pop()||'jpg').toLowerCase();
+    const ref=firebase.storage().ref(`atestados/${currentEmp.id}/${id}.${ext}`);
+    await ref.put(file);
+    const arquivoUrl=await ref.getDownloadURL();
+    const doc={
+      id, employeeId:currentEmp.id, mes:d.getMonth()+1, ano:d.getFullYear(),
+      tipo, dataInicio:inicio, dataFim:tipo==='horas'?inicio:fim,
+      dias, horas, cid:'', observacao:document.getElementById('at-app-obs').value||'',
+      arquivoUrl, arquivoNome:file.name||'atestado',
+      origem:'app', status:'pendente',
+      createdAt:new Date().toISOString(), updatedAt:new Date().toISOString()
+    };
+    await dbCol('atestados').doc(id).set(doc);
+    fecharAtestadoApp();
+    toast('Atestado enviado! Aguarde a aprovação do gestor. ✅','success');
+  }catch(e){
+    console.error(e);
+    toast('Erro ao enviar. Verifique a conexão e tente de novo.','error');
+  }finally{
+    btn.disabled=false; btn.textContent='Enviar atestado';
   }
 }
 

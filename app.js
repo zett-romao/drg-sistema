@@ -866,7 +866,8 @@ function showSection(name){
     const perfilCard=document.querySelector('#section-users .card:nth-child(2)');
     const pageHeader=document.querySelector('#section-users .page-header');
     const logOnly=!mods.users && mods.log;
-    if(userCard)   userCard.style.display   = logOnly?'none':'';
+    const isMaster=Auth.currentUser?.role==='master';
+    if(userCard)   userCard.style.display   = (logOnly||!isMaster)?'none':'';
     if(perfilCard) perfilCard.style.display  = logOnly?'none':'';
     if(pageHeader) pageHeader.style.display  = logOnly?'none':'';
   }
@@ -11034,6 +11035,14 @@ function canEditModule(mod){
   return getUserPerms(u)[mod]!=='view';
 }
 
+// true se o usuário pode gerir perfis de acesso: master, ou perfil com o módulo
+// "Usuários & Acessos" no nível Editar (ex.: o perfil "Gestor Senior").
+function canManagePerfis(){
+  const u=Auth.currentUser; if(!u) return false;
+  if(u.role==='master') return true;
+  return !!(getUserModules(u).users && canEditModule('users'));
+}
+
 // ── Bloqueio central de gravação para perfis "somente visualizar" ──
 // Mapeia coleção do Firestore → módulo. Coleções fora do mapa não têm restrição
 // (ex.: accessLog, configuracoes — sempre liberadas).
@@ -11048,7 +11057,7 @@ function _dbAssertWrite(col){
 }
 
 function openPerfilModal(id=null){
-  if(Auth.currentUser?.role!=='master') return;
+  if(!canManagePerfis()) return;
   document.getElementById('modal-perfil').classList.remove('hidden');
   const titleEl=document.getElementById('modal-perfil-title');
   // Aplica o nível de um módulo ao controle correspondente (select de 3 níveis ou checkbox)
@@ -11075,7 +11084,7 @@ function openPerfilModal(id=null){
 }
 
 async function savePerfil(){
-  if(Auth.currentUser?.role!=='master') return;
+  if(!canManagePerfis()) return;
   const nome=val('perfil-nome').trim();
   if(!nome){ toast('Nome do perfil obrigatório.','error'); return; }
   const modules={dashboard:true}, modulesPerm={};
@@ -11135,6 +11144,7 @@ function renderPerfisTable(){
 }
 
 function confirmDeletePerfil(id){
+  if(!canManagePerfis()) return;
   const p=State.perfis.find(p=>p.id===id); if(!p) return;
   document.getElementById('confirm-message').textContent=`Excluir o perfil "${p.nome}"? Usuários com este perfil passarão a ser Operadores.`;
   const btn=document.getElementById('confirm-ok-btn');

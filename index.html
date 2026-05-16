@@ -3453,6 +3453,9 @@
       </div>
     </div>
     <div class="modal-footer">
+      <button class="btn btn-outline" onclick="exportarTRCT('imprimir')" style="font-size:13px" title="Imprimir o TRCT"><i class="fa-solid fa-print"></i> Imprimir</button>
+      <button class="btn btn-outline" onclick="exportarTRCT('pdf')" style="font-size:13px" title="Gerar PDF do TRCT (escolha 'Salvar como PDF' na janela)"><i class="fa-solid fa-file-pdf" style="color:#C62828"></i> PDF</button>
+      <button class="btn btn-outline" onclick="exportarTRCT('excel')" style="margin-right:auto;font-size:13px" title="Exportar o TRCT em Excel"><i class="fa-solid fa-file-excel" style="color:#1B5E20"></i> Excel</button>
       <button class="btn btn-outline" onclick="closeModal('modal-rescisao')">Cancelar</button>
       <button class="btn btn-outline" id="resc-btn-reabrir" onclick="reabrirRescisao()" style="display:none;color:#E65100;border-color:#E65100"><i class="fa-solid fa-lock-open"></i> Reabrir</button>
       <button class="btn btn-outline" id="resc-btn-fechar" onclick="fecharRescisao()" style="color:#C62828;border-color:#C62828"><i class="fa-solid fa-lock"></i> Fechar Rescisão</button>
@@ -4321,6 +4324,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260515x"></script>
+<script src="app.js?v=20260515y"></script>
 </body>
 </html>

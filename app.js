@@ -6246,19 +6246,14 @@ function renderRescisoes(){
 }
 
 // Impressão do TRCT
-function printTRCT(id){
-  const r=State.rescisoes.find(x=>x.id===id);
-  if(!r){ toast('Rescisão não encontrada.','error'); return; }
-  const emp=State.employees.find(e=>e.id===r.employeeId)||{};
-  const o=r.calc||_calcRescisao({...r, emp});
+function _trctHtml(r, emp, o){
   const e=State.empresa||{};
   const tipoLabel=RESCISAO_TIPOS[r.tipo]?.label||r.tipo||'';
   const _m=v=>fmtMoney(v||0);
   const linha=(lbl,val)=>`<tr><td>${lbl}</td><td style="text-align:right">${_m(val)}</td></tr>`;
   const itensVerbas=Array.isArray(r.outrasVerbas)?r.outrasVerbas:(parseFloat(r.outrasVerbas)>0?[{descricao:'Outras verbas',valor:parseFloat(r.outrasVerbas)}]:[]);
   const itensDesc=Array.isArray(r.outrosDescontos)?r.outrosDescontos:(parseFloat(r.outrosDescontos)>0?[{descricao:'Outros descontos',valor:parseFloat(r.outrosDescontos)}]:[]);
-  const w=window.open('','_blank');
-  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>TRCT — ${emp.nome||''}</title>
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>TRCT — ${emp.nome||''}</title>
   <style>
     body{font-family:Arial,sans-serif;font-size:12px;color:#222;padding:24px;max-width:780px;margin:0 auto}
     h1{font-size:16px;text-align:center;margin:0 0 4px}
@@ -6324,9 +6319,27 @@ function printTRCT(id){
     <div>${emp.nome||'Trabalhador'}</div>
   </div>
   <p style="text-align:center;font-size:9px;color:#999;margin-top:24px">Documento gerado por ${APP_VERSION} em ${new Date().toLocaleDateString('pt-BR')} — demonstrativo de conferência, não substitui o eSocial.</p>
-  <scr`+`ipt>window.onload=function(){window.print();}<\/scr`+`ipt>
-  </body></html>`);
-  w.document.close();
+  </body></html>`;
+}
+
+function printTRCT(id){
+  const r=State.rescisoes.find(x=>x.id===id);
+  if(!r){ toast('Rescisão não encontrada.','error'); return; }
+  const emp=State.employees.find(e=>e.id===r.employeeId)||{};
+  const o=r.calc||_calcRescisao({...r, emp});
+  const nome=(emp.nome||'colaborador').replace(/\s+/g,'_');
+  _abrirJanelaExport(_trctHtml(r,emp,o), 'print', `TRCT_${nome}`);
+}
+
+// Gera o TRCT a partir dos dados atuais do modal — formato: 'imprimir' | 'pdf' | 'excel'
+function exportarTRCT(formato){
+  const r=_rescisaoFromModal();
+  if(!r.employeeId){ toast('Selecione um colaborador.','error'); return; }
+  if(!r.dataDemissao){ toast('Informe a data de demissão.','error'); return; }
+  const emp=r.emp||State.employees.find(e=>e.id===r.employeeId)||{};
+  const o=_calcRescisao({...r, emp});
+  const nome=(emp.nome||'colaborador').replace(/\s+/g,'_');
+  _abrirJanelaExport(_trctHtml(r,emp,o), formato==='imprimir'?'print':formato, `TRCT_${nome}`);
 }
 
 // ============================================

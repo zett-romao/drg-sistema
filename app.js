@@ -229,6 +229,7 @@ const State = {
   contratos: [],
   escalas:   [],
   bancoHoras: [],
+  atestados:  [],
   rescisoes: [],
   parametrosLegais: null,
   cct: null,
@@ -1270,6 +1271,7 @@ const LOG_TYPES={
   CONTRATO_UPDATED:    {label:'Contrato editado',     cls:'ev-contrato',   icon:'fa-file-pen'},
   CONTRATO_DELETED:    {label:'Contrato excluído',    cls:'ev-contrato',   icon:'fa-file-circle-minus'},
   BANCO_HORAS_DEBITO:  {label:'Baixa no banco de horas', cls:'ev-payroll', icon:'fa-piggy-bank'},
+  ATESTADO_LANCADO:    {label:'Atestado lançado',     cls:'ev-payroll',    icon:'fa-notes-medical'},
   PARAMS_LEGAIS_UPDATED:{label:'Parâmetros legais atualizados', cls:'ev-system', icon:'fa-scale-balanced'},
   RESCISAO_CREATED:    {label:'Rescisão criada',       cls:'ev-employee',   icon:'fa-file-circle-xmark'},
   RESCISAO_UPDATED:    {label:'Rescisão editada',      cls:'ev-employee',   icon:'fa-file-pen'},
@@ -3391,6 +3393,7 @@ function onPayrollEmployeeChange(){
   }
   recalculate(); renderPayrollHistory(empId);
   _updateFolhaStatusBadge();
+  renderAtestadosFolha();
 }
 
 // Reset apenas dos campos da folha (não toca em vt-dia/vr-dia/pix/horarios — vêm do cadastro)
@@ -4094,6 +4097,185 @@ function calcIRRF(bruto, dependentes, pensao, planoSaude, inss){
   return Math.max(0, Math.round((base*pl.irrf5Aliq/100-pl.irrf5Ded)*100)/100);
 }
 
+// ============================================
+// ATESTADOS
+// ============================================
+// Coleção `atestados`. Atestado médico aprovado abate dias/horas das
+// faltas e atrasos da folha — pago, sem desconto.
+function _atestadoTotais(empId, mes, ano){
+  let dias=0, horasMin=0;
+  (State.atestados||[]).forEach(a=>{
+    if(a.employeeId!==empId || a.mes!=mes || a.ano!=ano) return;
+    if(a.status==='pendente') return; // só aprovados abatem
+    if(a.tipo==='horas') horasMin += Math.round((parseFloat(a.horas)||0)*60);
+    else dias += parseInt(a.dias)||0;
+  });
+  return {dias, horasMin};
+}
+
+function _diasEntreInclusivo(ini, fim){
+  if(!ini) return 0;
+  const a=new Date(ini+'T00:00:00'), b=new Date((fim||ini)+'T00:00:00');
+  if(isNaN(a.getTime())||isNaN(b.getTime())||b<a) return 0;
+  return Math.round((b-a)/(1000*60*60*24))+1;
+}
+
+function onAtestadoTipoChange(){
+  const horas=val('atest-tipo')==='horas';
+  document.getElementById('atest-fim-wrap').style.display   = horas?'none':'';
+  document.getElementById('atest-horas-wrap').style.display = horas?'':'none';
+  _atestRecalc();
+}
+function _atestRecalc(){
+  const info=document.getElementById('atest-dias-info'); if(!info) return;
+  if(val('atest-tipo')==='horas'){ info.textContent=''; return; }
+  const d=_diasEntreInclusivo(val('atest-inicio'), val('atest-fim')||val('atest-inicio'));
+  info.textContent = d>0 ? `${d} dia(s) de atestado` : '';
+}
+
+function openAtestadoModal(id){
+  const empId=val('payroll-employee');
+  if(!empId){ toast('Selecione um colaborador na folha primeiro.','error'); return; }
+  const emp=State.employees.find(e=>e.id===empId)||{};
+  const mes=parseInt(val('payroll-mes')||currentMes());
+  const ano=parseInt(val('payroll-ano')||currentAno());
+  setVal('atest-emp-id',empId); setVal('atest-mes',mes); setVal('atest-ano',ano);
+  document.getElementById('atest-emp-nome').textContent=emp.nome||'—';
+  document.getElementById('atest-arquivo').value='';
+  const a = id ? (State.atestados||[]).find(x=>x.id===id) : null;
+  setVal('atest-id', a?a.id:'');
+  setVal('atest-tipo', a?.tipo||'dia');
+  setVal('atest-cid', a?.cid||'');
+  setVal('atest-inicio', a?.dataInicio||'');
+  setVal('atest-fim', a?.dataFim||'');
+  setVal('atest-horas', a?.horas||'');
+  setVal('atest-obs', a?.observacao||'');
+  const arqInfo=document.getElementById('atest-arquivo-atual');
+  arqInfo.innerHTML = a?.arquivoUrl
+    ? `<i class="fa-solid fa-paperclip"></i> Documento atual: <a href="${a.arquivoUrl}" target="_blank">${a.arquivoNome||'ver arquivo'}</a> — envie outro para substituir.`
+    : '';
+  onAtestadoTipoChange();
+  document.getElementById('modal-atestado').classList.remove('hidden');
+}
+
+async function saveAtestado(){
+  const empId=val('atest-emp-id'); if(!empId){ toast('Colaborador não definido.','error'); return; }
+  const tipo=val('atest-tipo');
+  const inicio=val('atest-inicio');
+  if(!inicio){ toast('Informe a data de início.','error'); return; }
+  const id=val('atest-id');
+  const existente = id ? (State.atestados||[]).find(x=>x.id===id) : null;
+  let dias=0, horas=0, fim=inicio;
+  if(tipo==='horas'){
+    horas=numVal('atest-horas');
+    if(!(horas>0)){ toast('Informe as horas do atestado.','error'); return; }
+  } else {
+    fim=val('atest-fim')||inicio;
+    dias=_diasEntreInclusivo(inicio, fim);
+    if(!(dias>0)){ toast('Data de fim inválida.','error'); return; }
+  }
+  const btn=document.querySelector('#modal-atestado .btn-primary');
+  setBtnLoading(btn,true,'');
+  try {
+    let arquivoUrl=existente?.arquivoUrl||'', arquivoNome=existente?.arquivoNome||'';
+    const fileInput=document.getElementById('atest-arquivo');
+    const file=fileInput&&fileInput.files[0];
+    if(file){
+      DB.initStorage();
+      if(DB.storage){
+        const docId=id||genId();
+        const ext=(file.name.split('.').pop()||'dat').toLowerCase();
+        const ref=DB.storage.ref(`atestados/${empId}/${docId}_${Date.now()}.${ext}`);
+        await ref.put(file);
+        arquivoUrl=await ref.getDownloadURL();
+        arquivoNome=file.name;
+      } else {
+        toast('Storage indisponível — atestado salvo sem o documento.','warning');
+      }
+    }
+    const m=parseInt(val('atest-mes'))||currentMes(), an=parseInt(val('atest-ano'))||currentAno();
+    const doc={
+      id:id||genId(), employeeId:empId, mes:m, ano:an,
+      tipo, dataInicio:inicio, dataFim:tipo==='horas'?inicio:fim,
+      dias, horas, cid:val('atest-cid')||'', observacao:val('atest-obs')||'',
+      arquivoUrl, arquivoNome,
+      origem:existente?.origem||'gestor',
+      status:'aprovado',
+      createdAt:existente?.createdAt||new Date().toISOString(),
+      updatedAt:new Date().toISOString()
+    };
+    await DB.save('atestados', doc);
+    const empNome=(State.employees.find(e=>e.id===empId)||{}).nome||'—';
+    Auth.log('ATESTADO_LANCADO', null, `${empNome} — ${tipo==='horas'?horas+'h':dias+' dia(s)'}`);
+    closeModal('modal-atestado');
+    toast('Atestado salvo!');
+    renderAtestadosFolha(); recalculate();
+  } catch(e){
+    toast('Erro ao salvar atestado: '+(e?.message||e),'error');
+  } finally {
+    setBtnLoading(btn,false,'<i class="fa-solid fa-floppy-disk"></i> Salvar Atestado');
+  }
+}
+
+function renderAtestadosFolha(){
+  const lista=document.getElementById('atestados-lista');
+  const resumo=document.getElementById('atestados-resumo');
+  if(!lista||!resumo) return;
+  const empId=val('payroll-employee');
+  const mes=parseInt(val('payroll-mes')||currentMes());
+  const ano=parseInt(val('payroll-ano')||currentAno());
+  if(!empId){ resumo.textContent='Selecione um colaborador para ver os atestados.'; lista.innerHTML=''; return; }
+  const arr=(State.atestados||[]).filter(a=>a.employeeId===empId&&a.mes==mes&&a.ano==ano)
+    .sort((a,b)=>(a.dataInicio||'').localeCompare(b.dataInicio||''));
+  const tot=_atestadoTotais(empId,mes,ano);
+  const pend=arr.filter(a=>a.status==='pendente').length;
+  resumo.innerHTML = (tot.dias>0||tot.horasMin>0)
+    ? `<i class="fa-solid fa-circle-check" style="color:#2E7D32"></i> <strong>${tot.dias} dia(s)${tot.horasMin>0?' e '+minutesToStr(tot.horasMin):''}</strong> de atestado — pagos, abatidos das faltas/atrasos.`
+    : 'Nenhum atestado aprovado neste mês.';
+  if(pend>0) resumo.innerHTML += `<br><i class="fa-solid fa-clock" style="color:#E65100"></i> ${pend} atestado(s) enviado(s) pelo app — <strong>aguardando aprovação</strong>.`;
+  if(!arr.length){ lista.innerHTML=''; return; }
+  lista.innerHTML=arr.map(a=>{
+    const periodo = a.tipo==='horas'
+      ? `${formatDateBr(a.dataInicio)} · ${a.horas}h`
+      : (a.dataInicio===a.dataFim?formatDateBr(a.dataInicio):`${formatDateBr(a.dataInicio)} a ${formatDateBr(a.dataFim)} · ${a.dias} dia(s)`);
+    const pendente=a.status==='pendente';
+    const arq=a.arquivoUrl
+      ? `<a href="${a.arquivoUrl}" target="_blank" title="Ver documento"><i class="fa-solid fa-paperclip"></i></a>`
+      : `<span style="color:#bbb" title="Sem documento"><i class="fa-solid fa-paperclip"></i></span>`;
+    return `<div style="display:flex;align-items:center;gap:8px;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;margin-bottom:5px;${pendente?'background:#FFF3E0':''}">
+      <i class="fa-solid fa-notes-medical" style="color:#00897B"></i>
+      <span style="flex:1">${periodo}${a.observacao?' — '+a.observacao:''}${a.origem==='app'?' <span style="color:#E65100;font-size:10px">(via app)</span>':''}</span>
+      ${arq}
+      ${pendente?`<button class="btn-icon" onclick="aprovarAtestado('${a.id}')" title="Aprovar"><i class="fa-solid fa-check" style="color:#2E7D32"></i></button>`:''}
+      <button class="btn-icon" onclick="openAtestadoModal('${a.id}')" title="Editar"><i class="fa-solid fa-pen" style="color:#1565C0"></i></button>
+      <button class="btn-icon" onclick="confirmDeleteAtestado('${a.id}')" title="Excluir"><i class="fa-solid fa-trash" style="color:#C62828"></i></button>
+    </div>`;
+  }).join('');
+}
+
+async function aprovarAtestado(id){
+  const a=(State.atestados||[]).find(x=>x.id===id); if(!a) return;
+  try {
+    await DB.save('atestados', {...a, status:'aprovado', updatedAt:new Date().toISOString()});
+    toast('Atestado aprovado.');
+    renderAtestadosFolha(); recalculate();
+  } catch(e){ toast('Erro ao aprovar atestado.','error'); }
+}
+
+function confirmDeleteAtestado(id){
+  if(!(State.atestados||[]).some(x=>x.id===id)) return;
+  document.getElementById('confirm-message').textContent='Excluir este atestado?';
+  const btn=document.getElementById('confirm-ok-btn');
+  btn.innerHTML='<i class="fa-solid fa-trash"></i> Excluir';
+  btn.onclick=async()=>{
+    try { await DB.remove('atestados', id); } catch(e){}
+    closeModal('modal-confirm');
+    renderAtestadosFolha(); recalculate();
+    toast('Atestado excluído.','warning');
+  };
+  document.getElementById('modal-confirm').classList.remove('hidden');
+}
+
 function recalculate(){
   const dias=numVal('payroll-dias');
   const faltasJust=numVal('payroll-faltas-justificadas');
@@ -4110,17 +4292,22 @@ function recalculate(){
   const valorHora  = salBase/220;         // CLT: divisor 220 para horas
   const valorMinuto= valorHora/60;
 
+  // Atestados médicos aprovados — abatem faltas (dias) e atraso (horas): pagos, sem desconto
+  const _atest = _atestadoTotais(val('payroll-employee'), parseInt(val('payroll-mes')), parseInt(val('payroll-ano')));
+  const faltasInjEf  = Math.max(0, faltasInjust - _atest.dias);
+  const faltasJustEf = Math.max(0, faltasJust - Math.max(0, _atest.dias - faltasInjust));
   // Desconto por falta injustificada: valor do dia + DSR (= 2x valor do dia)
-  const descontoFaltasInj = faltasInjust * valorDia * 2;
+  const descontoFaltasInj = faltasInjEf * valorDia * 2;
   // Desconto por falta justificada: só o dia trabalhado (sem DSR)
-  const descontoFaltasJust = faltasJust * valorDia;
+  const descontoFaltasJust = faltasJustEf * valorDia;
 
   // Atrasos em minutos (campo opcional)
   const minutosAtraso = numVal('payroll-atraso-min')||0;
   // Abono de atraso: se abonado, registra mas não desconta do salário
   const atrasoAbonado = !!document.getElementById('payroll-atraso-abonado')?.checked;
-  // Tolerância CLT: até 10 min/dia total — se ultrapassar, desconta tudo (exceto se abonado)
-  const descontoAtraso = (minutosAtraso>0 && !atrasoAbonado) ? minutosAtraso*valorMinuto : 0;
+  // Atestado abate horas de atraso; tolerância CLT 10min/dia; senão desconta (exceto abonado)
+  const minutosAtrasoEf = Math.max(0, minutosAtraso - _atest.horasMin);
+  const descontoAtraso = (minutosAtrasoEf>0 && !atrasoAbonado) ? minutosAtrasoEf*valorMinuto : 0;
   setVal('payroll-desconto-atraso', descontoAtraso>0 ? descontoAtraso.toFixed(2) : '0.00');
   // Nota visual do abono
   const atrasoNote = document.getElementById('atraso-abono-note');
@@ -11416,6 +11603,10 @@ async function init(){
     if(State.currentSection==='dashboard') renderDashboard();
     const bhModal=document.getElementById('modal-banco-horas');
     if(bhModal && !bhModal.classList.contains('hidden')) renderBancoHoras();
+  });
+  DB.listen('atestados', data => {
+    State.atestados = data;
+    if(State.currentSection==='payroll'){ renderAtestadosFolha(); recalculate(); }
   });
   DB.listen('rescisoes', data => {
     State.rescisoes = data;

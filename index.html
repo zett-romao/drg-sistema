@@ -636,6 +636,20 @@
                   <i class="fa-solid fa-scale-balanced"></i> CLT Art. 58 — Tolerância: 5 min por batida, máx 10 min/dia. Se exceder, desconta integralmente — exceto se o atraso for abonado.
                 </div>
 
+                <!-- Atestados -->
+                <div class="benefit-card" id="atestados-card" style="border-left:3px solid #00897B">
+                  <div class="benefit-label">
+                    <i class="fa-solid fa-notes-medical" style="color:#00897B"></i>
+                    <span>Atestados</span>
+                    <span class="benefit-platform">justifica e paga dias/horas</span>
+                  </div>
+                  <div id="atestados-resumo" style="font-size:12px;color:#00695C;margin-bottom:6px"></div>
+                  <div id="atestados-lista"></div>
+                  <button type="button" class="btn btn-outline" onclick="openAtestadoModal()" style="margin-top:8px;font-size:12px;color:#00897B;border-color:#00897B">
+                    <i class="fa-solid fa-plus"></i> Adicionar atestado
+                  </button>
+                </div>
+
                 <div class="divider"><span>Jornada & Intervalo</span></div>
 
                 <div class="form-row">
@@ -3516,6 +3530,67 @@
   </div>
 </div>
 
+<!-- ===== MODAL: ATESTADO ===== -->
+<div class="modal-overlay hidden" id="modal-atestado" onclick="closeModal('modal-atestado', event)">
+  <div class="modal-dialog modal-md">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-notes-medical" style="color:#00897B"></i> Atestado — <span id="atest-emp-nome"></span></h3>
+      <button class="modal-close" onclick="closeModal('modal-atestado')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="atest-id">
+      <input type="hidden" id="atest-emp-id">
+      <input type="hidden" id="atest-mes">
+      <input type="hidden" id="atest-ano">
+      <div class="info-banner" style="background:#E0F2F1;color:#00695C">
+        <i class="fa-solid fa-circle-info"></i>
+        O atestado médico justifica e <strong>paga</strong> os dias ou horas — eles são abatidos das faltas/atrasos, sem desconto no salário.
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Tipo</label>
+          <select id="atest-tipo" onchange="onAtestadoTipoChange()">
+            <option value="dia">Dia(s) integral(is)</option>
+            <option value="horas">Horas</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>CID <span style="font-size:11px;color:#888">(opcional)</span></label>
+          <input type="text" id="atest-cid" placeholder="Ex.: J11">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Data de início</label>
+          <input type="date" id="atest-inicio" onchange="_atestRecalc()">
+        </div>
+        <div class="form-group" id="atest-fim-wrap">
+          <label>Data de fim</label>
+          <input type="date" id="atest-fim" onchange="_atestRecalc()">
+        </div>
+        <div class="form-group form-group-sm" id="atest-horas-wrap" style="display:none">
+          <label>Horas</label>
+          <input type="number" id="atest-horas" min="0" step="0.5" placeholder="0">
+        </div>
+      </div>
+      <div id="atest-dias-info" style="font-size:12px;color:#00695C;margin-bottom:8px"></div>
+      <div class="form-group">
+        <label>Observação</label>
+        <input type="text" id="atest-obs" placeholder="Ex.: consulta médica, repouso...">
+      </div>
+      <div class="form-group">
+        <label>Documento do atestado <span style="font-size:11px;color:#888">(foto ou PDF)</span></label>
+        <input type="file" id="atest-arquivo" accept=".pdf,image/jpeg,image/png,image/webp">
+      </div>
+      <div id="atest-arquivo-atual" style="font-size:12px;margin-top:4px;color:#00695C"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-atestado')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveAtestado()"><i class="fa-solid fa-floppy-disk"></i> Salvar Atestado</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== MODAL: BANCO DE HORAS ===== -->
 <div class="modal-overlay hidden" id="modal-banco-horas" onclick="closeModal('modal-banco-horas', event)">
   <div class="modal-dialog modal-md">
@@ -4376,6 +4451,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260516f"></script>
+<script src="app.js?v=20260516g"></script>
 </body>
 </html>

@@ -268,10 +268,13 @@ ul { list-style: none; }
 .stat-card {
   background: var(--card-bg);
   border-radius: var(--radius);
-  padding: 18px;
+  padding: 16px 18px;
   box-shadow: var(--shadow);
-  display: flex; align-items: center; gap: 14px;
+  display: flex; flex-direction: column;
   border-left: 4px solid;
+}
+.stat-card-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
 }
 .stat-card.blue  { border-color: var(--primary); }
 .stat-card.green { border-color: var(--success); }
@@ -289,9 +292,9 @@ ul { list-style: none; }
 .amber .stat-icon { background: #FFF3E0; color: #F57F17; }
 .teal  .stat-icon { background: #E0F7FA; color: #00838F; }
 
-.stat-value { font-size: 21px; font-weight: 700; color: var(--text); line-height: 1.15; letter-spacing: -0.2px; }
-.stat-label { font-size: 11px; font-weight: 400; color: var(--text-muted); margin-top: 3px; line-height: 1.35; }
-.stat-sub   { font-size: 10px; font-weight: 400; margin-top: 3px; line-height: 1.35; }
+.stat-value { font-size: 21px; font-weight: 700; color: var(--text); line-height: 1.15; letter-spacing: -0.2px; margin-top: 10px; }
+.stat-label { font-size: 11px; font-weight: 400; color: var(--text-muted); line-height: 1.35; flex: 1; }
+.stat-sub   { font-size: 10px; font-weight: 400; margin-top: 4px; line-height: 1.35; }
 
 /* ---- Dashboard Cards ---- */
 .dashboard-cards {
@@ -1180,7 +1183,7 @@ ul { list-style: none; }
 
   /* --- Cards de estatística --- */
   .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 16px; }
-  .stat-card { padding: 14px; gap: 10px; }
+  .stat-card { padding: 14px; }
   .stat-value { font-size: 19px; }
 
   /* --- Dashboard cards --- */

@@ -1290,6 +1290,26 @@ async function setupAutoBackup(){
 // ============================================
 // DASHBOARD
 // ============================================
+// Gera um card padronizado do Dashboard: rótulo no topo (esquerda),
+// ícone no canto superior direito, valor/informação abaixo.
+function _statCard(o){
+  const accent=o.accent||'var(--primary)';
+  const vStyle=[];
+  if(o.valueColor) vStyle.push('color:'+o.valueColor);
+  if(o.smallValue) vStyle.push('font-size:13px;font-weight:600');
+  const valueStyle=vStyle.length?` style="${vStyle.join(';')}"`:'';
+  const sub=o.sub?`<div class="stat-sub"${o.subColor?` style="color:${o.subColor}"`:''}>${o.sub}</div>`:'';
+  const cursor=o.onclick?'cursor:pointer;':'';
+  return `<div class="stat-card" style="${cursor}border-color:${accent}"${o.onclick?` onclick="${o.onclick}"`:''}${o.title?` title="${o.title}"`:''}>
+    <div class="stat-card-head">
+      <span class="stat-label">${o.label}</span>
+      <span class="stat-icon" style="background:${o.iconBg||'var(--primary-light)'};color:${o.iconColor||'var(--primary)'}"><i class="fa-solid ${o.icon}"></i></span>
+    </div>
+    <div class="stat-value"${valueStyle}>${o.value}</div>
+    ${sub}
+  </div>`;
+}
+
 function renderDashboard(){
   const mes=currentMes(), ano=currentAno();
   const payThisMonth=State.payrolls.filter(p=>p.mes==mes&&p.ano==ano);
@@ -1338,79 +1358,59 @@ function renderDashboard(){
     if(hasPendente) heRevisaoEmps++;
   });
   const stats=document.getElementById('dashboard-stats'); if(!stats) return;
-  const cctInfo=State.cct?`<div class="stat-card" style="border-color:#7B1FA2;border-left-width:4px"><div class="stat-icon" style="background:#F3E5F5;color:#7B1FA2"><i class="fa-solid fa-file-contract"></i></div><div><div class="stat-label" style="font-weight:700;color:#7B1FA2;font-size:13px">CCT vigente</div><div class="stat-label">desde ${formatDateBr(State.cct.vigencia)}</div></div></div>`:'';
-  stats.innerHTML=`
-    <div class="stat-card blue" style="cursor:pointer" onclick="showSection('employees');setEmployeeFilter('ativo')" title="Ver colaboradores ativos">
-      <div class="stat-icon"><i class="fa-solid fa-user-check"></i></div>
-      <div><div class="stat-value">${ativos}</div><div class="stat-label">Colaboradores ativos</div></div></div>
-    <div class="stat-card teal" style="cursor:pointer" onclick="showSection('employees');setEmployeeFilter('afastado')" title="Ver afastados INSS">
-      <div class="stat-icon"><i class="fa-solid fa-user-clock"></i></div>
-      <div><div class="stat-value">${afastados}</div><div class="stat-label">Afastados INSS</div></div></div>
-    ${licMaternidade>0?`<div class="stat-card" style="border-color:#E91E63;border-left-width:4px;cursor:pointer" onclick="showSection('employees');setEmployeeFilter('licenca-maternidade')" title="Ver licenças maternidade">
-      <div class="stat-icon" style="background:#FCE4EC;color:#E91E63"><i class="fa-solid fa-baby"></i></div>
-      <div><div class="stat-value" style="color:#E91E63">${licMaternidade}</div><div class="stat-label">Licença Maternidade</div></div></div>`:''}
-    <div class="stat-card" style="border-color:#9E9E9E;border-left-width:4px;cursor:pointer" onclick="showSection('employees');setEmployeeFilter('inativo')" title="Ver colaboradores inativos">
-      <div class="stat-icon" style="background:#F5F5F5;color:#757575"><i class="fa-solid fa-user-slash"></i></div>
-      <div><div class="stat-value">${inativos}</div><div class="stat-label">Colaboradores inativos</div></div></div>
-    <div class="stat-card" style="border-color:#1565C0;border-left-width:4px;cursor:pointer" onclick="showSection('postos')" title="Ver postos de trabalho">
-      <div class="stat-icon" style="background:#E3F2FD;color:#1565C0"><i class="fa-solid fa-building"></i></div>
-      <div><div class="stat-value" style="color:#1565C0">${totalPostos}</div><div class="stat-label">Postos de trabalho</div></div></div>
-    ${heRevisaoEmps>0?`<div class="stat-card" style="border-color:#E65100;border-left-width:4px;cursor:pointer" onclick="_dashGotoHEReview()" title="Colaboradores com HE acima da tolerância CLT aguardando revisão">
-      <div class="stat-icon" style="background:#FFF3E0;color:#E65100"><i class="fa-solid fa-magnifying-glass"></i></div>
-      <div>
-        <div class="stat-value" style="color:#E65100">${heRevisaoEmps}</div>
-        <div class="stat-label">Pendentes de revisar HE</div>
-        <div class="stat-sub" style="color:#E65100"><i class="fa-solid fa-triangle-exclamation"></i> ${heRevisaoDias} dia(s) — clique pra revisar</div>
-      </div></div>`:''}
-    ${(colabsHoje.length>0||colabsSemana.length>0)?`<div class="stat-card" style="border-color:#0288D1;border-left-width:4px;cursor:pointer" onclick="openBeneficiosPagar()" title="Ver benefícios a pagar hoje e nesta semana">
-      <div class="stat-icon" style="background:#E1F5FE;color:#0288D1"><i class="fa-solid fa-money-check-dollar"></i></div>
-      <div>
-        <div class="stat-value" style="color:#0288D1">${colabsHoje.length}</div>
-        <div class="stat-label">Benefícios a pagar hoje · ${fmtMoney(totalBenHoje)}</div>
-        <div class="stat-sub" style="color:#01579B"><i class="fa-solid fa-calendar-week"></i> Semana: ${colabsSemana.length} colab. · ${fmtMoney(totalBenSemana)}</div>
-      </div></div>`:''}
-    <div class="stat-card" style="border-color:#6A1B9A;border-left-width:4px;cursor:pointer" onclick="showSection('escalas')" title="Ver escalas do mês">
-      <div class="stat-icon" style="background:#F3E5F5;color:#6A1B9A"><i class="fa-solid fa-calendar-days"></i></div>
-      <div>
-        <div class="stat-value" style="color:#6A1B9A">${escalasMes}</div>
-        <div class="stat-label">Escalas — ${MESES[mes]}/${ano}</div>
-        ${escalasPend>0?`<div class="stat-sub" style="color:#E65100"><i class="fa-solid fa-triangle-exclamation"></i> ${escalasPend} pendente(s) de revisão</div>`:'<div class="stat-sub" style="color:#1B5E20"><i class="fa-solid fa-check-circle"></i> Todas projetadas</div>'}
-      </div></div>
-    ${(()=>{
-      const modo=State.empresa?.modoContabilidade||'ambas';
-      const usaInterna=modo==='interna'||modo==='ambas';
-      const usaExterna=modo==='externa'||modo==='ambas';
-      let card='';
-      if(usaInterna){
-        // Card Pagamentos (líquido final com encargos)
-        const encargosCalc=totalINSS>0;
-        card+=`<div class="stat-card" style="border-color:#1B5E20;border-left-width:4px;cursor:pointer" onclick="showSection('pagamentos')" title="Ver pagamentos do mês">
-          <div class="stat-icon" style="background:#E8F5E9;color:#1B5E20"><i class="fa-solid fa-money-bill-wave"></i></div>
-          <div>
-            <div class="stat-value" style="color:#1B5E20">${fmtMoney(usaExterna&&!encargosCalc?totalEsp:totalLiqFinal)}</div>
-            <div class="stat-label">Folha ${MESES[mes]} — ${payThisMonth.length} holerite(s)</div>
-          </div></div>`;
-      }
-      if(usaExterna&&!usaInterna){
-        // Card Contabilidade (remuneração bruta para enviar ao contador)
-        card+=`<div class="stat-card amber" style="cursor:pointer" onclick="showSection('contabilidade')" title="Ver planilha de contabilidade">
-          <div class="stat-icon"><i class="fa-solid fa-calculator"></i></div>
-          <div>
-            <div class="stat-value">${fmtMoney(totalEsp)}</div>
-            <div class="stat-label">Remunerações ${MESES[mes]} — ${payThisMonth.length} folha(s)</div>
-            <div class="stat-sub" style="color:#777">Exportar para contador externo</div>
-          </div></div>`;
-      }
-      return card;
-    })()}
-    <div class="stat-card green" style="cursor:pointer" onclick="showSection('payroll')" title="Ver folha de ponto">
-      <div class="stat-icon"><i class="fa-solid fa-file-circle-check"></i></div>
-      <div><div class="stat-value">${payThisMonth.length}</div><div class="stat-label">Folhas lançadas em ${MESES[mes]}</div></div></div>
-    <div class="stat-card" style="border-color:#2E7D32;border-left-width:4px;cursor:pointer" onclick="showSection('contratos')" title="Ver contratos">
-      <div class="stat-icon" style="background:#F1F8E9;color:#2E7D32"><i class="fa-solid fa-file-signature"></i></div>
-      <div><div class="stat-value" style="color:#2E7D32">${(State.contratos||[]).filter(c=>!c.status||c.status!=='inativo').length}</div><div class="stat-label">Contratos ativos</div></div></div>
-    ${cctInfo}
-  `;
+  const cards=[];
+  cards.push(_statCard({label:'Colaboradores ativos', value:ativos, icon:'fa-user-check',
+    accent:'var(--primary)', iconBg:'var(--primary-light)', iconColor:'var(--primary)',
+    onclick:"showSection('employees');setEmployeeFilter('ativo')", title:'Ver colaboradores ativos'}));
+  cards.push(_statCard({label:'Afastados INSS', value:afastados, icon:'fa-user-clock',
+    accent:'#00838F', iconBg:'#E0F7FA', iconColor:'#00838F',
+    onclick:"showSection('employees');setEmployeeFilter('afastado')", title:'Ver afastados INSS'}));
+  if(licMaternidade>0) cards.push(_statCard({label:'Licença Maternidade', value:licMaternidade, icon:'fa-baby',
+    accent:'#E91E63', iconBg:'#FCE4EC', iconColor:'#E91E63', valueColor:'#E91E63',
+    onclick:"showSection('employees');setEmployeeFilter('licenca-maternidade')", title:'Ver licenças maternidade'}));
+  cards.push(_statCard({label:'Colaboradores inativos', value:inativos, icon:'fa-user-slash',
+    accent:'#9E9E9E', iconBg:'#F5F5F5', iconColor:'#757575',
+    onclick:"showSection('employees');setEmployeeFilter('inativo')", title:'Ver colaboradores inativos'}));
+  cards.push(_statCard({label:'Postos de trabalho', value:totalPostos, icon:'fa-building',
+    accent:'#1565C0', iconBg:'#E3F2FD', iconColor:'#1565C0', valueColor:'#1565C0',
+    onclick:"showSection('postos')", title:'Ver postos de trabalho'}));
+  if(heRevisaoEmps>0) cards.push(_statCard({label:'Pendentes de revisar HE', value:heRevisaoEmps, icon:'fa-magnifying-glass',
+    accent:'#E65100', iconBg:'#FFF3E0', iconColor:'#E65100', valueColor:'#E65100',
+    sub:`<i class="fa-solid fa-triangle-exclamation"></i> ${heRevisaoDias} dia(s) — clique pra revisar`, subColor:'#E65100',
+    onclick:"_dashGotoHEReview()", title:'Colaboradores com HE acima da tolerância CLT aguardando revisão'}));
+  if(colabsHoje.length>0||colabsSemana.length>0) cards.push(_statCard({label:'Benefícios a pagar hoje', value:colabsHoje.length, icon:'fa-money-check-dollar',
+    accent:'#0288D1', iconBg:'#E1F5FE', iconColor:'#0288D1', valueColor:'#0288D1',
+    sub:`${fmtMoney(totalBenHoje)} hoje &middot; Semana: ${colabsSemana.length} colab. ${fmtMoney(totalBenSemana)}`, subColor:'#01579B',
+    onclick:"openBeneficiosPagar()", title:'Ver benefícios a pagar hoje e nesta semana'}));
+  cards.push(_statCard({label:`Escalas — ${MESES[mes]}/${ano}`, value:escalasMes, icon:'fa-calendar-days',
+    accent:'#6A1B9A', iconBg:'#F3E5F5', iconColor:'#6A1B9A', valueColor:'#6A1B9A',
+    sub: escalasPend>0?`<i class="fa-solid fa-triangle-exclamation"></i> ${escalasPend} pendente(s) de revisão`:'<i class="fa-solid fa-check-circle"></i> Todas projetadas',
+    subColor: escalasPend>0?'#E65100':'#1B5E20',
+    onclick:"showSection('escalas')", title:'Ver escalas do mês'}));
+  {
+    const modo=State.empresa?.modoContabilidade||'ambas';
+    const usaInterna=modo==='interna'||modo==='ambas';
+    const usaExterna=modo==='externa'||modo==='ambas';
+    const encargosCalc=totalINSS>0;
+    if(usaInterna) cards.push(_statCard({label:`Folha ${MESES[mes]} — ${payThisMonth.length} holerite(s)`,
+      value:fmtMoney(usaExterna&&!encargosCalc?totalEsp:totalLiqFinal), icon:'fa-money-bill-wave',
+      accent:'#1B5E20', iconBg:'#E8F5E9', iconColor:'#1B5E20', valueColor:'#1B5E20',
+      onclick:"showSection('pagamentos')", title:'Ver pagamentos do mês'}));
+    if(usaExterna&&!usaInterna) cards.push(_statCard({label:`Remunerações ${MESES[mes]} — ${payThisMonth.length} folha(s)`,
+      value:fmtMoney(totalEsp), icon:'fa-calculator',
+      accent:'#F57F17', iconBg:'#FFF3E0', iconColor:'#F57F17',
+      sub:'Exportar para contador externo', subColor:'#777',
+      onclick:"showSection('contabilidade')", title:'Ver planilha de contabilidade'}));
+  }
+  cards.push(_statCard({label:`Folhas lançadas em ${MESES[mes]}`, value:payThisMonth.length, icon:'fa-file-circle-check',
+    accent:'var(--success)', iconBg:'var(--success-light)', iconColor:'var(--success)', valueColor:'var(--success)',
+    onclick:"showSection('payroll')", title:'Ver folha de ponto'}));
+  cards.push(_statCard({label:'Contratos ativos', value:(State.contratos||[]).filter(c=>!c.status||c.status!=='inativo').length, icon:'fa-file-signature',
+    accent:'#2E7D32', iconBg:'#F1F8E9', iconColor:'#2E7D32', valueColor:'#2E7D32',
+    onclick:"showSection('contratos')", title:'Ver contratos'}));
+  if(State.cct) cards.push(_statCard({label:'CCT vigente', value:`desde ${formatDateBr(State.cct.vigencia)}`, icon:'fa-file-contract',
+    accent:'#7B1FA2', iconBg:'#F3E5F5', iconColor:'#7B1FA2', valueColor:'#7B1FA2', smallValue:true}));
+  stats.innerHTML=cards.join('');
   renderBirthdays();
   renderAlerts();
   const recEl=document.getElementById('recent-payrolls'); if(!recEl) return;

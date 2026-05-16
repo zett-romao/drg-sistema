@@ -242,6 +242,14 @@ const State = {
 // CONFIGURAÇÃO DA EMPRESA
 // ============================================
 function _e(field){ return (State.empresa&&State.empresa[field]) || EMPRESA_DEFAULTS[field] || ''; }
+// Linha de endereço/contato da empresa para os documentos impressos
+function _empresaEnderecoLinha(){
+  const e=State.empresa||{};
+  const end=[[e.endereco,e.numero].filter(Boolean).join(', '), e.complemento, e.bairro,
+    [e.cidade,e.uf].filter(Boolean).join('/'), e.cep?'CEP '+e.cep:''].filter(Boolean).join(' — ');
+  const contato=[e.telefone&&('Tel.: '+e.telefone), e.email].filter(Boolean).join(' · ');
+  return [end, contato].filter(Boolean).join(' — ');
+}
 
 async function loadEmpresaConfig(){
   try {
@@ -1983,7 +1991,7 @@ function printDecimoTerceiro(){
   .assinatura div{text-align:center;width:45%}.assinatura hr{margin-bottom:4px}
   @media print{body{padding:10px}}</style></head><body>
   <h2>RECIBO DE 13º SALÁRIO — ${ano}</h2>
-  <div class="empresa">${_e('nomeEmpresa')} — CNPJ: ${_e('cnpj')||'—'}</div>
+  <div class="empresa">${_e('nomeEmpresa')} — CNPJ: ${_e('cnpj')||'—'}${_e('cnae')?' — CNAE: '+_e('cnae'):''}${_empresaEnderecoLinha()?'<br><span style="font-size:11px;font-weight:400;color:#555">'+_empresaEnderecoLinha()+'</span>':''}</div>
   <table>
     <tr><th colspan="2">Dados do Colaborador</th></tr>
     <tr><td><strong>Nome:</strong> ${emp.nome}</td><td><strong>Registro:</strong> ${emp.registro||'—'}</td></tr>
@@ -2179,7 +2187,7 @@ function printFeriasModulo(){
   .assinatura div{text-align:center;width:45%}.assinatura hr{margin-bottom:4px}
   @media print{body{padding:10px}}</style></head><body>
   <h2>RECIBO DE FÉRIAS — ${ano}</h2>
-  <div class="empresa">${_e('nomeEmpresa')} — CNPJ: ${_e('cnpj')||'—'}</div>
+  <div class="empresa">${_e('nomeEmpresa')} — CNPJ: ${_e('cnpj')||'—'}${_e('cnae')?' — CNAE: '+_e('cnae'):''}${_empresaEnderecoLinha()?'<br><span style="font-size:11px;font-weight:400;color:#555">'+_empresaEnderecoLinha()+'</span>':''}</div>
   <table>
     <tr><th colspan="2">Dados do Colaborador</th></tr>
     <tr><td><strong>Nome:</strong> ${emp.nome}</td><td><strong>Registro:</strong> ${emp.registro||'—'}</td></tr>
@@ -9212,7 +9220,8 @@ ${isPreview?`<div class="preview-banner">
 <div class="header">
   <div class="header-left">
     <h1>${_e('nomeEmpresa')}</h1>
-    <p>CNPJ: ${_e('cnpj')} &nbsp;|&nbsp; ${_e('descricao')}</p>
+    <p>CNPJ: ${_e('cnpj')} &nbsp;|&nbsp; ${_e('descricao')}${_e('cnae')?' &nbsp;|&nbsp; CNAE: '+_e('cnae'):''}</p>
+    ${_empresaEnderecoLinha()?`<p style="font-size:11px;color:#555;margin-top:1px">${_empresaEnderecoLinha()}</p>`:''}
     <p style="font-size:12px;font-weight:700;color:${isPreview?'#E65100':'#1a3a6b'};margin-top:4px">${isPreview?'PRÉVIA — ':''}FOLHA DE PONTO — ${mesLabel.toUpperCase()} / ${ano}</p>
   </div>
   <div class="header-right">
@@ -9437,7 +9446,8 @@ function _buildFolhaHtmlFromRecord(emp, p){
 <div class="header">
   <div class="header-left">
     <h1>${_e('nomeEmpresa')}</h1>
-    <p>CNPJ: ${_e('cnpj')} &nbsp;|&nbsp; ${_e('descricao')}</p>
+    <p>CNPJ: ${_e('cnpj')} &nbsp;|&nbsp; ${_e('descricao')}${_e('cnae')?' &nbsp;|&nbsp; CNAE: '+_e('cnae'):''}</p>
+    ${_empresaEnderecoLinha()?`<p style="font-size:11px;color:#555;margin-top:1px">${_empresaEnderecoLinha()}</p>`:''}
     <p style="font-size:12px;font-weight:700;color:#1a3a6b;margin-top:4px">FOLHA DE PONTO — ${mesLabel.toUpperCase()} / ${ano}</p>
   </div>
   <div class="header-right">

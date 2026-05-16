@@ -5900,6 +5900,7 @@ function _calcRescisao(r){
   const indeniza=(r.avisoTipo==='indenizado' && cfg.aviso!=='nenhum');
   const dataProj=new Date(dem);
   if(indeniza && o.avisoDias>0) dataProj.setDate(dataProj.getDate()+o.avisoDias);
+  o.dataAfastamentoProj=`${dataProj.getFullYear()}-${String(dataProj.getMonth()+1).padStart(2,'0')}-${String(dataProj.getDate()).padStart(2,'0')}`;
   // Saldo de salário
   o.saldoSalario=(sal/30)*dem.getDate();
   // Aviso prévio indenizado (valor)
@@ -5936,6 +5937,10 @@ function _calcRescisao(r){
   const irrfSaldo=calcIRRF(o.saldoSalario, deps, 0, 0, inssSaldo);
   const irrf13=cfg.m13?calcIRRF(o.decimo, deps, 0, 0, inss13):0;
   o.irrf=Math.round((irrfSaldo+irrf13)*100)/100;
+  o.inssSaldo=Math.round(inssSaldo*100)/100;
+  o.inss13=Math.round(inss13*100)/100;
+  o.irrfSaldo=Math.round(irrfSaldo*100)/100;
+  o.irrf13=Math.round(irrf13*100)/100;
   // Descontos manuais
   o.pensao=parseFloat(r.pensao)||0;
   o.adiantamentos=parseFloat(r.adiantamentos)||0;
@@ -6291,83 +6296,128 @@ function _trctHtml(r, emp, o){
   const e=State.empresa||{};
   const tipoLabel=RESCISAO_TIPOS[r.tipo]?.label||r.tipo||'';
   const _m=v=>fmtMoney(v||0);
-  const linha=(lbl,val)=>`<tr><td>${lbl}</td><td style="text-align:right">${_m(val)}</td></tr>`;
-  const itensVerbas=Array.isArray(r.outrasVerbas)?r.outrasVerbas:(parseFloat(r.outrasVerbas)>0?[{descricao:'Outras verbas',valor:parseFloat(r.outrasVerbas)}]:[]);
-  const itensDesc=Array.isArray(r.outrosDescontos)?r.outrosDescontos:(parseFloat(r.outrosDescontos)>0?[{descricao:'Outros descontos',valor:parseFloat(r.outrosDescontos)}]:[]);
+  const _d=iso=>iso?formatDateBr(iso):'';
+  const itensVerbas=Array.isArray(r.outrasVerbas)?r.outrasVerbas:[];
+  const itensDesc=Array.isArray(r.outrosDescontos)?r.outrosDescontos:[];
+  // O cálculo guarda férias venc/prop já com o 1/3 — separa base e terço para o formulário
+  const fVencBase=o.feriasVenc*3/4, fPropBase=o.feriasProp*3/4;
+  const tercoFerias=(o.feriasVenc+o.feriasProp)/4;
+  const endEmp=[e.endereco,e.numero,e.complemento].filter(Boolean).join(' ');
+  const endTrab=[emp.endereco,emp.numero,emp.complemento].filter(Boolean).join(' ');
+  const fld=(num,label,val,cs)=>`<td colspan="${cs}"><div class="n">${num} ${label}</div><div class="v">${(val===0||val)?val:'&nbsp;'}</div></td>`;
+  const rb=(label,val)=>`<td colspan="5" class="rb">${label||'&nbsp;'}</td><td colspan="3" class="rbv">${(val!=null&&val!=='')?_m(val):'&nbsp;'}</td>`;
+  const verbas=[
+    {label:'50 Saldo de 30/dias de Salário', val:o.saldoSalario},
+    {label:'51 Comissões', val:''},
+    {label:'52 Gratificação', val:''},
+    {label:'53 Adicional de Insalubridade', val:''},
+    {label:'54 Adicional de Periculosidade', val:''},
+    {label:'55 Adicional Noturno', val:''},
+    {label:'56.1 Horas Extras', val:''},
+    {label:'57 Gorjetas', val:''},
+    {label:'58 Descanso Semanal Remunerado', val:''},
+    {label:'59 Reflexo do DSR s/ Salário Variável', val:''},
+    {label:'60 Multa Art. 477, §8º CLT', val:''},
+    {label:'61 Multa Art. 479 CLT', val:''},
+    {label:'62 Salário-Família', val:''},
+    {label:`63 13º Salário Proporcional ${o.decimoAvos||0}/12 avos`, val:o.decimo||''},
+    {label:'64.1 13º Salário Exercício /12 avos', val:''},
+    {label:`65 Férias Proporcionais ${o.feriasPropAvos||0}/12 avos`, val:fPropBase||''},
+    {label:'66.1 Férias Vencidas — Período Aquisitivo', val:fVencBase||''},
+    {label:'68 Terço Constitucional de Férias', val:tercoFerias||''},
+    {label:'69 Aviso Prévio Indenizado', val:o.avisoValor||''},
+    {label:'70 13º Salário (Aviso-Prévio Indenizado)', val:''},
+    {label:'71 Férias (Aviso-Prévio Indenizado)', val:''},
+    {label:'95.4 Hora Atividade', val:''},
+    {label:'95.27 Aviso Prévio — Lei 12.506/11', val:''},
+    {label:'95.30 13º Indenizado — Lei 12.506/11', val:''},
+    {label:'95.32 Férias Prop. Ind. — Lei 12.506/11', val:''},
+    {label:'95.99 Garantia semestral de salários', val:''}
+  ];
+  if(o.indenizAdic>0) verbas.push({label:'Indenização adicional — Lei 7.238/84', val:o.indenizAdic});
+  itensVerbas.forEach(it=>verbas.push({label:it.descricao||'Outras verbas', val:it.valor}));
+  const descontos=[
+    {label:'100 Pensão Alimentícia', val:o.pensao||''},
+    {label:'101 Adiantamento Salarial', val:o.adiantamentos||''},
+    {label:'102 Adiantamento de 13º Salário', val:''},
+    {label:'103 Aviso-Prévio Indenizado', val:o.avisoDescontado||''},
+    {label:'104 Indenização Art. 480 CLT', val:''},
+    {label:'105 Empréstimo em Consignação', val:''},
+    {label:'112.1 Previdência Social', val:o.inssSaldo||''},
+    {label:'112.2 Previdência Social — 13º Salário', val:o.inss13||''},
+    {label:'114.1 IRRF', val:o.irrfSaldo||''},
+    {label:'114.2 IRRF sobre 13º Salário', val:o.irrf13||''},
+    {label:'115.25 Mensalidade Sindical', val:''}
+  ];
+  itensDesc.forEach(it=>descontos.push({label:it.descricao||'Outros descontos', val:it.valor}));
+  const chunk=arr=>{
+    let h='';
+    for(let i=0;i<arr.length;i+=3){
+      const c=arr.slice(i,i+3);
+      while(c.length<3) c.push({label:'',val:''});
+      h+=`<tr>${c.map(x=>rb(x.label,x.val)).join('')}</tr>`;
+    }
+    return h;
+  };
+  const tipoContrato = r.tipo==='fim_contrato'
+    ? '2 - Contrato de trabalho por prazo determinado'
+    : '1 - Contrato de trabalho por prazo indeterminado';
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>TRCT — ${emp.nome||''}</title>
   <style>
-    body{font-family:Arial,sans-serif;font-size:12px;color:#222;padding:24px;max-width:780px;margin:0 auto}
-    h1{font-size:16px;text-align:center;margin:0 0 4px}
-    h2{font-size:12px;background:#1A237E;color:#fff;padding:5px 8px;margin:14px 0 4px;border-radius:3px}
-    table{width:100%;border-collapse:collapse;margin-bottom:6px}
-    td{padding:4px 6px;border-bottom:1px solid #e0e0e0}
-    .grid{display:grid;grid-template-columns:1fr 1fr;gap:2px 16px}
-    .grid div{padding:3px 0;border-bottom:1px solid #eee;font-size:11px}
-    .tot{font-weight:700;background:#F5F5F5}
-    .liq{font-size:15px;font-weight:700;background:#1A237E;color:#fff;padding:8px;text-align:center;border-radius:4px;margin-top:8px}
-    .ass{margin-top:48px;display:flex;justify-content:space-between;gap:30px}
-    .ass div{flex:1;border-top:1px solid #333;text-align:center;padding-top:4px;font-size:11px}
-    .obs{font-size:11px;color:#555;margin-top:8px}
+    *{box-sizing:border-box}
+    body{font-family:Arial,Helvetica,sans-serif;font-size:9px;color:#000;margin:0;padding:8mm}
+    table.f{width:100%;border-collapse:collapse;table-layout:fixed}
+    table.f td{border:1px solid #000;padding:1px 4px 3px;vertical-align:top;word-wrap:break-word}
+    .title{text-align:center;font-weight:bold;font-size:12px;text-transform:uppercase;letter-spacing:.4px;background:#cfcfcf}
+    .band{text-align:center;font-weight:bold;font-size:9px;background:#cfcfcf}
+    .n{font-size:7px;line-height:1.15;color:#000}
+    .v{font-size:9.5px;font-weight:bold;line-height:1.25;min-height:11px;padding-top:1px}
+    .rb{font-size:7.6px;line-height:1.2}
+    .rbv{font-size:9px;font-weight:bold;text-align:right}
+    .hdr td{background:#ededed;font-weight:bold;font-size:7.5px;text-align:center}
+    .tot td{background:#e6e6e6;font-weight:bold;font-size:9.5px}
+    .liq td{background:#cfcfcf;font-weight:bold;font-size:11px}
+    .ass{margin-top:34px;display:flex;justify-content:space-between;gap:34px}
+    .ass div{flex:1;border-top:1px solid #000;text-align:center;padding-top:3px;font-size:8px}
+    .note{font-size:8px;color:#333;margin-top:7px}
+    .foot{font-size:7.5px;color:#666;margin-top:12px;text-align:center}
   </style></head><body>
-  <h1>TERMO DE RESCISÃO DO CONTRATO DE TRABALHO</h1>
-  <h2>Empregador</h2>
-  <div class="grid">
-    <div style="grid-column:1 / -1"><strong>Razão social:</strong> ${e.nomeEmpresa||'—'}</div>
-    <div><strong>CNPJ:</strong> ${e.cnpj||'—'}</div>
-    <div><strong>CNAE / Atividade:</strong> ${e.cnae||e.descricao||'—'}</div>
-    <div style="grid-column:1 / -1"><strong>Endereço:</strong> ${_empEnderecoTxt(e)}</div>
-    <div><strong>Telefone:</strong> ${e.telefone||'—'}</div>
-    <div><strong>E-mail:</strong> ${e.email||'—'}</div>
-  </div>
-  <h2>Identificação do Trabalhador</h2>
-  <div class="grid">
-    <div><strong>Colaborador:</strong> ${emp.nome||'—'}</div>
-    <div><strong>CPF:</strong> ${emp.cpf||'—'}</div>
-    <div><strong>CTPS:</strong> ${emp.ctpsNumero||'—'} / ${emp.ctpsSerie||'—'}</div>
-    <div><strong>PIS/PASEP:</strong> ${emp.pisNit||'—'}</div>
-    <div><strong>Admissão:</strong> ${emp.dataAdmissao?formatDateBr(emp.dataAdmissao):'—'}</div>
-    <div><strong>Demissão:</strong> ${r.dataDemissao?formatDateBr(r.dataDemissao):'—'}</div>
-    <div><strong>Cargo/Setor:</strong> ${emp.cargo||emp.setor||'—'}</div>
-    <div><strong>Último salário:</strong> ${_m(emp.salarioBase)}</div>
-    <div><strong>Causa do afastamento:</strong> ${tipoLabel}</div>
-    <div><strong>Aviso prévio:</strong> ${o.avisoDias>0?o.avisoDias+' dias ('+(r.avisoTipo||'')+')':'não se aplica'}</div>
-    <div><strong>Tempo de serviço:</strong> ${o.tempoServico||'—'}</div>
-  </div>
-  <h2>Verbas Rescisórias</h2>
-  <table>
-    ${linha('Saldo de salário', o.saldoSalario)}
-    ${o.avisoValor>0?linha('Aviso prévio indenizado', o.avisoValor):''}
-    ${o.decimo>0?linha('13º salário proporcional ('+o.decimoAvos+'/12)', o.decimo):''}
-    ${o.feriasVenc>0?linha('Férias vencidas + 1/3', o.feriasVenc):''}
-    ${o.feriasProp>0?linha('Férias proporcionais + 1/3 ('+o.feriasPropAvos+'/12)', o.feriasProp):''}
-    ${o.indenizAdic>0?linha('Indenização adicional (Lei 7.238/84)', o.indenizAdic):''}
-    ${itensVerbas.map(it=>linha(it.descricao||'Outras verbas', it.valor)).join('')}
-    <tr class="tot"><td>TOTAL DE VERBAS</td><td style="text-align:right">${_m(o.totalVerbas)}</td></tr>
+  <table class="f">
+    <colgroup>${'<col>'.repeat(24)}</colgroup>
+    <tr><td colspan="24" class="title">Termo de Rescisão do Contrato de Trabalho</td></tr>
+    <tr><td colspan="24" class="band">IDENTIFICAÇÃO DO EMPREGADOR</td></tr>
+    <tr>${fld('01','CNPJ/CEI',e.cnpj,8)}${fld('02','Razão Social/Nome',e.nomeEmpresa,16)}</tr>
+    <tr>${fld('03','Endereço (logradouro, nº, andar, apartamento)',endEmp,18)}${fld('04','Bairro',e.bairro,6)}</tr>
+    <tr>${fld('05','Município',e.cidade,6)}${fld('06','UF',e.uf,2)}${fld('07','CEP',e.cep,4)}${fld('08','CNAE',e.cnae,6)}${fld('09','CNPJ/CEI Tomador/Obra','',6)}</tr>
+    <tr><td colspan="24" class="band">IDENTIFICAÇÃO DO TRABALHADOR</td></tr>
+    <tr>${fld('10','PIS/PASEP',emp.pisNit,8)}${fld('11','Nome',emp.nome,16)}</tr>
+    <tr>${fld('12','Endereço (logradouro, nº, andar, apartamento)',endTrab,18)}${fld('13','Bairro',emp.bairro,6)}</tr>
+    <tr>${fld('14','Município',emp.cidade,6)}${fld('15','UF',emp.estado,2)}${fld('16','CEP',emp.cep,4)}${fld('17','CTPS (nº, série, UF)',[emp.ctpsNumero,emp.ctpsSerie,emp.estado].filter(Boolean).join(' / '),6)}${fld('18','CPF',emp.cpf,6)}</tr>
+    <tr>${fld('19','Data de Nascimento',_d(emp.dataNascimento),6)}${fld('20','Nome da Mãe',emp.nomeMae,18)}</tr>
+    <tr><td colspan="24" class="band">DADOS DO CONTRATO</td></tr>
+    <tr>${fld('21','Tipo de Contrato',tipoContrato,24)}</tr>
+    <tr>${fld('22','Causa do Afastamento',tipoLabel,24)}</tr>
+    <tr>${fld('23','Remuneração Mês Ant.',_m(emp.salarioBase),6)}${fld('24','Data de Admissão',_d(emp.dataAdmissao),6)}${fld('25','Data do Aviso Prévio',_d(r.dataDemissao),4)}${fld('26','Data de Afastamento',_d(o.dataAfastamentoProj||r.dataDemissao),4)}${fld('27','Cód. Afast.','',4)}</tr>
+    <tr>${fld('28','Pensão Alim. (%) TRCT','',6)}${fld('29','Pensão Alim. (%) FGTS','',6)}${fld('30','Categoria do Trabalhador','01 - Empregado',12)}</tr>
+    <tr>${fld('31','Código Sindical','',6)}${fld('32','CNPJ e Nome da Entidade Sindical Laboral','',18)}</tr>
+    <tr><td colspan="24" class="band">DISCRIMINAÇÃO DAS VERBAS RESCISÓRIAS</td></tr>
+    <tr class="hdr"><td colspan="5">Rubrica</td><td colspan="3">Valor</td><td colspan="5">Rubrica</td><td colspan="3">Valor</td><td colspan="5">Rubrica</td><td colspan="3">Valor</td></tr>
+    ${chunk(verbas)}
+    <tr class="tot"><td colspan="18">TOTAL BRUTO</td><td colspan="6" class="rbv">${_m(o.totalVerbas)}</td></tr>
+    <tr><td colspan="24" class="band">DEDUÇÕES</td></tr>
+    <tr class="hdr"><td colspan="5">Desconto</td><td colspan="3">Valor</td><td colspan="5">Desconto</td><td colspan="3">Valor</td><td colspan="5">Desconto</td><td colspan="3">Valor</td></tr>
+    ${chunk(descontos)}
+    <tr class="tot"><td colspan="18">TOTAL DEDUÇÕES</td><td colspan="6" class="rbv">${_m(o.totalDescontos)}</td></tr>
+    <tr class="liq"><td colspan="18">VALOR LÍQUIDO</td><td colspan="6" class="rbv">${_m(o.liquido)}</td></tr>
   </table>
-  <h2>Descontos</h2>
-  <table>
-    ${o.inss>0?linha('INSS', o.inss):''}
-    ${o.irrf>0?linha('IRRF', o.irrf):''}
-    ${o.pensao>0?linha('Pensão alimentícia', o.pensao):''}
-    ${o.adiantamentos>0?linha('Adiantamentos', o.adiantamentos):''}
-    ${o.avisoDescontado>0?linha('Aviso prévio não cumprido', o.avisoDescontado):''}
-    ${itensDesc.map(it=>linha(it.descricao||'Outros descontos', it.valor)).join('')}
-    <tr class="tot"><td>TOTAL DE DESCONTOS</td><td style="text-align:right">${_m(o.totalDescontos)}</td></tr>
-  </table>
-  <h2>FGTS</h2>
-  <table>
-    ${linha('FGTS sobre as verbas do mês (informativo)', o.fgtsMes)}
-    ${o.multaFgts>0?linha('Multa rescisória do FGTS ('+o.multaPct+'%)', o.multaFgts):'<tr><td>Multa rescisória do FGTS</td><td style="text-align:right">não se aplica</td></tr>'}
-  </table>
-  <div class="obs">A multa rescisória do FGTS é depositada na conta vinculada do trabalhador (saque), não integra o líquido em espécie.</div>
-  <div class="liq">LÍQUIDO DAS VERBAS RESCISÓRIAS: ${_m(o.liquido)}</div>
-  <div class="obs">Prazo de pagamento (CLT art. 477): até <strong>${o.prazoPagamento}</strong>.</div>
-  ${r.observacoes?`<div class="obs"><strong>Observações:</strong> ${r.observacoes}</div>`:''}
+  <div class="note"><strong>FGTS:</strong> depósito sobre as verbas do mês ${_m(o.fgtsMes)} &middot; multa rescisória ${o.multaFgts>0?_m(o.multaFgts)+' ('+o.multaPct+'%)':'não se aplica'} — creditada/sacada na conta vinculada do trabalhador, não integra o valor líquido em espécie.</div>
+  <div class="note">Prazo de pagamento das verbas rescisórias (CLT art. 477, §6º): até <strong>${o.prazoPagamento||'—'}</strong>. Tempo de serviço: ${o.tempoServico||'—'}.</div>
+  ${r.observacoes?`<div class="note"><strong>Observações:</strong> ${r.observacoes}</div>`:''}
   <div class="ass">
-    <div>${e.nomeEmpresa||'Empregador'}</div>
-    <div>${emp.nome||'Trabalhador'}</div>
+    <div>${e.nomeEmpresa||'Empregador'}<br>Assinatura do Empregador</div>
+    <div>${emp.nome||'Trabalhador'}<br>Assinatura do Trabalhador</div>
   </div>
-  <p style="text-align:center;font-size:9px;color:#999;margin-top:24px">Documento gerado por ${APP_VERSION} em ${new Date().toLocaleDateString('pt-BR')} — demonstrativo de conferência, não substitui o eSocial.</p>
+  <div class="foot">Documento gerado por ${APP_VERSION} em ${new Date().toLocaleDateString('pt-BR')} — demonstrativo de conferência, não substitui o eSocial.</div>
   </body></html>`;
 }
 

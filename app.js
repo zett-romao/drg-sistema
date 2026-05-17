@@ -3082,7 +3082,7 @@ function openEmployeeModal(id=null){
   const titleEl=document.getElementById('modal-employee-title');
   if(id){
     const emp=State.employees.find(e=>e.id===id); if(!emp) return;
-    titleEl.innerHTML='<i class="fa-solid fa-user-pen"></i> Editar Colaborador';
+    titleEl.innerHTML=`<i class="fa-solid fa-user-pen"></i> Editar Colaborador <span style="font-weight:400;color:var(--text-muted);font-size:14px">— ${emp.nome||''}</span>`;
     _toggleOpcaoLicencaMaternidade(true); // habilita opção ao editar
     setVal('emp-registro', emp.registro ? String(emp.registro).padStart(4,'0') : '—');
     setVal('emp-id',emp.id); setVal('emp-nome',emp.nome); setVal('emp-rg',emp.rg||'');

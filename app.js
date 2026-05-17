@@ -9704,6 +9704,20 @@ function _heRecusadasHtml(emp, mes, ano, dias){
   </table>`;
 }
 
+// Banner de alerta no topo da folha impressa: sem ponto, ou mês em andamento
+// (valores parciais — plantões futuros ainda não viraram falta).
+function _avisoFolhaImpressa(diasTrabalhados, mes, ano){
+  if(diasTrabalhados===0){
+    return `<div style="margin:8px 0;padding:8px 12px;background:#FFEBEE;border:1.5px solid #E57373;border-radius:4px;color:#B71C1C;font-size:11px;font-weight:700"><i class="fa-solid fa-triangle-exclamation"></i> ATENÇÃO: nenhum dia de ponto registrado nesta folha. Confira o ponto e a escala antes de pagar.</div>`;
+  }
+  const hoje=new Date();
+  const emAndamento = (mes===hoje.getMonth()+1 && ano===hoje.getFullYear() && hoje.getDate()<new Date(ano,mes,0).getDate());
+  if(emAndamento){
+    return `<div style="margin:8px 0;padding:8px 12px;background:#FFF8E1;border:1.5px solid #F9A825;border-radius:4px;color:#E65100;font-size:11px;font-weight:700"><i class="fa-solid fa-hourglass-half"></i> MÊS EM ANDAMENTO — os valores são <u>parciais</u>. Plantões ainda não cumpridos viram falta conforme o mês avança; o valor definitivo é apurado só no fechamento, após o último dia do mês.</div>`;
+  }
+  return '';
+}
+
 // ============================================
 // IMPRIMIR FOLHA DE PONTO
 // ============================================
@@ -9884,7 +9898,7 @@ ${isPreview?`<div class="preview-banner">
   <div class="info-item"><div class="info-label">Status</div><div class="info-value">${(emp.status||'ativo').charAt(0).toUpperCase()+(emp.status||'ativo').slice(1)}</div></div>
 </div>
 
-${diasTrabalhados===0?`<div style="margin:8px 0;padding:8px 12px;background:#FFEBEE;border:1.5px solid #E57373;border-radius:4px;color:#B71C1C;font-size:11px;font-weight:700"><i class="fa-solid fa-triangle-exclamation"></i> ATENÇÃO: nenhum dia de ponto registrado nesta folha. Os valores abaixo são apenas a projeção do salário mensal — confira o ponto e a escala antes de pagar.</div>`:''}
+${_avisoFolhaImpressa(diasTrabalhados, mes, ano)}
 
 <h2>Resumo do Período</h2>
 <div class="resumo-bar">
@@ -10120,7 +10134,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
   <div class="info-item"><div class="info-label">Período</div><div class="info-value">${p.periodoDe||'—'} a ${p.periodoAte||'—'}</div></div>
 </div>
 
-${diasTrabalhados===0?`<div style="margin:8px 0;padding:8px 12px;background:#FFEBEE;border:1.5px solid #E57373;border-radius:4px;color:#B71C1C;font-size:11px;font-weight:700"><i class="fa-solid fa-triangle-exclamation"></i> ATENÇÃO: nenhum dia de ponto registrado nesta folha. Os valores abaixo são apenas a projeção do salário mensal — confira o ponto e a escala antes de pagar.</div>`:''}
+${_avisoFolhaImpressa(diasTrabalhados, mes, ano)}
 
 <h2>Resumo do Período</h2>
 <div class="resumo-bar">

@@ -2982,8 +2982,11 @@ function onDemissaoChange(){
 
 function onEscalaChange(){
   const escala=val('emp-escala');
+  const is12=(escalaFamilia(escala)==='12x36');
   const row=document.getElementById('turno-noturno-row');
-  if(row) row.style.display=(escalaFamilia(escala)==='12x36')?'':'none';
+  if(row) row.style.display=is12?'':'none';
+  const rowCiclo=document.getElementById('row-ciclo-12x36');
+  if(rowCiclo) rowCiclo.style.display=is12?'':'none';
 }
 
 function onEmpStatusChange(){
@@ -3117,6 +3120,7 @@ function openEmployeeModal(id=null){
     const bonifChk=document.getElementById('emp-bonificacao-sempre-pagar');
     if(bonifChk) bonifChk.checked=!!(emp.bonificacaoSemprePagar);
     const chk=document.getElementById('emp-turno-noturno'); if(chk) chk.checked=!!(emp.turnoNoturno);
+    setVal('emp-ciclo-12x36-inicio', emp.ciclo12x36Inicio||'');
     // Aba Encargos & IRRF
     setVal('emp-dependentes-irrf', emp.dependentesIRRF||0);
     setVal('emp-pensao-alimenticia', (emp.pensaoAlimenticia||0).toFixed(2));
@@ -3177,7 +3181,7 @@ function openEmployeeModal(id=null){
      'emp-local-nascimento','emp-uf-nascimento','emp-raca','emp-mae','emp-pai',
      'emp-grau-instrucao','emp-instrucao-concluido','emp-pis-data',
      'emp-titulo-zona','emp-titulo-secao','emp-ctps-emissao',
-     'emp-cnh','emp-cnh-categoria'].forEach(id=>setVal(id,''));
+     'emp-cnh','emp-cnh-categoria','emp-ciclo-12x36-inicio'].forEach(id=>setVal(id,''));
     setVal('emp-estado','SP'); setVal('emp-status','ativo'); setVal('emp-escala','5x2A');
     setVal('emp-insalubridade',0);
     setVal('emp-vt-freq','diario'); setVal('emp-vr-freq','diario');
@@ -3234,6 +3238,7 @@ async function saveEmployee(){
     licencaMaternidadeInicio: status==='licenca-maternidade' ? val('emp-licenca-inicio') : '',
     licencaMaternidadeTermino: status==='licenca-maternidade' ? val('emp-licenca-termino') : '',
     escala:val('emp-escala')||'5x2A',
+    ciclo12x36Inicio:val('emp-ciclo-12x36-inicio')||'',
     horarioEntrada:val('emp-horario-entrada'),
     horarioSaida:val('emp-horario-saida'),
     horarioRefIni:val('emp-horario-ref-ini'),
@@ -8481,6 +8486,21 @@ const HE_TOLERANCIA_BATIDA_MIN = 5;
 const HE_TOLERANCIA_DIA_MIN    = 10;
 
 // Retorna o "esperado" para um dia: prioriza escala salva, depois cadastro contratual
+// Âncora do ciclo 12x36: dado o "início do ciclo" (1º dia de trabalho)
+// informado no cadastro, diz se uma data é dia de trabalho. Alternância
+// 12x36: dia da âncora = trabalho, +1 = folga, +2 = trabalho... Retorna
+// null quando não há âncora ou a data é anterior a ela (indeterminado).
+function _ciclo12x36EhTrabalho(emp, ano, mes, dia){
+  const ini = emp && emp.ciclo12x36Inicio;
+  if(!ini) return null;
+  const dAnchor = new Date(ini + 'T00:00:00');
+  if(isNaN(dAnchor.getTime())) return null;
+  const dAlvo = new Date(ano, mes-1, dia);
+  const diff = Math.round((dAlvo - dAnchor) / 86400000);
+  if(diff < 0) return null;
+  return (diff % 2) === 0;
+}
+
 function _getExpectedDay(emp, mes, ano, dia){
   if(!emp) return null;
   // 1) Tenta escala salva
@@ -8513,6 +8533,16 @@ function _getExpectedDay(emp, mes, ano, dia){
   const diaSem = new Date(ano, mes-1, dia).getDay();
   const isWknd = diaSem===0 || diaSem===6;
   const fam = escalaFamilia(emp.escala||'5x2A');
+  // 12x36 sem escala salva → projeta pela âncora do ciclo informada no cadastro
+  if(fam==='12x36'){
+    const ehTrab = _ciclo12x36EhTrabalho(emp, ano, mes, dia);
+    if(ehTrab === false) return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
+    if(ehTrab === true){
+      const h = _escalaHorariosDia(emp, diaSem);
+      return { tipo:'trabalho', entrada:h.entrada, saida:h.saida, intIni:h.intIni, intFim:h.intFim };
+    }
+    // sem âncora definida → cai no retorno genérico abaixo
+  }
   // Para 5x2 e fins de semana, sem horário esperado (é folga)
   if(fam==='5x2' && isWknd) return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
   if(fam==='6x1' && diaSem===0) return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
@@ -8857,8 +8887,11 @@ function _diaEmBrancoEhFalta(emp, mes, ano, dia, isWeekend, is12x36){
   if(escalaSalva && Array.isArray(escalaSalva.dias)){
     const d = escalaSalva.dias.find(x => x.dia===dia);
     deveriaTrabalhar = !!(d && d.tipo!=='folga' && d.entrada);
+  } else if(is12x36){
+    // 12x36 sem escala salva → usa a âncora do ciclo informada no cadastro
+    deveriaTrabalhar = (_ciclo12x36EhTrabalho(emp, ano, mes, dia) === true);
   } else {
-    deveriaTrabalhar = !isWeekend && !is12x36;
+    deveriaTrabalhar = !isWeekend;
   }
   if(!deveriaTrabalhar) return false;
   const hoje = new Date();
@@ -10852,16 +10885,16 @@ function _projectEscala6x1B(emp, mes, ano, prevDias){
   return dias;
 }
 
-// 12x36: alternância 1 dia trabalho / 1 dia folga
+// 12x36: alternância 1 dia trabalho / 1 dia folga.
+// Prioridade da âncora: override explícito (modal) > âncora do cadastro
+// (ciclo12x36Inicio) > detecção pelo mês anterior > dia 1.
 function _projectEscala12x36(emp, mes, ano, prevDias, anchorOverride){
   const dias = [];
   const dpm = new Date(ano, mes, 0).getDate();
-  let anchor = null;
+  const temAncoraCad = !anchorOverride && !!(emp && emp.ciclo12x36Inicio);
+  let anchor = anchorOverride || 1;
   let noPrev = false;
-  if(anchorOverride){
-    // Âncora explícita (ex.: usuário escolheu o dia de início do ciclo)
-    anchor = anchorOverride;
-  } else {
+  if(!anchorOverride && !temAncoraCad){
     let lastWork = null;
     if(prevDias && prevDias.length){
       const sorted = [...prevDias].sort((a,b)=>b.dia-a.dia);
@@ -10870,9 +10903,8 @@ function _projectEscala12x36(emp, mes, ano, prevDias, anchorOverride){
     }
     if(lastWork !== null){
       const prevDpm = new Date(ano, mes-1, 0).getDate();
-      const offsetDay1 = (prevDpm - lastWork) + 1; // distância de lastWork até dia 1 do mês atual
       // lastWork = offset 0 (trabalho). Par = trabalho, ímpar = folga.
-      anchor = (offsetDay1 % 2 === 0) ? 1 : 2;
+      anchor = (((prevDpm - lastWork) + 1) % 2 === 0) ? 1 : 2;
     } else {
       anchor = 1;
       noPrev = true;
@@ -10880,8 +10912,13 @@ function _projectEscala12x36(emp, mes, ano, prevDias, anchorOverride){
   }
   for(let d=1; d<=dpm; d++){
     const ds = new Date(ano, mes-1, d).getDay();
-    const offset = d - anchor;
-    const tipo = (offset % 2 === 0) ? 'trabalho' : 'folga';
+    let tipo;
+    const ehCad = temAncoraCad ? _ciclo12x36EhTrabalho(emp, ano, mes, d) : null;
+    if(ehCad !== null){
+      tipo = ehCad ? 'trabalho' : 'folga';
+    } else {
+      tipo = ((d - anchor) % 2 === 0) ? 'trabalho' : 'folga';
+    }
     const h = (tipo==='trabalho') ? _escalaHorariosDia(emp, ds) : {entrada:'',intIni:'',intFim:'',saida:''};
     const obj = { dia:d, diaSem:ds, tipo, ...h };
     if(noPrev) obj.revisao = true;

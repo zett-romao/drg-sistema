@@ -3352,6 +3352,7 @@ function onPayrollPostoFilterChange(){
 }
 
 function initPayrollSection(){
+  const currentId=(document.getElementById('payroll-employee')||{}).value||'';
   // Filtro por posto
   const fSel=document.getElementById('payroll-filter-posto');
   if(fSel){

@@ -1820,7 +1820,7 @@ function renderPagamentos(){
       <td>${i+1}</td>
       <td style="font-size:11px">${e.registro?String(e.registro).padStart(4,'0'):'—'}</td>
       <td><strong>${e.nome}</strong></td>
-      <td style="font-size:11px">${e.cargo||'—'}</td>
+      <td style="font-size:11px">${e.cargo||e.setor||'—'}</td>
       <td>${e.salarioBase?fmtMoney(e.salarioBase):'—'}</td>
       <td style="font-weight:600">${bruto?fmtMoney(bruto):'<span style="color:#ccc">—</span>'}</td>
       <td style="color:#c0392b">${inss?'('+fmtMoney(inss)+')':'—'}</td>
@@ -1861,7 +1861,7 @@ function exportPagamentosCsv(){
   const rows=emps.map((e,i)=>{
     const p=folhaMap[e.id];
     const fmt=v=>v?(v.toFixed(2).replace('.',',')):'-';
-    return [i+1, e.registro||'', e.nome, e.cargo||'', fmt(e.salarioBase),
+    return [i+1, e.registro||'', e.nome, e.cargo||e.setor||'', fmt(e.salarioBase),
       fmt(p?.totalBruto), fmt(p?.inss), fmt(p?.irrf), fmt(p?.fgts),
       fmt(p?.totalLiquidoFinal||p?.remuneracao), p?p.status:'sem folha'].join(';');
   });
@@ -1968,7 +1968,7 @@ function openDecimoTerceiro(empId){
   setVal('dec-modal-emp-id',empId);
   setVal('dec-modal-ano',ano);
   setVal('dec-modal-nome',emp.nome);
-  setVal('dec-modal-cargo',emp.cargo||'—');
+  setVal('dec-modal-cargo',emp.cargo||emp.setor||'—');
   setVal('dec-modal-admissao',emp.admissao||'—');
   setVal('dec-modal-meses-dir',mesesDir);
   setVal('dec-modal-sal-base',(parseFloat(emp.salario||0)).toFixed(2));
@@ -2061,7 +2061,7 @@ function printDecimoTerceiro(){
   <table>
     <tr><th colspan="2">Dados do Colaborador</th></tr>
     <tr><td><strong>Nome:</strong> ${emp.nome}</td><td><strong>Registro:</strong> ${emp.registro||'—'}</td></tr>
-    <tr><td><strong>Cargo:</strong> ${emp.cargo||'—'}</td><td><strong>Admissão:</strong> ${emp.admissao||'—'}</td></tr>
+    <tr><td><strong>Cargo:</strong> ${emp.cargo||emp.setor||'—'}</td><td><strong>Admissão:</strong> ${emp.admissao||'—'}</td></tr>
     <tr><td><strong>Meses Trabalhados:</strong> ${mesesDir}/12</td><td><strong>Sal. Base:</strong> ${fmtMoney(parseFloat(emp.salario||0))}</td></tr>
   </table>
   <table>
@@ -2141,7 +2141,7 @@ function renderFeriasModulo(){
     const status=rec.status||'pendente';
     const badge=status==='gozadas'?'<span class="badge badge-success">Gozadas</span>':status==='agendadas'?'<span class="badge badge-warning">Agendadas</span>':'<span class="badge badge-muted">Pendente</span>';
     return `<tr>
-      <td>${i+1}</td><td>${emp.registro||'—'}</td><td>${emp.nome}</td><td>${emp.cargo||'—'}</td>
+      <td>${i+1}</td><td>${emp.registro||'—'}</td><td>${emp.nome}</td><td>${emp.cargo||emp.setor||'—'}</td>
       <td style="font-size:11px">${periodoAquis}</td><td style="text-align:center">${direitoAno}</td>
       <td>${badge}</td>
       <td><button class="btn btn-sm btn-outline-primary" onclick="openFeriasModulo('${emp.id}')"><i class="fa-solid fa-pen-to-square"></i></button></td>
@@ -2158,7 +2158,7 @@ function openFeriasModulo(empId){
   setVal('fer-modal-emp-id',empId);
   setVal('fer-modal-ano',ano);
   setVal('fer-modal-nome',emp.nome);
-  setVal('fer-modal-cargo',emp.cargo||'—');
+  setVal('fer-modal-cargo',emp.cargo||emp.setor||'—');
   setVal('fer-modal-admissao',emp.admissao||'—');
   setVal('fer-modal-sal-base',(parseFloat(emp.salario||0)).toFixed(2));
   setVal('fer-modal-inicio',rec.inicio||'');
@@ -2257,7 +2257,7 @@ function printFeriasModulo(){
   <table>
     <tr><th colspan="2">Dados do Colaborador</th></tr>
     <tr><td><strong>Nome:</strong> ${emp.nome}</td><td><strong>Registro:</strong> ${emp.registro||'—'}</td></tr>
-    <tr><td><strong>Cargo:</strong> ${emp.cargo||'—'}</td><td><strong>Admissão:</strong> ${emp.admissao||'—'}</td></tr>
+    <tr><td><strong>Cargo:</strong> ${emp.cargo||emp.setor||'—'}</td><td><strong>Admissão:</strong> ${emp.admissao||'—'}</td></tr>
     <tr><td><strong>Período de Gozo:</strong> ${inicio} a ${fim}</td><td><strong>Dias de Gozo:</strong> ${diasGozo} dias</td></tr>
     ${parseInt(abonoDias)>0?`<tr><td><strong>Abono Pecuniário:</strong> ${abonoDias} dias</td><td><strong>Sal. Base:</strong> ${fmtMoney(parseFloat(emp.salario||0))}</td></tr>`:`<tr><td colspan="2"><strong>Sal. Base:</strong> ${fmtMoney(parseFloat(emp.salario||0))}</td></tr>`}
   </table>
@@ -9927,7 +9927,7 @@ ${isPreview?`<div class="preview-banner">
   <div class="info-item"><div class="info-label">CPF</div><div class="info-value">${emp.cpf||'—'}</div></div>
   <div class="info-item"><div class="info-label">RG</div><div class="info-value">${emp.rg||'—'}</div></div>
   <div class="info-item"><div class="info-label">PIS/PASEP</div><div class="info-value">${emp.pis||'—'}</div></div>
-  <div class="info-item"><div class="info-label">Cargo / Função</div><div class="info-value">${emp.cargo||'—'}</div></div>
+  <div class="info-item"><div class="info-label">Cargo / Função</div><div class="info-value">${emp.cargo||emp.setor||'—'}</div></div>
   <div class="info-item"><div class="info-label">Escala</div><div class="info-value">${emp.escala||'—'}</div></div>
   <div class="info-item"><div class="info-label">Admissão</div><div class="info-value">${emp.admissao?fmtDate(emp.admissao):'—'}</div></div>
   <div class="info-item"><div class="info-label">Posto de Trabalho</div><div class="info-value">${posto.razaoSocial||'—'}</div></div>
@@ -10163,7 +10163,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
   <div class="info-item"><div class="info-label">CPF</div><div class="info-value">${emp.cpf||'—'}</div></div>
   <div class="info-item"><div class="info-label">RG</div><div class="info-value">${emp.rg||'—'}</div></div>
   <div class="info-item"><div class="info-label">PIS/PASEP</div><div class="info-value">${emp.pis||'—'}</div></div>
-  <div class="info-item"><div class="info-label">Cargo / Função</div><div class="info-value">${emp.cargo||'—'}</div></div>
+  <div class="info-item"><div class="info-label">Cargo / Função</div><div class="info-value">${emp.cargo||emp.setor||'—'}</div></div>
   <div class="info-item"><div class="info-label">Escala</div><div class="info-value">${emp.escala||'—'}</div></div>
   <div class="info-item"><div class="info-label">Admissão</div><div class="info-value">${emp.admissao?fmtDate(emp.admissao):'—'}</div></div>
   <div class="info-item"><div class="info-label">Posto de Trabalho</div><div class="info-value">${posto.razaoSocial||'—'}</div></div>

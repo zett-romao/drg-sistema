@@ -4744,8 +4744,15 @@ function renderPayrollHistory(empId){
   }).join('');
 }
 
+let _loadingPayroll = false;
 function loadPayrollRecord(id){
   const p=State.payrolls.find(r=>r.id===id); if(!p) return;
+  // Anti-recursão: loadPayrollRecord chama onPayrollEmployeeChange no fim, que
+  // por sua vez chama loadPayrollRecord — sem este guard o par entra em
+  // recursão infinita (RangeError) e a folha abre quebrada / sem colaborador.
+  if(_loadingPayroll) return;
+  _loadingPayroll = true;
+  try {
   _ensurePayrollEmployeeOption(p.employeeId); // garante o nome certo no select
   setVal('payroll-employee',p.employeeId); setVal('payroll-mes',p.mes); setVal('payroll-ano',p.ano);
   // Período De/Até — restaura se salvo, caso contrário auto-preenche
@@ -4786,6 +4793,7 @@ function loadPayrollRecord(id){
   const emp=State.employees.find(e=>e.id===p.employeeId);
   if(emp) setVal('payroll-pix',emp.chavePix||'');
   onPayrollEmployeeChange();
+  } finally { _loadingPayroll = false; }
 }
 
 function confirmDeletePayroll(event,id){

@@ -14,6 +14,8 @@ const APP_VERSION = 'DRG-Kronos 3.0';
 // ASAAS — URL do Worker proxy (Cloudflare)
 // ============================================
 const ASAAS_WORKER = 'https://drg-asaas.zett-romao.workers.dev';
+// Worker de segurança (2FA / aprovação de pagamentos)
+const APROVACAO_WORKER = 'https://drg-aprovacao.zett-romao.workers.dev';
 
 // ============================================
 // MÓDULO DB — CAMADA FIRESTORE
@@ -1043,6 +1045,87 @@ function doLogout(){
   firebase.auth().signOut().catch(()=>{});
   document.getElementById('login-screen').classList.remove('hidden');
   AutoBackup.stop();
+}
+
+// ============================================
+// MINHA CONTA — 2FA (Google Authenticator)
+// ============================================
+// Chamada autenticada ao Worker de segurança: envia o ID token do Firebase.
+async function _aprovacaoReq(path, body){
+  if(typeof firebase==='undefined' || !firebase.auth) throw new Error('Firebase indisponível.');
+  const fu = firebase.auth().currentUser;
+  if(!fu || fu.isAnonymous) throw new Error('Sessão segura indisponível — saia e entre de novo.');
+  const idToken = await fu.getIdToken();
+  const r = await fetch(APROVACAO_WORKER + path, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ idToken, ...(body||{}) })
+  });
+  const data = await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(data.error || ('HTTP '+r.status));
+  return data;
+}
+
+async function openMinhaConta(){
+  const u = Auth.currentUser;
+  if(!u) return;
+  const infoEl   = document.getElementById('minha-conta-info');
+  const statusEl = document.getElementById('mfa-status-box');
+  document.getElementById('mfa-enroll-box').style.display = 'none';
+  document.getElementById('modal-minha-conta').classList.remove('hidden');
+  infoEl.innerHTML = `<strong>${u.username}</strong> — ${u.email||'(sem e-mail cadastrado)'} &middot; Perfil: ${roleLabel(u.role)}`;
+  const fu = (typeof firebase!=='undefined' && firebase.auth) ? firebase.auth().currentUser : null;
+  if(!fu || fu.isAnonymous){
+    statusEl.innerHTML = '<div style="color:#C62828"><i class="fa-solid fa-triangle-exclamation"></i> Para usar o 2FA, sua conta precisa estar no login seguro (Firebase Auth). Confira se o seu <strong>e-mail está preenchido</strong> no cadastro, depois <strong>saia e entre de novo</strong>.</div>';
+    return;
+  }
+  statusEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verificando 2FA...';
+  try {
+    const r = await _aprovacaoReq('/mfa/status', {});
+    if(r.ativo){
+      statusEl.innerHTML = '<div style="color:#1B5E20;font-weight:600"><i class="fa-solid fa-circle-check"></i> Verificação em 2 etapas ATIVADA nesta conta.</div>'
+        + '<button class="btn btn-outline" style="margin-top:8px;font-size:12px;padding:5px 12px" onclick="mfaIniciarAtivacao()"><i class="fa-solid fa-rotate"></i> Reconfigurar (troquei de celular)</button>';
+    } else {
+      statusEl.innerHTML = '<div style="color:#E65100"><i class="fa-solid fa-shield-halved"></i> Verificação em 2 etapas ainda <strong>não ativada</strong>.</div>'
+        + '<button class="btn btn-primary" style="margin-top:8px" onclick="mfaIniciarAtivacao()"><i class="fa-solid fa-mobile-screen-button"></i> Ativar 2FA</button>';
+    }
+  } catch(e){
+    statusEl.innerHTML = `<div style="color:#C62828"><i class="fa-solid fa-triangle-exclamation"></i> Erro ao consultar o 2FA: ${e.message}</div>`;
+  }
+}
+
+async function mfaIniciarAtivacao(){
+  const box  = document.getElementById('mfa-enroll-box');
+  const qrEl = document.getElementById('mfa-qr');
+  try {
+    const r = await _aprovacaoReq('/mfa/enroll', {});
+    qrEl.innerHTML = '';
+    if(typeof QRCode!=='undefined'){
+      new QRCode(qrEl, { text:r.uri, width:160, height:160, correctLevel:QRCode.CorrectLevel.M });
+    } else {
+      qrEl.textContent = '(QR indisponível — use a chave manual ao lado)';
+    }
+    document.getElementById('mfa-secret').textContent = r.secret;
+    setVal('mfa-code','');
+    box.style.display = '';
+  } catch(e){
+    toast('Erro ao iniciar o 2FA: '+e.message, 'error');
+  }
+}
+
+async function mfaConfirm(){
+  const code = (val('mfa-code')||'').replace(/\D/g,'');
+  if(code.length!==6){ toast('Digite o código de 6 dígitos do app.','error'); return; }
+  try {
+    const r = await _aprovacaoReq('/mfa/confirm', { code });
+    if(r && r.ok){
+      toast('2FA ativado com sucesso!','success');
+      openMinhaConta();
+    } else {
+      toast('Código incorreto. Confira no Google Authenticator e tente de novo.','error');
+    }
+  } catch(e){
+    toast('Erro ao confirmar: '+e.message,'error');
+  }
 }
 
 // ============================================

@@ -3113,6 +3113,7 @@ function openEmployeeModal(id=null){
     setVal('emp-salario-base',emp.salarioBase||'');
     setVal('emp-posto',emp.posto||'');
     setVal('emp-setor',emp.setor||'');
+    setVal('emp-cargo',emp.cargo||'');
     setVal('emp-exame-vencimento',emp.exameVencimento||'');
     setVal('emp-insalubridade',emp.insalubridade||0);
     const acumChk=document.getElementById('emp-acumulo-funcao');
@@ -3181,7 +3182,7 @@ function openEmployeeModal(id=null){
      'emp-local-nascimento','emp-uf-nascimento','emp-raca','emp-mae','emp-pai',
      'emp-grau-instrucao','emp-instrucao-concluido','emp-pis-data',
      'emp-titulo-zona','emp-titulo-secao','emp-ctps-emissao',
-     'emp-cnh','emp-cnh-categoria','emp-ciclo-12x36-inicio'].forEach(id=>setVal(id,''));
+     'emp-cnh','emp-cnh-categoria','emp-ciclo-12x36-inicio','emp-cargo'].forEach(id=>setVal(id,''));
     setVal('emp-estado','SP'); setVal('emp-status','ativo'); setVal('emp-escala','5x2A');
     setVal('emp-insalubridade',0);
     setVal('emp-vt-freq','diario'); setVal('emp-vr-freq','diario');
@@ -3220,6 +3221,7 @@ async function saveEmployee(){
     dataNascimento:val('emp-nascimento'),
     posto:val('emp-posto'),
     setor:val('emp-setor'),
+    cargo:val('emp-cargo'),
     exameVencimento:val('emp-exame-vencimento'),
     email:val('emp-email'), celular:val('emp-celular'),
     cep:val('emp-cep'), endereco:val('emp-endereco'), numero:val('emp-numero'),

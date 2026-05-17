@@ -9906,7 +9906,7 @@ ${diasTrabalhados===0?`<div style="margin:8px 0;padding:8px 12px;background:#FFE
 </table>
 
 <h2 style="margin-top:12px">Demonstrativo Financeiro</h2>
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px solid #F9A825;border-radius:6px;text-align:center;color:#E65100;font-weight:700;font-size:13px">FOLHA SEM PONTO REGISTRADO — nenhum valor a apurar.<div style="font-weight:400;font-size:11px;color:#666;margin-top:4px">Lance o ponto do colaborador para gerar o demonstrativo financeiro e o total a receber.</div></div>`:`<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
   <table class="fin-table">
     <tr><td class="fin-label">Remuneração do Período</td><td class="fin-value">${fmtMoney(remuneracao)}</td></tr>
     <tr><td class="fin-label">Horas Extras (${heTotal})${val('payroll-he-destino')==='banco'?' <small style="color:#00897B">&rarr; banco de horas</small>':''}</td><td class="fin-value">${fmtMoney(heValor)}</td></tr>
@@ -9933,7 +9933,7 @@ ${diasTrabalhados===0?`<div style="margin:8px 0;padding:8px 12px;background:#FFE
       ${vaLiquido>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Vale Alimentação</span><span>${fmtMoney(vaLiquido)}</span></div>`:''}
     </div>`:''}
   </div>
-</div>
+</div>`}
 
 ${_heRecusadasHtml(emp, mes, ano, diasPonto)}
 
@@ -10142,7 +10142,7 @@ ${diasTrabalhados===0?`<div style="margin:8px 0;padding:8px 12px;background:#FFE
 </table>
 
 <h2 style="margin-top:12px">Demonstrativo Financeiro</h2>
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px solid #F9A825;border-radius:6px;text-align:center;color:#E65100;font-weight:700;font-size:13px">FOLHA SEM PONTO REGISTRADO — nenhum valor a apurar.<div style="font-weight:400;font-size:11px;color:#666;margin-top:4px">Lance o ponto do colaborador para gerar o demonstrativo financeiro e o total a receber.</div></div>`:`<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
   <div>
     <div style="font-size:9px;font-weight:700;color:#1a3a6b;text-transform:uppercase;margin-bottom:3px">PROVENTOS</div>
     <table class="fin-table">
@@ -10193,7 +10193,7 @@ ${diasTrabalhados===0?`<div style="margin:8px 0;padding:8px 12px;background:#FFE
       ${vaLiquido>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Vale Alimentação</span><span>${fmtMoney(vaLiquido)}</span></div>`:''}
     </div>`:''}
   </div>
-</div>
+</div>`}
 
 ${_heRecusadasHtml(emp, mes, ano, diasPonto)}
 

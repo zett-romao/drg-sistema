@@ -9831,6 +9831,8 @@ ${isPreview?`<div class="preview-banner">
   <div class="info-item"><div class="info-label">Status</div><div class="info-value">${(emp.status||'ativo').charAt(0).toUpperCase()+(emp.status||'ativo').slice(1)}</div></div>
 </div>
 
+${diasTrabalhados===0?`<div style="margin:8px 0;padding:8px 12px;background:#FFEBEE;border:1.5px solid #E57373;border-radius:4px;color:#B71C1C;font-size:11px;font-weight:700"><i class="fa-solid fa-triangle-exclamation"></i> ATENÇÃO: nenhum dia de ponto registrado nesta folha. Os valores abaixo são apenas a projeção do salário mensal — confira o ponto e a escala antes de pagar.</div>`:''}
+
 <h2>Resumo do Período</h2>
 <div class="resumo-bar">
   <div class="resumo-item"><div class="resumo-label">Dias Trabalhados</div><div class="resumo-valor">${diasTrabalhados}</div></div>
@@ -10064,6 +10066,8 @@ function _buildFolhaHtmlFromRecord(emp, p){
   <div class="info-item"><div class="info-label">Banco de Horas</div><div class="info-value">${(function(){const s=bancoSaldo(emp.id);return s>0.0001?_fmtHoras(s):'—';})()}</div></div>
   <div class="info-item"><div class="info-label">Período</div><div class="info-value">${p.periodoDe||'—'} a ${p.periodoAte||'—'}</div></div>
 </div>
+
+${diasTrabalhados===0?`<div style="margin:8px 0;padding:8px 12px;background:#FFEBEE;border:1.5px solid #E57373;border-radius:4px;color:#B71C1C;font-size:11px;font-weight:700"><i class="fa-solid fa-triangle-exclamation"></i> ATENÇÃO: nenhum dia de ponto registrado nesta folha. Os valores abaixo são apenas a projeção do salário mensal — confira o ponto e a escala antes de pagar.</div>`:''}
 
 <h2>Resumo do Período</h2>
 <div class="resumo-bar">

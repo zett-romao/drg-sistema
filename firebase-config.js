@@ -33,21 +33,34 @@ if (typeof firebase !== 'undefined' && firebase.apps && !firebase.apps.length) {
 }
 
 // ================================================================
-//  REGRAS DE SEGURANÇA DO FIRESTORE
+//  REGRAS DE SEGURANÇA — atualizadas em 2026-05-17 (Etapa 3 da migração)
 // ================================================================
-//  Após configurar, vá em Firestore → Regras e cole o seguinte:
+//  Antes era "if true" (qualquer um na internet lia/gravava tudo).
+//  Agora exige autenticação. Os dois apps (gestor e ponto) já fazem
+//  signInAnonymously antes de consultar o Firestore.
+//
+//  FIRESTORE — Firestore Database → Regras → Publicar:
 //
 //  rules_version = '2';
 //  service cloud.firestore {
 //    match /databases/{database}/documents {
 //      match /{document=**} {
-//        allow read, write: if true;
+//        allow read, write: if request.auth != null;
 //      }
 //    }
 //  }
 //
-//  Depois de publicar no Netlify, restrinja a chave de API:
-//  Google Cloud Console → APIs e serviços → Credenciais
-//  → clique na sua API Key → Restrições de aplicativo
-//  → Sites HTTP → adicione: https://SEU-SITE.netlify.app/*
+//  STORAGE — Storage → Regras → Publicar:
+//
+//  rules_version = '2';
+//  service firebase.storage {
+//    match /b/{bucket}/o {
+//      match /{allPaths=**} {
+//        allow read, write: if request.auth != null;
+//      }
+//    }
+//  }
+//
+//  NOTA: regras granulares (por coleção / por papel, e a coleção `mfa`
+//  só-servidor) virão na Etapa 4, junto com o Worker de aprovação.
 // ================================================================

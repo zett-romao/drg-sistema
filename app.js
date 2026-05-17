@@ -8506,11 +8506,14 @@ function _detectHEDivergencia(realDay, expectedDay){
   return out;
 }
 
-// Decide qual conjunto de minutos usar no cálculo:
-// - dentro da tolerância CLT → usa expected (CLT permite ignorar)
-// - acima da tolerância:
-//     * aprovado → usa real (HE conta)
-//     * pendente/abonado → usa expected (HE não conta até revisar)
+// Decide qual conjunto de minutos usar no cálculo do dia:
+// - Trabalhou ALÉM do previsto (excesso = potencial HE):
+//     * aprovado na revisão → usa real (HE conta e é paga)
+//     * pendente / recusado / sem revisão → usa expected (HE NÃO é paga)
+// - Trabalhou IGUAL ou A MENOS:
+//     * variação até 10min/dia → usa expected (tolerância CLT, Súmula 366 TST)
+//     * déficit acima de 10min → usa real (vira atraso)
+// Regra de ouro: nenhuma hora extra entra na folha sem aprovação explícita.
 function _effectiveMinLiq(realDay, expectedDay, contratosMin){
   const _liq = (d) => {
     if(!d || !d.entrada || !d.saida) return 0;
@@ -8521,12 +8524,37 @@ function _effectiveMinLiq(realDay, expectedDay, contratosMin){
   };
   const realLiq = _liq(realDay);
   if(!expectedDay || !expectedDay.entrada) return realLiq; // sem expected, usa real
-  const detec = _detectHEDivergencia(realDay, expectedDay);
+  const expLiq = _liq(expectedDay);
+  const diff = realLiq - expLiq; // >0 trabalhou além; <0 trabalhou a menos
   const reviewStatus = realDay.heReview?.status || null;
-  const useReal = (!detec.precisaRevisao) || (reviewStatus === 'aprovado');
-  if(useReal) return realLiq;
-  // HE indevida não aprovada → usa expected (zera o excesso)
-  return _liq(expectedDay);
+  if(diff > 0){
+    // Excesso de jornada — só vira HE se o gestor aprovar na revisão.
+    return (reviewStatus === 'aprovado') ? realLiq : expLiq;
+  }
+  // Trabalhou igual/menos: tolerância CLT de 10min/dia absorve a variação.
+  if(-diff <= HE_TOLERANCIA_DIA_MIN) return expLiq;
+  return realLiq; // déficit relevante → conta como atraso
+}
+
+// Soma de horas extras (em minutos) de uma lista de pontoManualDias,
+// respeitando o status de revisão (heReview) de cada dia. Fonte única de
+// verdade do total de HE de uma folha baseada em ponto diário.
+function _heMinFromDias(emp, mes, ano, dias){
+  if(!emp || !Array.isArray(dias)) return 0;
+  const fam = escalaFamilia(emp.escala||'5x2A');
+  let minContratados = 480;
+  if(fam==='6x1') minContratados = 440;
+  else if(fam==='12x36') minContratados = 660;
+  const _modMC = _escalaModelo(emp.escala);
+  if(_modMC) minContratados = _modeloMinContratados(_modMC);
+  let total = 0;
+  dias.forEach(d => {
+    if(!d || !d.entrada || !d.saida) return;
+    const expectedDay = _getExpectedDay(emp, mes, ano, d.dia);
+    const effLiq = _effectiveMinLiq(d, expectedDay, minContratados);
+    total += Math.max(0, effLiq - minContratados);
+  });
+  return total;
 }
 
 // Minutos líquidos trabalhados de um dia (entrada→saída menos intervalo)
@@ -9251,7 +9279,35 @@ async function saveHEReview(){
   const btn = document.querySelector('#modal-he-review .btn-primary');
   if(btn) setBtnLoading(btn, true, '');
   try {
-    const updated = { ...payroll, pontoManualDias: newDias, updatedAt: new Date().toISOString() };
+    // ── Recalcula o TOTAL de HE a partir dos dias revisados ──────────────
+    // Sem isso, a revisão só gravava o status mas o horasExtrasTotal antigo
+    // (e o valor pago) continuava congelado na folha. Só dias APROVADOS
+    // pagam HE; pendente / recusado / sem revisão → não pagam.
+    const empObj   = State.employees.find(e=>e.id===empId);
+    const heMinRev = _heMinFromDias(empObj, mes, ano, newDias);
+    const heHorasRev = heMinRev>0 ? +(heMinRev/60).toFixed(2) : 0;
+    const formIsThisEmp = (val('payroll-employee')===empId
+      && parseInt(val('payroll-mes'))===mes && parseInt(val('payroll-ano'))===ano);
+    const updated = { ...payroll, pontoManualDias: newDias, horasExtrasTotal: heHorasRev };
+    if(formIsThisEmp){
+      // Folha deste colaborador está na tela: atualiza o campo e deixa o
+      // recalculate recompor valor de HE, encargos e líquido final.
+      setVal('payroll-he-total', heHorasRev>0 ? heHorasRev : '');
+      recalculate();
+      updated.horasExtrasValor  = numVal('payroll-he-valor')||0;
+      updated.totalBruto        = numVal('payroll-total-bruto')||updated.totalBruto||0;
+      updated.inss              = numVal('payroll-inss')||0;
+      updated.irrf              = numVal('payroll-irrf')||0;
+      updated.fgts              = numVal('payroll-fgts')||0;
+      updated.totalLiquidoFinal = numVal('payroll-total-liquido-final')||updated.totalLiquidoFinal||0;
+    } else {
+      // Folha não está na tela: recalcula o valor de HE direto.
+      const salBaseRev = empObj?.salarioBase || 0;
+      const percRev    = parseInt(payroll.horasExtrasPerc)||50;
+      updated.horasExtrasValor = (payroll.heDestino==='banco') ? 0
+        : (heHorasRev>0 && salBaseRev>0 ? +(heHorasRev*(salBaseRev/220)*(1+percRev/100)).toFixed(2) : 0);
+    }
+    updated.updatedAt = new Date().toISOString();
     await DB.save('payrolls', updated);
     // Atualiza State.payrolls em memória pra refletir mudança imediata
     const idx = State.payrolls.findIndex(p=>p.id===updated.id);
@@ -9444,6 +9500,40 @@ function printPreviewParcial(){
     campos.forEach(f=>{ setVal(f,backup[f]); });
     recalculate();
   }, 600);
+}
+
+// Bloco de relatório das horas extras revisadas e NÃO autorizadas
+// (status 'recusado'), para sair impresso na folha de ponto. Lista o dia,
+// o ponto registrado, o excesso detectado e o motivo do não pagamento
+// conforme lançado na revisão. Retorna '' se não houver dias recusados.
+function _heRecusadasHtml(emp, mes, ano, dias){
+  const recusados = (dias||[]).filter(d => d && d.heReview && d.heReview.status === 'recusado');
+  if(!recusados.length) return '';
+  const sem = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  let rows = '';
+  recusados.slice().sort((a,b)=>a.dia-b.dia).forEach(d => {
+    const expectedDay = _getExpectedDay(emp, mes, ano, d.dia);
+    const detec  = expectedDay ? _detectHEDivergencia(d, expectedDay) : null;
+    const exc    = (detec && detec.totalMin) ? minutesToStr(detec.totalMin) : '—';
+    const diaSem = sem[new Date(ano, mes-1, d.dia).getDay()];
+    const motivo = (d.heReview.observacao||'').trim() || '—';
+    const quem   = d.heReview.recusadoPor || '—';
+    rows += `<tr>
+      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${String(d.dia).padStart(2,'0')} (${diaSem})</td>
+      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${d.entrada||'—'} – ${d.saida||'—'}</td>
+      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${exc}</td>
+      <td style="padding:3px 8px;border:1px solid #DEE2E6">${motivo}</td>
+      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${quem}</td>
+    </tr>`;
+  });
+  return `<h2 style="margin-top:12px;color:#B71C1C;border-bottom-color:#B71C1C">Horas Extras Não Autorizadas</h2>
+  <p style="font-size:9px;color:#666;margin:2px 0 4px">Tempo registrado além da jornada contratual que <strong>não foi autorizado</strong> e <strong>não foi pago</strong> como hora extra — o colaborador não permaneceu à disposição da empresa (art. 4º da CLT). Decisão registrada na revisão da folha de ponto.</p>
+  <table>
+    <thead><tr>
+      <th>Dia</th><th>Ponto Registrado</th><th>Excesso</th><th>Motivo do Não Pagamento</th><th>Revisado por</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
 }
 
 // ============================================
@@ -9662,6 +9752,8 @@ ${isPreview?`<div class="preview-banner">
     </div>
   </div>
 </div>
+
+${_heRecusadasHtml(emp, mes, ano, diasPonto)}
 
 <div class="assinaturas">
   <div class="assinatura-box">
@@ -9912,6 +10004,8 @@ function _buildFolhaHtmlFromRecord(emp, p){
     </div>`:''}
   </div>
 </div>
+
+${_heRecusadasHtml(emp, mes, ano, diasPonto)}
 
 <div class="assinaturas">
   <div class="assinatura-box">${_e('nomeEmpresa')}<br>Empresa / Responsável</div>

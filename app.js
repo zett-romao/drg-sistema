@@ -3432,6 +3432,28 @@ function onPayrollEmployeeChange(){
     // campos vindos do cadastro, deixando adiantamento ativo "vazar" entre colaboradores.
     const mes=parseInt(val('payroll-mes')||currentMes());
     const ano=parseInt(val('payroll-ano')||currentAno());
+    // Cadastro incompleto → não carrega NEM permite lançar a folha. Os campos
+    // são limpos para o operador não construir sobre dado inválido. Regra:
+    // sem as informações básicas do cadastro, a folha não pode ser feita.
+    const _pendCad=_cadastroPendencias(emp);
+    if(_pendCad.length){
+      _resetPayrollFieldsOnly();
+      ['payroll-dias','payroll-faltas-injustificadas','payroll-faltas-justificadas'].forEach(id=>setVal(id,''));
+      if(infoEl){
+        infoEl.classList.remove('hidden');
+        infoEl.innerHTML=`<i class="fa-solid fa-circle-info"></i> <strong>${emp.nome}</strong>
+          <div style="margin-top:6px;padding:6px 10px;background:#FFEBEE;border:1px solid #E57373;border-radius:4px;color:#B71C1C;font-size:12px;font-weight:600">
+            <i class="fa-solid fa-triangle-exclamation"></i> Cadastro incompleto — faltam: ${_pendCad.join(', ')}. Complete o cadastro antes de lançar a folha (os campos foram limpos).
+            <button type="button" class="btn btn-outline" style="margin-left:8px;padding:2px 10px;font-size:11px" onclick="openEmployeeModal('${emp.id}')"><i class="fa-solid fa-user-pen"></i> Completar cadastro</button>
+          </div>`;
+      }
+      const noturnoCard=document.getElementById('noturno-card');
+      if(noturnoCard) noturnoCard.classList.add('hidden');
+      renderPayrollHistory(empId);
+      _updateFolhaStatusBadge();
+      renderAtestadosFolha();
+      return;
+    }
     const saved=State.payrolls.find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
     if(saved){
       // Carrega registro existente — loadPayrollRecord seta todos os campos da folha
@@ -3452,15 +3474,7 @@ function onPayrollEmployeeChange(){
     const noturno=emp.turnoNoturno&&escalaFamilia(escala)==='12x36';
     if(infoEl){
       infoEl.classList.remove('hidden');
-      let _infoHtml=`<i class="fa-solid fa-circle-info"></i> <strong>${emp.nome}</strong> — Escala: <strong>${escalaLabel(escala)}</strong> — Status: ${statusBadge(emp.status||'ativo')}${noturno?' — <span style="color:#5C6BC0"><i class="fa-solid fa-moon"></i> Turno Noturno</span>':''}`;
-      const _pend=_cadastroPendencias(emp);
-      if(_pend.length){
-        _infoHtml+=`<div style="margin-top:6px;padding:6px 10px;background:#FFEBEE;border:1px solid #E57373;border-radius:4px;color:#B71C1C;font-size:12px;font-weight:600">
-          <i class="fa-solid fa-triangle-exclamation"></i> Cadastro incompleto — faltam: ${_pend.join(', ')}.
-          <button type="button" class="btn btn-outline" style="margin-left:8px;padding:2px 10px;font-size:11px" onclick="openEmployeeModal('${emp.id}')"><i class="fa-solid fa-user-pen"></i> Completar cadastro</button>
-        </div>`;
-      }
-      infoEl.innerHTML=_infoHtml;
+      infoEl.innerHTML=`<i class="fa-solid fa-circle-info"></i> <strong>${emp.nome}</strong> — Escala: <strong>${escalaLabel(escala)}</strong> — Status: ${statusBadge(emp.status||'ativo')}${noturno?' — <span style="color:#5C6BC0"><i class="fa-solid fa-moon"></i> Turno Noturno</span>':''}`;
     }
     // Mostrar/ocultar card adicional noturno
     const noturnoCard=document.getElementById('noturno-card');
@@ -9534,6 +9548,12 @@ async function applyPontoManual(){
   let diasTrabalhados=0, faltas=0, totalHEmin=0, totalAtrasoMin=0;
   const empId=val('payroll-employee');
   const emp=State.employees.find(e=>e.id===empId);
+  // Cadastro incompleto → não permite lançar dados na folha
+  const _pendAp=_cadastroPendencias(emp);
+  if(_pendAp.length){
+    toast(`Complete o cadastro do colaborador antes de lançar o ponto. Faltam: ${_pendAp.join(', ')}.`,'error');
+    return;
+  }
   const mes=parseInt(val('payroll-mes')||currentMes());
   const ano=parseInt(val('payroll-ano')||currentAno());
   const fam=emp?escalaFamilia(emp.escala||'5x2A'):'5x2';

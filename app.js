@@ -9019,6 +9019,7 @@ function _renderHEReviewRow(d, expected, detec){
   const obs    = d.heReview?.observacao || '';
   const sem    = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][d.diaSem];
   const aprovado = d.heReview?.aprovadoPor ? `<small style="color:#1B5E20">por <strong>${d.heReview.aprovadoPor}</strong> em ${d.heReview.aprovadoEm ? new Date(d.heReview.aprovadoEm).toLocaleDateString('pt-BR') : '—'}</small>` : '';
+  const recusadoInfo = d.heReview?.recusadoPor ? `<small style="color:#B71C1C">recusada por <strong>${d.heReview.recusadoPor}</strong> em ${d.heReview.recusadoEm ? new Date(d.heReview.recusadoEm).toLocaleDateString('pt-BR') : '—'}</small>` : '';
   // Dados auxiliares (esperado + real) no dataset para o modo edição
   return `<div class="he-review-card" data-dia="${d.dia}" data-diasem="${d.diaSem}" data-tipo-saved="${status}"
        data-real-entrada="${d.entrada||''}" data-real-saida="${d.saida||''}" data-real-intini="${d.intIni||''}" data-real-intfim="${d.intFim||''}"
@@ -9036,6 +9037,7 @@ function _renderHEReviewRow(d, expected, detec){
           <button type="button" class="btn-he-action" data-act="aprovado" onclick="_selectHEReview(this,'aprovado')" style="flex:1;padding:6px 10px;border:1.5px solid ${status==='aprovado'?'#1B5E20':'#CFD8DC'};background:${status==='aprovado'?'#E8F5E9':'#fff'};color:${status==='aprovado'?'#1B5E20':'#666'};border-radius:4px;cursor:pointer;font-weight:600;font-size:12px"><i class="fa-solid fa-circle-check"></i> Aprovar</button>
           <button type="button" class="btn-he-action" onclick="_startHEReviewEdit(this)" style="flex:1;padding:6px 10px;border:1.5px solid #1565C0;background:#E3F2FD;color:#0D47A1;border-radius:4px;cursor:pointer;font-weight:600;font-size:12px" title="Editar os horários reais deste dia"><i class="fa-solid fa-pen-to-square"></i> Editar</button>
           <button type="button" class="btn-he-action" data-act="pendente" onclick="_selectHEReview(this,'pendente')" style="flex:1;padding:6px 10px;border:1.5px solid ${status==='pendente'?'#E65100':'#CFD8DC'};background:${status==='pendente'?'#FFF3E0':'#fff'};color:${status==='pendente'?'#E65100':'#666'};border-radius:4px;cursor:pointer;font-weight:600;font-size:12px"><i class="fa-solid fa-clock"></i> Pendente</button>
+          <button type="button" class="btn-he-action" data-act="recusado" onclick="_selectHEReview(this,'recusado')" title="HE não autorizada — colaborador não ficou à disposição da empresa. Marca o dia como revisado e NÃO paga a hora extra." style="flex:1;padding:6px 10px;border:1.5px solid ${status==='recusado'?'#B71C1C':'#CFD8DC'};background:${status==='recusado'?'#FFEBEE':'#fff'};color:${status==='recusado'?'#B71C1C':'#666'};border-radius:4px;cursor:pointer;font-weight:600;font-size:12px"><i class="fa-solid fa-ban"></i> Não pagar</button>
         </div>
         <div class="he-perc-row" style="display:${status==='aprovado'?'flex':'none'};gap:4px;align-items:center">
           <label style="font-size:11px;color:#666;font-weight:600">% HE:</label>
@@ -9046,8 +9048,9 @@ function _renderHEReviewRow(d, expected, detec){
             <option value="100" ${perc==100?'selected':''}>100% — domingo/feriado</option>
           </select>
         </div>
-        <input type="text" class="he-obs" placeholder="Justificativa / observação (opcional)" value="${obs.replace(/"/g,'&quot;')}" style="font-size:11px;padding:4px 6px;border:1px solid #CFD8DC;border-radius:4px">
+        <input type="text" class="he-obs" placeholder="${status==='recusado'?'Motivo da recusa (obrigatório)':'Justificativa / observação (opcional)'}" value="${obs.replace(/"/g,'&quot;')}" style="font-size:11px;padding:4px 6px;border:1px solid ${status==='recusado'?'#EF9A9A':'#CFD8DC'};border-radius:4px">
         ${aprovado?`<div style="font-size:10px;text-align:right">${aprovado}</div>`:''}
+        ${recusadoInfo?`<div style="font-size:10px;text-align:right">${recusadoInfo}</div>`:''}
       </div>
     </div>
     <div class="he-review-edit" style="display:none;background:#F1F5FF;padding:10px;border-radius:6px;margin-top:8px">
@@ -9144,6 +9147,7 @@ function _selectHEReview(btn, action){
     const isSel = a === action;
     let cor, bg;
     if(a==='aprovado'){ cor='#1B5E20'; bg='#E8F5E9'; }
+    else if(a==='recusado'){ cor='#B71C1C'; bg='#FFEBEE'; }
     else                { cor='#E65100'; bg='#FFF3E0'; } // pendente
     b.style.borderColor = isSel ? cor : '#CFD8DC';
     b.style.background  = isSel ? bg  : '#fff';
@@ -9152,6 +9156,17 @@ function _selectHEReview(btn, action){
   // Mostra/esconde linha do %
   const percRow = card.querySelector('.he-perc-row');
   if(percRow) percRow.style.display = (action === 'aprovado') ? 'flex' : 'none';
+  // Campo de motivo: vira obrigatório (visualmente) quando o dia é recusado
+  const obs = card.querySelector('.he-obs');
+  if(obs){
+    if(action === 'recusado'){
+      obs.placeholder = 'Motivo da recusa (obrigatório)';
+      obs.style.borderColor = '#EF9A9A';
+    } else {
+      obs.placeholder = 'Justificativa / observação (opcional)';
+      obs.style.borderColor = '#CFD8DC';
+    }
+  }
 }
 
 async function saveHEReview(){
@@ -9176,7 +9191,9 @@ async function saveHEReview(){
       perc: status==='aprovado' ? (parseInt(percSel?.value)||50) : null,
       observacao: obs,
       aprovadoPor: (status==='aprovado') ? Auth.currentUser?.username : null,
-      aprovadoEm:  (status==='aprovado') ? new Date().toISOString() : null
+      aprovadoEm:  (status==='aprovado') ? new Date().toISOString() : null,
+      recusadoPor: (status==='recusado') ? Auth.currentUser?.username : null,
+      recusadoEm:  (status==='recusado') ? new Date().toISOString() : null
     };
     // Se foi editado inline, coleta os novos horários
     if(card.dataset.edited === '1'){
@@ -9188,6 +9205,14 @@ async function saveHEReview(){
       };
     }
   });
+  // Recusar HE exige motivo registrado (auditoria — "funcionário esperto")
+  const recusadosSemMotivo = Object.entries(decisoes)
+    .filter(([dia,dec]) => dec.status==='recusado' && !(dec.observacao||'').trim())
+    .map(([dia]) => dia);
+  if(recusadosSemMotivo.length){
+    toast(`Informe o motivo da recusa no(s) dia(s): ${recusadosSemMotivo.join(', ')}.`, 'error');
+    return;
+  }
   // Aplica nas pontoManualDias do payroll
   const payroll = State.payrolls.find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
   if(!payroll){ toast('Folha de Ponto não encontrada — salve o ponto antes.', 'error'); return; }
@@ -9293,6 +9318,7 @@ function _updateHEReviewBadge(card, detec, heReview){
   const status = heReview?.status || 'pendente';
   let bg, color, label, icon;
   if(status === 'aprovado'){ bg='#E8F5E9'; color='#1B5E20'; label=`HE aprovada · ${heReview.perc||50}%`; icon='circle-check'; }
+  else if(status === 'recusado'){ bg='#FFEBEE'; color='#B71C1C'; label='HE não paga'; icon='ban'; }
   else if(status === 'abonado'){ bg='#ECEFF1'; color='#37474F'; label='HE abonada'; icon='ban'; }
   else                          { bg='#FFF3E0'; color='#E65100'; label=`HE pendente · ${detec.totalMin}min`; icon='triangle-exclamation'; }
   const badge = document.createElement('div');

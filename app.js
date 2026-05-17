@@ -4428,6 +4428,19 @@ function confirmDeleteAtestado(id){
   document.getElementById('modal-confirm').classList.remove('hidden');
 }
 
+// Conta os dias de TRABALHO previstos no mês para o colaborador, conforme a
+// escala (escala salva > âncora 12x36 > contratual). Base do proporcional.
+function _diasPrevistosEscala(emp, mes, ano){
+  if(!emp) return 0;
+  const dpm = new Date(ano, mes, 0).getDate();
+  let n = 0;
+  for(let d=1; d<=dpm; d++){
+    const exp = _getExpectedDay(emp, mes, ano, d);
+    if(exp && exp.tipo!=='folga' && exp.entrada) n++;
+  }
+  return n;
+}
+
 function recalculate(){
   const dias=numVal('payroll-dias');
   const faltasJust=numVal('payroll-faltas-justificadas');
@@ -4446,12 +4459,13 @@ function recalculate(){
 
   // Atestados médicos aprovados — abatem faltas (dias) e atraso (horas): pagos, sem desconto
   const _atest = _atestadoTotais(val('payroll-employee'), parseInt(val('payroll-mes')), parseInt(val('payroll-ano')));
-  const faltasInjEf  = Math.max(0, faltasInjust - _atest.dias);
-  const faltasJustEf = Math.max(0, faltasJust - Math.max(0, _atest.dias - faltasInjust));
-  // Desconto por falta injustificada: valor do dia + DSR (= 2x valor do dia)
-  const descontoFaltasInj = faltasInjEf * valorDia * 2;
-  // Desconto por falta justificada: só o dia trabalhado (sem DSR)
-  const descontoFaltasJust = faltasJustEf * valorDia;
+  // Dias de trabalho previstos no mês (pela escala) — base do proporcional
+  const _mesR = parseInt(val('payroll-mes')||currentMes());
+  const _anoR = parseInt(val('payroll-ano')||currentAno());
+  const diasPrevistos = emp ? _diasPrevistosEscala(emp, _mesR, _anoR) : 0;
+  // Dias pagos = trabalhados + dias de atestado (atestado é pago). Limitado
+  // aos dias previstos — dias extras viram HE, não inflam a remuneração.
+  const diasPagos = Math.min(diasPrevistos || (dias + _atest.dias), dias + _atest.dias);
 
   // Atrasos em minutos (campo opcional)
   const minutosAtraso = numVal('payroll-atraso-min')||0;
@@ -4473,14 +4487,15 @@ function recalculate(){
     }
   }
 
-  // Remuneração líquida base = salário - descontos de faltas - descontos de atraso
-  const remuneracaoBase = Math.max(0, salBase - descontoFaltasInj - descontoFaltasJust - descontoAtraso);
-
-  // Sempre preencher remuneração com o cálculo automático
+  // Remuneração PROPORCIONAL: salário × (dias pagos ÷ dias previstos na
+  // escala), menos o desconto de atraso. Cumpriu todos os dias previstos →
+  // salário cheio. Trabalhou parte → recebe a fração correspondente.
+  const remuneracaoProp = (diasPrevistos>0) ? salBase*(diasPagos/diasPrevistos) : 0;
+  const remuneracaoBase = Math.max(0, remuneracaoProp - descontoAtraso);
   if(salBase>0){
     setVal('payroll-remuneracao', remuneracaoBase.toFixed(2));
   }
-  const remuneracao = remuneracaoBase; // usar valor recém-calculado diretamente
+  const remuneracao = remuneracaoBase; // valor proporcional recém-calculado
 
   // --- VT e VR (respeita frequência diária ou semanal definida no cadastro) ---
   const vtFreqCalc = emp?.vtFreq || 'diario';
@@ -4520,22 +4535,14 @@ function recalculate(){
     }
   }
 
-  // --- VA proporcional / integral (CCT: perde se >3 faltas injustificadas) ---
+  // --- VA proporcional aos dias pagos (trabalhados + atestado) ---
   const vaNote=document.getElementById('va-note');
   if(emp&&(emp.valorMensalVa||0)>0){
     const vaMensal=emp.valorMensalVa||0;
-    if(faltasInjust<=3){
-      setVal('payroll-va-total',vaMensal.toFixed(2));
-      setVal('payroll-va-liquido',vaMensal.toFixed(2));
-      if(vaNote){ vaNote.classList.remove('hidden'); vaNote.innerHTML=`<i class="fa-solid fa-circle-check" style="color:var(--success)"></i> VA integral — faltas injustificadas (${faltasInjust}) ≤ 3`; }
-    } else {
-      const mes=parseInt(val('payroll-mes')||currentMes()), ano=parseInt(val('payroll-ano')||currentAno());
-      const diasEscala=calcDiasEscala(mes, ano, emp.escala||'5x2A');
-      const vaProp=diasEscala>0?(dias/diasEscala)*vaMensal:0;
-      setVal('payroll-va-total',vaProp.toFixed(2));
-      setVal('payroll-va-liquido',vaProp.toFixed(2));
-      if(vaNote){ vaNote.classList.remove('hidden'); vaNote.innerHTML=`<i class="fa-solid fa-triangle-exclamation" style="color:#E65100"></i> VA proporcional — ${faltasInjust} faltas injustificadas > 3 (${dias}d / ${diasEscala}d escala = ${fmtMoney(vaProp)})`; }
-    }
+    const vaProp = diasPrevistos>0 ? vaMensal*(diasPagos/diasPrevistos) : 0;
+    setVal('payroll-va-total',vaProp.toFixed(2));
+    setVal('payroll-va-liquido',vaProp.toFixed(2));
+    if(vaNote){ vaNote.classList.remove('hidden'); vaNote.innerHTML=`<i class="fa-solid fa-circle-check" style="color:var(--success)"></i> VA proporcional — ${diasPagos} de ${diasPrevistos} dia(s) previsto(s) = ${fmtMoney(vaProp)}`; }
   } else {
     if(vaNote) vaNote.classList.add('hidden');
   }

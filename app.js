@@ -8844,6 +8844,28 @@ async function savePontoManualRascunho(){
   finally { if(btn) setBtnLoading(btn,false,'<i class="fa-solid fa-floppy-disk"></i> Salvar Rascunho'); }
 }
 
+// Decide se um dia SEM ponto batido deve contar como FALTA.
+// • Se existe escala salva do colaborador no mês → consulta a escala:
+//   dia de trabalho sem ponto = falta; dia de folga = não conta.
+// • Sem escala salva → critério antigo (12x36 não conta; 5x2/6x1 conta dia útil).
+// Em qualquer caso, só conta como falta dia que JÁ decorreu — não dá pra
+// ter falta num dia futuro (mês ainda em andamento).
+function _diaEmBrancoEhFalta(emp, mes, ano, dia, isWeekend, is12x36){
+  if(!emp) return false;
+  let deveriaTrabalhar;
+  const escalaSalva = (State.escalas||[]).find(e => e.employeeId===emp.id && e.mes==mes && e.ano==ano);
+  if(escalaSalva && Array.isArray(escalaSalva.dias)){
+    const d = escalaSalva.dias.find(x => x.dia===dia);
+    deveriaTrabalhar = !!(d && d.tipo!=='folga' && d.entrada);
+  } else {
+    deveriaTrabalhar = !isWeekend && !is12x36;
+  }
+  if(!deveriaTrabalhar) return false;
+  const hoje = new Date();
+  const hojeMid = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
+  return new Date(ano, mes-1, dia) < hojeMid;
+}
+
 function calcResumoManual(){
   const cards=_getPontoManualCards();
   let diasTrabalhados=0, faltas=0, totalHEmin=0, totalAtrasoMin=0, pendentes=0;
@@ -8889,7 +8911,7 @@ function calcResumoManual(){
       const reviewStatus=realDay.heReview?.status||'pendente';
       if(detec.precisaRevisao && reviewStatus==='pendente') pendentes++;
       _updateHEReviewBadge(card,detec,realDay.heReview);
-    } else if(!isWeekend&&!is12x36&&!entrada&&!saida) faltas++;
+    } else if(!entrada&&!saida && _diaEmBrancoEhFalta(emp,mes,ano,dia,isWeekend,is12x36)) faltas++;
   });
   const diasEl=document.getElementById('ponto-resumo-dias');
   const faltasEl=document.getElementById('ponto-resumo-faltas');
@@ -9481,7 +9503,7 @@ async function applyPontoManual(){
         const faltaDia=_liqMin(expectedDay)-effLiq;
         if(faltaDia>HE_TOLERANCIA_DIA_MIN) totalAtrasoMin+=faltaDia;
       }
-    } else if(!isWeekend&&!is12x36&&!entrada&&!saida) faltas++;
+    } else if(!entrada&&!saida && _diaEmBrancoEhFalta(emp,mes,ano,dia,isWeekend,is12x36)) faltas++;
   });
   // Salva horários no Firebase antes de aplicar
   const heHorasAplic = totalHEmin>0 ? +(totalHEmin/60).toFixed(2) : 0;
@@ -9532,20 +9554,19 @@ function printPreviewParcial(){
   let diasTrabalhados=0, faltas=0, totalHEmin=0;
   const fam=escalaFamilia(emp.escala||'5x2A');
   const is12x36=fam==='12x36';
+  const _pvMes=parseInt(val('payroll-mes')||currentMes());
+  const _pvAno=parseInt(val('payroll-ano')||currentAno());
   cards.forEach(card=>{
+    const dia=parseInt(card.dataset.dia);
     const diaSem=parseInt(card.dataset.semana);
     const entrada=card.querySelector('.pm-entrada')?.value;
     const saida=card.querySelector('.pm-saida')?.value;
-    const intIni=card.querySelector('.pm-int-ini')?.value;
-    const intFim=card.querySelector('.pm-int-fim')?.value;
     const isWeekend=diaSem===0||diaSem===6;
     if(entrada&&saida){
       diasTrabalhados++;
-    } else if(!isWeekend&&!is12x36&&!entrada&&!saida) faltas++;
+    } else if(!entrada&&!saida && _diaEmBrancoEhFalta(emp,_pvMes,_pvAno,dia,isWeekend,is12x36)) faltas++;
   });
   // HE da prévia: respeita a revisão por dia (só dias aprovados pagam)
-  const _pvMes=parseInt(val('payroll-mes')||currentMes());
-  const _pvAno=parseInt(val('payroll-ano')||currentAno());
   totalHEmin=_heMinFromDias(emp,_pvMes,_pvAno,_collectPontoManualDias());
 
   // Aplica temporariamente ao formulário e recalcula

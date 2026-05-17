@@ -8454,12 +8454,18 @@ function _getExpectedDay(emp, mes, ano, dia){
   if(esc?.dias?.length){
     const d = esc.dias.find(x => x.dia===dia);
     if(d){
+      const tipo = d.tipo || 'trabalho';
+      const trabalhaNoDia = tipo !== 'folga';
+      const temRefeicao   = tipo === 'trabalho' && !emp.semRefeicao;
+      // Dia de trabalho na escala mas sem horários preenchidos → usa o
+      // horário contratual do cadastro como referência. Sem isso, o dia
+      // fica sem "esperado" e a HE do excesso conta sem passar pela revisão.
       return {
-        tipo: d.tipo || 'trabalho',
-        entrada: d.entrada || '',
-        saida:   d.saida   || '',
-        intIni:  d.intIni  || '',
-        intFim:  d.intFim  || ''
+        tipo,
+        entrada: d.entrada || (trabalhaNoDia ? (emp.horarioEntrada||'') : ''),
+        saida:   d.saida   || (trabalhaNoDia ? (emp.horarioSaida||'')   : ''),
+        intIni:  d.intIni  || (temRefeicao ? (emp.horarioRefIni||'12:00') : ''),
+        intFim:  d.intFim  || (temRefeicao ? (emp.horarioRefFim||'13:00') : '')
       };
     }
   }

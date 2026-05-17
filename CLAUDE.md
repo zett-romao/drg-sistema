@@ -365,6 +365,8 @@ node --check ponto-sw.js
 
 ---
 
+- **2026-05-17**: Bug de HE fantasma corrigido. `_heMinFromDias`, `applyPontoManual` e `calcResumoManual` calculavam a HE como `jornadaLíquida − minContratados`, onde `minContratados` era um valor FIXO da família de escala (480 p/ 5x2, 440 p/ 6x1, 660 p/ 12x36). Um colaborador 5x2 com horário contratual de 9h (08:00–18:00) que batia exatamente o horário dele recebia 1h de HE/dia — o sistema comparava a jornada real com 8h fixas em vez da jornada contratual dele. Corrigido: a baseline da HE agora é a **jornada esperada do próprio colaborador no dia** (`_liqMin(_getExpectedDay(...))` — horário do cadastro/escala); `minContratados` só é usado como fallback quando não há dia esperado (ex.: trabalhou numa folga). O bloco legado "jornada × dias" do `recalculate()` (linha ~4890) já calculava `minContratados` a partir do cadastro — estava correto; o bug era só nos 3 cálculos baseados em ponto diário.
+
 ## Sobre o usuário (Donizete)
 
 - **Nome:** Donizete Romão — dono da **D.R. Global Gestão de Condomínios e BPO** (gestão de condomínios, imóveis e BPO)

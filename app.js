@@ -9112,7 +9112,13 @@ function _heMinFromDias(emp, mes, ano, dias){
     if(!d || !d.entrada || !d.saida) return;
     const expectedDay = _getExpectedDay(emp, mes, ano, d.dia);
     const effLiq = _effectiveMinLiq(d, expectedDay, minContratados);
-    total += Math.max(0, effLiq - minContratados);
+    // Baseline da HE = a jornada esperada DO PRÓPRIO colaborador naquele dia
+    // (horário contratual / escala). HE é o que excede a jornada dele — não
+    // um mínimo fixo da família de escala. Sem dia esperado definido (ex.:
+    // trabalhou numa folga), cai no mínimo contratual da família.
+    const temEsperado = expectedDay && expectedDay.entrada && expectedDay.saida && expectedDay.tipo!=='folga';
+    const baseLiq = temEsperado ? _liqMin(expectedDay) : minContratados;
+    total += Math.max(0, effLiq - baseLiq);
   });
   return total;
 }
@@ -9406,7 +9412,9 @@ function calcResumoManual(){
       if(existingDay?.heReview) realDay.heReview=existingDay.heReview;
       const expectedDay=emp?_getExpectedDay(emp,mes,ano,dia):null;
       const effLiq=_effectiveMinLiq(realDay,expectedDay,minContratados);
-      totalHEmin+=Math.max(0,effLiq-minContratados);
+      // Baseline da HE = jornada esperada do próprio colaborador no dia.
+      const _temEsp=expectedDay && expectedDay.entrada && expectedDay.saida && expectedDay.tipo!=='folga';
+      totalHEmin+=Math.max(0,effLiq-(_temEsp?_liqMin(expectedDay):minContratados));
       // Atraso automático: déficit do dia (trabalhou menos que o previsto), além da tolerância CLT (10min)
       if(expectedDay && expectedDay.tipo!=='folga' && expectedDay.entrada && expectedDay.saida){
         const faltaDia=_liqMin(expectedDay)-effLiq;
@@ -10008,7 +10016,10 @@ async function applyPontoManual(){
       if(existingDay?.heReview) realDay.heReview=existingDay.heReview;
       const expectedDay=emp?_getExpectedDay(emp,mes,ano,dia):null;
       const effLiq=_effectiveMinLiq(realDay,expectedDay,minContratados);
-      totalHEmin+=Math.max(0,effLiq-minContratados);
+      // Baseline da HE = jornada esperada do próprio colaborador no dia
+      // (horário contratual / escala), não um mínimo fixo da família.
+      const _temEsp=expectedDay && expectedDay.entrada && expectedDay.saida && expectedDay.tipo!=='folga';
+      totalHEmin+=Math.max(0,effLiq-(_temEsp?_liqMin(expectedDay):minContratados));
       // Atraso automático: déficit do dia além da tolerância CLT (10min)
       if(expectedDay && expectedDay.tipo!=='folga' && expectedDay.entrada && expectedDay.saida){
         const faltaDia=_liqMin(expectedDay)-effLiq;

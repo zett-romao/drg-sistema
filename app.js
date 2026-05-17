@@ -3387,9 +3387,9 @@ function initPayrollSection(){
     (State.postos||[]).slice().sort((a,b)=>(a.razaoSocial||'').localeCompare(b.razaoSocial||''))
       .forEach(p=>{
         const o=document.createElement('option');
-        o.value=p.id; // ID do posto — casa com emp.posto (antes usava razaoSocial e o filtro nunca batia)
+        o.value=p.razaoSocial; // emp.posto guarda o nome do posto (razaoSocial), não o id
         o.textContent=p.razaoSocial+(p.cidade?' — '+p.cidade:'');
-        if(p.id===cur) o.selected=true;
+        if(p.razaoSocial===cur) o.selected=true;
         fSel.appendChild(o);
       });
   }
@@ -3750,7 +3750,7 @@ function renderBeneficiosLista(){
     </thead>
     <tbody>`;
   linhas.forEach(({emp, b}, idx) => {
-    const posto = (State.postos||[]).find(p=>p.id===emp.posto)?.razaoSocial || '—';
+    const posto = (emp.posto || '—');
     const bg = idx % 2 ? '#FAFBFC' : '#fff';
     const vtIcon = b.vtTipo === 'am' ? '<i class="fa-solid fa-motorcycle" style="color:#4fc3f7"></i>'
                                      : '<i class="fa-solid fa-bus" style="color:#4fc3f7"></i>';
@@ -3790,7 +3790,7 @@ function openBeneficioDetalhe(empId, escopo, dataIni, dataFim){
   const emp = State.employees.find(e=>e.id===empId);
   if(!emp){ toast('Colaborador não encontrado.','error'); return; }
   const b = _calcBeneficiosColab(emp, dataIni, dataFim, escopo);
-  const posto = (State.postos||[]).find(p=>p.id===emp.posto)?.razaoSocial || '—';
+  const posto = (emp.posto || '—');
   const fmt = iso => new Date(iso+'T12:00:00').toLocaleDateString('pt-BR');
   const periodoLabel = (escopo === 'dia')
     ? `Hoje — ${fmt(dataIni)}`
@@ -3891,7 +3891,7 @@ function exportBeneficiosLista(formato){
   const total   = totalVT + totalVR;
   let rows = '';
   linhas.forEach(({emp, b}, idx) => {
-    const posto = (State.postos||[]).find(p=>p.id===emp.posto)?.razaoSocial || '—';
+    const posto = (emp.posto || '—');
     const benVT = b.vtTipo === 'am' ? 'AM' : 'VT';
     const matr = emp.registro ? String(emp.registro).padStart(4,'0') : '—';
     const pix  = emp.chavePix || '—';
@@ -8968,7 +8968,7 @@ function _getPendentesHEList(mes, ano){
       }
     });
     if(nDias > 0){
-      const posto = (State.postos||[]).find(po => po.id===emp.posto)?.razaoSocial || '—';
+      const posto = emp.posto || '—';
       list.push({ emp, posto, payroll: p, nDias, totalMin, detalhes });
     }
   });
@@ -9647,7 +9647,7 @@ function printFolhaPonto(isPreview=false){
   const totalLiquido=remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade+bonificacao+vtTotal+vrTotal+vaLiquido-adiantamento-descontoAtraso;
 
   // Posto do colaborador
-  const posto=State.postos.find(p=>p.id===emp.posto)||{razaoSocial:'—', endereco:'—'};
+  const posto=State.postos.find(p=>p.razaoSocial===emp.posto)||{razaoSocial:emp.posto||'—', endereco:'—'};
 
   // Dados do ponto manual (do modal aberto ou do registro Firebase)
   const cards=_getPontoManualCards();
@@ -9853,7 +9853,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
   const mes      = p.mes;
   const ano      = p.ano;
   const mesLabel = MESES[mes]||'';
-  const posto    = State.postos.find(x=>x.id===emp.posto)||{razaoSocial:'—'};
+  const posto    = State.postos.find(x=>x.razaoSocial===emp.posto)||{razaoSocial:emp.posto||'—'};
   const reg      = emp.registro?String(emp.registro).padStart(4,'0'):'—';
   const dataAtual= new Date().toLocaleDateString('pt-BR');
 
@@ -11051,7 +11051,8 @@ function renderEscalas(){
   if(postoSel){
     const sel = postoSel.value;
     let opts = '<option value="">Todos</option>';
-    (State.postos||[]).forEach(p => { opts += `<option value="${p.id}">${p.razaoSocial||p.nome||'—'}</option>`; });
+    // emp.posto guarda o nome do posto (razaoSocial) — o filtro precisa casar com isso
+    (State.postos||[]).forEach(p => { opts += `<option value="${p.razaoSocial||''}">${p.razaoSocial||p.nome||'—'}</option>`; });
     postoSel.innerHTML = opts;
     postoSel.value = sel;
   }
@@ -11131,7 +11132,7 @@ function _renderEscalaCard(emp, mes, ano){
     isProjetada = true;
   }
   const fam = escalaFamilia(emp.escala || '5x2A');
-  const posto = (State.postos||[]).find(p=>p.id===emp.posto)?.razaoSocial || '—';
+  const posto = (emp.posto || '—');
   const setor = emp.setor || '—';
   const noturnoBadge = emp.turnoNoturno
     ? '<span style="background:#E8EAF6;color:#3F51B5;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px"><i class="fa-solid fa-moon"></i> Noturno</span>'
@@ -11744,7 +11745,7 @@ function exportEscalas(format){
     const empId = card.dataset.empId;
     const emp = State.employees.find(e=>e.id===empId);
     if(!emp) return;
-    const posto = (State.postos||[]).find(p=>p.id===emp.posto)?.razaoSocial || '—';
+    const posto = (emp.posto || '—');
     const dias = _collectEscalaDias(empId);
     const fam = escalaFamilia(emp.escala||'5x2A');
     bodyHtml += `<h2 style="color:#1a3a6b;font-size:14px;margin:14px 0 4px;page-break-after:avoid">${emp.nome}</h2>

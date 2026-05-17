@@ -4245,12 +4245,12 @@
       </div>
       <div class="alert alert-info" style="margin-top:12px;font-size:12px">
         <i class="fa-solid fa-circle-info"></i>
-        <div>Para a escala <strong>12x36</strong>, depois de reprojetar clique no <strong>número do dia</strong> na tabela para definir o início do ciclo de trabalho — a alternância trabalho/folga recalcula sozinha. Confira e clique em <strong>Salvar</strong>.</div>
+        <div>Dias já <strong>trabalhados</strong> ou <strong>passados</strong> são preservados automaticamente — nunca são reescritos. Para a escala <strong>12x36</strong>, depois de reprojetar clique no <strong>número do dia</strong> na tabela para definir o início do ciclo de trabalho — a alternância recalcula e <strong>salva sozinha</strong>.</div>
       </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal('modal-ajustar-escala')">Cancelar</button>
-      <button class="btn btn-primary" onclick="aplicarAjusteEscala()"><i class="fa-solid fa-rotate"></i> Reprojetar</button>
+      <button class="btn btn-primary" onclick="aplicarAjusteEscala()"><i class="fa-solid fa-floppy-disk"></i> Reprojetar e Salvar</button>
     </div>
   </div>
 </div>
@@ -4571,6 +4571,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260517d"></script>
+<script src="app.js?v=20260517e"></script>
 </body>
 </html>

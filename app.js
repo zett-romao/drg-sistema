@@ -11431,24 +11431,51 @@ function _setEscalaRowTipo(row, novo, emp, mes, ano){
   }
 }
 
+// Dias da escala que NÃO devem ser reprojetados: já trabalhados (com ponto
+// real registrado na folha) ou já passados (mês corrente/anterior). Não faz
+// sentido reescrever o passado quando se ajusta ou troca a escala.
+function _diasProtegidosEscala(empId, mes, ano){
+  const set = new Set();
+  // Dias com ponto real batido na folha (entrada + saída)
+  const pay = (State.payrolls||[]).find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
+  if(pay && Array.isArray(pay.pontoManualDias)){
+    pay.pontoManualDias.forEach(d=>{ if(d&&d.entrada&&d.saida) set.add(d.dia); });
+  }
+  // Dias já decorridos
+  const hoje = new Date();
+  const hojeMid = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
+  const ultimoDiaMes = new Date(ano, mes, 0);
+  if(ultimoDiaMes < hojeMid){
+    for(let d=1; d<=ultimoDiaMes.getDate(); d++) set.add(d); // mês inteiro no passado
+  } else if(mes===hoje.getMonth()+1 && ano===hoje.getFullYear()){
+    for(let d=1; d<hoje.getDate(); d++) set.add(d); // dias anteriores a hoje
+  }
+  return set;
+}
+
 // Clique no número do dia (escala 12x36): define esse dia como início do
-// ciclo de trabalho e recalcula a alternância trabalho/folga do mês todo.
-function _escala12x36Anchor(cell){
+// ciclo de trabalho, recalcula a alternância trabalho/folga e salva — sem
+// mexer nos dias já trabalhados/passados.
+async function _escala12x36Anchor(cell){
   const card = cell.closest('.escala-card');
   const row0 = cell.closest('tr');
   if(!card || !row0) return;
   if(card.dataset.fam !== '12x36') return;
   const anchorDia = parseInt(row0.dataset.dia);
-  const emp = (State.employees||[]).find(e=>e.id===card.dataset.empId);
+  const empId = card.dataset.empId;
+  const emp = (State.employees||[]).find(e=>e.id===empId);
   const mes = parseInt(document.getElementById('escala-mes').value);
   const ano = parseInt(document.getElementById('escala-ano').value);
+  const protegidos = _diasProtegidosEscala(empId, mes, ano);
+  let bloqueados = 0;
   card.querySelectorAll('tbody tr[data-dia]').forEach(row=>{
     const dia = parseInt(row.dataset.dia);
+    if(protegidos.has(dia)){ bloqueados++; return; } // dia trabalhado/passado: preserva
     const tipo = (((dia - anchorDia) % 2) === 0) ? 'trabalho' : 'folga';
     _setEscalaRowTipo(row, tipo, emp, mes, ano);
   });
-  card.dataset.dirty = '1';
-  toast(`Ciclo 12x36 reprojetado — dia ${String(anchorDia).padStart(2,'0')} como trabalho. Confira e clique em Salvar.`, 'success');
+  await saveEscala(empId, true);
+  toast(`Ciclo 12x36: dia ${String(anchorDia).padStart(2,'0')} definido como trabalho — escala salva.${bloqueados?` ${bloqueados} dia(s) já trabalhado(s)/passado(s) preservado(s).`:''}`, 'success');
 }
 
 // ── Ajustar / trocar escala de um colaborador (modal) ──────────────────
@@ -11471,15 +11498,17 @@ function openAjustarEscala(empId){
     });
   sel.value = emp.escala || '5x2A';
   const diaEl = document.getElementById('ajustar-escala-dia');
-  diaEl.value = 1;
   diaEl.max = new Date(ano, mes, 0).getDate();
+  // Padrão: hoje (no mês corrente) — assim dias já passados são preservados
+  const _hj = new Date();
+  diaEl.value = (mes===_hj.getMonth()+1 && ano===_hj.getFullYear()) ? _hj.getDate() : 1;
   document.getElementById('ajustar-escala-update-cadastro').checked = false;
   document.getElementById('ajustar-escala-info').innerHTML =
     `<strong>${emp.nome}</strong> &middot; ${MESES[mes]}/${ano} &middot; escala no cadastro: <strong>${escalaLabel(emp.escala||'5x2A')}</strong>`;
   document.getElementById('modal-ajustar-escala').classList.remove('hidden');
 }
 
-function aplicarAjusteEscala(){
+async function aplicarAjusteEscala(){
   const empId = _ajustarEscalaEmpId;
   const emp = (State.employees||[]).find(e=>e.id===empId);
   if(!emp){ toast('Colaborador não encontrado.','error'); return; }
@@ -11494,24 +11523,29 @@ function aplicarAjusteEscala(){
   // Projeta o mês inteiro com a escala nova
   const tempEmp  = { ...emp, escala: novaEscala };
   const novoDias = _projectEscala(tempEmp, mes, ano, _getPrevMonthDias(empId, mes, ano));
-  // Estado atual do card — preserva os dias anteriores ao diaX
+  // Estado atual do card
   const atuais = _collectEscalaDias(empId) || [];
   const mapaAtual = {}; atuais.forEach(d=>{ mapaAtual[d.dia]=d; });
   const mapaNovo  = {}; novoDias.forEach(d=>{ mapaNovo[d.dia]=d; });
+  // Dias preservados: anteriores ao corte OU já trabalhados/passados
+  const protegidos = _diasProtegidosEscala(empId, mes, ano);
   const fam = escalaFamilia(novaEscala);
+  let preservados = 0;
   const final = [];
   for(let d=1; d<=dpm; d++){
-    final.push((d < diaX && mapaAtual[d]) ? mapaAtual[d] : (mapaNovo[d] || mapaAtual[d]));
+    const manter = (d < diaX) || protegidos.has(d);
+    if(manter && protegidos.has(d) && d >= diaX) preservados++;
+    final.push((manter && mapaAtual[d]) ? mapaAtual[d] : (mapaNovo[d] || mapaAtual[d]));
   }
   card.querySelector('tbody').innerHTML = final.map(d=>_renderEscalaRow(d, fam)).join('');
-  card.dataset.fam   = fam;
-  card.dataset.dirty = '1';
+  card.dataset.fam = fam;
   if(updateCad){
     emp.escala = novaEscala;
     DB.save('employees', emp).catch(e=>console.error('Erro ao atualizar cadastro:',e));
   }
+  await saveEscala(empId, true); // salva direto — a folha passa a usar a escala nova
   closeModal('modal-ajustar-escala');
-  toast(`Escala reprojetada para ${escalaLabel(novaEscala)}${diaX>1?` a partir do dia ${String(diaX).padStart(2,'0')}`:''}. Confira e clique em Salvar.`, 'success');
+  toast(`Escala reprojetada para ${escalaLabel(novaEscala)}${diaX>1?` a partir do dia ${String(diaX).padStart(2,'0')}`:''} e salva.${preservados?` ${preservados} dia(s) já trabalhado(s) preservado(s).`:''}`, 'success');
 }
 
 function _collectEscalaDias(empId){
@@ -11540,7 +11574,7 @@ function _collectEscalaDias(empId){
   return dias;
 }
 
-async function saveEscala(empId){
+async function saveEscala(empId, silent){
   const mes = parseInt(document.getElementById('escala-mes').value);
   const ano = parseInt(document.getElementById('escala-ano').value);
   const dias = _collectEscalaDias(empId);
@@ -11557,7 +11591,7 @@ async function saveEscala(empId){
   if(btn) setBtnLoading(btn, true, '');
   try {
     await DB.save('escalas', record);
-    toast('Escala salva!');
+    if(!silent) toast('Escala salva!');
     if(card) delete card.dataset.dirty;
   } catch(e){
     console.error(e);

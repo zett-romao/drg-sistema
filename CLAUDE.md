@@ -197,6 +197,15 @@ O app do colaborador é instalável como PWA (tem `manifest.json` + service work
 
 ## Pendências conhecidas
 
+### Feature adiada — Módulo Aprovação de Pagamentos (escopo já fechado com o usuário em 2026-05-17)
+Adiar ≠ rediscutir. Escopo confirmado:
+- **Cobertura:** todo pagamento via **Asaas** (`/transfers`, hoje o `executarPagamentoAsaas` do `modal-asaas-pagar`, pagamento de salário pela folha). Benefícios (VT/VR/VA) ficam de fora por ora — ainda não pagos via integração.
+- **2 permissões novas nos perfis** (master concede): "Lançar pagamentos" e "Aprovar pagamentos". Quem tem as duas pode lançar e aprovar o próprio lançamento — sem trava de 4 olhos; o controle é o master decidir quem recebe cada permissão.
+- **Fluxo:** o botão de pagamento Asaas deixa de disparar na hora — cria uma **solicitação** `pendente` na nova coleção `solicitacoesPagamento`. Nada vai pro Asaas até aprovar.
+- **Tela nova "Aprovações de Pagamentos"** no menu: lista as solicitações; quem tem "Aprovar" clica Aprovar → digita a **senha** (hash SHA-256 confere com o `Auth.currentUser`) → dispara o `/transfers` no Asaas → status `pago`/`erro`. Ou Recusa com motivo.
+- **Card no Dashboard:** "N pagamentos aguardando aprovação".
+- Auditoria (quem lançou/aprovou, horário, valor, ID Asaas) + idempotência (solicitação aprovada não dispara 2x).
+
 ### Limpeza / Operacional
 - **Apagar pasta `Netlify/` local** — só tem `netlify.toml` antigo, projeto não é mais usado.
 - **Apagar projeto Netlify online** (`effervescent-lollipop-d43f31`) — já está pausado pelo Netlify por exceder limite de crédito; antes de excluir, conferir Forms e Domain management (espera-se vazios).

@@ -10855,6 +10855,23 @@ function _cnpjErroMsg(tipo){
   if(tipo==='ocupado')   return 'Serviço da Receita ocupado (muitas consultas no momento). Aguarde alguns segundos e tente de novo.';
   return 'Serviço da Receita instável agora. Tente novamente em instantes — ou preencha os campos manualmente.';
 }
+// HTML do status box de erro: mensagem + botão "Preencher manualmente".
+// `tentarFn` = nome da função de lookup p/ tentar de novo; `focusId` = campo a focar.
+function _cnpjErroHtml(tipo, tentarFn, focusId){
+  return '<i class="fa-solid fa-triangle-exclamation"></i> ' + _cnpjErroMsg(tipo)
+    + '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">'
+    + `<button type="button" class="btn btn-sm" style="background:#fff;border:1px solid #FFCDD2;color:#B71C1C" onclick="${tentarFn}()"><i class="fa-solid fa-rotate-right"></i> Tentar de novo</button>`
+    + `<button type="button" class="btn btn-sm" style="background:#fff;border:1px solid #cfd8dc;color:#37474F" onclick="preencherCnpjManual('${focusId}')"><i class="fa-solid fa-pen"></i> Preencher manualmente</button>`
+    + '</div>';
+}
+// Dispensa o aviso de erro e leva o foco para o 1º campo, para o gestor digitar.
+function preencherCnpjManual(focusId){
+  ['cnpj-lookup-status','contrato-cnpj-status'].forEach(id=>{
+    const s=document.getElementById(id); if(s) s.style.display='none';
+  });
+  const f=document.getElementById(focusId); if(f) f.focus();
+  toast('Pode preencher os campos manualmente — o CNPJ é opcional.');
+}
 
 async function lookupCnpjPosto(){
   const cnpj=(val('posto-cnpj')||'').replace(/\D/g,'');
@@ -10906,7 +10923,7 @@ async function lookupCnpjPosto(){
       statusEl.style.background='#FFF3F3';
       statusEl.style.border='1px solid #FFCDD2';
       statusEl.style.color='#B71C1C';
-      statusEl.innerHTML='<i class="fa-solid fa-triangle-exclamation"></i> '+_cnpjErroMsg(e&&e.tipo);
+      statusEl.innerHTML=_cnpjErroHtml(e&&e.tipo,'lookupCnpjPosto','posto-razao');
     }
   } finally {
     if(spinner) spinner.style.display='none';
@@ -10950,7 +10967,7 @@ async function lookupCnpjContrato(){
       statusEl.style.background='#FFF3F3';
       statusEl.style.border='1px solid #FFCDD2';
       statusEl.style.color='#B71C1C';
-      statusEl.innerHTML='<i class="fa-solid fa-triangle-exclamation"></i> '+_cnpjErroMsg(e&&e.tipo);
+      statusEl.innerHTML=_cnpjErroHtml(e&&e.tipo,'lookupCnpjContrato','contrato-razao');
     }
   } finally {
     if(spinner) spinner.style.display='none';

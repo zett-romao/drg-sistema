@@ -3885,7 +3885,7 @@
         <input type="text" id="posto-razao" placeholder="Nome da empresa/condomínio">
       </div>
       <div class="form-group">
-        <label>CNPJ <span style="font-size:11px;color:var(--text-muted);font-weight:400">— preenchimento automático ao digitar</span></label>
+        <label>CNPJ <span style="font-size:11px;color:var(--text-muted);font-weight:400">— opcional · preenche os campos automaticamente ao digitar</span></label>
         <div style="position:relative">
           <input type="text" id="posto-cnpj" placeholder="00.000.000/0000-00" maxlength="18"
             oninput="maskCnpj(this); if(this.value.replace(/\D/g,'').length===14) lookupCnpjPosto()">
@@ -3969,7 +3969,7 @@
 
       <div class="form-row">
         <div class="form-group">
-          <label>CNPJ <span style="font-size:11px;color:var(--text-muted);font-weight:400">— preenchimento automático ao digitar</span></label>
+          <label>CNPJ <span style="font-size:11px;color:var(--text-muted);font-weight:400">— opcional · preenche os campos automaticamente ao digitar</span></label>
           <div style="position:relative">
             <input type="text" id="contrato-cnpj" placeholder="00.000.000/0000-00" maxlength="18"
               oninput="maskCnpj(this); if(this.value.replace(/\D/g,'').length===14) lookupCnpjContrato()">
@@ -4703,6 +4703,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260517ag"></script>
+<script src="app.js?v=20260517ah"></script>
 </body>
 </html>

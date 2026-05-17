@@ -2953,7 +2953,7 @@ function renderEmployeeTable(){
     const col7 = isLicenca
       ? `<strong style="color:#C2185B">${formatDateBr(e.licencaMaternidadeTermino)||'—'}</strong>`
       : `<span class="td-mono">${e.cpf||'—'}</span>`;
-    return `<tr>
+    return `<tr onclick="openEmployeeModal('${e.id}')" style="cursor:pointer" title="Abrir cadastro de ${(e.nome||'').replace(/"/g,'&quot;')}">
       <td><span class="badge badge-muted">${e.registro?String(e.registro).padStart(4,'0'):'—'}</span></td>
       <td><div style="display:flex;align-items:center;gap:8px">
         ${e.fotoUrl?`<img src="${e.fotoUrl}" class="emp-table-photo" alt="">`:`<div class="emp-table-initials">${initials(e.nome)}</div>`}
@@ -2965,7 +2965,7 @@ function renderEmployeeTable(){
       <td>${col6}</td>
       <td>${col7}</td>
       <td><span class="td-pix">${e.chavePix||'—'}</span></td>
-      <td><div class="actions-cell">
+      <td onclick="event.stopPropagation()"><div class="actions-cell">
         ${whatsBtn}
         <button class="btn-icon btn-primary-icon" onclick="openPayrollForEmployee('${e.id}')" title="Lançar Folha"><i class="fa-solid fa-file-invoice-dollar"></i></button>
         <button class="btn-icon btn-warning-icon" onclick="openEmployeeModal('${e.id}')" title="Editar"><i class="fa-solid fa-pencil"></i></button>

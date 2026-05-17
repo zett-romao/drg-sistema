@@ -953,6 +953,38 @@ function closeSidebarMobile(){
 // ============================================
 // LOGIN / LOGOUT
 // ============================================
+// Login pela camada Firebase Auth, com MIGRAÇÃO TRANSPARENTE.
+// É best-effort: qualquer falha vira `false` e o login segue pelo método
+// antigo (SHA-256) — ninguém é travado. A detecção de "já migrado" usa o
+// campo user.firebaseUid (não os códigos de erro do Firebase, que mudam
+// conforme a proteção de enumeração de e-mail).
+async function _firebaseAuthLogin(user, password, senhaAntigaOk){
+  if(typeof firebase==='undefined' || !firebase.auth) return false;
+  const fa = firebase.auth();
+  if(!user.firebaseUid){
+    // Ainda não migrado → só cria a conta Firebase se a senha conferiu
+    // pelo método antigo (nunca cria conta com senha errada).
+    if(!senhaAntigaOk) return false;
+    try {
+      await fa.createUserWithEmailAndPassword(user.email, password);
+    } catch(e){
+      if(e && e.code==='auth/email-already-in-use'){
+        await fa.signInWithEmailAndPassword(user.email, password);
+      } else {
+        throw e; // weak-password, operation-not-allowed, rede... → cai no antigo
+      }
+    }
+  } else {
+    await fa.signInWithEmailAndPassword(user.email, password);
+  }
+  const uid = fa.currentUser && fa.currentUser.uid;
+  if(uid && user.firebaseUid!==uid){
+    user.firebaseUid = uid;
+    DB.save('users', user).catch(console.error);
+  }
+  return true;
+}
+
 async function doLogin(event){
   event.preventDefault();
   const username=val('login-username'), password=val('login-password');
@@ -975,17 +1007,25 @@ async function doLogin(event){
       errorMsg.textContent='Usuário inválido ou sem acesso.';
       errorEl.classList.remove('hidden'); return;
     }
-    const hash=await Auth.hashPassword(password);
-    if(hash!==user.passwordHash){
+    // Senha — base garantida: hash SHA-256 do método atual
+    const senhaAntigaOk = !!user.passwordHash && (await Auth.hashPassword(password))===user.passwordHash;
+    // Camada nova: Firebase Auth (best-effort, nunca derruba o login)
+    let firebaseOk=false;
+    if(user.email){
+      try { firebaseOk=await _firebaseAuthLogin(user,password,senhaAntigaOk); }
+      catch(e){ console.warn('Firebase Auth login:', e&&e.code||e); }
+    }
+    if(!senhaAntigaOk && !firebaseOk){
       Auth.log('LOGIN_FAILED',username,'Senha incorreta');
       errorMsg.textContent='Senha incorreta.';
       errorEl.classList.remove('hidden'); return;
     }
+    // Sem sessão Firebase real → mantém a anônima (compatibilidade)
+    if(!firebaseOk){ firebase.auth().signInAnonymously().catch(()=>{}); }
     user.lastLogin=new Date().toISOString();
     await DB.save('users',user);
     Auth.saveSession(user);
-    firebase.auth().signInAnonymously().catch(()=>{});
-    Auth.log('LOGIN_SUCCESS',username,`Perfil: ${roleLabel(user.role)}`);
+    Auth.log('LOGIN_SUCCESS',username,`Perfil: ${roleLabel(user.role)}${firebaseOk?' · Firebase Auth':''}`);
     document.getElementById('login-screen').classList.add('hidden');
     setVal('login-username',''); setVal('login-password','');
     errorEl.classList.add('hidden');
@@ -1128,6 +1168,13 @@ async function changePassword(){
   user.passwordHash=await Auth.hashPassword(newPass);
   user.forceChange=false;
   await DB.save('users',user);
+  // Sincroniza a senha no Firebase Auth (se este usuário já está logado lá)
+  try {
+    const fu = firebase.auth().currentUser;
+    if(fu && !fu.isAnonymous && user.firebaseUid && fu.uid===user.firebaseUid){
+      await fu.updatePassword(newPass);
+    }
+  } catch(e){ console.warn('Firebase updatePassword:', e&&e.code||e); }
   Auth.log('PASSWORD_CHANGED',user.username);
   closeModal('modal-change-pass');
   toast('Senha alterada com sucesso!');

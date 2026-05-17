@@ -3779,6 +3779,7 @@ function renderBeneficiosLista(){
   let html = `<table style="width:100%;border-collapse:collapse;font-size:12px">
     <thead style="background:#F5F7FB;position:sticky;top:0">
       <tr>
+        <th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border)"><input type="checkbox" onclick="_benefToggleAll(this)" title="Marcar todos"></th>
         <th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border)">Matr.</th>
         <th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border)">Colaborador</th>
         <th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border)">Posto</th>
@@ -3800,6 +3801,7 @@ function renderBeneficiosLista(){
     const matr = emp.registro ? String(emp.registro).padStart(4,'0') : '—';
     const pix  = emp.chavePix || '—';
     html += `<tr style="background:${bg};cursor:pointer" onclick="openBeneficioDetalhe('${emp.id}','${escopo}','${ini}','${fim}')">
+      <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7" onclick="event.stopPropagation()"><input type="checkbox" class="benef-chk" data-emp-id="${emp.id}" data-valor="${b.total}" onchange="_benefSelCount()"></td>
       <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7;font-weight:700;color:var(--primary)">${matr}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7"><strong style="color:var(--primary)">${emp.nome}</strong><br><small style="color:var(--text-muted)">${emp.setor||'—'}</small></td>
       <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7;font-size:11px">${posto}</td>
@@ -3815,7 +3817,7 @@ function renderBeneficiosLista(){
   html += `</tbody>
     <tfoot style="background:#E8F5E9;font-weight:700">
       <tr>
-        <td colspan="5" style="padding:10px;text-align:right">TOTAL GERAL</td>
+        <td colspan="6" style="padding:10px;text-align:right">TOTAL GERAL</td>
         <td style="padding:10px;text-align:right">${fmtMoney(totalVT)}</td>
         <td style="padding:10px;text-align:right">${fmtMoney(totalVR)}</td>
         <td style="padding:10px;text-align:right;color:#1B5E20;font-size:14px">${fmtMoney(totalGeral)}</td>
@@ -3824,6 +3826,85 @@ function renderBeneficiosLista(){
     </tfoot>
   </table>`;
   listEl.innerHTML = html;
+  _benefSelCount();
+}
+
+// ── Seleção de colaboradores para pagamento de benefícios ──────────────
+function _benefToggleAll(hc){
+  document.querySelectorAll('.benef-chk').forEach(c=>{ c.checked = hc.checked; });
+  _benefSelCount();
+}
+function _benefSelCount(){
+  const el=document.getElementById('benef-sel-count');
+  if(el) el.textContent = document.querySelectorAll('.benef-chk:checked').length;
+}
+
+// ── Pix Copia e Cola (BR Code EMV) ─────────────────────────────────────
+function _pixSanitize(s,max){
+  return (s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^A-Za-z0-9 ]/g,'').trim().substring(0,max).toUpperCase();
+}
+function _crc16ccitt(str){
+  let crc=0xFFFF;
+  for(let i=0;i<str.length;i++){
+    crc^=str.charCodeAt(i)<<8;
+    for(let j=0;j<8;j++) crc=(crc&0x8000)?(((crc<<1)^0x1021)&0xFFFF):((crc<<1)&0xFFFF);
+  }
+  return crc.toString(16).toUpperCase().padStart(4,'0');
+}
+function _pixCopiaCola(chave,valor,nome,cidade){
+  const f=(id,v)=>id+String(v.length).padStart(2,'0')+v;
+  const gui=f('00','BR.GOV.BCB.PIX')+f('01',String(chave||'').trim());
+  let p='';
+  p+=f('00','01');
+  p+=f('26',gui);
+  p+=f('52','0000');
+  p+=f('53','986');
+  if(valor>0) p+=f('54',Number(valor).toFixed(2));
+  p+=f('58','BR');
+  p+=f('59',_pixSanitize(nome,25)||'RECEBEDOR');
+  p+=f('60',_pixSanitize(cidade,15)||'BRASIL');
+  p+=f('62',f('05','***'));
+  p+='6304';
+  return p+_crc16ccitt(p);
+}
+
+// Gera os Pix Copia e Cola dos colaboradores marcados (1 = individual,
+// vários = em massa) — o operador cola no app do banco para pagar.
+function pagarBeneficiosSelecionados(){
+  const chks=[...document.querySelectorAll('.benef-chk:checked')];
+  if(!chks.length){ toast('Marque ao menos um colaborador na lista para pagar.','info'); return; }
+  const itens=chks.map(c=>{
+    const emp=(State.employees||[]).find(e=>e.id===c.dataset.empId)||{};
+    return { nome:emp.nome||'—', pix:(emp.chavePix||'').trim(), cidade:emp.cidade||'', valor:parseFloat(c.dataset.valor)||0 };
+  });
+  const total=itens.reduce((s,i)=>s+i.valor,0);
+  const semPix=itens.filter(i=>!i.pix).length;
+  let rows='';
+  itens.forEach((it,idx)=>{
+    const temPix=!!it.pix;
+    const codigo=temPix?_pixCopiaCola(it.pix,it.valor,it.nome,it.cidade):'';
+    rows+=`<div style="border:1px solid #CFD8DC;border-radius:8px;padding:12px;margin-bottom:10px;background:${temPix?'#fff':'#FFEBEE'}">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <div><strong style="font-size:14px">${it.nome}</strong><br><small style="color:#555">Chave: ${temPix?it.pix:'<span style="color:#C62828">SEM CHAVE PIX CADASTRADA</span>'}</small></div>
+        <div style="font-size:16px;font-weight:700;color:#00897B">${fmtMoney(it.valor)}</div>
+      </div>
+      ${temPix?`<div style="display:flex;gap:6px;margin-top:8px">
+        <input type="text" readonly value="${codigo}" id="pixcc-${idx}" style="flex:1;font-family:monospace;font-size:10px;padding:6px;border:1px solid #CFD8DC;border-radius:4px">
+        <button onclick="_copiarPix(${idx},this)" style="padding:6px 12px;font-size:12px;background:#00897B;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600">Copiar</button>
+      </div>`:`<div style="margin-top:6px;font-size:11px;color:#C62828">Cadastre a chave PIX deste colaborador para gerar o pagamento.</div>`}
+    </div>`;
+  });
+  const win=window.open('','_blank','width=640,height=760');
+  if(!win){ toast('Permita pop-ups para abrir a tela de pagamento.','error'); return; }
+  win.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Pagamento PIX — Benefícios</title>
+<style>body{font-family:Arial,sans-serif;padding:18px;background:#F5F7FB;color:#212529}h2{color:#00695C;margin:0 0 6px}</style></head><body>
+<h2>Pagamento de Benefícios via PIX</h2>
+<p style="font-size:13px">${itens.length} colaborador(es) &middot; Total: <strong style="color:#00897B">${fmtMoney(total)}</strong>${semPix?` &middot; <span style="color:#C62828">${semPix} sem chave PIX</span>`:''}</p>
+<p style="font-size:12px;color:#555;background:#FFF8E1;border:1px solid #F9A825;padding:8px;border-radius:6px">Copie o código <strong>Pix Copia e Cola</strong> de cada colaborador e cole no app do seu banco para pagar. Confira o nome e o valor antes de confirmar.</p>
+${rows}
+<script>function _copiarPix(i,btn){var el=document.getElementById('pixcc-'+i);el.select();el.setSelectionRange(0,99999);try{document.execCommand('copy');}catch(e){}var t=btn.innerHTML;btn.innerHTML='Copiado!';setTimeout(function(){btn.innerHTML=t;},1500);}<\/script>
+</body></html>`);
+  win.document.close();
 }
 
 // Estado do modal de detalhe (para os botões de export)

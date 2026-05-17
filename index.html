@@ -4035,7 +4035,8 @@
         <button class="benef-tab-btn" data-tab="semana" onclick="switchBeneficioTab('semana')" style="padding:8px 16px;background:none;border:none;border-bottom:3px solid transparent;color:var(--text-muted);font-weight:600;cursor:pointer;font-size:14px"><i class="fa-solid fa-calendar-week"></i> Esta Semana</button>
       </div>
       <div id="benef-info" style="background:#E1F5FE;padding:10px 14px;border-radius:6px;margin-bottom:14px;font-size:13px;color:#01579B"></div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;justify-content:flex-end">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;justify-content:flex-end;align-items:center">
+        <button class="btn btn-primary" onclick="pagarBeneficiosSelecionados()" style="background:#00897B"><i class="fa-solid fa-qrcode"></i> Pagar via PIX (<span id="benef-sel-count">0</span>)</button>
         <button class="btn btn-secondary" onclick="exportBeneficiosLista('print')"><i class="fa-solid fa-print"></i> Imprimir lista</button>
         <button class="btn btn-secondary" onclick="exportBeneficiosLista('pdf')"><i class="fa-solid fa-file-pdf" style="color:#C62828"></i> Exportar PDF</button>
         <button class="btn btn-secondary" onclick="exportBeneficiosLista('excel')"><i class="fa-solid fa-file-excel" style="color:#1B5E20"></i> Exportar Excel</button>
@@ -4584,6 +4585,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260517z"></script>
+<script src="app.js?v=20260517aa"></script>
 </body>
 </html>

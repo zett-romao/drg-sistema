@@ -4232,7 +4232,7 @@
         <div class="form-group">
           <label><i class="fa-solid fa-calendar-day"></i> Aplicar a partir do dia</label>
           <input type="number" id="ajustar-escala-dia" min="1" max="31" value="1">
-          <small style="color:var(--text-muted);font-size:11px">Dias anteriores permanecem como estão. Para a escala <strong>12x36</strong>, este dia também é o <strong>início do ciclo</strong> — vira dia de trabalho e a alternância flui a partir dele.</small>
+          <small style="color:var(--text-muted);font-size:11px">Para a escala <strong>12x36</strong>, este dia é o <strong>início do ciclo</strong>: vira dia de trabalho e o mês inteiro segue a alternância a partir dele. Para 5x2/6x1, os dias anteriores a ele permanecem como estão.</small>
         </div>
       </div>
       <div class="form-row">
@@ -4245,7 +4245,7 @@
       </div>
       <div class="alert alert-info" style="margin-top:12px;font-size:12px">
         <i class="fa-solid fa-circle-info"></i>
-        <div>Dias já <strong>trabalhados</strong> ou <strong>passados</strong> são preservados automaticamente — nunca são reescritos. Para a escala <strong>12x36</strong>, depois de reprojetar clique no <strong>número do dia</strong> na tabela para definir o início do ciclo de trabalho — a alternância recalcula e <strong>salva sozinha</strong>.</div>
+        <div>Apenas dias já <strong>trabalhados</strong> (com ponto batido) são preservados — nunca reescritos. Para a escala <strong>12x36</strong>, você também pode clicar no <strong>número do dia</strong> na tabela para redefinir o início do ciclo — a alternância recalcula e <strong>salva sozinha</strong>.</div>
       </div>
     </div>
     <div class="modal-footer">
@@ -4571,6 +4571,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260517h"></script>
+<script src="app.js?v=20260517i"></script>
 </body>
 </html>

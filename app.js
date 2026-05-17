@@ -11445,24 +11445,15 @@ function _setEscalaRowTipo(row, novo, emp, mes, ano){
   }
 }
 
-// Dias da escala que NÃO devem ser reprojetados: já trabalhados (com ponto
-// real registrado na folha) ou já passados (mês corrente/anterior). Não faz
-// sentido reescrever o passado quando se ajusta ou troca a escala.
+// Dias da escala que NÃO devem ser reprojetados: APENAS os já trabalhados,
+// com ponto real batido na folha (entrada + saída). Dia que só está "no
+// passado" do calendário, mas sem ponto, é apenas projeção — pode e deve
+// ser corrigido quando o gestor ajusta a escala.
 function _diasProtegidosEscala(empId, mes, ano){
   const set = new Set();
-  // Dias com ponto real batido na folha (entrada + saída)
   const pay = (State.payrolls||[]).find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
   if(pay && Array.isArray(pay.pontoManualDias)){
     pay.pontoManualDias.forEach(d=>{ if(d&&d.entrada&&d.saida) set.add(d.dia); });
-  }
-  // Dias já decorridos
-  const hoje = new Date();
-  const hojeMid = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
-  const ultimoDiaMes = new Date(ano, mes, 0);
-  if(ultimoDiaMes < hojeMid){
-    for(let d=1; d<=ultimoDiaMes.getDate(); d++) set.add(d); // mês inteiro no passado
-  } else if(mes===hoje.getMonth()+1 && ano===hoje.getFullYear()){
-    for(let d=1; d<hoje.getDate(); d++) set.add(d); // dias anteriores a hoje
   }
   return set;
 }
@@ -11513,9 +11504,7 @@ function openAjustarEscala(empId){
   sel.value = emp.escala || '5x2A';
   const diaEl = document.getElementById('ajustar-escala-dia');
   diaEl.max = new Date(ano, mes, 0).getDate();
-  // Padrão: hoje (no mês corrente) — assim dias já passados são preservados
-  const _hj = new Date();
-  diaEl.value = (mes===_hj.getMonth()+1 && ano===_hj.getFullYear()) ? _hj.getDate() : 1;
+  diaEl.value = 1; // 12x36: âncora no dia 1 · 5x2/6x1: mês inteiro
   document.getElementById('ajustar-escala-update-cadastro').checked = false;
   document.getElementById('ajustar-escala-info').innerHTML =
     `<strong>${emp.nome}</strong> &middot; ${MESES[mes]}/${ano} &middot; escala no cadastro: <strong>${escalaLabel(emp.escala||'5x2A')}</strong>`;
@@ -11549,13 +11538,19 @@ async function aplicarAjusteEscala(){
   const atuais = _collectEscalaDias(empId) || [];
   const mapaAtual = {}; atuais.forEach(d=>{ mapaAtual[d.dia]=d; });
   const mapaNovo  = {}; novoDias.forEach(d=>{ mapaNovo[d.dia]=d; });
-  // Dias preservados: anteriores ao corte OU já trabalhados/passados
+  // Monta o mês final:
+  //  • dia com ponto real batido → sempre preservado
+  //  • 12x36 → diaX é a ÂNCORA do ciclo; reprojeta o mês inteiro
+  //  • 5x2/6x1 → mantém os dias anteriores ao corte (diaX)
   const protegidos = _diasProtegidosEscala(empId, mes, ano);
+  const is12x36 = (fam === '12x36');
   let preservados = 0;
   const final = [];
   for(let d=1; d<=dpm; d++){
-    const manter = (d < diaX) || protegidos.has(d);
-    if(manter && protegidos.has(d) && d >= diaX) preservados++;
+    let manter;
+    if(protegidos.has(d)){ manter = true; preservados++; }
+    else if(is12x36)     { manter = false; }
+    else                 { manter = (d < diaX); }
     final.push((manter && mapaAtual[d]) ? mapaAtual[d] : (mapaNovo[d] || mapaAtual[d]));
   }
   card.querySelector('tbody').innerHTML = final.map(d=>_renderEscalaRow(d, fam)).join('');

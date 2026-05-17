@@ -4704,12 +4704,11 @@ function recalculate(){
     const inss=calcINSS(totalBruto);
     const fgts=calcFGTS(totalBruto);
     const irrf=calcIRRF(totalBruto,emp.dependentesIRRF||0,pensaoEnc,planoEnc,inss);
-    const vtEnc   =numVal('payroll-vt-total')||0;
-    const vrEnc   =numVal('payroll-vr-total')||0;
-    const vaEnc   =numVal('payroll-va-liquido')||0;
     const adiantEnc=ativoAdiant?numVal('payroll-adiantamento-valor')||0:0;
     const atrasoEnc=numVal('payroll-desconto-atraso')||0;
-    const totalLiqFinal=Math.max(0,totalBruto-inss-irrf-pensaoEnc-planoEnc-outDesc-adiantEnc-atrasoEnc+vtEnc+vrEnc+vaEnc);
+    // VT/VR/VA são benefícios pagos à parte (vale/cartão) — NÃO entram no
+    // líquido em dinheiro a receber.
+    const totalLiqFinal=Math.max(0,totalBruto-inss-irrf-pensaoEnc-planoEnc-outDesc-adiantEnc-atrasoEnc);
     setVal('payroll-total-bruto',       totalBruto.toFixed(2));
     setVal('payroll-outros-proventos',  outProv.toFixed(2));
     setVal('payroll-outros-descontos',  outDesc.toFixed(2));
@@ -9644,7 +9643,8 @@ function printFolhaPonto(isPreview=false){
   const atrasoAbonado=!!document.getElementById('payroll-atraso-abonado')?.checked;
   const atrasoTipo=val('payroll-atraso-tipo')||'imotivado';
   const atrasoJustificativa=val('payroll-atraso-justificativa')||'';
-  const totalLiquido=remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade+bonificacao+vtTotal+vrTotal+vaLiquido-adiantamento-descontoAtraso;
+  // VT/VR/VA são benefícios pagos à parte (vale/cartão) — não somam no líquido
+  const totalLiquido=remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade+bonificacao-adiantamento-descontoAtraso;
 
   // Posto do colaborador
   const posto=State.postos.find(p=>p.razaoSocial===emp.posto)||{razaoSocial:emp.posto||'—', endereco:'—'};
@@ -9806,9 +9806,6 @@ ${isPreview?`<div class="preview-banner">
     ${acumulo>0?`<tr><td class="fin-label">Acúmulo de Função (+20%)</td><td class="fin-value">${fmtMoney(acumulo)}</td></tr>`:''}
     ${insalubridade>0?`<tr><td class="fin-label">Insalubridade</td><td class="fin-value">${fmtMoney(insalubridade)}</td></tr>`:''}
     ${bonificacao>0?`<tr><td class="fin-label">Bonificação</td><td class="fin-value">${fmtMoney(bonificacao)}</td></tr>`:''}
-    ${vtTotal>0?`<tr><td class="fin-label">Vale Transporte</td><td class="fin-value">${fmtMoney(vtTotal)}</td></tr>`:''}
-    ${vrTotal>0?`<tr><td class="fin-label">Vale Refeição</td><td class="fin-value">${fmtMoney(vrTotal)}</td></tr>`:''}
-    ${vaLiquido>0?`<tr><td class="fin-label">Vale Alimentação</td><td class="fin-value">${fmtMoney(vaLiquido)}</td></tr>`:''}
     ${minutosAtraso>0?`<tr><td class="fin-label">${atrasoAbonado?'Atraso Abonado':'Desconto Atraso'} — ${minutosAtraso} min (${atrasoTipo==='motivado'?'motivado':'imotivado'})${atrasoJustificativa?` <small style="color:#666">&middot; ${atrasoJustificativa}</small>`:''}</td><td class="fin-value" style="color:${atrasoAbonado?'#2E7D32':'#c0392b'}">${atrasoAbonado?'R$ 0,00':fmtMoney(descontoAtraso)}</td></tr>`:''}
     ${adiantamento>0?`<tr><td class="fin-label">Adiantamento (${numVal('payroll-adiantamento-perc')||40}%)</td><td class="fin-value" style="color:#c0392b">${fmtMoney(adiantamento)}</td></tr>`:''}
     <tr class="fin-total"><td class="fin-label" style="color:#fff">TOTAL LÍQUIDO A RECEBER</td><td class="fin-value" style="color:#fff">${fmtMoney(totalLiquido)}</td></tr>
@@ -9819,6 +9816,13 @@ ${isPreview?`<div class="preview-banner">
       <div style="font-size:20px;font-weight:700;color:#1B5E20">${fmtMoney(totalLiquido)}</div>
       <div style="font-size:9px;color:#555;margin-top:2px">${mesLabel} / ${ano}</div>
     </div>
+    ${(vtTotal>0||vrTotal>0||vaLiquido>0)?`
+    <div style="margin-top:8px;background:#E3F2FD;border:1px solid #90CAF9;border-radius:4px;padding:8px;font-size:10px">
+      <div style="font-weight:700;color:#1565C0;margin-bottom:4px">Benefícios <span style="font-weight:400">— pagos à parte (vale/cartão), não somam no líquido</span></div>
+      ${vtTotal>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Vale Transporte</span><span>${fmtMoney(vtTotal)}</span></div>`:''}
+      ${vrTotal>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Vale Refeição</span><span>${fmtMoney(vrTotal)}</span></div>`:''}
+      ${vaLiquido>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Vale Alimentação</span><span>${fmtMoney(vaLiquido)}</span></div>`:''}
+    </div>`:''}
   </div>
 </div>
 
@@ -9893,10 +9897,12 @@ function _buildFolhaHtmlFromRecord(emp, p){
   const outrosProvVal   = p.outrosProventosTotal||0;
   const outrosDescVal   = p.outrosDescontosTotal||0;
   const totalBrutoVal   = p.totalBruto||0;
-  // Líquido final: usa o salvo se disponível, senão calcula o antigo (retrocompatibilidade)
-  const totalLiquido    = p.totalLiquidoFinal
-    ? p.totalLiquidoFinal
-    : remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade+bonificacao+vtTotal+vrTotal+vaLiquido-adiantamento-descontoAtraso;
+  // Líquido final em dinheiro — recalculado dos componentes (NÃO usa o
+  // p.totalLiquidoFinal salvo, que em registros antigos somava VT/VR/VA
+  // indevidamente). VT/VR/VA são benefícios pagos à parte.
+  const totalLiquido    = totalBrutoVal>0
+    ? Math.max(0, totalBrutoVal-inssVal-irrfVal-pensaoVal-planoSaudeVal-outrosDescVal-adiantamento-descontoAtraso)
+    : Math.max(0, remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade+bonificacao-adiantamento-descontoAtraso);
 
   // Tabela de dias do ponto
   const diasPonto    = p.pontoManualDias||[];
@@ -10038,9 +10044,6 @@ function _buildFolhaHtmlFromRecord(emp, p){
       ${insalubridade>0?`<tr><td class="fin-label">Insalubridade</td><td class="fin-value">${fmtMoney(insalubridade)}</td></tr>`:''}
       ${bonificacao>0?`<tr><td class="fin-label">Bonificação Boa Permanência</td><td class="fin-value">${fmtMoney(bonificacao)}</td></tr>`:''}
       ${outrosProvVal>0?`<tr><td class="fin-label">Outros Proventos</td><td class="fin-value">${fmtMoney(outrosProvVal)}</td></tr>`:''}
-      ${vtTotal>0?`<tr><td class="fin-label">Vale Transporte</td><td class="fin-value">${fmtMoney(vtTotal)}</td></tr>`:''}
-      ${vrTotal>0?`<tr><td class="fin-label">Vale Refeição</td><td class="fin-value">${fmtMoney(vrTotal)}</td></tr>`:''}
-      ${vaLiquido>0?`<tr><td class="fin-label">Vale Alimentação</td><td class="fin-value">${fmtMoney(vaLiquido)}</td></tr>`:''}
     </table>
     <div style="font-size:9px;font-weight:700;color:#c0392b;text-transform:uppercase;margin:6px 0 3px">DESCONTOS</div>
     <table class="fin-table">
@@ -10070,6 +10073,13 @@ function _buildFolhaHtmlFromRecord(emp, p){
       ${inssVal>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>(-) INSS:</span><span style="color:#c0392b">(${fmtMoney(inssVal)})</span></div>`:''}
       ${irrfVal>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>(-) IRRF:</span><span style="color:#c0392b">(${fmtMoney(irrfVal)})</span></div>`:''}
       ${fgtsVal>0?`<div style="display:flex;justify-content:space-between;padding:2px 0;color:#1565C0"><span>FGTS Empregador:</span><span>${fmtMoney(fgtsVal)}</span></div>`:''}
+    </div>`:''}
+    ${(vtTotal>0||vrTotal>0||vaLiquido>0)?`
+    <div style="margin-top:8px;background:#E3F2FD;border:1px solid #90CAF9;border-radius:4px;padding:8px;font-size:10px">
+      <div style="font-weight:700;color:#1565C0;margin-bottom:4px">Benefícios <span style="font-weight:400">— pagos à parte (vale/cartão), não somam no líquido</span></div>
+      ${vtTotal>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Vale Transporte</span><span>${fmtMoney(vtTotal)}</span></div>`:''}
+      ${vrTotal>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Vale Refeição</span><span>${fmtMoney(vrTotal)}</span></div>`:''}
+      ${vaLiquido>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Vale Alimentação</span><span>${fmtMoney(vaLiquido)}</span></div>`:''}
     </div>`:''}
   </div>
 </div>

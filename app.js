@@ -4565,6 +4565,24 @@ function recalculate(){
     setVal('payroll-horas-extras-dia','—');
   }
 
+  // ── HORAS EXTRAS de folha com ponto diário ──────────────────────────
+  // Se a folha tem ponto batido dia a dia, o total de HE vem da revisão
+  // por dia (_heMinFromDias respeita aprovado/recusado/pendente). Isso
+  // SOBREPÕE o cálculo "jornada representativa × dias" acima — sem isso a
+  // folha pagaria HE não aprovada / não refletiria as edições do ponto.
+  (function(){
+    const empId = val('payroll-employee');
+    const mesN  = parseInt(val('payroll-mes')||currentMes());
+    const anoN  = parseInt(val('payroll-ano')||currentAno());
+    const reg   = State.payrolls.find(p=>p.employeeId===empId&&p.mes==mesN&&p.ano==anoN);
+    const cards = _getPontoManualCards();
+    const diasP = cards.length ? _collectPontoManualDias()
+                : (reg && Array.isArray(reg.pontoManualDias) ? reg.pontoManualDias : null);
+    if(!emp || !diasP || !diasP.some(d=>d&&d.entrada&&d.saida)) return;
+    const heMin = _heMinFromDias(emp, mesN, anoN, diasP);
+    setVal('payroll-he-total', heMin>0 ? +(heMin/60).toFixed(2) : '');
+  })();
+
   // Valor das horas extras
   const hETotalInformado = numVal('payroll-he-total')||0;
   const percHE = parseInt(val('payroll-he-perc')||'50');
@@ -9425,19 +9443,27 @@ async function applyPontoManual(){
     } else if(!isWeekend&&!is12x36&&!entrada&&!saida) faltas++;
   });
   // Salva horários no Firebase antes de aplicar
+  const heHorasAplic = totalHEmin>0 ? +(totalHEmin/60).toFixed(2) : 0;
   if(empId){
     const dias=_collectPontoManualDias();
     const existing=State.payrolls.find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
     const record=existing
-      ? {...existing, pontoManualDias:dias, updatedAt:new Date().toISOString()}
-      : { id:genId(), employeeId:empId, mes, ano, pontoManualDias:dias,
+      ? {...existing, pontoManualDias:dias, horasExtrasTotal:heHorasAplic, updatedAt:new Date().toISOString()}
+      : { id:genId(), employeeId:empId, mes, ano, pontoManualDias:dias, horasExtrasTotal:heHorasAplic,
           updatedAt:new Date().toISOString(), createdAt:new Date().toISOString() };
-    try{ await DB.save('payrolls', record); } catch(e){ console.error('Erro ao salvar ponto:',e); }
+    try{
+      await DB.save('payrolls', record);
+      // Reflete em memória pra que recalculate() veja os dados frescos
+      const ix=State.payrolls.findIndex(p=>p.id===record.id);
+      if(ix>=0) State.payrolls[ix]=record; else State.payrolls.push(record);
+    } catch(e){ console.error('Erro ao salvar ponto:',e); }
   }
   setVal('payroll-dias',diasTrabalhados);
   setVal('payroll-faltas-injustificadas',faltas);
   setVal('payroll-faltas-justificadas',0);
-  if(totalHEmin>0) setVal('payroll-he-total',(totalHEmin/60).toFixed(2));
+  // Sempre grava o total de HE — inclusive vazio quando zerou (HE não
+  // aprovada). Antes só gravava se >0, deixando valor velho na folha.
+  setVal('payroll-he-total', heHorasAplic>0 ? heHorasAplic : '');
   setVal('payroll-atraso-min', totalAtrasoMin>0 ? totalAtrasoMin : '');
   recalculate();
   closeModal('modal-ponto-manual');
@@ -9474,22 +9500,18 @@ function printPreviewParcial(){
     const isWeekend=diaSem===0||diaSem===6;
     if(entrada&&saida){
       diasTrabalhados++;
-      let mb=timeToMinutes(saida)-timeToMinutes(entrada);
-      if(mb<=0) mb+=24*60;
-      const mi=_calcIntervaloMin(intIni,intFim,entrada,saida);
-      const minLiq=mb-mi;
-      let minContr=480;
-      if(fam==='6x1') minContr=440;
-      else if(fam==='12x36') minContr=660;
-      totalHEmin+=Math.max(0,minLiq-minContr);
     } else if(!isWeekend&&!is12x36&&!entrada&&!saida) faltas++;
   });
+  // HE da prévia: respeita a revisão por dia (só dias aprovados pagam)
+  const _pvMes=parseInt(val('payroll-mes')||currentMes());
+  const _pvAno=parseInt(val('payroll-ano')||currentAno());
+  totalHEmin=_heMinFromDias(emp,_pvMes,_pvAno,_collectPontoManualDias());
 
   // Aplica temporariamente ao formulário e recalcula
   setVal('payroll-dias',diasTrabalhados);
   setVal('payroll-faltas-injustificadas',faltas);
   setVal('payroll-faltas-justificadas',0);
-  if(totalHEmin>0) setVal('payroll-he-total',(totalHEmin/60).toFixed(2));
+  setVal('payroll-he-total', totalHEmin>0 ? +(totalHEmin/60).toFixed(2) : '');
   recalculate();
 
   // Imprime com flag de prévia (adiciona watermark e faixa laranja)
@@ -9543,6 +9565,11 @@ function printFolhaPonto(isPreview=false){
   const empId=val('payroll-employee');
   const emp=State.employees.find(e=>e.id===empId);
   if(!empId||!emp){ toast('Selecione um colaborador na folha de ponto primeiro.','error'); return; }
+
+  // Se o modal Ponto Manual está aberto com edições não aplicadas,
+  // ressincroniza o formulário (HE/encargos) antes de imprimir — senão a
+  // tabela de dias mostraria as edições mas o financeiro ficaria velho.
+  if(!isPreview && _getPontoManualCards().length){ try{ recalculate(); }catch(e){ console.error(e); } }
 
   const mes=parseInt(val('payroll-mes')||currentMes());
   const ano=parseInt(val('payroll-ano')||currentAno());

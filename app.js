@@ -3408,6 +3408,20 @@ function initPayrollSection(){
   if(currentId) onPayrollEmployeeChange();
 }
 
+// Retorna a lista de informações básicas que faltam no cadastro do
+// colaborador para que a folha de ponto calcule corretamente.
+function _cadastroPendencias(emp){
+  const faltam = [];
+  if(!emp) return faltam;
+  if(!(emp.salarioBase>0))                 faltam.push('Salário base');
+  if(!emp.dataAdmissao)                    faltam.push('Data de admissão');
+  if(!emp.posto)                           faltam.push('Posto de trabalho');
+  if(!emp.horarioEntrada || !emp.horarioSaida) faltam.push('Horário contratual');
+  if(escalaFamilia(emp.escala||'5x2A')==='12x36' && !emp.ciclo12x36Inicio)
+                                           faltam.push('Início do ciclo 12x36');
+  return faltam;
+}
+
 function onPayrollEmployeeChange(){
   const empId=val('payroll-employee');
   const emp=State.employees.find(e=>e.id===empId);
@@ -3438,7 +3452,15 @@ function onPayrollEmployeeChange(){
     const noturno=emp.turnoNoturno&&escalaFamilia(escala)==='12x36';
     if(infoEl){
       infoEl.classList.remove('hidden');
-      infoEl.innerHTML=`<i class="fa-solid fa-circle-info"></i> <strong>${emp.nome}</strong> — Escala: <strong>${escalaLabel(escala)}</strong> — Status: ${statusBadge(emp.status||'ativo')}${noturno?' — <span style="color:#5C6BC0"><i class="fa-solid fa-moon"></i> Turno Noturno</span>':''}`;
+      let _infoHtml=`<i class="fa-solid fa-circle-info"></i> <strong>${emp.nome}</strong> — Escala: <strong>${escalaLabel(escala)}</strong> — Status: ${statusBadge(emp.status||'ativo')}${noturno?' — <span style="color:#5C6BC0"><i class="fa-solid fa-moon"></i> Turno Noturno</span>':''}`;
+      const _pend=_cadastroPendencias(emp);
+      if(_pend.length){
+        _infoHtml+=`<div style="margin-top:6px;padding:6px 10px;background:#FFEBEE;border:1px solid #E57373;border-radius:4px;color:#B71C1C;font-size:12px;font-weight:600">
+          <i class="fa-solid fa-triangle-exclamation"></i> Cadastro incompleto — faltam: ${_pend.join(', ')}.
+          <button type="button" class="btn btn-outline" style="margin-left:8px;padding:2px 10px;font-size:11px" onclick="openEmployeeModal('${emp.id}')"><i class="fa-solid fa-user-pen"></i> Completar cadastro</button>
+        </div>`;
+      }
+      infoEl.innerHTML=_infoHtml;
     }
     // Mostrar/ocultar card adicional noturno
     const noturnoCard=document.getElementById('noturno-card');
@@ -4824,6 +4846,13 @@ async function savePayroll(){
   const empId=val('payroll-employee'), mes=val('payroll-mes'), ano=val('payroll-ano');
   if(!empId){ toast('Selecione um colaborador.','error'); return; }
   if(!mes||!ano){ toast('Informe mês e ano.','error'); return; }
+  // Bloquear se o cadastro do colaborador estiver incompleto
+  const _empSave=State.employees.find(e=>e.id===empId);
+  const _pendSave=_cadastroPendencias(_empSave);
+  if(_pendSave.length){
+    toast(`Complete o cadastro do colaborador antes de salvar a folha. Faltam: ${_pendSave.join(', ')}.`,'error');
+    return;
+  }
   // Bloquear se a folha estiver fechada
   const existingCheck=State.payrolls.find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
   if(existingCheck?.status==='fechada'){

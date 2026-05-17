@@ -3351,6 +3351,31 @@ function onPayrollPostoFilterChange(){
   onPayrollEmployeeChange();
 }
 
+// Garante que o colaborador esteja como <option> no select da folha.
+// Sem isso, setVal('payroll-employee', id) falha em silêncio quando o
+// filtro de posto está ativo (ou o colaborador é inativo) — e o form
+// acaba caindo em OUTRO nome. Usado ao navegar do Dashboard / histórico.
+function _ensurePayrollEmployeeOption(empId){
+  if(!empId) return;
+  const sel = document.getElementById('payroll-employee');
+  if(!sel) return;
+  const has = () => Array.from(sel.options).some(o => o.value === empId);
+  if(has()) return;
+  // Limpa o filtro de posto e repopula — colaborador pode estar noutro posto
+  const fSel = document.getElementById('payroll-filter-posto');
+  if(fSel) fSel.value = '';
+  _populatePayrollEmployees();
+  if(has()) return;
+  // Ainda fora da lista (ex.: colaborador inativo) → insere a opção
+  const emp = State.employees.find(e => e.id === empId);
+  if(emp){
+    const opt = document.createElement('option');
+    opt.value = empId;
+    opt.textContent = emp.nome + ((emp.status && emp.status !== 'ativo') ? ' (inativo)' : '');
+    sel.appendChild(opt);
+  }
+}
+
 function initPayrollSection(){
   const currentId=(document.getElementById('payroll-employee')||{}).value||'';
   // Filtro por posto
@@ -4720,6 +4745,7 @@ function renderPayrollHistory(empId){
 
 function loadPayrollRecord(id){
   const p=State.payrolls.find(r=>r.id===id); if(!p) return;
+  _ensurePayrollEmployeeOption(p.employeeId); // garante o nome certo no select
   setVal('payroll-employee',p.employeeId); setVal('payroll-mes',p.mes); setVal('payroll-ano',p.ano);
   // Período De/Até — restaura se salvo, caso contrário auto-preenche
   if(p.periodoDe) setVal('payroll-periodo-de',p.periodoDe);
@@ -9009,6 +9035,7 @@ function _abrirRevisaoColab(empId, payrollId, mes, ano){
   closeModal('modal-pendentes-he-list');
   showSection('payroll');
   setTimeout(() => {
+    _ensurePayrollEmployeeOption(empId); // garante o colaborador-alvo no select
     setVal('payroll-employee', empId);
     setVal('payroll-mes', mes);
     setVal('payroll-ano', ano);

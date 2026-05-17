@@ -10807,25 +10807,30 @@ function _projectEscala6x1B(emp, mes, ano, prevDias){
 }
 
 // 12x36: alternância 1 dia trabalho / 1 dia folga
-function _projectEscala12x36(emp, mes, ano, prevDias){
+function _projectEscala12x36(emp, mes, ano, prevDias, anchorOverride){
   const dias = [];
   const dpm = new Date(ano, mes, 0).getDate();
-  let lastWork = null;
-  if(prevDias && prevDias.length){
-    const sorted = [...prevDias].sort((a,b)=>b.dia-a.dia);
-    const lw = sorted.find(d => d.tipo==='trabalho' || (d.entrada && d.saida));
-    if(lw) lastWork = lw.dia;
-  }
   let anchor = null;
   let noPrev = false;
-  if(lastWork !== null){
-    const prevDpm = new Date(ano, mes-1, 0).getDate();
-    const offsetDay1 = (prevDpm - lastWork) + 1; // distância de lastWork até dia 1 do mês atual
-    // lastWork = offset 0 (trabalho). Par = trabalho, ímpar = folga.
-    anchor = (offsetDay1 % 2 === 0) ? 1 : 2;
+  if(anchorOverride){
+    // Âncora explícita (ex.: usuário escolheu o dia de início do ciclo)
+    anchor = anchorOverride;
   } else {
-    anchor = 1;
-    noPrev = true;
+    let lastWork = null;
+    if(prevDias && prevDias.length){
+      const sorted = [...prevDias].sort((a,b)=>b.dia-a.dia);
+      const lw = sorted.find(d => d.tipo==='trabalho' || (d.entrada && d.saida));
+      if(lw) lastWork = lw.dia;
+    }
+    if(lastWork !== null){
+      const prevDpm = new Date(ano, mes-1, 0).getDate();
+      const offsetDay1 = (prevDpm - lastWork) + 1; // distância de lastWork até dia 1 do mês atual
+      // lastWork = offset 0 (trabalho). Par = trabalho, ímpar = folga.
+      anchor = (offsetDay1 % 2 === 0) ? 1 : 2;
+    } else {
+      anchor = 1;
+      noPrev = true;
+    }
   }
   for(let d=1; d<=dpm; d++){
     const ds = new Date(ano, mes-1, d).getDay();
@@ -11522,14 +11527,21 @@ async function aplicarAjusteEscala(){
   const updateCad = document.getElementById('ajustar-escala-update-cadastro').checked;
   // Projeta o mês inteiro com a escala nova
   const tempEmp  = { ...emp, escala: novaEscala };
-  const novoDias = _projectEscala(tempEmp, mes, ano, _getPrevMonthDias(empId, mes, ano));
+  const fam = escalaFamilia(novaEscala);
+  let novoDias;
+  if(fam === '12x36'){
+    // Para 12x36, "a partir do dia X" também é a ÂNCORA do ciclo:
+    // o dia X vira dia de trabalho e a alternância flui a partir dele.
+    novoDias = _projectEscala12x36(tempEmp, mes, ano, null, diaX);
+  } else {
+    novoDias = _projectEscala(tempEmp, mes, ano, _getPrevMonthDias(empId, mes, ano));
+  }
   // Estado atual do card
   const atuais = _collectEscalaDias(empId) || [];
   const mapaAtual = {}; atuais.forEach(d=>{ mapaAtual[d.dia]=d; });
   const mapaNovo  = {}; novoDias.forEach(d=>{ mapaNovo[d.dia]=d; });
   // Dias preservados: anteriores ao corte OU já trabalhados/passados
   const protegidos = _diasProtegidosEscala(empId, mes, ano);
-  const fam = escalaFamilia(novaEscala);
   let preservados = 0;
   const final = [];
   for(let d=1; d<=dpm; d++){

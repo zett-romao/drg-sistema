@@ -489,9 +489,17 @@
               <div class="card-body">
                 <div class="form-row">
                   <div class="form-group">
+                    <label><i class="fa-solid fa-building" style="color:var(--primary)"></i> Filtrar por posto</label>
+                    <select id="payroll-filter-posto" onchange="onPayrollPostoFilterChange()">
+                      <option value="">Todos os postos</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
                     <label>Colaborador <span class="required">*</span></label>
                     <select id="payroll-employee" onchange="onPayrollEmployeeChange()">
-                      <option value="">— Selecione —</option>
+                      <option value="">— Selecione o colaborador —</option>
                     </select>
                   </div>
                   <div class="form-group form-group-sm">
@@ -4514,6 +4522,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260516i"></script>
+<script src="app.js?v=20260516j"></script>
 </body>
 </html>

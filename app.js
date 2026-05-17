@@ -3327,17 +3327,46 @@ function confirmDeleteEmployee(id){
 // ============================================
 // FOLHA DE PONTO
 // ============================================
-function initPayrollSection(){
-  const sel=document.getElementById('payroll-employee');
+// Preenche o select de colaboradores da folha respeitando o filtro de posto
+function _populatePayrollEmployees(){
+  const sel=document.getElementById('payroll-employee'); if(!sel) return;
   const currentId=sel.value;
+  const fPosto=val('payroll-filter-posto')||'';
   sel.innerHTML='<option value="">— Selecione o colaborador —</option>';
-  // Somente colaboradores ativos na folha de ponto
-  State.employees.filter(e=>(e.status||'ativo')==='ativo').sort((a,b)=>a.nome.localeCompare(b.nome)).forEach(e=>{
-    const opt=document.createElement('option');
-    opt.value=e.id; opt.textContent=e.nome;
-    if(e.id===currentId) opt.selected=true;
-    sel.appendChild(opt);
-  });
+  State.employees
+    .filter(e=>(e.status||'ativo')==='ativo')
+    .filter(e=>!fPosto || e.posto===fPosto)
+    .sort((a,b)=>(a.nome||'').localeCompare(b.nome||''))
+    .forEach(e=>{
+      const opt=document.createElement('option');
+      opt.value=e.id; opt.textContent=e.nome;
+      if(e.id===currentId) opt.selected=true;
+      sel.appendChild(opt);
+    });
+}
+
+// Troca do filtro de posto: repopula a lista e atualiza o formulário
+function onPayrollPostoFilterChange(){
+  _populatePayrollEmployees();
+  onPayrollEmployeeChange();
+}
+
+function initPayrollSection(){
+  // Filtro por posto
+  const fSel=document.getElementById('payroll-filter-posto');
+  if(fSel){
+    const cur=fSel.value;
+    fSel.innerHTML='<option value="">Todos os postos</option>';
+    (State.postos||[]).slice().sort((a,b)=>(a.razaoSocial||'').localeCompare(b.razaoSocial||''))
+      .forEach(p=>{
+        const o=document.createElement('option');
+        o.value=p.razaoSocial;
+        o.textContent=p.razaoSocial+(p.cidade?' — '+p.cidade:'');
+        if(p.razaoSocial===cur) o.selected=true;
+        fSel.appendChild(o);
+      });
+  }
+  _populatePayrollEmployees();
   const mesEl=document.getElementById('payroll-mes');
   mesEl.value=mesEl.value||currentMes();
   document.getElementById('payroll-ano').value=document.getElementById('payroll-ano').value||currentAno();

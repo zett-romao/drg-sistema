@@ -4441,6 +4441,32 @@ function _diasPrevistosEscala(emp, mes, ano){
   return n;
 }
 
+// Comissão de Boa Permanência: só é devida no mês vigente se o colaborador
+// NÃO teve faltas no mês ANTERIOR e NÃO foi admitido no mês anterior (ou
+// depois). Qualquer falta conta (justificada ou injustificada).
+// Retorna {ok:boolean, motivo:string}.
+function _boaPermanenciaElegivel(emp, mes, ano){
+  if(!emp) return {ok:false, motivo:''};
+  let pm=mes-1, pa=ano;
+  if(pm<1){ pm=12; pa=ano-1; }
+  // Admitido no mês anterior (ou depois) → sem mês anterior completo
+  if(emp.dataAdmissao){
+    const adm=new Date(emp.dataAdmissao+'T00:00:00');
+    if(!isNaN(adm.getTime()) && adm >= new Date(pa,pm-1,1)){
+      return {ok:false, motivo:'admitido recentemente'};
+    }
+  }
+  // Faltas registradas no mês anterior
+  const prev=(State.payrolls||[]).find(p=>p.employeeId===emp.id&&p.mes==pm&&p.ano==pa);
+  if(prev){
+    const fp = ('faltasInjustificadas' in prev)
+      ? ((prev.faltasInjustificadas||0)+(prev.faltasJustificadas||0))
+      : (prev.faltas||0);
+    if(fp>0) return {ok:false, motivo:'faltas no mês anterior'};
+  }
+  return {ok:true, motivo:''};
+}
+
 function recalculate(){
   const dias=numVal('payroll-dias');
   const faltasJust=numVal('payroll-faltas-justificadas');
@@ -4506,27 +4532,27 @@ function recalculate(){
   setVal('payroll-vt-total',(numVal('payroll-vt-dia')*vtMult).toFixed(2));
   setVal('payroll-vr-total',(numVal('payroll-vr-dia')*vrMult).toFixed(2));
 
-  // --- Bonificação de Boa Permanência ---
-  // Regra padrão: qualquer falta zera o benefício
-  // Exceção: se o colaborador tem flag "bonificacaoSemprePagar", paga mesmo com falta
+  // --- Comissão de Boa Permanência ---
+  // Devida só se o MÊS ANTERIOR foi sem faltas e o colaborador não foi
+  // admitido no mês anterior. Senão → N/C (não cabível). A flag
+  // "bonificacaoSemprePagar" no cadastro força o pagamento.
   const bonusCard=document.getElementById('bonus-card');
   const bonusInput=document.getElementById('payroll-bonus');
   const bonusAlert=document.getElementById('bonus-alert');
   const bonusAlertMsg=document.getElementById('bonus-alert-msg');
   const sempreP=!!(emp&&emp.bonificacaoSemprePagar);
-  if(totalFaltas>0 && !sempreP){
-    // Caso 1: tem falta E flag desligada -> bloqueia
+  const _bp = emp ? _boaPermanenciaElegivel(emp,_mesR,_anoR) : {ok:false,motivo:''};
+  if(!_bp.ok && !sempreP){
+    // N/C — não cabível neste mês
     bonusCard.classList.add('locked'); bonusInput.disabled=true;
     setVal('payroll-bonus',''); bonusAlert.classList.remove('hidden');
-    if(bonusAlertMsg) bonusAlertMsg.textContent='Colaborador possui faltas — bonificação não aplicável (qualquer falta elimina o benefício). Para alterar essa regra, ative a opção "Pagar bonificação mesmo com faltas" no cadastro do colaborador.';
+    if(bonusAlertMsg) bonusAlertMsg.innerHTML=`<strong>Comissão de Boa Permanência: N/C</strong> — ${_bp.motivo||'mês anterior com pendência'}. Não cabível neste mês.`;
   } else {
     bonusCard.classList.remove('locked'); bonusInput.disabled=false;
-    if(totalFaltas>0 && sempreP){
-      // Caso 2: tem falta MAS flag ligada -> permite e avisa
+    if(!_bp.ok && sempreP){
       bonusAlert.classList.remove('hidden');
-      if(bonusAlertMsg) bonusAlertMsg.innerHTML='<strong>Bonificação liberada por configuração</strong> — colaborador marcado para receber bonificação mesmo com faltas. Edite o valor abaixo.';
+      if(bonusAlertMsg) bonusAlertMsg.innerHTML='<strong>Comissão liberada por configuração</strong> — colaborador marcado para receber mesmo sem cumprir a regra de boa permanência.';
     } else {
-      // Caso 3: sem falta -> liberado normalmente
       bonusAlert.classList.add('hidden');
     }
     // Auto-preenche da CCT se o campo está vazio
@@ -4535,14 +4561,20 @@ function recalculate(){
     }
   }
 
-  // --- VA proporcional aos dias pagos (trabalhados + atestado) ---
+  // --- VA proporcional aos dias pagos; perde o VA com 3 ou mais faltas ---
   const vaNote=document.getElementById('va-note');
   if(emp&&(emp.valorMensalVa||0)>0){
     const vaMensal=emp.valorMensalVa||0;
-    const vaProp = diasPrevistos>0 ? vaMensal*(diasPagos/diasPrevistos) : 0;
-    setVal('payroll-va-total',vaProp.toFixed(2));
-    setVal('payroll-va-liquido',vaProp.toFixed(2));
-    if(vaNote){ vaNote.classList.remove('hidden'); vaNote.innerHTML=`<i class="fa-solid fa-circle-check" style="color:var(--success)"></i> VA proporcional — ${diasPagos} de ${diasPrevistos} dia(s) previsto(s) = ${fmtMoney(vaProp)}`; }
+    if(totalFaltas>=3){
+      setVal('payroll-va-total','0.00');
+      setVal('payroll-va-liquido','0.00');
+      if(vaNote){ vaNote.classList.remove('hidden'); vaNote.innerHTML=`<i class="fa-solid fa-ban" style="color:#c0392b"></i> VA perdido — ${totalFaltas} faltas no mês (3 ou mais eliminam o VA).`; }
+    } else {
+      const vaProp = diasPrevistos>0 ? vaMensal*(diasPagos/diasPrevistos) : 0;
+      setVal('payroll-va-total',vaProp.toFixed(2));
+      setVal('payroll-va-liquido',vaProp.toFixed(2));
+      if(vaNote){ vaNote.classList.remove('hidden'); vaNote.innerHTML=`<i class="fa-solid fa-circle-check" style="color:var(--success)"></i> VA proporcional — ${diasPagos} de ${diasPrevistos} dia(s) previsto(s) = ${fmtMoney(vaProp)}`; }
+    }
   } else {
     if(vaNote) vaNote.classList.add('hidden');
   }
@@ -9935,7 +9967,7 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
     ${adNoturno>0?`<tr><td class="fin-label">Adicional Noturno</td><td class="fin-value">${fmtMoney(adNoturno)}</td></tr>`:''}
     ${acumulo>0?`<tr><td class="fin-label">Acúmulo de Função (+20%)</td><td class="fin-value">${fmtMoney(acumulo)}</td></tr>`:''}
     ${insalubridade>0?`<tr><td class="fin-label">Insalubridade</td><td class="fin-value">${fmtMoney(insalubridade)}</td></tr>`:''}
-    ${bonificacao>0?`<tr><td class="fin-label">Bonificação</td><td class="fin-value">${fmtMoney(bonificacao)}</td></tr>`:''}
+    <tr><td class="fin-label">Comissão de Boa Permanência</td><td class="fin-value">${bonificacao>0?fmtMoney(bonificacao):'<strong style="color:#999">N/C</strong>'}</td></tr>
     ${minutosAtraso>0?`<tr><td class="fin-label">${atrasoAbonado?'Atraso Abonado':'Desconto Atraso'} — ${minutosAtraso} min (${atrasoTipo==='motivado'?'motivado':'imotivado'})${atrasoJustificativa?` <small style="color:#666">&middot; ${atrasoJustificativa}</small>`:''}</td><td class="fin-value" style="color:${atrasoAbonado?'#2E7D32':'#c0392b'}">${atrasoAbonado?'R$ 0,00':fmtMoney(descontoAtraso)}</td></tr>`:''}
     ${adiantamento>0?`<tr><td class="fin-label">Adiantamento (${numVal('payroll-adiantamento-perc')||40}%)</td><td class="fin-value" style="color:#c0392b">${fmtMoney(adiantamento)}</td></tr>`:''}
     <tr class="fin-total"><td class="fin-label" style="color:#fff">TOTAL LÍQUIDO A RECEBER</td><td class="fin-value" style="color:#fff">${fmtMoney(totalLiquido)}</td></tr>
@@ -10174,7 +10206,7 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
       ${adNoturno>0?`<tr><td class="fin-label">Adicional Noturno</td><td class="fin-value">${fmtMoney(adNoturno)}</td></tr>`:''}
       ${acumulo>0?`<tr><td class="fin-label">Acúmulo de Função (+20%)</td><td class="fin-value">${fmtMoney(acumulo)}</td></tr>`:''}
       ${insalubridade>0?`<tr><td class="fin-label">Insalubridade</td><td class="fin-value">${fmtMoney(insalubridade)}</td></tr>`:''}
-      ${bonificacao>0?`<tr><td class="fin-label">Bonificação Boa Permanência</td><td class="fin-value">${fmtMoney(bonificacao)}</td></tr>`:''}
+      <tr><td class="fin-label">Comissão de Boa Permanência</td><td class="fin-value">${bonificacao>0?fmtMoney(bonificacao):'<strong style="color:#999">N/C</strong>'}</td></tr>
       ${outrosProvVal>0?`<tr><td class="fin-label">Outros Proventos</td><td class="fin-value">${fmtMoney(outrosProvVal)}</td></tr>`:''}
     </table>
     <div style="font-size:9px;font-weight:700;color:#c0392b;text-transform:uppercase;margin:6px 0 3px">DESCONTOS</div>

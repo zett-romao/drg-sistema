@@ -197,6 +197,12 @@ O app do colaborador é instalável como PWA (tem `manifest.json` + service work
 
 ## Pendências conhecidas
 
+### EM ANDAMENTO — Migração de Segurança (Firebase Auth + regras + aprovação)
+Decisão do usuário em 2026-05-17: implementar o modelo de segurança em 3 camadas do sistema irmão DRG-Garantidora (perfis + back-end autenticado + fluxo lançar→aprovar com 2FA TOTP). Pré-requisito: o DRG-Kronos usa Auth caseiro (SHA-256/sessionStorage) e Firestore `if true` — precisa migrar para Firebase Auth e endurecer as regras antes de qualquer "aprovação" ser real.
+Plano em 4 etapas: **(1)** preparação (Firebase Console: habilitar E-mail/senha, gerar service account JSON; adicionar campo e-mail ao cadastro de usuários). **(2)** login via Firebase Auth com **migração transparente** (no 1º login o sistema cria a conta Firebase com a senha que o usuário digitou; fallback total para o SHA-256 antigo — ninguém é travado). **(3)** endurecer regras do Firestore (sair do `if true`). **(4)** Worker de aprovação + TOTP + fluxo lançar→aprovar.
+**Feito até agora (Etapa 1 parcial):** campo `email` adicionado ao cadastro de usuários (`modal-user` → `usr-email`, obrigatório e único; `saveUser`/`openUserModal`). Os ~10 usuários internos precisam ter o e-mail preenchido. `firebase-auth-compat.js` já estava carregado no index.html. Login (`doLogin`) já fazia `signInAnonymously()` silencioso.
+**Próximo:** Etapa 2 — reescrever `doLogin` para Firebase Auth com migração transparente (só depois que os e-mails estiverem preenchidos e o provedor E-mail/senha habilitado no Console).
+
 ### Feature adiada — Módulo Aprovação de Pagamentos (escopo já fechado com o usuário em 2026-05-17)
 Adiar ≠ rediscutir. Escopo confirmado:
 - **Cobertura:** todo pagamento via **Asaas** (`/transfers`, hoje o `executarPagamentoAsaas` do `modal-asaas-pagar`, pagamento de salário pela folha). Benefícios (VT/VR/VA) ficam de fora por ora — ainda não pagos via integração.

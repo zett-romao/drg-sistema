@@ -1155,12 +1155,13 @@ function openUserModal(id=null){
     const u=Auth.users.find(u=>u.id===id); if(!u) return;
     titleEl.innerHTML='<i class="fa-solid fa-user-pen"></i> Editar Usuário';
     setVal('usr-id',u.id); setVal('usr-username',u.username);
+    setVal('usr-email',u.email||'');
     setVal('usr-role',u.role||'operador'); setVal('usr-active',String(u.active));
     setVal('usr-password',''); setVal('usr-password-confirm','');
     editNote.style.display='';
   } else {
     titleEl.innerHTML='<i class="fa-solid fa-user-plus"></i> Novo Usuário';
-    ['usr-id','usr-username','usr-password','usr-password-confirm'].forEach(i=>setVal(i,''));
+    ['usr-id','usr-username','usr-email','usr-password','usr-password-confirm'].forEach(i=>setVal(i,''));
     setVal('usr-role','operador'); setVal('usr-active','true');
     editNote.style.display='none';
   }
@@ -1170,9 +1171,12 @@ async function saveUser(){
   if(Auth.currentUser?.role!=='master') return;
   const id=val('usr-id'), username=val('usr-username').toLowerCase().replace(/\s+/g,'.'),
         role=val('usr-role'), active=val('usr-active')==='true',
-        password=val('usr-password'), confirm=val('usr-password-confirm');
+        password=val('usr-password'), confirm=val('usr-password-confirm'),
+        email=(val('usr-email')||'').trim().toLowerCase();
   if(!username){ toast('Usuário obrigatório.','error'); return; }
   if(Auth.users.find(u=>u.username===username&&u.id!==id)){ toast('Usuário já existe.','error'); return; }
+  if(!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ toast('Informe um e-mail válido — necessário para o login seguro.','error'); return; }
+  if(Auth.users.find(u=>(u.email||'').toLowerCase()===email&&u.id!==id)){ toast('Este e-mail já está em uso por outro usuário.','error'); return; }
   const btn=document.querySelector('#modal-user .btn-primary');
   setBtnLoading(btn,true,'');
   try {
@@ -1184,7 +1188,7 @@ async function saveUser(){
         user.passwordHash=await Auth.hashPassword(password);
         user.forceChange=false;
       }
-      user.username=username; user.role=role; user.active=active;
+      user.username=username; user.role=role; user.active=active; user.email=email;
       await DB.save('users',user);
       Auth.log('USER_UPDATED',Auth.currentUser.username,`Editado: ${username}`);
       toast(`Usuário "${username}" atualizado.`);
@@ -1193,7 +1197,7 @@ async function saveUser(){
       if(password.length<6){ toast('Mínimo 6 caracteres.','error'); return; }
       if(password!==confirm){ toast('Senhas não coincidem.','error'); return; }
       const hash=await Auth.hashPassword(password);
-      const newUser={id:genId(),username,passwordHash:hash,role,active,
+      const newUser={id:genId(),username,email,passwordHash:hash,role,active,
                      createdAt:new Date().toISOString(),lastLogin:null,forceChange:false};
       await DB.save('users',newUser);
       Auth.log('USER_CREATED',Auth.currentUser.username,`Criado: ${username} (${role})`);

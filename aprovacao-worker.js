@@ -15,10 +15,10 @@
  *   URL resultante: https://drg-aprovacao.zett-romao.workers.dev
  *
  * Rotas (todas POST, corpo JSON):
- *   /mfa/enroll   { idToken }            → gera segredo TOTP novo
- *   /mfa/confirm  { idToken, code }      → ativa o 2FA validando 1 código
- *   /mfa/status   { idToken }            → diz se o 2FA está ativo
- *   /aprovar-pagamento  (Etapa 4c — ainda não implementado)
+ *   /mfa/enroll        { idToken }                      → gera segredo TOTP novo
+ *   /mfa/confirm       { idToken, code }                → ativa o 2FA validando 1 código
+ *   /mfa/status        { idToken }                      → diz se o 2FA está ativo
+ *   /aprovar-pagamento { idToken, code, solicitacaoId } → valida 2FA + permissão e dispara o PIX
  * ============================================================
  */
 
@@ -27,6 +27,7 @@ const TOKEN_ISSUER = 'https://securetoken.google.com/' + PROJECT_ID;
 const JWK_URL      = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
 const FS_BASE      = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
 const ORIGINS_OK   = ['https://zett-romao.github.io', 'http://localhost', 'http://127.0.0.1'];
+const ASAAS_WORKER = 'https://drg-asaas.zett-romao.workers.dev';
 
 // ── CORS / resposta ──────────────────────────────────────────
 function corsHeaders(origin){
@@ -207,6 +208,62 @@ async function fsSetDoc(path, obj, token){
   if (!res.ok) throw new Error('Firestore PATCH ' + res.status + ' ' + (await res.text()));
   return true;
 }
+// PATCH parcial — atualiza SÓ os campos passados (updateMask), preserva o resto do doc.
+async function fsUpdate(path, obj, token){
+  const mask = Object.keys(obj).map(k => 'updateMask.fieldPaths=' + encodeURIComponent(k)).join('&');
+  const res  = await fetch(FS_BASE + '/' + path + '?' + mask, {
+    method:  'PATCH',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ fields: toFsFields(obj) }),
+  });
+  if (!res.ok) throw new Error('Firestore UPDATE ' + res.status + ' ' + (await res.text()));
+  return true;
+}
+// Busca o doc de `users` cujo firebaseUid casa com o uid do token.
+async function fsFindUser(uid, token){
+  const res = await fetch(FS_BASE + ':runQuery', {
+    method:  'POST',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ structuredQuery: {
+      from:  [{ collectionId: 'users' }],
+      where: { fieldFilter: { field: { fieldPath: 'firebaseUid' }, op: 'EQUAL',
+               value: { stringValue: uid } } },
+      limit: 1,
+    } }),
+  });
+  if (!res.ok) throw new Error('Firestore query ' + res.status);
+  const rows = await res.json();
+  for (const row of (rows || [])) if (row.document) return fromFsFields(row.document.fields || {});
+  return null;
+}
+
+// ── Permissão / Asaas ────────────────────────────────────────
+// true se o usuário pode APROVAR pagamentos (master, ou perfil com pagamentosAprovar).
+async function temPermAprovar(user, token){
+  const role = (user && user.role) || '';
+  if (role === 'master')   return true;
+  if (role === 'operador') return false;
+  if (role.startsWith('p_')) {
+    const perfil = await fsGetDoc('perfis/' + role.slice(2), token);
+    return !!(perfil && perfil.modules && perfil.modules.pagamentosAprovar);
+  }
+  return false;
+}
+// Dispara a transferência PIX reusando o Worker drg-asaas (que guarda a chave da API).
+async function asaasTransfer(body){
+  const res = await fetch(ASAAS_WORKER + '/transfers', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json', 'Origin': 'https://zett-romao.github.io' },
+    body:    JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = (data.errors && data.errors[0] && data.errors[0].description)
+              || data.description || data.error || ('Asaas HTTP ' + res.status);
+    throw new Error(msg);
+  }
+  return data;
+}
 
 // ── Handlers de 2FA ──────────────────────────────────────────
 async function handleEnroll(auth, token){
@@ -230,6 +287,81 @@ async function handleStatus(auth, token){
   return { ativo: !!(mfa && mfa.ativo) };
 }
 
+// ── Handler de Aprovação de Pagamento (Etapa 4c) ─────────────
+// Valida identidade + permissão "pagamentosAprovar" + 2FA TOTP,
+// confere a solicitação pendente e dispara o PIX no Asaas.
+async function handleAprovarPagamento(auth, body, token){
+  const code  = String(body.code || '');
+  const solId = String(body.solicitacaoId || '');
+  if (!solId) throw new Error('solicitação não informada');
+
+  // 1. usuário do sistema + permissão de aprovar
+  const user = await fsFindUser(auth.uid, token);
+  if (!user) return { ok: false, erro: 'usuário não encontrado no sistema' };
+  if (!(await temPermAprovar(user, token)))
+    return { ok: false, erro: 'sem permissão para aprovar pagamentos' };
+
+  // 2. segundo fator — TOTP
+  const mfa = await fsGetDoc('mfa/' + auth.uid, token);
+  if (!mfa || !mfa.ativo || !mfa.secretBase32)
+    return { ok: false, erro: '2FA não ativado — ative em "Minha Conta"' };
+  if (!(await verifyTotp(mfa.secretBase32, code)))
+    return { ok: false, erro: 'código 2FA inválido' };
+
+  // 3. solicitação pendente
+  const path = 'solicitacoesPagamento/' + solId;
+  const sol  = await fsGetDoc(path, token);
+  if (!sol) throw new Error('solicitação não encontrada');
+  if (sol.status === 'pago')
+    return { ok: true, jaPago: true, asaasTransferId: sol.asaasTransferId || '', status: sol.asaasStatus || '' };
+  // aceita 'pendente' e 'erro' (retentativa de uma que falhou no Asaas)
+  if (sol.status !== 'pendente' && sol.status !== 'erro')
+    return { ok: false, erro: 'solicitação não está pendente (status: ' + sol.status + ')' };
+
+  const nome  = user.nome || auth.email || auth.uid;
+  const agora = new Date().toISOString();
+
+  // 4. dispara o PIX no Asaas
+  let resp;
+  try {
+    const tBody = {
+      value:             sol.valor,
+      pixAddressKey:     sol.pixKey,
+      pixAddressKeyType: sol.keyType || 'CPF',
+      description:       sol.descricao || 'Pagamento DRG-Kronos',
+    };
+    if (sol.scheduleDate) tBody.scheduleDate = sol.scheduleDate;
+    resp = await asaasTransfer(tBody);
+  } catch (e) {
+    await fsUpdate(path, { status: 'erro', erro: String(e.message || e),
+      aprovadoPor: auth.uid, aprovadoPorNome: nome, aprovadoEm: agora }, token);
+    return { ok: false, erro: String(e.message || e) };
+  }
+
+  // 5. grava a aprovação na solicitação
+  await fsUpdate(path, {
+    status: 'pago',
+    asaasTransferId: resp.id || '',
+    asaasStatus:     resp.status || 'PENDING',
+    aprovadoPor:     auth.uid,
+    aprovadoPorNome: nome,
+    aprovadoEm:      agora,
+  }, token);
+
+  // 6. espelha o pagamento na folha (não-crítico — não falha o pagamento)
+  if (sol.payrollId) {
+    try {
+      await fsUpdate('payrolls/' + sol.payrollId, { pagamentoAsaas: {
+        asaasTransferId: resp.id || '', asaasTipo: 'pix', asaasValor: sol.valor,
+        asaasStatus: resp.status || 'PENDING', asaasData: sol.scheduleDate || '',
+        asaasPagoEm: agora, solicitacaoId: solId,
+      } }, token);
+    } catch (e) { /* silencioso */ }
+  }
+
+  return { ok: true, asaasTransferId: resp.id || '', status: resp.status || 'PENDING' };
+}
+
 // ── Roteador ─────────────────────────────────────────────────
 export default {
   async fetch(request, env){
@@ -246,7 +378,7 @@ export default {
       if (url.pathname === '/mfa/enroll')  return json(await handleEnroll(auth, token), 200, origin);
       if (url.pathname === '/mfa/confirm') return json(await handleConfirm(auth, body.code, token), 200, origin);
       if (url.pathname === '/mfa/status')  return json(await handleStatus(auth, token), 200, origin);
-      // if (url.pathname === '/aprovar-pagamento') ...  ← Etapa 4c
+      if (url.pathname === '/aprovar-pagamento') return json(await handleAprovarPagamento(auth, body, token), 200, origin);
 
       return json({ error: 'rota desconhecida' }, 404, origin);
     } catch (e) {

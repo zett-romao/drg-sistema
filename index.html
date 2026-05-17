@@ -175,6 +175,12 @@
           <span>Pagamentos</span>
         </a>
       </li>
+      <li id="nav-aprovacoes-li" class="hidden">
+        <a class="nav-link" id="nav-aprovacoes" onclick="showSection('aprovacoes')">
+          <i class="fa-solid fa-hourglass-half"></i>
+          <span>Aprovações</span>
+        </a>
+      </li>
       <li id="nav-decimoterceiro-li" class="hidden">
         <a class="nav-link" id="nav-decimoterceiro" onclick="showSection('decimoterceiro')">
           <i class="fa-solid fa-gift"></i>
@@ -1670,6 +1676,48 @@
           </div>
           <div class="card-body">
             <div id="cont-sem-folha-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== APROVAÇÕES DE PAGAMENTOS ===== -->
+      <section id="section-aprovacoes" class="section">
+        <div class="page-header">
+          <h2>Aprovações de Pagamentos</h2>
+          <p>Solicitações de pagamento PIX aguardando autorização. Aprovar exige o código 2FA do aprovador.</p>
+        </div>
+        <div id="aprovacoes-sem-perm" style="display:none;background:#FFF8E1;border:1px solid #FFE082;border-radius:9px;padding:12px 14px;margin-bottom:14px;font-size:13px;color:#6D4C41">
+          <i class="fa-solid fa-circle-info"></i> Você pode <strong>visualizar</strong> as solicitações, mas não tem permissão para aprovar/recusar pagamentos. Peça ao master a permissão "Aprovar Pagamentos".
+        </div>
+        <div class="card">
+          <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+            <div id="aprovacoes-contador" style="font-size:14px"></div>
+            <div class="form-group" style="margin:0">
+              <select id="aprovacoes-filtro" onchange="renderAprovacoes()" style="min-width:180px">
+                <option value="pendente">Pendentes</option>
+                <option value="pago">Pagos</option>
+                <option value="recusado">Recusados</option>
+                <option value="erro">Com erro</option>
+                <option value="todos">Todos</option>
+              </select>
+            </div>
+          </div>
+          <div class="card-body" style="overflow-x:auto;padding:0">
+            <table style="width:100%;border-collapse:collapse;font-size:13px">
+              <thead>
+                <tr style="background:#f1f5f9;text-align:left">
+                  <th style="padding:9px 10px">Colaborador</th>
+                  <th style="padding:9px 10px;text-align:right">Valor</th>
+                  <th style="padding:9px 10px">Chave PIX</th>
+                  <th style="padding:9px 10px">Data prev.</th>
+                  <th style="padding:9px 10px">Lançado por</th>
+                  <th style="padding:9px 10px;text-align:center">Status</th>
+                  <th style="padding:9px 10px">Aprovado por</th>
+                  <th style="padding:9px 10px">Ações</th>
+                </tr>
+              </thead>
+              <tbody id="aprovacoes-tbody"></tbody>
+            </table>
           </div>
         </div>
       </section>
@@ -4550,7 +4598,7 @@
       <div style="display:flex;gap:8px">
         <button class="btn btn-outline" onclick="closeModal('modal-pagar-lote')">Fechar</button>
         <button class="btn btn-primary" id="btn-executar-lote" onclick="executarPagamentoLote()" style="background:#00695C;border-color:#00695C">
-          <i class="fa-brands fa-pix"></i> Confirmar e Pagar Selecionados
+          <i class="fa-solid fa-paper-plane"></i> Lançar Solicitações Selecionadas
         </button>
       </div>
     </div>
@@ -4618,7 +4666,35 @@
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal('modal-asaas-pagar')">Fechar</button>
       <button class="btn btn-primary" id="btn-executar-pagamento" onclick="executarPagamentoAsaas()" style="background:#00695C;border-color:#00695C">
-        <i class="fa-brands fa-pix"></i> Enviar via Asaas
+        <i class="fa-solid fa-paper-plane"></i> Solicitar Pagamento
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== APROVAR PAGAMENTO (2FA) ===== -->
+<div class="modal-overlay hidden" id="modal-aprovar-pagamento" onclick="closeModal('modal-aprovar-pagamento', event)">
+  <div class="modal-dialog" style="max-width:440px">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-lock" style="color:#2e7d32"></i> Aprovar Pagamento</h3>
+      <button class="modal-close" onclick="closeModal('modal-aprovar-pagamento')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <div id="aprovar-pag-info" style="background:#E0F2F1;border-radius:10px;padding:14px 16px;margin-bottom:16px"></div>
+      <div class="form-group">
+        <label><i class="fa-solid fa-shield-halved"></i> Código 2FA (app autenticador)</label>
+        <input type="text" id="aprovar-pag-code" inputmode="numeric" maxlength="6" placeholder="000000"
+          autocomplete="one-time-code"
+          style="font-size:22px;letter-spacing:6px;text-align:center;font-family:monospace"
+          onkeydown="if(event.key==='Enter')confirmarAprovacaoPagamento()">
+        <small style="color:#777">Digite o código de 6 dígitos do Google Authenticator. Aprovar dispara a transferência PIX no Asaas — não tem volta.</small>
+      </div>
+      <div id="aprovar-pag-resultado" style="display:none;margin-top:8px"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-aprovar-pagamento')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-confirmar-aprovacao" onclick="confirmarAprovacaoPagamento()" style="background:#2e7d32;border-color:#2e7d32">
+        <i class="fa-solid fa-lock"></i> Aprovar e Pagar
       </button>
     </div>
   </div>
@@ -4627,6 +4703,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260517ae"></script>
+<script src="app.js?v=20260517af"></script>
 </body>
 </html>

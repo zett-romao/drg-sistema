@@ -819,6 +819,7 @@ function showSection(name){
   if(name==='payroll'        && !mods.payroll)      return;
   if(name==='escalas'        && !mods.escalas)      return;
   if(name==='pagamentos'     && !mods.pagamentos)      return;
+  if(name==='aprovacoes'     && !mods.pagamentosLancar && !mods.pagamentosAprovar) return;
   if(name==='decimoterceiro' && !mods.decimoterceiro)  return;
   if(name==='ferias'         && !mods.ferias)          return;
   if(name==='rescisao'       && !mods.rescisao)        return;
@@ -842,7 +843,7 @@ function showSection(name){
   if(section) section.classList.add('active');
   if(navBtn)  navBtn.classList.add('active');
   const titles={dashboard:'Dashboard',employees:'Colaboradores',payroll:'Folha de Ponto',escalas:'Escalas',
-                pagamentos:'Pagamentos',decimoterceiro:'13º Salário',ferias:'Férias',rescisao:'Rescisões',
+                pagamentos:'Pagamentos',aprovacoes:'Aprovações de Pagamentos',decimoterceiro:'13º Salário',ferias:'Férias',rescisao:'Rescisões',
                 contabilidade:'Contabilidade',users:'Usuários & Acessos',postos:'Postos de Trabalho',contratos:'Contratos',configuracoes:'Configurações'};
   document.getElementById('topbar-title').textContent=titles[name]||name;
   State.currentSection=name;
@@ -851,6 +852,7 @@ function showSection(name){
   if(name==='escalas')   renderEscalas();
   if(name==='dashboard') renderDashboard();
   if(name==='pagamentos')      { _applyModoBanners(State.empresa?.modoContabilidade||'ambas'); renderPagamentos(); }
+  if(name==='aprovacoes')      renderAprovacoes();
   if(name==='decimoterceiro')  renderDecimoTerceiro();
   if(name==='ferias')          renderFeriasModulo();
   if(name==='rescisao')        renderRescisoes();
@@ -1215,6 +1217,8 @@ function applyUserSession(user){
   if(btnHE) btnHE.classList.toggle('hidden', !(mods.aprovaHE || user.role==='master'));
   const pagLi=document.getElementById('nav-pagamentos-li');
   if(pagLi) pagLi.classList.toggle('hidden', !mods.pagamentos);
+  const aprLi=document.getElementById('nav-aprovacoes-li');
+  if(aprLi) aprLi.classList.toggle('hidden', !mods.pagamentosLancar && !mods.pagamentosAprovar);
   const decLi=document.getElementById('nav-decimoterceiro-li');
   if(decLi) decLi.classList.toggle('hidden', !mods.decimoterceiro);
   const ferLi=document.getElementById('nav-ferias-li');
@@ -1695,6 +1699,17 @@ function renderDashboard(){
     accent:'#E65100', iconBg:'#FFF3E0', iconColor:'#E65100', valueColor:'#E65100',
     sub:`<i class="fa-solid fa-triangle-exclamation"></i> ${heRevisaoDias} dia(s) — clique pra revisar`, subColor:'#E65100',
     onclick:"_dashGotoHEReview()", title:'Colaboradores com HE acima da tolerância CLT aguardando revisão'})});
+  {
+    const pendAprov=(State.solicitacoes||[]).filter(s=>s.status==='pendente');
+    const md=getUserModules(Auth.currentUser);
+    if(pendAprov.length>0 && (md.pagamentosLancar||md.pagamentosAprovar)){
+      const totalP=pendAprov.reduce((s,x)=>s+(x.valor||0),0);
+      catalogo.push({key:'aprovacoesPend', html:_statCard({label:'Pagamentos aguardando aprovação', value:pendAprov.length, icon:'fa-hourglass-half',
+        accent:'#E65100', iconBg:'#FFF3E0', iconColor:'#E65100', valueColor:'#E65100',
+        sub:`${fmtMoney(totalP)} — clique para revisar`, subColor:'#E65100',
+        onclick:"showSection('aprovacoes')", title:'Solicitações de pagamento pendentes de aprovação'})});
+    }
+  }
   if(colabsHoje.length>0||colabsSemana.length>0) catalogo.push({key:'beneficios', html:_statCard({label:'Benefícios a pagar hoje', value:colabsHoje.length, icon:'fa-money-check-dollar',
     accent:'#0288D1', iconBg:'#E1F5FE', iconColor:'#0288D1', valueColor:'#0288D1',
     sub:`${fmtMoney(totalBenHoje)} hoje &middot; Semana: ${colabsSemana.length} colab. ${fmtMoney(totalBenSemana)}`, subColor:'#01579B',
@@ -5695,6 +5710,19 @@ function openPagarColaborador() {
   btn.disabled = !pixKey;
   if (!pixKey) toast('Colaborador sem chave PIX — cadastre em Colaboradores → Benefícios.', 'warning');
 
+  // Já existe solicitação pendente para esta folha?
+  const solPend = (State.solicitacoes || []).find(s => s.payrollId === (p.id||'') && s.status === 'pendente');
+  if (solPend) {
+    btn.style.display = 'none';
+    resEl.style.display = 'block';
+    resEl.innerHTML = `<div style="background:#FFF8E1;border:1px solid #FFE082;border-radius:8px;padding:12px;font-size:12px;color:#6D4C41">
+      <i class="fa-solid fa-hourglass-half"></i> <strong>Solicitação pendente:</strong>
+      ${fmtMoney(solPend.valor)} aguardando aprovação em <strong>Aprovações de Pagamentos</strong>.
+    </div>`;
+    document.getElementById('modal-asaas-pagar').classList.remove('hidden');
+    return;
+  }
+
   // Mostrar pagamento anterior se houver
   if (p.pagamentoAsaas) {
     const pag = p.pagamentoAsaas;
@@ -5714,7 +5742,37 @@ function onAsaasTipoChange() {
   if (row) row.style.display = sel.value === 'custom' ? 'block' : 'none';
 }
 
+// Cria uma solicitação de pagamento (status 'pendente'). Nada vai pro Asaas
+// aqui — só ao ser aprovada na tela "Aprovações de Pagamentos" (com 2FA).
+async function _criarSolicitacaoPagamento(d){
+  const u = Auth.currentUser || {};
+  const sol = {
+    id:            genId(),
+    employeeId:    d.employeeId || '',
+    employeeNome:  d.employeeNome || '',
+    payrollId:     d.payrollId || '',
+    valor:         d.valor || 0,
+    pixKey:        d.pixKey || '',
+    keyType:       d.keyType || 'CPF',
+    descricao:     d.descricao || '',
+    scheduleDate:  d.scheduleDate || '',
+    competencia:   d.competencia || '',
+    origem:        d.origem || 'avulso',
+    status:        'pendente',
+    criadoPor:     u.username || u.id || '',
+    criadoPorNome: u.username || '',
+    criadoEm:      new Date().toISOString(),
+    aprovadoPor:'', aprovadoPorNome:'', aprovadoEm:'',
+    asaasTransferId:'', asaasStatus:'', motivoRecusa:'', erro:'',
+  };
+  await DB.save('solicitacoesPagamento', sol);
+  return sol;
+}
+
 async function executarPagamentoAsaas() {
+  if (!getUserModules(Auth.currentUser).pagamentosLancar) {
+    toast('Você não tem permissão para lançar pagamentos.', 'error'); return;
+  }
   const empId     = val('asaas-pagar-empid');
   const payrollId = val('asaas-pagar-payrollid');
   const emp       = State.employees.find(e => e.id === empId);
@@ -5727,6 +5785,10 @@ async function executarPagamentoAsaas() {
 
   if (valor <= 0) { toast('Valor inválido.', 'warning'); return; }
 
+  if (payrollId && (State.solicitacoes || []).some(s => s.payrollId === payrollId && s.status === 'pendente')) {
+    toast('Já existe uma solicitação pendente para esta folha.', 'warning'); return;
+  }
+
   const pixKey  = emp.chavePix || '';
   const keyType = val('asaas-pagar-keytype') || 'CPF';
   const data    = val('asaas-pagar-data') || new Date().toISOString().split('T')[0];
@@ -5734,65 +5796,41 @@ async function executarPagamentoAsaas() {
 
   const btn = document.getElementById('btn-executar-pagamento');
   btn.disabled = true;
-  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Enviando...';
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Lançando...';
 
   const resEl = document.getElementById('asaas-pagar-resultado');
   resEl.style.display = 'none';
 
   try {
-    const body = {
-      value:              valor,
-      pixAddressKey:      pixKey,
-      pixAddressKeyType:  keyType,
-      description:        `Salário ${mes} — ${emp.nome}`,
-      scheduleDate:       data,
-    };
+    const sol = await _criarSolicitacaoPagamento({
+      employeeId: empId, employeeNome: emp.nome, payrollId,
+      valor, pixKey, keyType,
+      descricao: `Salário ${mes} — ${emp.nome}`,
+      scheduleDate: data, competencia: mes, origem: 'folha',
+    });
+    Auth.log('PAGAMENTO_SOLICITADO', null,
+      `${emp.nome} | R$ ${valor.toFixed(2)} | PIX ${pixKey} | ${data} | sol ${sol.id}`);
 
-    const resp = await _asaasPost('/transfers', body);
-
-    // Salva no payroll
-    const payroll = State.payrolls.find(p => p.id === payrollId);
-    const pagInfo = {
-      asaasTransferId: resp.id,
-      asaasTipo:       'pix',
-      asaasValor:      valor,
-      asaasStatus:     resp.status || 'PENDING',
-      asaasData:       data,
-      asaasPagoEm:     new Date().toISOString(),
-    };
-    await DB.merge('payrolls', payrollId, { pagamentoAsaas: pagInfo });
-    if (payroll) payroll.pagamentoAsaas = pagInfo;
-
-    // Registra no log
-    Auth.log('ASAAS_PAGAMENTO', null,
-      `${emp.nome} | R$ ${valor.toFixed(2)} | PIX ${pixKey} | ${data} | ID: ${resp.id}`);
-
-    // Exibe resultado
-    const hoje = new Date().toISOString().split('T')[0];
-    const agendado = data > hoje;
     resEl.style.display = 'block';
     resEl.innerHTML = `
-      <div style="background:#e8f5e9;border:1px solid #a5d6a7;border-radius:9px;padding:16px;font-size:13px">
-        <div style="font-weight:700;color:#2e7d32;margin-bottom:8px">
-          <i class="fa-solid fa-circle-check"></i> Transferência criada com sucesso!
+      <div style="background:#FFF8E1;border:1px solid #FFE082;border-radius:9px;padding:16px;font-size:13px;color:#6D4C41">
+        <div style="font-weight:700;color:#E65100;margin-bottom:8px">
+          <i class="fa-solid fa-hourglass-half"></i> Solicitação de pagamento criada!
         </div>
-        <div style="margin-bottom:4px"><strong>ID Asaas:</strong> <code style="background:#f0f9f0;padding:2px 6px;border-radius:4px">${resp.id}</code></div>
-        <div style="margin-bottom:4px"><strong>Status:</strong> ${resp.status || 'PENDING'}</div>
         <div style="margin-bottom:4px"><strong>Valor:</strong> ${fmtMoney(valor)} → <i class="fa-brands fa-pix" style="color:#00695C"></i> ${pixKey}</div>
-        ${agendado ? `<div style="margin-top:6px;color:#e65100;font-weight:600"><i class="fa-solid fa-calendar-check"></i> Agendada para ${data.split('-').reverse().join('/')}</div>` : ''}
+        <div style="margin-top:6px">A transferência só será disparada após <strong>aprovação</strong> na tela <strong>Aprovações de Pagamentos</strong> (exige o código 2FA do aprovador).</div>
       </div>`;
 
     btn.style.display = 'none';
-    toast(`Transferência de ${fmtMoney(valor)} enviada para ${emp.nome}!`, 'success');
-    _updateFolhaStatusBadge();
+    toast('Solicitação criada — aguardando aprovação.', 'success');
 
   } catch(e) {
     resEl.style.display = 'block';
     resEl.innerHTML = `<div style="background:#fce4e4;border:1px solid #ef9a9a;border-radius:9px;padding:14px;font-size:13px;color:#c62828">
-      <i class="fa-solid fa-triangle-exclamation"></i> <strong>Erro Asaas:</strong> ${e.message}
+      <i class="fa-solid fa-triangle-exclamation"></i> <strong>Erro:</strong> ${e.message}
     </div>`;
     btn.disabled = false;
-    btn.innerHTML = '<i class="fa-brands fa-pix"></i> Tentar Novamente';
+    btn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Tentar Novamente';
   }
 }
 
@@ -5825,6 +5863,7 @@ function openPagarEmLote() {
     const restante = Math.max(0, liquido - adiant);
     const pixKey   = emp.chavePix || '';
     const jaPago   = !!(p.pagamentoAsaas);
+    const jaSolicitado = (State.solicitacoes || []).some(s => s.payrollId === p.id && s.status === 'pendente');
 
     _loteData.push({
       empId:    emp.id,
@@ -5836,8 +5875,9 @@ function openPagarEmLote() {
       keyType:  detectPixKeyType(pixKey),
       semPix:   !pixKey,
       jaPago,
-      status:   jaPago ? 'pago' : (!pixKey ? 'sem-pix' : 'pendente'),
-      selecionado: !jaPago && !!pixKey, // pré-seleciona só os elegíveis
+      jaSolicitado,
+      status:   jaPago ? 'pago' : (jaSolicitado ? 'solicitado' : (!pixKey ? 'sem-pix' : 'pendente')),
+      selecionado: !jaPago && !jaSolicitado && !!pixKey, // pré-seleciona só os elegíveis
     });
   });
 
@@ -5857,7 +5897,8 @@ function openPagarEmLote() {
 
   const btn = document.getElementById('btn-executar-lote');
   btn.disabled = false;
-  btn.innerHTML = '<i class="fa-brands fa-pix"></i> Confirmar e Pagar Selecionados';
+  btn.onclick  = executarPagamentoLote;
+  btn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Lançar Solicitações Selecionadas';
 
   refreshLoteTabela();
   document.getElementById('modal-pagar-lote').classList.remove('hidden');
@@ -5879,7 +5920,7 @@ function refreshLoteTabela() {
   tbody.innerHTML = _loteData.map((item, idx) => {
     const valor  = _loteValorPara(item);
     const rowBg  = idx % 2 === 0 ? '#fff' : '#f9fafb';
-    const disabled = item.semPix || item.jaPago;
+    const disabled = item.semPix || item.jaPago || item.jaSolicitado;
 
     if (item.jaPago) { jaPagos++; }
     else if (item.semPix) { semPix++; }
@@ -5889,6 +5930,8 @@ function refreshLoteTabela() {
     let statusBadge;
     if (item.jaPago) {
       statusBadge = `<span style="background:#E0F2F1;color:#00695C;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">✓ Pago</span>`;
+    } else if (item.jaSolicitado) {
+      statusBadge = `<span style="background:#FFF8E1;color:#E65100;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">Solicitado</span>`;
     } else if (item.semPix) {
       statusBadge = `<span style="background:#FFF3E0;color:#E65100;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">Sem PIX</span>`;
     } else {
@@ -5938,7 +5981,7 @@ function refreshLoteResumo() {
   document.getElementById('lote-resumo').innerHTML = resumoHtml;
 
   // Atualiza checkbox geral
-  const elegíveis = _loteData.filter(i => !i.semPix && !i.jaPago);
+  const elegíveis = _loteData.filter(i => !i.semPix && !i.jaPago && !i.jaSolicitado);
   const chkAll = document.getElementById('lote-chk-all');
   if (chkAll) {
     chkAll.checked       = elegíveis.length > 0 && elegíveis.every(i => i.selecionado);
@@ -5948,7 +5991,7 @@ function refreshLoteResumo() {
 
 function loteSelectAll(checked) {
   _loteData.forEach(item => {
-    if (!item.semPix && !item.jaPago) item.selecionado = checked;
+    if (!item.semPix && !item.jaPago && !item.jaSolicitado) item.selecionado = checked;
   });
   const chkAll = document.getElementById('lote-chk-all');
   if (chkAll) chkAll.checked = checked;
@@ -5963,36 +6006,36 @@ function _loteLog(msg, cor = '#81d4fa') {
 }
 
 async function executarPagamentoLote() {
-  const selecionados = _loteData.filter(i => i.selecionado && !i.semPix && !i.jaPago);
+  if (!getUserModules(Auth.currentUser).pagamentosLancar) {
+    toast('Você não tem permissão para lançar pagamentos.', 'error'); return;
+  }
+  const selecionados = _loteData.filter(i => i.selecionado && !i.semPix && !i.jaPago && !i.jaSolicitado);
 
   if (selecionados.length === 0) {
     toast('Nenhum colaborador selecionado para pagamento.', 'warning');
     return;
   }
 
-  const data     = val('lote-data') || new Date().toISOString().split('T')[0];
-  const hoje     = new Date().toISOString().split('T')[0];
-  const agendado = data > hoje;
+  const data      = val('lote-data') || new Date().toISOString().split('T')[0];
   const dataLabel = data.split('-').reverse().join('/');
   const mes = parseInt(val('pag-mes') || currentMes());
   const ano = parseInt(val('pag-ano') || currentAno());
   const mesLabel = `${String(mes).padStart(2,'0')}/${ano}`;
+  const totalSel = selecionados.reduce((s,i) => s + _loteValorPara(i), 0);
 
-  const confirmMsg = agendado
-    ? `Agendar ${selecionados.length} pagamento(s) PIX para ${dataLabel}?\nTotal: ${fmtMoney(selecionados.reduce((s,i) => s + _loteValorPara(i), 0))}`
-    : `Enviar ${selecionados.length} pagamento(s) PIX AGORA para ${dataLabel}?\nTotal: ${fmtMoney(selecionados.reduce((s,i) => s + _loteValorPara(i), 0))}`;
-
-  if (!confirm(confirmMsg)) return;
+  if (!confirm(`Lançar ${selecionados.length} solicitação(ões) de pagamento PIX (data ${dataLabel})?\n`
+      + `Total: ${fmtMoney(totalSel)}\n\n`
+      + `Nada será transferido agora — as solicitações vão para a tela "Aprovações de Pagamentos".`)) return;
 
   // UI: início
   const btn = document.getElementById('btn-executar-lote');
   btn.disabled = true;
-  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processando...';
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Lançando...';
   document.getElementById('lote-progresso').style.display = 'block';
   document.getElementById('lote-progress-log').innerHTML  = '';
   document.getElementById('lote-progress-bar').style.width = '0%';
 
-  _loteLog(`Iniciando ${selecionados.length} transferências PIX para ${dataLabel}...`, '#fff176');
+  _loteLog(`Criando ${selecionados.length} solicitação(ões) de pagamento...`, '#fff176');
 
   let ok = 0, erros = 0;
 
@@ -6004,69 +6047,199 @@ async function executarPagamentoLote() {
       _loteLog(`⚠ ${item.nome}: valor zero — pulado`, '#ffcc02');
       continue;
     }
+    if ((State.solicitacoes || []).some(s => s.payrollId === item.payrollId && s.status === 'pendente')) {
+      _loteLog(`⚠ ${item.nome}: já tem solicitação pendente — pulado`, '#ffcc02');
+      continue;
+    }
 
     try {
-      const resp = await _asaasPost('/transfers', {
-        value:             valor,
-        pixAddressKey:     item.pixKey,
-        pixAddressKeyType: item.keyType,
-        description:       `Salário ${mesLabel} — ${item.nome}`,
-        scheduleDate:      data,
+      const sol = await _criarSolicitacaoPagamento({
+        employeeId: item.empId, employeeNome: item.nome, payrollId: item.payrollId,
+        valor, pixKey: item.pixKey, keyType: item.keyType,
+        descricao: `Salário ${mesLabel} — ${item.nome}`,
+        scheduleDate: data, competencia: mesLabel, origem: 'lote',
       });
-
-      // Persiste no payroll
-      const pagInfo = {
-        asaasTransferId: resp.id,
-        asaasTipo:       'pix',
-        asaasValor:      valor,
-        asaasStatus:     resp.status || 'PENDING',
-        asaasData:       data,
-        asaasPagoEm:     new Date().toISOString(),
-        asaasLote:       true,
-      };
-      await DB.merge('payrolls', item.payrollId, { pagamentoAsaas: pagInfo });
-
-      // Atualiza cache local
-      const pr = State.payrolls.find(p => p.id === item.payrollId);
-      if (pr) pr.pagamentoAsaas = pagInfo;
-      item.jaPago = true;
-      item.selecionado = false;
+      item.jaSolicitado = true;
+      item.selecionado  = false;
 
       ok++;
-      _loteLog(`✓ ${item.nome}: ${fmtMoney(valor)} → ${item.pixKey} (ID: ${resp.id})`, '#a5d6a7');
-      Auth.log('ASAAS_PAGAMENTO_LOTE', null,
-        `${item.nome} | R$ ${valor.toFixed(2)} | PIX ${item.pixKey} | ${data} | ID: ${resp.id}`);
+      _loteLog(`✓ ${item.nome}: ${fmtMoney(valor)} solicitado (sol ${sol.id})`, '#a5d6a7');
+      Auth.log('PAGAMENTO_SOLICITADO', null,
+        `${item.nome} | R$ ${valor.toFixed(2)} | PIX ${item.pixKey} | ${data} | sol ${sol.id}`);
 
     } catch(e) {
       erros++;
       _loteLog(`✗ ${item.nome}: ERRO — ${e.message}`, '#ef9a9a');
     }
 
-    // Progresso
     document.getElementById('lote-progress-bar').style.width =
       `${Math.round(((i + 1) / selecionados.length) * 100)}%`;
-
-    // Pequena pausa para não sobrecarregar a API
-    if (i < selecionados.length - 1) await new Promise(r => setTimeout(r, 400));
   }
 
   // Resultado final
   const corFinal = erros === 0 ? '#fff176' : '#ffcc02';
-  _loteLog(`\nConcluído: ${ok} transferência(s) enviada(s)${erros > 0 ? `, ${erros} com erro` : ' com sucesso'}.`, corFinal);
+  _loteLog(`\nConcluído: ${ok} solicitação(ões) criada(s)${erros > 0 ? `, ${erros} com erro` : '.'}`, corFinal);
 
   btn.disabled = false;
   if (erros === 0) {
     btn.innerHTML = '<i class="fa-solid fa-check"></i> Concluído';
     btn.onclick = () => closeModal('modal-pagar-lote');
-    toast(`${ok} pagamento(s) PIX enviados via Asaas!`, 'success');
+    toast(`${ok} solicitação(ões) criada(s) — aguardando aprovação.`, 'success');
   } else {
-    btn.innerHTML = '<i class="fa-brands fa-pix"></i> Tentar Novamente (com erros)';
+    btn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Tentar Novamente (com erros)';
     btn.onclick = executarPagamentoLote;
-    toast(`${ok} enviados, ${erros} com erro. Verifique o log.`, 'warning');
+    toast(`${ok} criadas, ${erros} com erro. Verifique o log.`, 'warning');
   }
 
-  // Atualiza tabela para refletir os pagos
+  // Atualiza tabela para refletir os solicitados
   refreshLoteTabela();
+}
+
+// ============================================
+// APROVAÇÕES DE PAGAMENTOS (Etapa 4d)
+// ============================================
+function _aprovacaoStatusBadge(st){
+  const map={
+    pendente:['#FFF3E0','#E65100','Pendente'],
+    pago:    ['#E8F5E9','#2e7d32','Pago'],
+    recusado:['#FCE4EC','#c62828','Recusado'],
+    erro:    ['#fce4e4','#c62828','Erro'],
+  };
+  const m=map[st]||['#eee','#777',st||'—'];
+  return `<span style="background:${m[0]};color:${m[1]};padding:2px 9px;border-radius:10px;font-size:11px;font-weight:600">${m[2]}</span>`;
+}
+
+function renderAprovacoes(){
+  const tbody=document.getElementById('aprovacoes-tbody'); if(!tbody) return;
+  const filtro=val('aprovacoes-filtro')||'pendente';
+  const mods=getUserModules(Auth.currentUser);
+  const podeAprovar=!!mods.pagamentosAprovar;
+
+  let lista=[...(State.solicitacoes||[])];
+  if(filtro!=='todos') lista=lista.filter(s=>s.status===filtro);
+  lista.sort((a,b)=>new Date(b.criadoEm||0)-new Date(a.criadoEm||0));
+
+  const pend=(State.solicitacoes||[]).filter(s=>s.status==='pendente');
+  const cnt=document.getElementById('aprovacoes-contador');
+  if(cnt){
+    const totalP=pend.reduce((s,x)=>s+(x.valor||0),0);
+    cnt.innerHTML = pend.length
+      ? `<strong style="color:#E65100">${pend.length}</strong> pendente(s) · Total ${fmtMoney(totalP)}`
+      : '<span style="color:#2e7d32">Nenhuma pendência</span>';
+  }
+  const aviso=document.getElementById('aprovacoes-sem-perm');
+  if(aviso) aviso.style.display = podeAprovar ? 'none' : '';
+
+  if(lista.length===0){
+    tbody.innerHTML=`<tr><td colspan="8" style="padding:26px;text-align:center;color:#999">Nenhuma solicitação${filtro!=='todos'?' ('+filtro+')':''}.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML=lista.map((s,idx)=>{
+    const bg=idx%2?'#f9fafb':'#fff';
+    const dt=(s.criadoEm||'').substring(0,10).split('-').reverse().join('/');
+    const sched=(s.scheduleDate||'').split('-').reverse().join('/');
+    let acoes='—';
+    if(s.status==='pendente'){
+      acoes = podeAprovar
+        ? `<button class="btn btn-sm" style="background:#2e7d32;color:#fff;border-color:#2e7d32;margin-right:4px" onclick="openAprovarPagamento('${s.id}')"><i class="fa-solid fa-check"></i> Aprovar</button>`
+          + `<button class="btn btn-sm btn-outline" style="color:#c62828;border-color:#ef9a9a" onclick="recusarSolicitacao('${s.id}')"><i class="fa-solid fa-ban"></i> Recusar</button>`
+        : `<span style="font-size:11px;color:#999">aguardando aprovador</span>`;
+    } else if(s.status==='pago'){
+      acoes=`<span style="font-size:11px;color:#00695C">ID: ${s.asaasTransferId||'—'}</span>`;
+    } else if(s.status==='recusado'){
+      acoes=`<span style="font-size:11px;color:#c62828">${(s.motivoRecusa||'recusado')}</span>`;
+    } else if(s.status==='erro'){
+      acoes = podeAprovar
+        ? `<button class="btn btn-sm" style="background:#e65100;color:#fff;border-color:#e65100" onclick="openAprovarPagamento('${s.id}')" title="${(s.erro||'').replace(/"/g,'')}"><i class="fa-solid fa-rotate-right"></i> Tentar de novo</button>`
+        : `<span style="font-size:11px;color:#c62828">${s.erro||'erro'}</span>`;
+    }
+    return `<tr style="background:${bg}">
+      <td style="padding:9px 10px"><strong>${s.employeeNome||'—'}</strong>${s.origem==='lote'?' <span style="font-size:10px;color:#aaa">(lote)</span>':''}</td>
+      <td style="padding:9px 10px;text-align:right;font-weight:700;color:#00695C">${fmtMoney(s.valor||0)}</td>
+      <td style="padding:9px 10px;font-family:monospace;font-size:11px">${s.pixKey||'—'}</td>
+      <td style="padding:9px 10px;font-size:12px">${sched||'—'}</td>
+      <td style="padding:9px 10px;font-size:12px">${s.criadoPorNome||'—'}<br><span style="color:#aaa;font-size:10px">${dt}</span></td>
+      <td style="padding:9px 10px;text-align:center">${_aprovacaoStatusBadge(s.status)}</td>
+      <td style="padding:9px 10px;font-size:12px">${s.aprovadoPorNome||'—'}</td>
+      <td style="padding:9px 10px">${acoes}</td>
+    </tr>`;
+  }).join('');
+}
+
+let _aprovacaoAtualId=null;
+function openAprovarPagamento(id){
+  if(!getUserModules(Auth.currentUser).pagamentosAprovar){ toast('Sem permissão para aprovar pagamentos.','error'); return; }
+  const s=(State.solicitacoes||[]).find(x=>x.id===id);
+  if(!s){ toast('Solicitação não encontrada.','error'); return; }
+  _aprovacaoAtualId=id;
+  document.getElementById('aprovar-pag-info').innerHTML=`
+    <div style="font-weight:700;color:#00695C;font-size:15px">${s.employeeNome}</div>
+    <div style="font-size:14px;margin-top:6px"><strong>${fmtMoney(s.valor)}</strong> &rarr; <i class="fa-brands fa-pix" style="color:#00695C"></i> <code style="background:#fff;padding:2px 6px;border-radius:4px">${s.pixKey}</code></div>
+    <div style="font-size:12px;color:#666;margin-top:6px">${s.descricao||''}${s.scheduleDate?' · data '+s.scheduleDate.split('-').reverse().join('/'):''}</div>
+    <div style="font-size:11px;color:#999;margin-top:4px">Lançado por ${s.criadoPorNome||'—'}</div>`;
+  setVal('aprovar-pag-code','');
+  const resEl=document.getElementById('aprovar-pag-resultado');
+  resEl.style.display='none'; resEl.innerHTML='';
+  const btn=document.getElementById('btn-confirmar-aprovacao');
+  btn.style.display=''; btn.disabled=false;
+  btn.innerHTML='<i class="fa-solid fa-lock"></i> Aprovar e Pagar';
+  document.getElementById('modal-aprovar-pagamento').classList.remove('hidden');
+  setTimeout(()=>document.getElementById('aprovar-pag-code')?.focus(),150);
+}
+
+async function confirmarAprovacaoPagamento(){
+  const id=_aprovacaoAtualId; if(!id) return;
+  const code=(val('aprovar-pag-code')||'').replace(/\D/g,'');
+  if(code.length!==6){ toast('Digite o código de 6 dígitos do app autenticador.','warning'); return; }
+
+  const btn=document.getElementById('btn-confirmar-aprovacao');
+  btn.disabled=true; btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Processando...';
+  const resEl=document.getElementById('aprovar-pag-resultado'); resEl.style.display='none';
+
+  try{
+    const r=await _aprovacaoReq('/aprovar-pagamento',{code,solicitacaoId:id});
+    if(r.ok){
+      const s=(State.solicitacoes||[]).find(x=>x.id===id);
+      Auth.log('PAGAMENTO_APROVADO',null,
+        `${s?.employeeNome||id} | R$ ${(s?.valor||0).toFixed(2)} | ID Asaas ${r.asaasTransferId||'—'}`);
+      resEl.style.display='block';
+      resEl.innerHTML=`<div style="background:#e8f5e9;border:1px solid #a5d6a7;border-radius:9px;padding:14px;font-size:13px;color:#2e7d32">
+        <i class="fa-solid fa-circle-check"></i> <strong>${r.jaPago?'Esta solicitação já estava paga.':'Pagamento aprovado e enviado ao Asaas!'}</strong><br>
+        ID Asaas: <code>${r.asaasTransferId||'—'}</code> · Status: ${r.status||'—'}</div>`;
+      btn.style.display='none';
+      toast('Pagamento aprovado!','success');
+      setTimeout(()=>{ closeModal('modal-aprovar-pagamento'); if(State.currentSection==='aprovacoes') renderAprovacoes(); },2000);
+    } else {
+      resEl.style.display='block';
+      resEl.innerHTML=`<div style="background:#fce4e4;border:1px solid #ef9a9a;border-radius:9px;padding:14px;font-size:13px;color:#c62828">
+        <i class="fa-solid fa-triangle-exclamation"></i> ${r.erro||'Não foi possível aprovar.'}</div>`;
+      btn.disabled=false; btn.innerHTML='<i class="fa-solid fa-lock"></i> Aprovar e Pagar';
+    }
+  }catch(e){
+    resEl.style.display='block';
+    resEl.innerHTML=`<div style="background:#fce4e4;border:1px solid #ef9a9a;border-radius:9px;padding:14px;font-size:13px;color:#c62828">
+      <i class="fa-solid fa-triangle-exclamation"></i> ${e.message}</div>`;
+    btn.disabled=false; btn.innerHTML='<i class="fa-solid fa-lock"></i> Aprovar e Pagar';
+  }
+}
+
+async function recusarSolicitacao(id){
+  if(!getUserModules(Auth.currentUser).pagamentosAprovar){ toast('Sem permissão para recusar pagamentos.','error'); return; }
+  const s=(State.solicitacoes||[]).find(x=>x.id===id);
+  if(!s) return;
+  const motivo=prompt(`Recusar o pagamento de ${s.employeeNome} (${fmtMoney(s.valor)})?\n\nInforme o motivo da recusa:`);
+  if(motivo===null) return;
+  if(!motivo.trim()){ toast('O motivo da recusa é obrigatório.','warning'); return; }
+  try{
+    const u=Auth.currentUser||{};
+    await DB.merge('solicitacoesPagamento',id,{
+      status:'recusado', motivoRecusa:motivo.trim(),
+      aprovadoPor:u.username||u.id||'', aprovadoPorNome:u.username||'',
+      aprovadoEm:new Date().toISOString(),
+    });
+    Auth.log('PAGAMENTO_RECUSADO',null,`${s.employeeNome} | R$ ${(s.valor||0).toFixed(2)} | ${motivo.trim()}`);
+    toast('Solicitação recusada.','success');
+  }catch(e){ toast('Erro ao recusar: '+e.message,'error'); }
 }
 
 function _lockPayrollForm(isLocked){
@@ -12664,6 +12837,11 @@ async function init(){
   DB.listen('rescisoes', data => {
     State.rescisoes = data;
     if(State.currentSection==='rescisao') renderRescisoes();
+    if(State.currentSection==='dashboard') renderDashboard();
+  });
+  DB.listen('solicitacoesPagamento', data => {
+    State.solicitacoes = data;
+    if(State.currentSection==='aprovacoes') renderAprovacoes();
     if(State.currentSection==='dashboard') renderDashboard();
   });
 

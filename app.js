@@ -10823,6 +10823,39 @@ function maskCnpj(input){
   input.value=v;
 }
 
+// Consulta dados de um CNPJ na Receita Federal. Tenta a BrasilAPI e, se ela
+// falhar (instabilidade / limite de consultas), cai para a minhareceita.org
+// — mesma fonte de dados, mesmo formato de resposta. 2 tentativas em cada.
+// Lança Error com `.tipo` = 'naoexiste' | 'ocupado' | 'indisponivel'.
+async function _lookupCnpjData(cnpj){
+  const fontes=[
+    `https://brasilapi.com.br/api/cnpj/v1/${cnpj}`,
+    `https://minhareceita.org/${cnpj}`,
+  ];
+  const pausa=ms=>new Promise(r=>setTimeout(r,ms));
+  let ultimoErro='indisponivel';
+  for(const url of fontes){
+    for(let tent=0;tent<2;tent++){
+      try{
+        const res=await fetch(url);
+        if(res.status===404){ ultimoErro='naoexiste'; break; }   // não tem nessa fonte → tenta a próxima
+        if(res.status===429){ ultimoErro='ocupado'; await pausa(1500); continue; }
+        if(!res.ok){ ultimoErro='indisponivel'; await pausa(900); continue; }
+        const d=await res.json();
+        if(d && (d.razao_social||d.cnpj)) return d;
+        ultimoErro='naoexiste'; break;
+      }catch(e){ ultimoErro='indisponivel'; await pausa(900); }
+    }
+  }
+  const err=new Error(ultimoErro); err.tipo=ultimoErro; throw err;
+}
+// Mensagem amigável para o status box, conforme o tipo de falha.
+function _cnpjErroMsg(tipo){
+  if(tipo==='naoexiste') return 'CNPJ não encontrado na base da Receita. Confira o número digitado.';
+  if(tipo==='ocupado')   return 'Serviço da Receita ocupado (muitas consultas no momento). Aguarde alguns segundos e tente de novo.';
+  return 'Serviço da Receita instável agora. Tente novamente em instantes — ou preencha os campos manualmente.';
+}
+
 async function lookupCnpjPosto(){
   const cnpj=(val('posto-cnpj')||'').replace(/\D/g,'');
   if(cnpj.length!==14) return;
@@ -10832,9 +10865,7 @@ async function lookupCnpjPosto(){
   if(spinner) spinner.style.display='inline';
   if(statusEl){ statusEl.style.display='none'; statusEl.textContent=''; }
   try {
-    const res=await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
-    if(!res.ok) throw new Error('not found');
-    const d=await res.json();
+    const d=await _lookupCnpjData(cnpj);
     // Preencher campos
     if(d.razao_social)  setVal('posto-razao',    toTitleCase(d.razao_social));
     if(d.nome_fantasia) setVal('posto-fantasia',  toTitleCase(d.nome_fantasia));
@@ -10875,7 +10906,7 @@ async function lookupCnpjPosto(){
       statusEl.style.background='#FFF3F3';
       statusEl.style.border='1px solid #FFCDD2';
       statusEl.style.color='#B71C1C';
-      statusEl.innerHTML='<i class="fa-solid fa-triangle-exclamation"></i> CNPJ não encontrado ou inválido. Verifique e tente novamente.';
+      statusEl.innerHTML='<i class="fa-solid fa-triangle-exclamation"></i> '+_cnpjErroMsg(e&&e.tipo);
     }
   } finally {
     if(spinner) spinner.style.display='none';
@@ -10890,9 +10921,7 @@ async function lookupCnpjContrato(){
   if(spinner) spinner.style.display='inline';
   if(statusEl){ statusEl.style.display='none'; statusEl.textContent=''; }
   try {
-    const res=await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
-    if(!res.ok) throw new Error('not found');
-    const d=await res.json();
+    const d=await _lookupCnpjData(cnpj);
     if(d.razao_social) setVal('contrato-razao', toTitleCase(d.razao_social));
     if(d.email)        setVal('contrato-email',  d.email.toLowerCase());
     // Montar endereço completo numa linha
@@ -10921,7 +10950,7 @@ async function lookupCnpjContrato(){
       statusEl.style.background='#FFF3F3';
       statusEl.style.border='1px solid #FFCDD2';
       statusEl.style.color='#B71C1C';
-      statusEl.innerHTML='<i class="fa-solid fa-triangle-exclamation"></i> CNPJ não encontrado ou inválido.';
+      statusEl.innerHTML='<i class="fa-solid fa-triangle-exclamation"></i> '+_cnpjErroMsg(e&&e.tipo);
     }
   } finally {
     if(spinner) spinner.style.display='none';

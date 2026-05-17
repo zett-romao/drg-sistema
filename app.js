@@ -11123,7 +11123,7 @@ function _renderEscalaCard(emp, mes, ano){
     ? '<span style="background:#FFF3E0;color:#E65100;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px"><i class="fa-solid fa-wand-magic-sparkles"></i> Projetada — não salva</span>'
     : '<span style="background:#E8F5E9;color:#1B5E20;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px"><i class="fa-solid fa-check"></i> Salva</span>';
   const rowsHtml = dias.map(d => _renderEscalaRow(d, fam)).join('');
-  return `<div class="card escala-card" data-emp-id="${emp.id}" style="margin-bottom:16px">
+  return `<div class="card escala-card" data-emp-id="${emp.id}" data-fam="${fam}" style="margin-bottom:16px">
     <div class="card-body" style="padding:14px 18px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
         <div>
@@ -11132,6 +11132,7 @@ function _renderEscalaCard(emp, mes, ano){
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           ${emp.semRefeicao?'':`<button class="btn btn-secondary" onclick="openBulkRefeicao('${emp.id}')" title="Atualizar horário de refeição em massa"><i class="fa-solid fa-utensils" style="color:#F59E0B"></i> Refeição em massa</button>`}
+          <button class="btn btn-secondary" onclick="openAjustarEscala('${emp.id}')" title="Trocar a escala ou reprojetar o ciclo de trabalho"><i class="fa-solid fa-gear" style="color:var(--primary)"></i> Ajustar escala</button>
           <button class="btn btn-secondary" onclick="resetEscala('${emp.id}')" title="Reprojetar (descarta alterações)"><i class="fa-solid fa-rotate-left"></i> Reprojetar</button>
           <button class="btn btn-primary" onclick="saveEscala('${emp.id}')"><i class="fa-solid fa-floppy-disk"></i> Salvar</button>
         </div>
@@ -11253,8 +11254,12 @@ function _renderEscalaRow(d, fam){
   const opRef = (d.tipo==='folga') ? 'opacity:.55' : (d.tipo==='corrido' ? 'opacity:.4' : '');
   const tipoTitle = 'Clique para alternar: Trabalho → Corrido (hora corrida, sem refeição) → Folga';
   const hePercAttr = (d.tipo==='corrido' && d.hePercDia) ? `data-he-perc="${d.hePercDia}"` : '';
+  // Para 12x36 o número do dia é clicável: define a âncora do ciclo
+  const diaCell = (fam==='12x36')
+    ? `<td onclick="_escala12x36Anchor(this)" style="padding:4px 6px;text-align:center;border:1px solid var(--border);font-weight:700;cursor:pointer;color:var(--primary);text-decoration:underline" title="Clique para iniciar o ciclo 12x36 de trabalho neste dia">${String(d.dia).padStart(2,'0')}${revisao}</td>`
+    : `<td style="padding:4px 6px;text-align:center;border:1px solid var(--border);font-weight:700">${String(d.dia).padStart(2,'0')}${revisao}</td>`;
   return `<tr style="background:${bg}" data-dia="${d.dia}" data-tipo="${d.tipo||'trabalho'}" ${hePercAttr}>
-    <td style="padding:4px 6px;text-align:center;border:1px solid var(--border);font-weight:700">${String(d.dia).padStart(2,'0')}${revisao}</td>
+    ${diaCell}
     <td style="padding:4px 6px;text-align:center;border:1px solid var(--border);font-size:11px">${sem}</td>
     <td style="padding:4px 6px;text-align:center;border:1px solid var(--border)"><span class="esc-tipo-cell" onclick="toggleEscalaTipo(this)" style="cursor:pointer" title="${tipoTitle}">${_escalaTipoBadge(d.tipo, d.hePercDia)}</span></td>
     <td style="padding:2px;border:1px solid var(--border)"><input type="time" class="esc-entrada" value="${d.entrada||''}" style="width:100%;${opEnt}" onchange="onEscalaCellEdit(this)"></td>
@@ -11394,6 +11399,119 @@ function toggleEscalaTipo(span){
     }
   }
   if(card) card.dataset.dirty = '1';
+}
+
+// Aplica um tipo (trabalho/folga) a uma linha da escala — usado pela
+// reprojeção do ciclo 12x36 (clique no número do dia). Preserva os
+// horários já preenchidos em dias que continuam sendo de trabalho.
+function _setEscalaRowTipo(row, novo, emp, mes, ano){
+  row.dataset.tipo = novo;
+  delete row.dataset.hePerc;
+  const cell = row.querySelector('.esc-tipo-cell');
+  if(cell) cell.innerHTML = _escalaTipoBadge(novo);
+  const ent = row.querySelector('.esc-entrada');
+  const ini = row.querySelector('.esc-int-ini');
+  const fim = row.querySelector('.esc-int-fim');
+  const sai = row.querySelector('.esc-saida');
+  if(novo === 'folga'){
+    [ent,ini,fim,sai].forEach(i=>{ if(i){ i.value=''; i.style.opacity='.55'; } });
+    return;
+  }
+  [ent,ini,fim,sai].forEach(i=>{ if(i) i.style.opacity='1'; });
+  let h = null;
+  if(emp){
+    const dia = parseInt(row.dataset.dia);
+    h = _escalaHorariosDia(emp, new Date(ano, mes-1, dia).getDay());
+  }
+  if(h){
+    if(ent && !ent.value) ent.value = h.entrada;
+    if(ini && !ini.value) ini.value = h.intIni;
+    if(fim && !fim.value) fim.value = h.intFim;
+    if(sai && !sai.value) sai.value = h.saida;
+  }
+}
+
+// Clique no número do dia (escala 12x36): define esse dia como início do
+// ciclo de trabalho e recalcula a alternância trabalho/folga do mês todo.
+function _escala12x36Anchor(cell){
+  const card = cell.closest('.escala-card');
+  const row0 = cell.closest('tr');
+  if(!card || !row0) return;
+  if(card.dataset.fam !== '12x36') return;
+  const anchorDia = parseInt(row0.dataset.dia);
+  const emp = (State.employees||[]).find(e=>e.id===card.dataset.empId);
+  const mes = parseInt(document.getElementById('escala-mes').value);
+  const ano = parseInt(document.getElementById('escala-ano').value);
+  card.querySelectorAll('tbody tr[data-dia]').forEach(row=>{
+    const dia = parseInt(row.dataset.dia);
+    const tipo = (((dia - anchorDia) % 2) === 0) ? 'trabalho' : 'folga';
+    _setEscalaRowTipo(row, tipo, emp, mes, ano);
+  });
+  card.dataset.dirty = '1';
+  toast(`Ciclo 12x36 reprojetado — dia ${String(anchorDia).padStart(2,'0')} como trabalho. Confira e clique em Salvar.`, 'success');
+}
+
+// ── Ajustar / trocar escala de um colaborador (modal) ──────────────────
+let _ajustarEscalaEmpId = null;
+
+function openAjustarEscala(empId){
+  const emp = (State.employees||[]).find(e=>e.id===empId);
+  if(!emp){ toast('Colaborador não encontrado.','error'); return; }
+  _ajustarEscalaEmpId = empId;
+  const mes = parseInt(document.getElementById('escala-mes').value);
+  const ano = parseInt(document.getElementById('escala-ano').value);
+  const sel = document.getElementById('ajustar-escala-tipo');
+  // Re-injeta os modelos de escala customizados no select
+  Array.from(sel.querySelectorAll('option[data-custom]')).forEach(o=>o.remove());
+  (State.escalasModelos||[]).slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''))
+    .forEach(m=>{
+      const o=document.createElement('option');
+      o.value='m_'+m.id; o.textContent='★ '+m.nome; o.setAttribute('data-custom','1');
+      sel.appendChild(o);
+    });
+  sel.value = emp.escala || '5x2A';
+  const diaEl = document.getElementById('ajustar-escala-dia');
+  diaEl.value = 1;
+  diaEl.max = new Date(ano, mes, 0).getDate();
+  document.getElementById('ajustar-escala-update-cadastro').checked = false;
+  document.getElementById('ajustar-escala-info').innerHTML =
+    `<strong>${emp.nome}</strong> &middot; ${MESES[mes]}/${ano} &middot; escala no cadastro: <strong>${escalaLabel(emp.escala||'5x2A')}</strong>`;
+  document.getElementById('modal-ajustar-escala').classList.remove('hidden');
+}
+
+function aplicarAjusteEscala(){
+  const empId = _ajustarEscalaEmpId;
+  const emp = (State.employees||[]).find(e=>e.id===empId);
+  if(!emp){ toast('Colaborador não encontrado.','error'); return; }
+  const card = document.querySelector(`.escala-card[data-emp-id="${empId}"]`);
+  if(!card){ toast('Card da escala não encontrado — feche e reabra a tela.','error'); return; }
+  const mes = parseInt(document.getElementById('escala-mes').value);
+  const ano = parseInt(document.getElementById('escala-ano').value);
+  const novaEscala = document.getElementById('ajustar-escala-tipo').value;
+  const dpm  = new Date(ano, mes, 0).getDate();
+  const diaX = Math.min(dpm, Math.max(1, parseInt(document.getElementById('ajustar-escala-dia').value)||1));
+  const updateCad = document.getElementById('ajustar-escala-update-cadastro').checked;
+  // Projeta o mês inteiro com a escala nova
+  const tempEmp  = { ...emp, escala: novaEscala };
+  const novoDias = _projectEscala(tempEmp, mes, ano, _getPrevMonthDias(empId, mes, ano));
+  // Estado atual do card — preserva os dias anteriores ao diaX
+  const atuais = _collectEscalaDias(empId) || [];
+  const mapaAtual = {}; atuais.forEach(d=>{ mapaAtual[d.dia]=d; });
+  const mapaNovo  = {}; novoDias.forEach(d=>{ mapaNovo[d.dia]=d; });
+  const fam = escalaFamilia(novaEscala);
+  const final = [];
+  for(let d=1; d<=dpm; d++){
+    final.push((d < diaX && mapaAtual[d]) ? mapaAtual[d] : (mapaNovo[d] || mapaAtual[d]));
+  }
+  card.querySelector('tbody').innerHTML = final.map(d=>_renderEscalaRow(d, fam)).join('');
+  card.dataset.fam   = fam;
+  card.dataset.dirty = '1';
+  if(updateCad){
+    emp.escala = novaEscala;
+    DB.save('employees', emp).catch(e=>console.error('Erro ao atualizar cadastro:',e));
+  }
+  closeModal('modal-ajustar-escala');
+  toast(`Escala reprojetada para ${escalaLabel(novaEscala)}${diaX>1?` a partir do dia ${String(diaX).padStart(2,'0')}`:''}. Confira e clique em Salvar.`, 'success');
 }
 
 function _collectEscalaDias(empId){

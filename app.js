@@ -1133,7 +1133,8 @@ async function mfaConfirm(){
 // ============================================
 // RECUPERAÇÃO DE ACESSO
 // ============================================
-const RECOVERY_CODE = 'DRGlobal@Master2025';
+// O código de recuperação NÃO fica mais no cliente — é um Secret no Worker
+// (RECOVERY_CODE). doRecovery() chama a rota pública /recuperar-acesso.
 
 function openRecoveryModal(){
   const modal=document.getElementById('modal-recovery');
@@ -1146,6 +1147,17 @@ function openRecoveryModal(){
   if(btn){ btn.style.display=''; btn.disabled=false; btn.innerHTML='<i class="fa-solid fa-unlock"></i> Restaurar Acesso'; }
 }
 
+// Chamada ao Worker SEM exigir login — para rotas públicas (recuperação).
+async function _workerReqPublic(path, body){
+  const r = await fetch(APROVACAO_WORKER + path, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body||{})
+  });
+  const data = await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(data.error || ('HTTP '+r.status));
+  return data;
+}
+
 async function doRecovery(){
   const code=val('recovery-code');
   const errEl=document.getElementById('recovery-error');
@@ -1154,32 +1166,18 @@ async function doRecovery(){
   errEl.classList.add('hidden');
   successEl.classList.add('hidden');
   if(!code){ errMsg.textContent='Digite o código de recuperação.'; errEl.classList.remove('hidden'); return; }
-  if(code!==RECOVERY_CODE){ errMsg.textContent='Código incorreto. Tente novamente.'; errEl.classList.remove('hidden'); return; }
   const btn=document.getElementById('recovery-btn');
   if(btn){ btn.disabled=true; btn.innerHTML='<i class="fa-solid fa-circle-notch fa-spin"></i> Restaurando...'; }
   try {
-    const newPass='Admin@DRGlobal25';
-    const hash=await Auth.hashPassword(newPass);
-    const masterUser={
-      id:'master-default',
-      username:'admin',
-      passwordHash:hash,
-      role:'master',
-      active:true,
-      forceChange:true,
-      createdAt:new Date().toISOString(),
-      lastLogin:null
-    };
-    await DB.save('users', masterUser);
-    // Também reativar qualquer outro master existente
-    const masters=(Auth.users||[]).filter(u=>u.role==='master'&&u.id!=='master-default');
-    await Promise.all(masters.map(u=>DB.save('users',{...u, active:true})));
-    document.getElementById('recovery-new-user').textContent='admin';
-    document.getElementById('recovery-new-pass').textContent='Admin@DRGlobal25';
+    // A verificação do código e o reset acontecem no Worker (servidor).
+    const r=await _workerReqPublic('/recuperar-acesso',{code});
+    if(!r.ok) throw new Error(r.erro||'Não foi possível restaurar o acesso.');
+    document.getElementById('recovery-new-user').textContent=r.username||'admin';
+    document.getElementById('recovery-new-pass').textContent=r.senha||'';
     successEl.classList.remove('hidden');
     if(btn){ btn.style.display='none'; }
   } catch(e){
-    errMsg.textContent='Erro ao restaurar acesso. Verifique a conexão com o Firebase.';
+    errMsg.textContent=(e&&e.message)||'Erro ao restaurar acesso. Verifique a conexão.';
     errEl.classList.remove('hidden');
     if(btn){ btn.disabled=false; btn.innerHTML='<i class="fa-solid fa-unlock"></i> Restaurar Acesso'; }
   }

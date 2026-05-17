@@ -132,7 +132,7 @@ NÃO usa Firebase Auth. Tem módulo próprio (`Auth` em `app.js` linha ~130) com
 - Sessão em `sessionStorage`
 - Roles: `master`, `admin`, `gestor`
 - Módulos granulares por usuário (`getUserModules()`)
-- **Código de recuperação de acesso:** `DRGlobal@Master2025` — digitado no modal de recuperação da tela de login, recria o usuário `master-default` com a senha `Admin@DRGlobal25`
+- **Código de recuperação de acesso:** NÃO fica mais no código (era `DRGlobal@Master2025` hardcoded — buraco crítico, código público). Agora é o Secret `RECOVERY_CODE` no Worker `drg-aprovacao`. `doRecovery()` chama a rota pública `POST /recuperar-acesso { code }` → o Worker confere o código, reseta `users/master-default` (`username:admin`, `forceChange:true`) com uma **senha temporária aleatória** e devolve essa senha uma única vez na tela. O código antigo está QUEIMADO (foi público) — o Secret no Worker deve ter um valor novo.
 
 App do colaborador (`ponto.html`) usa **PIN** = 4 últimos dígitos do CPF, validado contra `employees`.
 
@@ -366,6 +366,8 @@ node --check ponto-sw.js
 ---
 
 - **2026-05-17**: Bug de HE fantasma corrigido. `_heMinFromDias`, `applyPontoManual` e `calcResumoManual` calculavam a HE como `jornadaLíquida − minContratados`, onde `minContratados` era um valor FIXO da família de escala (480 p/ 5x2, 440 p/ 6x1, 660 p/ 12x36). Um colaborador 5x2 com horário contratual de 9h (08:00–18:00) que batia exatamente o horário dele recebia 1h de HE/dia — o sistema comparava a jornada real com 8h fixas em vez da jornada contratual dele. Corrigido: a baseline da HE agora é a **jornada esperada do próprio colaborador no dia** (`_liqMin(_getExpectedDay(...))` — horário do cadastro/escala); `minContratados` só é usado como fallback quando não há dia esperado (ex.: trabalhou numa folga). O bloco legado "jornada × dias" do `recalculate()` (linha ~4890) já calculava `minContratados` a partir do cadastro — estava correto; o bug era só nos 3 cálculos baseados em ponto diário.
+
+- **2026-05-17**: Blindagem de segurança — decisão do usuário "blindagem completa", em 3 etapas (S1/S2/S3). **S1 feito:** o código de recuperação do master saiu do `app.js` (era `DRGlobal@Master2025` hardcoded em código público — qualquer um resetava o master). Agora é o Secret `RECOVERY_CODE` no Worker; nova rota pública `/recuperar-acesso` reseta `master-default` com senha temporária aleatória. Helpers no Worker: `sha256hex`, `gerarSenhaTemp`, `handleRecuperarAcesso`. No app: `_workerReqPublic` (fetch sem idToken) e `doRecovery` reescrito. **S2 (pendente):** mover login + CRUD de usuários para o Worker e tornar a coleção `users` só-servidor (hashes SHA-256 sem salt hoje são legíveis por qualquer sessão autenticada). **S3 (pendente):** regras granulares Firestore/Storage — hoje `request.auth != null` deixa qualquer sessão anônima (o app de ponto faz `signInAnonymously`) ler/gravar TUDO (CPF, salário, PIX, `users`); ponto precisa passar pelo Worker para a sessão anônima poder ser bloqueada.
 
 ## Sobre o usuário (Donizete)
 

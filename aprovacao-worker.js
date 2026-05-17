@@ -19,6 +19,11 @@
  *   /mfa/confirm       { idToken, code }                → ativa o 2FA validando 1 código
  *   /mfa/status        { idToken }                      → diz se o 2FA está ativo
  *   /aprovar-pagamento { idToken, code, solicitacaoId } → valida 2FA + permissão e dispara o PIX
+ *   /recuperar-acesso  { code }                         → [PÚBLICA] reseta o master se o código bater
+ *
+ * SECRETS no Cloudflare (Settings → Variables and Secrets):
+ *   FIREBASE_SERVICE_ACCOUNT  → JSON da conta de serviço
+ *   RECOVERY_CODE             → código secreto de recuperação do master
  * ============================================================
  */
 
@@ -265,6 +270,34 @@ async function asaasTransfer(body){
   return data;
 }
 
+// ── Recuperação de acesso do master (rota pública) ───────────
+// SHA-256 hex — mesmo algoritmo do Auth.hashPassword do app.
+async function sha256hex(str){
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+// Gera uma senha temporária forte (sem caracteres ambíguos).
+function gerarSenhaTemp(){
+  const cs = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+  const r  = crypto.getRandomValues(new Uint8Array(11));
+  let s = '';
+  for (const x of r) s += cs[x % cs.length];
+  return s + '@' + new Date().getFullYear();
+}
+async function handleRecuperarAcesso(body, env, token){
+  const code = String(body.code || '');
+  if (!env.RECOVERY_CODE)        return { ok:false, erro:'recuperação não configurada no servidor' };
+  if (!code)                     return { ok:false, erro:'informe o código de recuperação' };
+  if (code !== env.RECOVERY_CODE) return { ok:false, erro:'código de recuperação incorreto' };
+  const senha = gerarSenhaTemp();
+  const hash  = await sha256hex(senha);
+  await fsUpdate('users/master-default', {
+    username:'admin', passwordHash:hash, role:'master',
+    active:true, forceChange:true, recuperadoEm:new Date().toISOString(),
+  }, token);
+  return { ok:true, username:'admin', senha };
+}
+
 // ── Handlers de 2FA ──────────────────────────────────────────
 async function handleEnroll(auth, token){
   const secret = base32Encode(crypto.getRandomValues(new Uint8Array(20)));
@@ -372,6 +405,13 @@ export default {
     const url = new URL(request.url);
     try {
       const body  = await request.json().catch(() => ({}));
+
+      // Rota PÚBLICA — não exige login (o master está trancado para fora).
+      if (url.pathname === '/recuperar-acesso') {
+        const t = await getAccessToken(env);
+        return json(await handleRecuperarAcesso(body, env, t), 200, origin);
+      }
+
       const auth  = await verifyIdToken(body.idToken);   // 401 se o token for inválido
       const token = await getAccessToken(env);
 

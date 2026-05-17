@@ -9622,6 +9622,8 @@ function printPreviewParcial(){
   const empId=val('payroll-employee');
   const emp=State.employees.find(e=>e.id===empId);
   if(!empId||!emp){ toast('Selecione um colaborador na folha de ponto primeiro.','error'); return; }
+  const _ppPrev=_cadastroPendencias(emp);
+  if(_ppPrev.length){ toast(`Complete o cadastro do colaborador antes de gerar a folha. Faltam: ${_ppPrev.join(', ')}.`,'error'); return; }
 
   // Campos do formulário que serão temporariamente alterados
   const campos=['payroll-dias','payroll-faltas-injustificadas','payroll-faltas-justificadas',
@@ -9709,6 +9711,8 @@ function printFolhaPonto(isPreview=false){
   const empId=val('payroll-employee');
   const emp=State.employees.find(e=>e.id===empId);
   if(!empId||!emp){ toast('Selecione um colaborador na folha de ponto primeiro.','error'); return; }
+  const _ppPrint=_cadastroPendencias(emp);
+  if(_ppPrint.length){ toast(`Complete o cadastro do colaborador antes de imprimir a folha. Faltam: ${_ppPrint.join(', ')}.`,'error'); return; }
 
   // Se o modal Ponto Manual está aberto com edições não aplicadas,
   // ressincroniza o formulário (HE/encargos) antes de imprimir — senão a

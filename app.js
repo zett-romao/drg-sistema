@@ -3359,16 +3359,17 @@ function _ensurePayrollEmployeeOption(empId){
   if(!empId) return;
   const sel = document.getElementById('payroll-employee');
   if(!sel) return;
-  const has = () => Array.from(sel.options).some(o => o.value === empId);
-  if(has()) return;
-  // Limpa o filtro de posto e repopula — colaborador pode estar noutro posto
-  const fSel = document.getElementById('payroll-filter-posto');
-  if(fSel) fSel.value = '';
-  _populatePayrollEmployees();
-  if(has()) return;
-  // Ainda fora da lista (ex.: colaborador inativo) → insere a opção
   const emp = State.employees.find(e => e.id === empId);
-  if(emp){
+  // Alinha o filtro de posto ao posto do colaborador-alvo — assim o
+  // filtro mostra o posto de quem foi aberto, não "Todos".
+  const fSel = document.getElementById('payroll-filter-posto');
+  if(fSel && emp){
+    const temOpt = Array.from(fSel.options).some(o => o.value === (emp.posto||''));
+    fSel.value = temOpt ? (emp.posto||'') : '';
+  }
+  _populatePayrollEmployees();
+  // Se mesmo assim não está na lista (inativo / sem posto), injeta a opção
+  if(emp && !Array.from(sel.options).some(o => o.value === empId)){
     const opt = document.createElement('option');
     opt.value = empId;
     opt.textContent = emp.nome + ((emp.status && emp.status !== 'ativo') ? ' (inativo)' : '');
@@ -3386,9 +3387,9 @@ function initPayrollSection(){
     (State.postos||[]).slice().sort((a,b)=>(a.razaoSocial||'').localeCompare(b.razaoSocial||''))
       .forEach(p=>{
         const o=document.createElement('option');
-        o.value=p.razaoSocial;
+        o.value=p.id; // ID do posto — casa com emp.posto (antes usava razaoSocial e o filtro nunca batia)
         o.textContent=p.razaoSocial+(p.cidade?' — '+p.cidade:'');
-        if(p.razaoSocial===cur) o.selected=true;
+        if(p.id===cur) o.selected=true;
         fSel.appendChild(o);
       });
   }

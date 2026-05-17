@@ -10700,11 +10700,17 @@ function _escalaHorariosDia(emp, diaSem){
   if(escala==='12x36' && noturno && !emp.horarioEntrada){
     entrada = '19:00'; saida = '07:00';
   }
-  // Variantes com horário diferenciado em sex/sáb (só aplica se usuário NÃO definiu horário próprio)
-  if(!emp.horarioEntrada){
-    if(diaSem===5 && (escala==='5x2A' || escala==='5x2B')) saida = '16:00';
-    if(diaSem===6 && escala==='6x1A') saida = '11:00';
-    if(diaSem===6 && escala==='6x1C') saida = '12:00';
+  // Variantes com horário diferenciado em sex/sáb — faz parte da DEFINIÇÃO
+  // da escala, então aplica mesmo que o colaborador tenha horário próprio
+  // cadastrado (o horário do cadastro vale para os dias normais de semana).
+  if(diaSem===5 && (escala==='5x2A' || escala==='5x2B')){
+    saida = '16:00';
+  }
+  if(diaSem===6 && escala==='6x1A'){
+    saida = '11:00'; intIni = ''; intFim = ''; // sábado 07h–11h (4h) — sem refeição
+  }
+  if(diaSem===6 && escala==='6x1C'){
+    saida = '12:00'; intIni = ''; intFim = ''; // sábado 08h–12h (4h) — sem refeição
   }
   return { entrada, intIni, intFim, saida };
 }

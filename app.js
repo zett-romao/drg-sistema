@@ -5005,6 +5005,38 @@ function confirmDeleteAtraso(id){
   document.getElementById('modal-confirm').classList.remove('hidden');
 }
 
+// Sincroniza as ocorrências de atraso de origem 'ponto' com o que o Ponto
+// Manual detectou. Cria/atualiza uma por dia com déficit; remove dias que
+// não têm mais atraso. PRESERVA a decisão do operador (justificado/motivo/
+// abonado) por dia. Ocorrências manuais (origem!='ponto') não são tocadas.
+async function _sincronizarAtrasosDoPonto(empId, mes, ano, detectados){
+  State.atrasos = State.atrasos || [];
+  const idDe = dia => `atr_p_${empId}_${ano}_${String(mes).padStart(2,'0')}_${String(dia).padStart(2,'0')}`;
+  const diasDetectados = new Set(detectados.map(d=>d.dia));
+  const tarefas = [];
+  // Remove ocorrências do ponto de dias que não têm mais atraso
+  const removerIds = State.atrasos
+    .filter(a=>a.employeeId===empId && a.mes==mes && a.ano==ano && a.origem==='ponto' && !diasDetectados.has(a.dia))
+    .map(a=>a.id);
+  removerIds.forEach(id=>tarefas.push(DB.remove('atrasos', id)));
+  // Cria/atualiza os detectados (preserva a decisão do operador)
+  const novos = [];
+  for(const det of detectados){
+    const id = idDe(det.dia);
+    const ex = State.atrasos.find(a=>a.id===id);
+    novos.push({
+      id, employeeId:empId, mes, ano, dia:det.dia, minutos:det.minutos, origem:'ponto',
+      motivo: ex?.motivo||'', justificado:!!ex?.justificado, abonado:!!ex?.abonado,
+      createdAt: ex?.createdAt||new Date().toISOString(), updatedAt:new Date().toISOString(),
+    });
+  }
+  novos.forEach(doc=>tarefas.push(DB.save('atrasos', doc)));
+  // Atualiza o State em memória (otimista — o listener confirma depois)
+  State.atrasos = State.atrasos.filter(a=>!removerIds.includes(a.id) && !novos.some(n=>n.id===a.id));
+  State.atrasos.push(...novos);
+  await Promise.all(tarefas);
+}
+
 // Conta os dias de TRABALHO previstos no mês para o colaborador, conforme a
 // escala (escala salva > âncora 12x36 > contratual). Base do proporcional.
 function _diasPrevistosEscala(emp, mes, ano){
@@ -10326,6 +10358,7 @@ function _updateHEReviewBadge(card, detec, heReview){
 async function applyPontoManual(){
   const cards=_getPontoManualCards();
   let diasTrabalhados=0, faltas=0, totalHEmin=0, totalAtrasoMin=0;
+  const atrasosDoPonto=[];
   const empId=val('payroll-employee');
   const emp=State.employees.find(e=>e.id===empId);
   // Cadastro incompleto → não permite lançar dados na folha
@@ -10366,7 +10399,10 @@ async function applyPontoManual(){
       // Atraso automático: déficit do dia além da tolerância CLT (10min)
       if(expectedDay && expectedDay.tipo!=='folga' && expectedDay.entrada && expectedDay.saida){
         const faltaDia=_liqMin(expectedDay)-effLiq;
-        if(faltaDia>HE_TOLERANCIA_DIA_MIN) totalAtrasoMin+=faltaDia;
+        if(faltaDia>HE_TOLERANCIA_DIA_MIN){
+          totalAtrasoMin+=faltaDia;
+          atrasosDoPonto.push({dia, minutos:Math.round(faltaDia)});
+        }
       }
     } else if(!entrada&&!saida && _diaEmBrancoEhFalta(emp,mes,ano,dia,isWeekend,is12x36)) faltas++;
   });
@@ -10386,17 +10422,23 @@ async function applyPontoManual(){
       if(ix>=0) State.payrolls[ix]=record; else State.payrolls.push(record);
     } catch(e){ console.error('Erro ao salvar ponto:',e); }
   }
+  // Atraso: o ponto cria/atualiza as ocorrências de origem 'ponto' (uma por
+  // dia com déficit), preservando a decisão do operador. Ocorrências
+  // lançadas à mão (origem 'manual') não são tocadas.
+  if(empId){
+    try { await _sincronizarAtrasosDoPonto(empId, mes, ano, atrasosDoPonto); }
+    catch(e){ console.error('Erro ao sincronizar atrasos do ponto:', e); }
+  }
   setVal('payroll-dias',diasTrabalhados);
   setVal('payroll-faltas-injustificadas',faltas);
   setVal('payroll-faltas-justificadas',0);
   // Sempre grava o total de HE — inclusive vazio quando zerou (HE não
   // aprovada). Antes só gravava se >0, deixando valor velho na folha.
   setVal('payroll-he-total', heHorasAplic>0 ? heHorasAplic : '');
-  // O atraso NÃO é mais preenchido a partir do ponto — é lançado como
-  // ocorrências no card de Atrasos. O ponto só informa o que detectou.
   recalculate();
+  renderAtrasosFolha();
   closeModal('modal-ponto-manual');
-  toast(`Aplicado: ${diasTrabalhados} dias trabalhados / ${faltas} falta(s)${totalHEmin>0?' / '+minutesToStr(totalHEmin)+' HE':''}${totalAtrasoMin>0?` / o ponto detectou ${minutesToStr(totalAtrasoMin)} de atraso — registre no card Atrasos`:''}.`);
+  toast(`Aplicado: ${diasTrabalhados} dias trabalhados / ${faltas} falta(s)${totalHEmin>0?' / '+minutesToStr(totalHEmin)+' HE':''}${atrasosDoPonto.length>0?` / ${atrasosDoPonto.length} atraso(s) lançado(s) automaticamente`:''}.`);
 }
 
 // ============================================

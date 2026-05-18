@@ -5019,8 +5019,10 @@ function recalculate(){
     } else {
       bonusAlert.classList.add('hidden');
     }
-    // Auto-preenche da CCT se o campo está vazio
-    if(!val('payroll-bonus') && State.cct && State.cct.bonificacao>0){
+    // Auto-preenche da CCT quando o campo está vazio OU zerado. (Antes só
+    // preenchia se vazio — um "0" salvo travava o auto-preenchimento e a
+    // bonificação ficava 0,00 mesmo com a comissão liberada por configuração.)
+    if((numVal('payroll-bonus')||0)<=0 && State.cct && State.cct.bonificacao>0){
       setVal('payroll-bonus', State.cct.bonificacao.toFixed(2));
     }
   }

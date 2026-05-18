@@ -3403,7 +3403,11 @@ function openEmployeeModal(id=null){
     setVal('emp-posto',emp.posto||'');
     setVal('emp-setor',emp.setor||'');
     setVal('emp-cargo',emp.cargo||'');
+    setVal('emp-exame-data',emp.exameAdmissionalData||'');
+    setVal('emp-exame-prazo',emp.examePrazo||'');
+    setVal('emp-exame-prazo-custom',emp.examePrazoCustom||'');
     setVal('emp-exame-vencimento',emp.exameVencimento||'');
+    onExamePrazoChange(false);
     setVal('emp-insalubridade',emp.insalubridade||0);
     const acumChk=document.getElementById('emp-acumulo-funcao');
     if(acumChk) acumChk.checked=!!(emp.acumuloFuncao);
@@ -3458,7 +3462,7 @@ function openEmployeeModal(id=null){
      'emp-bairro','emp-cidade','emp-vt-dia','emp-vr-dia','emp-va-mensal','emp-pix','emp-tipo-transporte',
      'emp-data-admissao','emp-data-demissao','emp-horario-entrada','emp-horario-saida',
      'emp-horario-ref-ini','emp-horario-ref-fim',
-     'emp-salario-base','emp-posto','emp-setor','emp-exame-vencimento',
+     'emp-salario-base','emp-posto','emp-setor','emp-exame-data','emp-exame-prazo','emp-exame-prazo-custom','emp-exame-vencimento',
      'emp-licenca-inicio','emp-licenca-termino'].forEach(fid=>setVal(fid,''));
     // Resetar foto, férias e histórico de postos
     loadEmployeePhoto(null, null);
@@ -3488,8 +3492,27 @@ function openEmployeeModal(id=null){
     renderOutrosItens([],'descontos');
     renderOutrosItens([],'proventos');
     onEscalaChange();
+    onExamePrazoChange(false);
     document.getElementById('doc-list').innerHTML=`<div class="empty-state small"><i class="fa-solid fa-folder-open"></i><p>Salve o colaborador antes de enviar documentos</p></div>`;
   }
+}
+
+// Exame médico: mostra/oculta o campo de prazo customizado e calcula o
+// vencimento (data do exame + prazo em meses). Chame com `false` ao carregar
+// um colaborador — assim só ajusta a visibilidade, sem sobrescrever o vencimento.
+function onExamePrazoChange(recompute){
+  const prazoSel=val('emp-exame-prazo');
+  const customWrap=document.getElementById('emp-exame-prazo-custom-wrap');
+  if(customWrap) customWrap.style.display = prazoSel==='custom' ? '' : 'none';
+  if(recompute===false) return;
+  const data=val('emp-exame-data');
+  if(!data || !prazoSel) return;
+  const meses = prazoSel==='custom' ? (parseInt(val('emp-exame-prazo-custom'))||0) : parseInt(prazoSel);
+  if(!(meses>0)) return;
+  const d=new Date(data+'T00:00:00');
+  if(isNaN(d.getTime())) return;
+  d.setMonth(d.getMonth()+meses);
+  setVal('emp-exame-vencimento', d.toISOString().split('T')[0]);
 }
 
 async function saveEmployee(){
@@ -3511,6 +3534,9 @@ async function saveEmployee(){
     posto:val('emp-posto'),
     setor:val('emp-setor'),
     cargo:val('emp-cargo'),
+    exameAdmissionalData:val('emp-exame-data'),
+    examePrazo:val('emp-exame-prazo'),
+    examePrazoCustom:val('emp-exame-prazo-custom'),
     exameVencimento:val('emp-exame-vencimento'),
     email:val('emp-email'), celular:val('emp-celular'),
     cep:val('emp-cep'), endereco:val('emp-endereco'), numero:val('emp-numero'),

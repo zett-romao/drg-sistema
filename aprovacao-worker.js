@@ -20,6 +20,7 @@
  *   /mfa/status        { idToken }                      → diz se o 2FA está ativo
  *   /aprovar-pagamento { idToken, code, solicitacaoId } → valida 2FA + permissão e dispara o PIX
  *   /recuperar-acesso  { code }                         → [PÚBLICA] reseta o master se o código bater
+ *   /login             { username, password }           → [PÚBLICA] verifica a senha e devolve custom token
  *
  * SECRETS no Cloudflare (Settings → Variables and Secrets):
  *   FIREBASE_SERVICE_ACCOUNT  → JSON da conta de serviço
@@ -169,6 +170,31 @@ async function getAccessToken(env){
   return _accessToken.token;
 }
 
+// Gera um Firebase Custom Token (JWT assinado pela conta de serviço).
+// O cliente troca por uma sessão real via signInWithCustomToken().
+async function mintCustomToken(uid, claims, env){
+  if (!env.FIREBASE_SERVICE_ACCOUNT) throw new Error('FIREBASE_SERVICE_ACCOUNT nao configurado');
+  const sa  = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT);
+  const now = Math.floor(Date.now() / 1000);
+  const enc = s => bytesToB64url(new TextEncoder().encode(s));
+  const header  = enc(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+  const payload = enc(JSON.stringify({
+    iss:    sa.client_email,
+    sub:    sa.client_email,
+    aud:    'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit',
+    iat:    now,
+    exp:    now + 3600,
+    uid:    String(uid),
+    claims: claims || {},
+  }));
+  const pemB64   = sa.private_key.replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
+  const key = await crypto.subtle.importKey(
+    'pkcs8', b64ToBytes(pemB64), { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+  const sig = bytesToB64url(new Uint8Array(await crypto.subtle.sign(
+    'RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(header + '.' + payload))));
+  return header + '.' + payload + '.' + sig;
+}
+
 // ── Firestore REST — conversão de valores ────────────────────
 function toFsValue(v){
   if (v === null || v === undefined)     return { nullValue: null };
@@ -223,6 +249,27 @@ async function fsUpdate(path, obj, token){
   });
   if (!res.ok) throw new Error('Firestore UPDATE ' + res.status + ' ' + (await res.text()));
   return true;
+}
+// Busca o doc de `users` por username (login).
+async function fsFindUserByUsername(username, token){
+  const res = await fetch(FS_BASE + ':runQuery', {
+    method:  'POST',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ structuredQuery: {
+      from:  [{ collectionId: 'users' }],
+      where: { fieldFilter: { field: { fieldPath: 'username' }, op: 'EQUAL',
+               value: { stringValue: username } } },
+      limit: 1,
+    } }),
+  });
+  if (!res.ok) throw new Error('Firestore query ' + res.status);
+  const rows = await res.json();
+  for (const row of (rows || [])) if (row.document) {
+    const o = fromFsFields(row.document.fields || {});
+    if (!o.id) { const p = row.document.name.split('/'); o.id = p[p.length - 1]; }
+    return o;
+  }
+  return null;
 }
 // Busca o doc de `users` cujo firebaseUid casa com o uid do token.
 async function fsFindUser(uid, token){
@@ -296,6 +343,31 @@ async function handleRecuperarAcesso(body, env, token){
     active:true, forceChange:true, recuperadoEm:new Date().toISOString(),
   }, token);
   return { ok:true, username:'admin', senha };
+}
+
+// ── Login (rota pública) ─────────────────────────────────────
+// Verifica a senha NO SERVIDOR e devolve um custom token + o usuário.
+async function handleLogin(body, token, env){
+  const username = String(body.username || '').trim();
+  const password = String(body.password || '');
+  if (!username || !password) return { ok:false, erro:'informe usuário e senha' };
+  const user = await fsFindUserByUsername(username, token);
+  if (!user)                return { ok:false, erro:'usuário inválido ou sem acesso' };
+  if (user.active === false) return { ok:false, erro:'usuário inativo' };
+  if (!user.passwordHash)   return { ok:false, erro:'usuário sem senha definida' };
+  if ((await sha256hex(password)) !== user.passwordHash)
+    return { ok:false, erro:'senha incorreta' };
+  // uid estável: reusa firebaseUid se já existe (preserva o 2FA enrollado),
+  // senão usa o id do doc de users.
+  const uid   = user.firebaseUid || user.id;
+  const agora = new Date().toISOString();
+  const upd   = { lastLogin: agora };
+  if (!user.firebaseUid) upd.firebaseUid = uid;
+  await fsUpdate('users/' + user.id, upd, token);
+  const customToken = await mintCustomToken(uid, { role: user.role || '', drg: true }, env);
+  user.firebaseUid = uid;
+  user.lastLogin   = agora;
+  return { ok:true, user, customToken };
 }
 
 // ── Handlers de 2FA ──────────────────────────────────────────
@@ -406,10 +478,14 @@ export default {
     try {
       const body  = await request.json().catch(() => ({}));
 
-      // Rota PÚBLICA — não exige login (o master está trancado para fora).
+      // Rotas PÚBLICAS — não exigem login.
       if (url.pathname === '/recuperar-acesso') {
         const t = await getAccessToken(env);
         return json(await handleRecuperarAcesso(body, env, t), 200, origin);
+      }
+      if (url.pathname === '/login') {
+        const t = await getAccessToken(env);
+        return json(await handleLogin(body, t, env), 200, origin);
       }
 
       const auth  = await verifyIdToken(body.idToken);   // 401 se o token for inválido

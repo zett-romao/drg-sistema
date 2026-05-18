@@ -1005,31 +1005,55 @@ async function doLogin(event){
       errorMsg.textContent='Preencha usuário e senha.';
       errorEl.classList.remove('hidden'); return;
     }
-    const user=Auth.users.find(u=>u.username===username);
-    if(!user||!user.active){
-      Auth.log('LOGIN_FAILED',username,'Usuário não encontrado ou inativo');
-      errorMsg.textContent='Usuário inválido ou sem acesso.';
-      errorEl.classList.remove('hidden'); return;
+
+    let user=null, viaWorker=false;
+
+    // 1) Login pelo Worker — verifica a senha no servidor e devolve um
+    //    custom token (sessão Firebase real). Se o Worker recusar, é erro
+    //    de credencial de verdade e paramos aqui.
+    try {
+      const r=await _workerReqPublic('/login',{username,password});
+      if(r && r.ok && r.user && r.customToken){
+        await firebase.auth().signInWithCustomToken(r.customToken);
+        user=r.user; viaWorker=true;
+      } else if(r && r.ok===false){
+        Auth.log('LOGIN_FAILED',username,r.erro||'recusado pelo servidor');
+        errorMsg.textContent = /senha/i.test(r.erro||'') ? 'Senha incorreta.' : 'Usuário inválido ou sem acesso.';
+        errorEl.classList.remove('hidden'); return;
+      }
+    } catch(e){
+      // Worker fora do ar / inacessível → cai no método antigo (rede de segurança).
+      console.warn('Login via Worker indisponível, usando método local:', (e&&e.message)||e);
     }
-    // Senha — base garantida: hash SHA-256 do método atual
-    const senhaAntigaOk = !!user.passwordHash && (await Auth.hashPassword(password))===user.passwordHash;
-    // Camada nova: Firebase Auth (best-effort, nunca derruba o login)
-    let firebaseOk=false;
-    if(user.email){
-      try { firebaseOk=await _firebaseAuthLogin(user,password,senhaAntigaOk); }
-      catch(e){ console.warn('Firebase Auth login:', e&&e.code||e); }
+
+    // 2) Fallback: método antigo (SHA-256 local) — só roda se o Worker não respondeu.
+    if(!user){
+      const u=Auth.users.find(x=>x.username===username);
+      if(!u||!u.active){
+        Auth.log('LOGIN_FAILED',username,'Usuário não encontrado ou inativo');
+        errorMsg.textContent='Usuário inválido ou sem acesso.';
+        errorEl.classList.remove('hidden'); return;
+      }
+      const senhaAntigaOk = !!u.passwordHash && (await Auth.hashPassword(password))===u.passwordHash;
+      let firebaseOk=false;
+      if(u.email){
+        try { firebaseOk=await _firebaseAuthLogin(u,password,senhaAntigaOk); }
+        catch(e){ console.warn('Firebase Auth login:', e&&e.code||e); }
+      }
+      if(!senhaAntigaOk && !firebaseOk){
+        Auth.log('LOGIN_FAILED',username,'Senha incorreta');
+        errorMsg.textContent='Senha incorreta.';
+        errorEl.classList.remove('hidden'); return;
+      }
+      if(!firebaseOk){ firebase.auth().signInAnonymously().catch(()=>{}); }
+      u.lastLogin=new Date().toISOString();
+      await DB.save('users',u);
+      user=u;
     }
-    if(!senhaAntigaOk && !firebaseOk){
-      Auth.log('LOGIN_FAILED',username,'Senha incorreta');
-      errorMsg.textContent='Senha incorreta.';
-      errorEl.classList.remove('hidden'); return;
-    }
-    // Sem sessão Firebase real → mantém a anônima (compatibilidade)
-    if(!firebaseOk){ firebase.auth().signInAnonymously().catch(()=>{}); }
-    user.lastLogin=new Date().toISOString();
-    await DB.save('users',user);
+
+    // 3) Sessão estabelecida
     Auth.saveSession(user);
-    Auth.log('LOGIN_SUCCESS',username,`Perfil: ${roleLabel(user.role)}${firebaseOk?' · Firebase Auth':''}`);
+    Auth.log('LOGIN_SUCCESS',username,`Perfil: ${roleLabel(user.role)}${viaWorker?' · servidor':''}`);
     document.getElementById('login-screen').classList.add('hidden');
     setVal('login-username',''); setVal('login-password','');
     errorEl.classList.add('hidden');

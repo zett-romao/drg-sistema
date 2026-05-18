@@ -3441,6 +3441,15 @@ async function saveEmployee(){
     Auth.log(State.editingEmployeeId?'EMPLOYEE_UPDATED':'EMPLOYEE_CREATED', null, `${data.nome} (CPF: ${data.cpf||'—'}, Posto: ${data.posto||'—'})`);
     closeModal('modal-employee');
     toast(State.editingEmployeeId?'Colaborador atualizado!':'Colaborador cadastrado!');
+    // Atualiza o cache local na hora (o listener confirma depois) e, se a Folha
+    // de Ponto estiver aberta neste colaborador, refaz a checagem de cadastro —
+    // assim a tarja "Cadastro incompleto" some na hora em que é completado.
+    const _eix=State.employees.findIndex(e=>e.id===data.id);
+    if(_eix>=0) State.employees[_eix]={...State.employees[_eix],...data};
+    else State.employees.push(data);
+    if(State.currentSection==='payroll' && val('payroll-employee')===data.id){
+      onPayrollEmployeeChange();
+    }
   } catch(e){
     console.error('saveEmployee erro:', e, 'data:', data);
     toast('Erro ao salvar: ' + (e?.message || e), 'error');

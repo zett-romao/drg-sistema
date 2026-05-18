@@ -215,6 +215,26 @@ Plano em 4 etapas: **(1)** preparação (Firebase Console: habilitar E-mail/senh
 ### Módulo Aprovação de Pagamentos — CONCLUÍDO (Etapas 4c/4d, 2026-05-17)
 Implementado. Ver as entradas "Feito — Etapa 4c/4d" acima. Diferença vs. o escopo original: a aprovação NÃO usa a senha SHA-256 do `Auth` — usa o **2FA TOTP** verificado no Worker (mais forte que a senha). Cobertura: pagamentos via Asaas (folha individual + lote). Benefícios VT/VR/VA seguem fora (não pagos via integração).
 
+### Funcionalidade pendente — Página de Adiantamentos (PIX)
+Solicitada pelo usuário em 2026-05-18. **Sessão dedicada** — envolve pagamento real, exige foco e teste em sandbox.
+
+**Objetivo:** nova seção "Adiantamentos" que consolida os adiantamentos quinzenais — hoje lançados na folha de cada colaborador, sem lista única.
+
+**Requisitos (definidos com o usuário):**
+- Nova seção/página "Adiantamentos" no menu lateral, no estilo da página de **Aprovações de Pagamentos** (tabela, filtro, contador).
+- Lista **automaticamente** todo colaborador com adiantamento lançado. O adiantamento está no registro `payrolls`: `adiantamentoAtivo` (bool), `adiantamentoPerc` (%), `adiantamentoValor` (R$) — ver `recalculate()` (~linha 5439) e `savePayroll()` (~5634).
+- **Pagamento individual** e **pagamento em lote**.
+- Itens da lista **clicáveis** — clicar abre a folha de ponto do colaborador.
+- **Pagamento = PIX real via Asaas** (decisão do usuário). Reaproveitar o fluxo já pronto do módulo Aprovação de Pagamentos (`aprovacao-worker.js`, 2FA TOTP, coleção `solicitacoesPagamento`, `_aprovacaoReq`).
+
+**Cuidados críticos (dinheiro real):**
+- **Idempotência** — nunca pagar o mesmo adiantamento duas vezes; marcar como pago (status + id da transação) ao confirmar.
+- No lote, erro em um item não derruba os demais.
+- **Testar no sandbox do Asaas** antes de qualquer pagamento real.
+- Integrar com o sistema de perfis (permissão de acesso).
+
+**Status:** especificado, aguardando sessão dedicada para implementação.
+
 ### Limpeza / Operacional
 - **Apagar pasta `Netlify/` local** — só tem `netlify.toml` antigo, projeto não é mais usado.
 - **Apagar projeto Netlify online** (`effervescent-lollipop-d43f31`) — já está pausado pelo Netlify por exceder limite de crédito; antes de excluir, conferir Forms e Domain management (espera-se vazios).

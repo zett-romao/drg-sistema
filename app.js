@@ -9039,7 +9039,7 @@ function _reportBeneficios(){
   // Alinhamento: coluna # centralizada e colunas de valores à direita —
   // aplica-se ao cabeçalho, ao corpo e à linha de totais (tudo alinhado).
   const alinha=`<style>#report-main-table td:nth-child(2),#report-main-table th:nth-child(2){text-align:center}`+
-    `#report-main-table td:nth-child(n+${moneyFrom}),#report-main-table th:nth-child(n+${moneyFrom}){text-align:right}</style>`;
+    `#report-main-table td:nth-child(n+${moneyFrom}),#report-main-table th:nth-child(n+${moneyFrom}){text-align:right;white-space:nowrap}</style>`;
   // Repete a barra de cabeçalho no rodapé, logo acima da linha de totais,
   // para o usuário identificar a qual benefício cada total se refere.
   const headRepeat=`<tr>${['',...cols].map(c=>`<th>${c}</th>`).join('')}</tr>`;

@@ -294,7 +294,8 @@
       <div class="topbar-right">
         <span class="topbar-date" id="topbar-date"></span>
         <div class="topbar-user" onclick="openMinhaConta()" style="cursor:pointer" title="Minha conta — segurança e verificação em 2 etapas">
-          <i class="fa-solid fa-user-tie"></i>
+          <img id="topbar-user-foto" alt="" style="width:24px;height:24px;border-radius:50%;object-fit:cover;display:none">
+          <i class="fa-solid fa-user-tie" id="topbar-user-icon"></i>
           <span id="topbar-user-name">—</span>
           <i class="fa-solid fa-shield-halved" style="margin-left:6px;font-size:12px;opacity:.8"></i>
         </div>
@@ -4474,6 +4475,21 @@
     </div>
     <div class="modal-body">
       <div id="minha-conta-info" style="background:#F1F5FF;padding:10px 14px;border-radius:6px;margin-bottom:14px;font-size:13px"></div>
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border)">
+        <img id="minha-conta-foto-preview" alt="" style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:2px solid var(--border);display:none;flex-shrink:0">
+        <div id="minha-conta-foto-vazio" style="width:64px;height:64px;border-radius:50%;background:#F1F5FF;display:flex;align-items:center;justify-content:center;color:#90A4AE;font-size:26px;flex-shrink:0"><i class="fa-solid fa-user"></i></div>
+        <div style="flex:1;min-width:0">
+          <h4 style="margin:0 0 3px;font-size:14px"><i class="fa-solid fa-camera" style="color:var(--primary)"></i> Foto do perfil</h4>
+          <p style="font-size:12px;color:var(--text-muted);margin:0 0 8px">Aparece no topo do sistema. A imagem é reduzida automaticamente.</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <label class="btn btn-outline" style="font-size:12px;padding:6px 12px;margin:0;cursor:pointer">
+              <i class="fa-solid fa-upload"></i> Escolher foto
+              <input type="file" id="minha-conta-foto-input" accept="image/*" onchange="onMinhaContaFoto(event)" style="display:none">
+            </label>
+            <button class="btn btn-outline" id="minha-conta-foto-remover" onclick="removerFotoUsuario()" style="font-size:12px;padding:6px 12px;display:none;color:#c62828;border-color:#ef9a9a"><i class="fa-solid fa-trash"></i> Remover</button>
+          </div>
+        </div>
+      </div>
       <h4 style="margin:0 0 8px;font-size:14px"><i class="fa-solid fa-mobile-screen-button" style="color:var(--primary)"></i> Verificação em 2 etapas (2FA)</h4>
       <p style="font-size:12px;color:var(--text-muted);margin:0 0 10px">Camada extra de segurança — exigida para autorizar pagamentos. Use o app <strong>Google Authenticator</strong> no seu celular.</p>
       <div id="mfa-status-box" style="font-size:13px;margin-bottom:12px"></div>
@@ -4895,6 +4911,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260518g"></script>
+<script src="app.js?v=20260518h"></script>
 </body>
 </html>

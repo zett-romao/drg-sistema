@@ -1052,6 +1052,80 @@ async function _aprovacaoReq(path, body){
   return data;
 }
 
+// ============================================
+// FOTO DO USUÁRIO (avatar do perfil)
+// ============================================
+function _userFotoKey(){
+  const u=Auth.currentUser||{};
+  return (u.id||u.username||'x').toString().replace(/[^a-zA-Z0-9_-]/g,'_');
+}
+
+// Aplica a foto (data URL) no topo e na prévia do modal Minha Conta. '' = sem foto.
+function _aplicarFotoUsuario(dataUrl){
+  const tImg=document.getElementById('topbar-user-foto');
+  const tIco=document.getElementById('topbar-user-icon');
+  if(tImg && tIco){
+    if(dataUrl){ tImg.src=dataUrl; tImg.style.display=''; tIco.style.display='none'; }
+    else { tImg.removeAttribute('src'); tImg.style.display='none'; tIco.style.display=''; }
+  }
+  const pImg=document.getElementById('minha-conta-foto-preview');
+  const pVaz=document.getElementById('minha-conta-foto-vazio');
+  const pRem=document.getElementById('minha-conta-foto-remover');
+  if(pImg && pVaz){
+    if(dataUrl){ pImg.src=dataUrl; pImg.style.display=''; pVaz.style.display='none'; }
+    else { pImg.removeAttribute('src'); pImg.style.display='none'; pVaz.style.display=''; }
+    if(pRem) pRem.style.display=dataUrl?'':'none';
+  }
+}
+
+// Carrega a foto do usuário logado do Firestore.
+async function loadUserFoto(){
+  try{
+    const d=await DB.getDoc('configuracoes','userfoto_'+_userFotoKey());
+    _aplicarFotoUsuario((d&&d.foto)||'');
+  }catch(e){ /* sem foto — segue com o ícone padrão */ }
+}
+
+// Upload: reduz a imagem escolhida a um avatar pequeno (160px) e salva.
+function onMinhaContaFoto(ev){
+  const file=ev.target.files&&ev.target.files[0];
+  ev.target.value='';
+  if(!file) return;
+  if(!/^image\//.test(file.type||'')){ toast('Selecione um arquivo de imagem.','error'); return; }
+  const reader=new FileReader();
+  reader.onload=()=>{
+    const img=new Image();
+    img.onload=()=>{
+      const S=160, cv=document.createElement('canvas');
+      cv.width=S; cv.height=S;
+      const ctx=cv.getContext('2d');
+      const m=Math.min(img.width,img.height);
+      ctx.drawImage(img,(img.width-m)/2,(img.height-m)/2,m,m,0,0,S,S);
+      _salvarFotoUsuario(cv.toDataURL('image/jpeg',0.82));
+    };
+    img.onerror=()=>toast('Não foi possível ler essa imagem.','error');
+    img.src=reader.result;
+  };
+  reader.onerror=()=>toast('Não foi possível ler o arquivo.','error');
+  reader.readAsDataURL(file);
+}
+
+async function _salvarFotoUsuario(dataUrl){
+  try{
+    await DB.saveDoc('configuracoes','userfoto_'+_userFotoKey(),{foto:dataUrl,updatedAt:new Date().toISOString()},true);
+    _aplicarFotoUsuario(dataUrl);
+    toast('Foto do perfil atualizada!','success');
+  }catch(e){ toast('Erro ao salvar a foto: '+(e.message||e),'error'); }
+}
+
+async function removerFotoUsuario(){
+  try{
+    await DB.saveDoc('configuracoes','userfoto_'+_userFotoKey(),{foto:'',updatedAt:new Date().toISOString()},true);
+    _aplicarFotoUsuario('');
+    toast('Foto removida.','success');
+  }catch(e){ toast('Erro ao remover a foto: '+(e.message||e),'error'); }
+}
+
 async function openMinhaConta(){
   const u = Auth.currentUser;
   if(!u) return;
@@ -1059,6 +1133,7 @@ async function openMinhaConta(){
   const statusEl = document.getElementById('mfa-status-box');
   document.getElementById('mfa-enroll-box').style.display = 'none';
   document.getElementById('modal-minha-conta').classList.remove('hidden');
+  loadUserFoto();
   infoEl.innerHTML = `<strong>${u.username}</strong> — ${u.email||'(sem e-mail cadastrado)'} &middot; Perfil: ${roleLabel(u.role)}`;
   const fu = (typeof firebase!=='undefined' && firebase.auth) ? firebase.auth().currentUser : null;
   if(!fu || fu.isAnonymous){
@@ -1182,6 +1257,7 @@ function roleLabel(role){
 function applyUserSession(user){
   const _tbName=document.getElementById('topbar-user-name');
   if(_tbName) _tbName.textContent=user.username||'';
+  loadUserFoto();
   const mods=getUserModules(user);
   // Usuários & Acessos: master ou quem tem acesso ao log
   const usersLi=document.getElementById('nav-users-li');

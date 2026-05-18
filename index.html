@@ -3741,7 +3741,7 @@
       <input type="hidden" id="atest-ano">
       <div class="info-banner" style="background:#E0F2F1;color:#00695C">
         <i class="fa-solid fa-circle-info"></i>
-        O atestado médico justifica e <strong>paga</strong> os dias ou horas — eles são abatidos das faltas/atrasos, sem desconto no salário.
+        <span>O atestado médico justifica e <strong>paga</strong> os dias ou horas — eles são abatidos das faltas/atrasos, sem desconto no salário.</span>
       </div>
       <div class="form-row">
         <div class="form-group">
@@ -3802,18 +3802,23 @@
       <input type="hidden" id="saida-ano">
       <div class="info-banner" style="background:#FFF3E0;color:#6D4C41">
         <i class="fa-solid fa-circle-info"></i>
-        Registre quando o colaborador saiu no meio do expediente. Os minutos ausentes são <strong>descontados</strong> — a menos que você marque a saída como abonada.
+        <span>Informe o horário em que o colaborador saiu. Se não houver horário de retorno, a saída é considerada até o <strong>fim do turno regular</strong> dele. Os minutos ausentes são descontados — a menos que você marque como abonada.</span>
       </div>
       <div class="form-row">
-        <div class="form-group">
+        <div class="form-group form-group-sm">
           <label>Dia</label>
           <input type="number" id="saida-dia" min="1" max="31" placeholder="Ex.: 14">
         </div>
         <div class="form-group">
-          <label>Minutos ausente</label>
-          <input type="number" id="saida-minutos" min="1" placeholder="Ex.: 90">
+          <label>Horário de saída</label>
+          <input type="time" id="saida-hora-saida" onchange="_saidaRecalcInfo()">
+        </div>
+        <div class="form-group">
+          <label>Horário de retorno <small style="color:#888">(vazio = não voltou)</small></label>
+          <input type="time" id="saida-hora-retorno" onchange="_saidaRecalcInfo()">
         </div>
       </div>
+      <div id="saida-min-info" style="font-size:12px;color:#E65100;margin:-4px 0 10px;min-height:16px"></div>
       <div class="form-group">
         <label>Motivo / justificativa</label>
         <input type="text" id="saida-motivo" placeholder="Ex.: consulta médica, assunto pessoal...">
@@ -4811,6 +4816,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260517ap"></script>
+<script src="app.js?v=20260517aq"></script>
 </body>
 </html>

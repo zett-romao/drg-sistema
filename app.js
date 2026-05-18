@@ -4731,15 +4731,54 @@ function confirmDeleteAtestado(id){
 // ============================================
 // Coleção `saidas`. Cada doc é uma ocorrência de saída no meio do turno.
 // Os minutos ausentes não-abonados são descontados (minutos × valor/min).
+// Minutos de ausência de uma saída. Sem horário de retorno → conta até o
+// fim do turno regular do colaborador. Desconta a sobreposição com o
+// intervalo de refeição (esse tempo não seria trabalhado de qualquer forma).
+function _saidaMinutos(saida, emp){
+  if(!saida) return 0;
+  const ini=timeToMinutes(saida.horarioSaida);
+  if(ini===null) return parseInt(saida.minutos)||0; // retrocompat: saídas antigas só tinham `minutos`
+  let fim = saida.horarioRetorno
+    ? timeToMinutes(saida.horarioRetorno)
+    : timeToMinutes(emp && emp.horarioSaida);
+  if(fim===null) return 0;
+  if(fim<ini) fim+=24*60;
+  let mins=fim-ini;
+  if(emp && emp.horarioRefIni && emp.horarioRefFim){
+    const rI=timeToMinutes(emp.horarioRefIni), rF=timeToMinutes(emp.horarioRefFim);
+    if(rI!==null && rF!==null && rF>rI){
+      mins-=Math.max(0, Math.min(fim,rF)-Math.max(ini,rI));
+    }
+  }
+  return Math.max(0, mins);
+}
+
 function _saidaTotais(empId, mes, ano){
   let minutos=0, minutosDesc=0, count=0;
+  const emp=State.employees.find(e=>e.id===empId);
   (State.saidas||[]).forEach(s=>{
     if(s.employeeId!==empId || s.mes!=mes || s.ano!=ano) return;
-    const m=parseInt(s.minutos)||0;
+    const m=_saidaMinutos(s, emp);
     minutos+=m; count++;
     if(!s.abonada) minutosDesc+=m;
   });
   return {minutos, minutosDesc, count};
+}
+
+// Atualiza o aviso de minutos no modal de saída conforme os horários digitados.
+function _saidaRecalcInfo(){
+  const info=document.getElementById('saida-min-info'); if(!info) return;
+  const emp=State.employees.find(e=>e.id===val('saida-emp-id'));
+  const hs=val('saida-hora-saida'), hr=val('saida-hora-retorno');
+  if(!hs){ info.textContent=''; return; }
+  const m=_saidaMinutos({horarioSaida:hs, horarioRetorno:hr}, emp);
+  if(m>0){
+    info.innerHTML = hr
+      ? `<i class="fa-solid fa-clock"></i> Ausência de <strong>${minutesToStr(m)}</strong>.`
+      : `<i class="fa-solid fa-clock"></i> Sem retorno — contado até a saída regular (${(emp&&emp.horarioSaida)||'—'}): <strong>${minutesToStr(m)}</strong>.`;
+  } else {
+    info.innerHTML = `<span style="color:#c62828"><i class="fa-solid fa-triangle-exclamation"></i> Não dá pra calcular os minutos — confira os horários${emp&&!emp.horarioSaida?' e o horário contratual do colaborador':''}.</span>`;
+  }
 }
 
 function renderSaidasFolha(){
@@ -4750,6 +4789,7 @@ function renderSaidasFolha(){
   const mes=parseInt(val('payroll-mes')||currentMes());
   const ano=parseInt(val('payroll-ano')||currentAno());
   if(!empId){ resumo.textContent='Selecione um colaborador para ver as saídas.'; lista.innerHTML=''; return; }
+  const emp=State.employees.find(e=>e.id===empId);
   const arr=(State.saidas||[]).filter(s=>s.employeeId===empId&&s.mes==mes&&s.ano==ano)
     .sort((a,b)=>(parseInt(a.dia)||0)-(parseInt(b.dia)||0));
   const tot=_saidaTotais(empId,mes,ano);
@@ -4758,13 +4798,16 @@ function renderSaidasFolha(){
     : 'Nenhuma saída registrada neste mês.';
   if(!arr.length){ lista.innerHTML=''; return; }
   lista.innerHTML=arr.map(s=>{
-    const m=parseInt(s.minutos)||0;
+    const m=_saidaMinutos(s, emp);
+    const horario=s.horarioSaida
+      ? `${s.horarioSaida} → ${s.horarioRetorno||'saída regular'}`
+      : '';
     const badge=s.abonada
       ? '<span style="color:#2E7D32;font-size:10px;font-weight:700">ABONADA</span>'
       : '<span style="color:#C62828;font-size:10px;font-weight:700">DESCONTA</span>';
     return `<div style="display:flex;align-items:center;gap:8px;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;margin-bottom:5px">
       <i class="fa-solid fa-person-walking-arrow-right" style="color:#E65100"></i>
-      <span style="flex:1">Dia ${String(s.dia||'?').padStart(2,'0')} · ${minutesToStr(m)}${s.motivo?' — '+s.motivo:''}${s.justificada?' <span style="color:#1565C0;font-size:10px">(justificada)</span>':''}</span>
+      <span style="flex:1">Dia ${String(s.dia||'?').padStart(2,'0')} · ${minutesToStr(m)}${horario?` <small style="color:#888">${horario}</small>`:''}${s.motivo?' — '+s.motivo:''}${s.justificada?' <span style="color:#1565C0;font-size:10px">(justificada)</span>':''}</span>
       ${badge}
       <button class="btn-icon" onclick="openSaidaModal('${s.id}')" title="Editar"><i class="fa-solid fa-pen" style="color:#1565C0"></i></button>
       <button class="btn-icon" onclick="confirmDeleteSaida('${s.id}')" title="Excluir"><i class="fa-solid fa-trash" style="color:#C62828"></i></button>
@@ -4783,19 +4826,28 @@ function openSaidaModal(id){
   const s=id?(State.saidas||[]).find(x=>x.id===id):null;
   setVal('saida-id', s?s.id:'');
   setVal('saida-dia', s?.dia||'');
-  setVal('saida-minutos', s?.minutos||'');
+  setVal('saida-hora-saida', s?.horarioSaida||'');
+  setVal('saida-hora-retorno', s?.horarioRetorno||'');
   setVal('saida-motivo', s?.motivo||'');
   const jc=document.getElementById('saida-justificada'); if(jc) jc.checked=!!s?.justificada;
   const ac=document.getElementById('saida-abonada');     if(ac) ac.checked=!!s?.abonada;
+  _saidaRecalcInfo();
   document.getElementById('modal-saida').classList.remove('hidden');
 }
 
 async function saveSaida(){
   const empId=val('saida-emp-id'); if(!empId){ toast('Colaborador não definido.','error'); return; }
   const dia=parseInt(val('saida-dia'))||0;
-  const minutos=parseInt(val('saida-minutos'))||0;
+  const horarioSaida=val('saida-hora-saida')||'';
+  const horarioRetorno=val('saida-hora-retorno')||'';
   if(dia<1||dia>31){ toast('Informe um dia válido (1 a 31).','error'); return; }
-  if(minutos<1){ toast('Informe os minutos ausentes.','error'); return; }
+  if(!horarioSaida){ toast('Informe o horário de saída.','error'); return; }
+  const emp=State.employees.find(e=>e.id===empId);
+  if(!horarioRetorno && !(emp&&emp.horarioSaida)){
+    toast('Sem horário de retorno e o colaborador não tem horário contratual cadastrado — informe o retorno.','error'); return;
+  }
+  const minutos=_saidaMinutos({horarioSaida,horarioRetorno}, emp);
+  if(minutos<=0){ toast('Os horários informados não geram tempo de ausência — confira.','error'); return; }
   const id=val('saida-id');
   const existente=id?(State.saidas||[]).find(x=>x.id===id):null;
   const btn=document.querySelector('#modal-saida .btn-primary');
@@ -4804,7 +4856,7 @@ async function saveSaida(){
     const doc={
       id:id||genId(), employeeId:empId,
       mes:parseInt(val('saida-mes'))||currentMes(), ano:parseInt(val('saida-ano'))||currentAno(),
-      dia, minutos,
+      dia, horarioSaida, horarioRetorno,
       motivo:val('saida-motivo')||'',
       justificada:!!document.getElementById('saida-justificada')?.checked,
       abonada:!!document.getElementById('saida-abonada')?.checked,
@@ -4813,7 +4865,7 @@ async function saveSaida(){
     };
     await DB.save('saidas', doc);
     const empNome=(State.employees.find(e=>e.id===empId)||{}).nome||'—';
-    Auth.log('SAIDA_LANCADA', null, `${empNome} — dia ${dia}, ${minutos}min${doc.abonada?' (abonada)':''}`);
+    Auth.log('SAIDA_LANCADA', null, `${empNome} — dia ${dia}, ${minutesToStr(minutos)}${doc.abonada?' (abonada)':''}`);
     closeModal('modal-saida');
     toast('Saída registrada!');
     renderSaidasFolha(); recalculate();
@@ -4924,10 +4976,12 @@ function recalculate(){
   }
 
   // Remuneração PROPORCIONAL: salário × (dias pagos ÷ dias previstos na
-  // escala), menos o desconto de atraso. Cumpriu todos os dias previstos →
-  // salário cheio. Trabalhou parte → recebe a fração correspondente.
+  // escala). Cumpriu todos os dias previstos → salário cheio. Trabalhou
+  // parte → recebe a fração correspondente. O desconto de atraso NÃO é
+  // abatido aqui — ele é subtraído UMA vez no líquido final (atrasoEnc) e
+  // nas impressões. Antes era abatido nos dois lugares (desconto dobrado).
   const remuneracaoProp = (diasPrevistos>0) ? salBase*(diasPagos/diasPrevistos) : 0;
-  const remuneracaoBase = Math.max(0, remuneracaoProp - descontoAtraso);
+  const remuneracaoBase = Math.max(0, remuneracaoProp);
   if(salBase>0){
     setVal('payroll-remuneracao', remuneracaoBase.toFixed(2));
   }

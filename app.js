@@ -3039,6 +3039,73 @@ function setEmployeeFilter(filter){
   renderEmployeeTable();
 }
 
+// ── Filtros avançados de Colaboradores (painel flutuante) ───
+function toggleEmpFiltros(){
+  const panel=document.getElementById('emp-filtros-panel'); if(!panel) return;
+  const abrir = panel.style.display==='none' || !panel.style.display;
+  if(abrir){
+    _popularEmpFiltros();
+    panel.style.display='block';
+    setTimeout(()=>document.addEventListener('click',_empFiltrosClickFora),0);
+  } else {
+    panel.style.display='none';
+    document.removeEventListener('click',_empFiltrosClickFora);
+  }
+}
+function _empFiltrosClickFora(e){
+  const wrap=document.querySelector('.emp-filtros-wrap');
+  if(wrap && !wrap.contains(e.target)){
+    const panel=document.getElementById('emp-filtros-panel');
+    if(panel) panel.style.display='none';
+    document.removeEventListener('click',_empFiltrosClickFora);
+  }
+}
+function _popularEmpFiltros(){
+  const f=State.empFilters||{};
+  const distintos=(campo)=>[...new Set((State.employees||[])
+    .map(e=>(e[campo]||'').toString().trim()).filter(Boolean))]
+    .sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  const fill=(id,vals,cur,labelFn)=>{
+    const sel=document.getElementById(id); if(!sel) return;
+    sel.innerHTML='<option value="">Todos</option>'+vals.map(v=>{
+      const esc=String(v).replace(/"/g,'&quot;');
+      return `<option value="${esc}">${labelFn?labelFn(v):v}</option>`;
+    }).join('');
+    sel.value=cur||'';
+  };
+  fill('filtro-posto',  distintos('posto'),  f.posto);
+  fill('filtro-setor',  distintos('setor'),  f.setor);
+  fill('filtro-escala', distintos('escala'), f.escala, v=>escalaLabel(v));
+  const turnoSel=document.getElementById('filtro-turno');
+  if(turnoSel) turnoSel.value=f.turno||'';
+}
+function aplicarEmpFiltros(){
+  State.empFilters={
+    posto:  val('filtro-posto')||'',
+    setor:  val('filtro-setor')||'',
+    escala: val('filtro-escala')||'',
+    turno:  val('filtro-turno')||'',
+  };
+  _updateEmpFiltrosBadge();
+  renderEmployeeTable();
+}
+function limparEmpFiltros(){
+  State.empFilters={posto:'',setor:'',escala:'',turno:''};
+  ['filtro-posto','filtro-setor','filtro-escala','filtro-turno'].forEach(id=>{
+    const s=document.getElementById(id); if(s) s.value='';
+  });
+  _updateEmpFiltrosBadge();
+  renderEmployeeTable();
+}
+function _updateEmpFiltrosBadge(){
+  const f=State.empFilters||{};
+  const n=['posto','setor','escala','turno'].filter(k=>f[k]).length;
+  const badge=document.getElementById('emp-filtros-count');
+  if(badge){ badge.textContent=n; badge.style.display=n?'inline-flex':'none'; }
+  const btn=document.getElementById('btn-emp-filtros');
+  if(btn) btn.classList.toggle('active', n>0);
+}
+
 function statusBadge(status){
   const s = status||'ativo';
   if(s==='ativo')               return '<span class="badge badge-status-ativo">Ativo</span>';
@@ -3060,6 +3127,12 @@ function renderEmployeeTable(){
     String(e.registro||'').includes(query)
   );
   if(State.employeeFilter!=='all') list=list.filter(e=>(e.status||'ativo')===State.employeeFilter);
+  // Filtros avançados (painel "Filtros")
+  const ef=State.empFilters||{};
+  if(ef.posto)  list=list.filter(e=>(e.posto||'')===ef.posto);
+  if(ef.setor)  list=list.filter(e=>(e.setor||'')===ef.setor);
+  if(ef.escala) list=list.filter(e=>(e.escala||'')===ef.escala);
+  if(ef.turno)  list=list.filter(e=>{ const not=!!e.turnoNoturno; return ef.turno==='noturno'?not:!not; });
   const tbody=document.getElementById('employee-tbody');
   const empty=document.getElementById('employee-empty');
   const countEl=document.getElementById('employee-count');

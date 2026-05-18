@@ -422,6 +422,43 @@
               <button class="status-filter-btn" data-filter="afastado" onclick="setEmployeeFilter('afastado')">Afastados INSS</button>
               <button class="status-filter-btn" data-filter="licenca-maternidade" onclick="setEmployeeFilter('licenca-maternidade')">Lic. Maternidade</button>
             </div>
+            <div class="emp-filtros-wrap" style="position:relative">
+              <button type="button" class="status-filter-btn" id="btn-emp-filtros" onclick="toggleEmpFiltros()">
+                <i class="fa-solid fa-filter"></i> Filtros
+                <span id="emp-filtros-count" style="display:none;background:var(--primary);color:#fff;border-radius:10px;padding:0 6px;font-size:10px;font-weight:700;margin-left:4px"></span>
+              </button>
+              <div id="emp-filtros-panel" style="display:none;position:absolute;top:calc(100% + 8px);right:0;z-index:60;background:#fff;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 12px 32px rgba(15,23,42,.16);padding:15px;width:270px">
+                <div style="font-weight:700;font-size:13px;color:var(--text);margin-bottom:11px;display:flex;align-items:center;gap:7px">
+                  <i class="fa-solid fa-sliders" style="color:var(--primary)"></i> Filtrar colaboradores
+                </div>
+                <div style="display:flex;flex-direction:column;gap:10px">
+                  <div>
+                    <label style="font-size:11px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:3px">Posto</label>
+                    <select id="filtro-posto" onchange="aplicarEmpFiltros()" style="width:100%"></select>
+                  </div>
+                  <div>
+                    <label style="font-size:11px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:3px">Setor</label>
+                    <select id="filtro-setor" onchange="aplicarEmpFiltros()" style="width:100%"></select>
+                  </div>
+                  <div>
+                    <label style="font-size:11px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:3px">Escala</label>
+                    <select id="filtro-escala" onchange="aplicarEmpFiltros()" style="width:100%"></select>
+                  </div>
+                  <div>
+                    <label style="font-size:11px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:3px">Turno</label>
+                    <select id="filtro-turno" onchange="aplicarEmpFiltros()" style="width:100%">
+                      <option value="">Todos</option>
+                      <option value="diurno">Diurno</option>
+                      <option value="noturno">Noturno</option>
+                    </select>
+                  </div>
+                </div>
+                <div style="display:flex;gap:8px;margin-top:13px">
+                  <button type="button" class="btn btn-outline" style="flex:1;font-size:12px;padding:6px 8px" onclick="limparEmpFiltros()"><i class="fa-solid fa-eraser"></i> Limpar</button>
+                  <button type="button" class="btn btn-primary" style="flex:1;font-size:12px;padding:6px 8px" onclick="toggleEmpFiltros()"><i class="fa-solid fa-check"></i> Pronto</button>
+                </div>
+              </div>
+            </div>
             <span class="count-badge" id="employee-count">0 colaboradores</span>
           </div>
           <div class="card-body p0">
@@ -4708,6 +4745,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260517an"></script>
+<script src="app.js?v=20260517ao"></script>
 </body>
 </html>

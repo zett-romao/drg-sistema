@@ -12193,6 +12193,10 @@ function _projectEscala12x36(emp, mes, ano, prevDias, anchorOverride){
     const ehCad = temAncoraCad ? _ciclo12x36EhTrabalho(emp, ano, mes, d) : null;
     if(ehCad !== null){
       tipo = ehCad ? 'trabalho' : 'folga';
+    } else if(temAncoraCad){
+      // Tem âncora no cadastro e o dia é ANTERIOR ao início do ciclo:
+      // o colaborador ainda não estava na escala → folga (não pode virar HE).
+      tipo = 'folga';
     } else {
       tipo = ((d - anchor) % 2 === 0) ? 'trabalho' : 'folga';
     }

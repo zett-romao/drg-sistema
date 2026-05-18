@@ -33,19 +33,22 @@ if (typeof firebase !== 'undefined' && firebase.apps && !firebase.apps.length) {
 }
 
 // ================================================================
-//  REGRAS DE SEGURANÇA — atualizadas em 2026-05-17 (Etapa 3 da migração)
+//  REGRAS DE SEGURANÇA — atualizadas em 2026-05-17 (migração S2-B2)
 // ================================================================
-//  Antes era "if true" (qualquer um na internet lia/gravava tudo).
-//  Agora exige autenticação. Os dois apps (gestor e ponto) já fazem
-//  signInAnonymously antes de consultar o Firestore.
+//  Exige autenticação E bloqueia o cliente nas coleções só-servidor
+//  `mfa` (segredos de 2FA) e `users` (login/hashes). Essas duas são
+//  acessadas APENAS pelo Worker drg-aprovacao, via conta de serviço.
 //
 //  FIRESTORE — Firestore Database → Regras → Publicar:
 //
 //  rules_version = '2';
 //  service cloud.firestore {
 //    match /databases/{database}/documents {
-//      match /{document=**} {
-//        allow read, write: if request.auth != null;
+//      match /{col}/{docId} {
+//        allow read, write: if request.auth != null && col != 'mfa' && col != 'users';
+//      }
+//      match /{col}/{docId}/{rest=**} {
+//        allow read, write: if request.auth != null && col != 'mfa' && col != 'users';
 //      }
 //    }
 //  }
@@ -61,6 +64,7 @@ if (typeof firebase !== 'undefined' && firebase.apps && !firebase.apps.length) {
 //    }
 //  }
 //
-//  NOTA: regras granulares (por coleção / por papel, e a coleção `mfa`
-//  só-servidor) virão na Etapa 4, junto com o Worker de aprovação.
+//  NOTA: a Etapa S3 vai endurecer ainda mais — bloquear sessão anônima
+//  nas demais coleções (employees, payrolls...) e rotear o app de ponto
+//  pelo Worker. Storage também será endurecido na S3.
 // ================================================================

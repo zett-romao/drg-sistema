@@ -215,8 +215,8 @@ Plano em 4 etapas: **(1)** preparação (Firebase Console: habilitar E-mail/senh
 ### Módulo Aprovação de Pagamentos — CONCLUÍDO (Etapas 4c/4d, 2026-05-17)
 Implementado. Ver as entradas "Feito — Etapa 4c/4d" acima. Diferença vs. o escopo original: a aprovação NÃO usa a senha SHA-256 do `Auth` — usa o **2FA TOTP** verificado no Worker (mais forte que a senha). Cobertura: pagamentos via Asaas (folha individual + lote). Benefícios VT/VR/VA seguem fora (não pagos via integração).
 
-### Funcionalidade pendente — Página de Adiantamentos (PIX)
-Solicitada pelo usuário em 2026-05-18. **Sessão dedicada** — envolve pagamento real, exige foco e teste em sandbox.
+### Página de Adiantamentos (PIX) — CONCLUÍDA (2026-05-18)
+Solicitada e implementada pelo usuário em 2026-05-18.
 
 **Objetivo:** nova seção "Adiantamentos" que consolida os adiantamentos quinzenais — hoje lançados na folha de cada colaborador, sem lista única.
 
@@ -233,7 +233,7 @@ Solicitada pelo usuário em 2026-05-18. **Sessão dedicada** — envolve pagamen
 - **Testar no sandbox do Asaas** antes de qualquer pagamento real.
 - Integrar com o sistema de perfis (permissão de acesso).
 
-**Status:** especificado, aguardando sessão dedicada para implementação.
+**Status:** IMPLEMENTADA em 2026-05-18 — seção `adiantamentos` (funções `renderAdiantamentos`, `pagarAdiantamento`, `pagarAdiantamentosLote`, `_criarSolicAdiantamento`, `_abrirFolhaColaborador`). O pagamento cria `solicitacoesPagamento` com `origem:'adiantamento'` e `payrollId:''` (isolado do fluxo de salário — não foi preciso mexer no código de pagamento existente); idempotência por `employeeId`+`competencia`+`origem`. O pagamento real continua passando pela tela de Aprovações (2FA + Asaas). **Pendente:** testar com o sandbox do Asaas antes de uso real.
 
 ### Limpeza / Operacional
 - **Apagar pasta `Netlify/` local** — só tem `netlify.toml` antigo, projeto não é mais usado.

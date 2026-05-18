@@ -4928,14 +4928,37 @@ function renderAtrasosFolha(){
     const badge=a.abonado
       ? '<span style="color:#2E7D32;font-size:10px;font-weight:700">ABONADO</span>'
       : '<span style="color:#C62828;font-size:10px;font-weight:700">DESCONTA</span>';
+    const horario=(a.horarioInicio&&a.horarioFim)?` <small style="color:#888">${a.horarioInicio}→${a.horarioFim}</small>`:'';
+    const arq=a.arquivoUrl
+      ? `<a href="${a.arquivoUrl}" target="_blank" title="Ver documento"><i class="fa-solid fa-paperclip" style="color:#1565C0"></i></a>`
+      : '';
     return `<div style="display:flex;align-items:center;gap:8px;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;margin-bottom:5px">
       <i class="fa-solid fa-clock" style="color:#F59E0B"></i>
-      <span style="flex:1">Dia ${String(a.dia||'?').padStart(2,'0')} · ${minutesToStr(m)}${a.motivo?' — '+a.motivo:''}${a.justificado?' <span style="color:#1565C0;font-size:10px">(justificado)</span>':''}</span>
+      <span style="flex:1">Dia ${String(a.dia||'?').padStart(2,'0')} · ${minutesToStr(m)}${horario}${a.motivo?' — '+a.motivo:''}${a.justificado?' <span style="color:#1565C0;font-size:10px">(justificado)</span>':''}</span>
+      ${arq}
       ${badge}
       <button class="btn-icon" onclick="openAtrasoModal('${a.id}')" title="Editar"><i class="fa-solid fa-pen" style="color:#1565C0"></i></button>
       <button class="btn-icon" onclick="confirmDeleteAtraso('${a.id}')" title="Excluir"><i class="fa-solid fa-trash" style="color:#C62828"></i></button>
     </div>`;
   }).join('');
+}
+
+// Calcula os minutos de atraso a partir dos horários de início/fim e atualiza
+// o aviso. Com os dois horários preenchidos, o campo de minutos é automático.
+function _atrasoRecalcInfo(){
+  const info=document.getElementById('atraso-min-info');
+  const minEl=document.getElementById('atraso-minutos');
+  const ini=val('atraso-hora-inicio'), fim=val('atraso-hora-fim');
+  if(ini && fim){
+    let m=timeToMinutes(fim)-timeToMinutes(ini);
+    if(m<0) m+=24*60;
+    m=Math.max(0,m);
+    if(minEl){ minEl.value=m||''; minEl.readOnly=true; minEl.style.background='#f1f5f9'; }
+    if(info) info.innerHTML=`<i class="fa-solid fa-clock"></i> Atraso de <strong>${minutesToStr(m)}</strong> — calculado dos horários.`;
+  } else {
+    if(minEl){ minEl.readOnly=false; minEl.style.background=''; }
+    if(info) info.textContent=(ini||fim)?'Preencha os dois horários para o cálculo automático.':'';
+  }
 }
 
 function openAtrasoModal(id){
@@ -4949,10 +4972,18 @@ function openAtrasoModal(id){
   const a=id?(State.atrasos||[]).find(x=>x.id===id):null;
   setVal('atraso-id', a?a.id:'');
   setVal('atraso-dia', a?.dia||'');
+  setVal('atraso-hora-inicio', a?.horarioInicio||'');
+  setVal('atraso-hora-fim', a?.horarioFim||'');
   setVal('atraso-minutos', a?.minutos||'');
   setVal('atraso-motivo', a?.motivo||'');
   const jc=document.getElementById('atraso-justificado'); if(jc) jc.checked=!!a?.justificado;
   const ac=document.getElementById('atraso-abonado');      if(ac) ac.checked=!!a?.abonado;
+  const fileInput=document.getElementById('atraso-arquivo'); if(fileInput) fileInput.value='';
+  const arqInfo=document.getElementById('atraso-arquivo-atual');
+  if(arqInfo) arqInfo.innerHTML = a?.arquivoUrl
+    ? `<i class="fa-solid fa-paperclip"></i> Documento atual: <a href="${a.arquivoUrl}" target="_blank">${a.arquivoNome||'ver arquivo'}</a> — envie outro para substituir.`
+    : '';
+  _atrasoRecalcInfo();
   document.getElementById('modal-atraso').classList.remove('hidden');
 }
 
@@ -4961,19 +4992,38 @@ async function saveAtraso(){
   const dia=parseInt(val('atraso-dia'))||0;
   const minutos=parseInt(val('atraso-minutos'))||0;
   if(dia<1||dia>31){ toast('Informe um dia válido (1 a 31).','error'); return; }
-  if(minutos<1){ toast('Informe os minutos de atraso.','error'); return; }
-  const id=val('atraso-id');
-  const existente=id?(State.atrasos||[]).find(x=>x.id===id):null;
+  if(minutos<1){ toast('Informe os minutos de atraso (ou os horários de início e fim).','error'); return; }
+  const editId=val('atraso-id');
+  const id=editId||genId();
+  const existente=editId?(State.atrasos||[]).find(x=>x.id===editId):null;
   const btn=document.querySelector('#modal-atraso .btn-primary');
   setBtnLoading(btn,true,'');
   try {
+    let arquivoUrl=existente?.arquivoUrl||'', arquivoNome=existente?.arquivoNome||'';
+    const fileInput=document.getElementById('atraso-arquivo');
+    const file=fileInput&&fileInput.files[0];
+    if(file){
+      DB.initStorage();
+      if(DB.storage){
+        const ext=(file.name.split('.').pop()||'dat').toLowerCase();
+        const ref=DB.storage.ref(`atrasos/${empId}/${id}_${Date.now()}.${ext}`);
+        await ref.put(file);
+        arquivoUrl=await ref.getDownloadURL();
+        arquivoNome=file.name;
+      } else {
+        toast('Storage indisponível — atraso salvo sem o documento.','warning');
+      }
+    }
     const doc={
-      id:id||genId(), employeeId:empId,
+      id, employeeId:empId,
       mes:parseInt(val('atraso-mes'))||currentMes(), ano:parseInt(val('atraso-ano'))||currentAno(),
       dia, minutos,
+      horarioInicio:val('atraso-hora-inicio')||'',
+      horarioFim:val('atraso-hora-fim')||'',
       motivo:val('atraso-motivo')||'',
       justificado:!!document.getElementById('atraso-justificado')?.checked,
       abonado:!!document.getElementById('atraso-abonado')?.checked,
+      arquivoUrl, arquivoNome,
       origem:existente?.origem||'manual',
       createdAt:existente?.createdAt||new Date().toISOString(),
       updatedAt:new Date().toISOString(),

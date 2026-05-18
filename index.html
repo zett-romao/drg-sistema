@@ -3833,7 +3833,7 @@
       <input type="hidden" id="atraso-ano">
       <div class="info-banner" style="background:#FFF8E1;color:#6D4C41">
         <i class="fa-solid fa-scale-balanced"></i>
-        <span>CLT Art. 58 — tolerância de 5 min por batida (máx. 10 min/dia). Informe os minutos que <strong>excedem</strong> a tolerância. Atraso abonado não desconta.</span>
+        <span>CLT Art. 58 — tolerância de 5 min por batida (máx. 10 min/dia). Se o colaborador <strong>não bateu ponto no app</strong>, informe o horário previsto de início e o horário em que chegou — os minutos são calculados. Atraso abonado não desconta.</span>
       </div>
       <div class="form-row">
         <div class="form-group form-group-sm">
@@ -3841,10 +3841,19 @@
           <input type="number" id="atraso-dia" min="1" max="31" placeholder="Ex.: 14">
         </div>
         <div class="form-group">
-          <label>Minutos de atraso</label>
-          <input type="number" id="atraso-minutos" min="1" placeholder="Ex.: 25">
+          <label>Início do atraso <small style="color:#888">(horário previsto)</small></label>
+          <input type="time" id="atraso-hora-inicio" onchange="_atrasoRecalcInfo()">
+        </div>
+        <div class="form-group">
+          <label>Fim do atraso <small style="color:#888">(horário em que chegou)</small></label>
+          <input type="time" id="atraso-hora-fim" onchange="_atrasoRecalcInfo()">
         </div>
       </div>
+      <div class="form-group">
+        <label>Minutos de atraso <small style="color:#888">(automático pelos horários, ou informe direto)</small></label>
+        <input type="number" id="atraso-minutos" min="1" placeholder="Ex.: 25">
+      </div>
+      <div id="atraso-min-info" style="font-size:12px;color:#B45309;margin:-4px 0 10px;min-height:16px"></div>
       <div class="form-group">
         <label>Motivo / justificativa</label>
         <input type="text" id="atraso-motivo" placeholder="Ex.: consulta médica, problema no transporte...">
@@ -3860,6 +3869,11 @@
           <input type="checkbox" id="atraso-abonado">
           <label for="atraso-abonado" style="cursor:pointer"><i class="fa-solid fa-handshake-angle" style="color:#2E7D32"></i> Abonar — <strong>não descontar do salário</strong></label>
         </div>
+      </div>
+      <div class="form-group">
+        <label><i class="fa-solid fa-paperclip"></i> Documento do atraso <small style="color:#888">(opcional — foto ou PDF, fica arquivado no sistema)</small></label>
+        <input type="file" id="atraso-arquivo" accept=".pdf,image/jpeg,image/png,image/webp">
+        <div id="atraso-arquivo-atual" style="font-size:12px;margin-top:4px;color:#B45309"></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -4844,6 +4858,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260518b"></script>
+<script src="app.js?v=20260518c"></script>
 </body>
 </html>

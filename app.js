@@ -773,12 +773,18 @@ function updateDbInfo(){
 }
 
 function toggleDbPanel(){
-  const panel=document.getElementById('db-panel-extra');
-  const chev=document.getElementById('db-chevron');
-  if(!panel) return;
-  const open=panel.style.display!=='none';
-  panel.style.display=open?'none':'block';
-  if(chev) chev.style.transform=open?'':'rotate(180deg)';
+  const db=document.getElementById('sidebar-db');
+  if(!db) return;
+  const open=db.classList.toggle('db-open');
+  if(open) setTimeout(()=>document.addEventListener('click',_closeDbPanelOutside),0);
+  else document.removeEventListener('click',_closeDbPanelOutside);
+}
+function _closeDbPanelOutside(e){
+  const db=document.getElementById('sidebar-db');
+  if(db && !db.contains(e.target)){
+    db.classList.remove('db-open');
+    document.removeEventListener('click',_closeDbPanelOutside);
+  }
 }
 
 // ============================================

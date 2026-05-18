@@ -8,7 +8,7 @@
   <meta http-equiv="Expires" content="0">
   <title id="page-title">D.R. Global Multi Services — Sistema de Gestão de Colaboradores</title>
   <link rel="icon" href="logo.png" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20260518a">
+  <link rel="stylesheet" href="styles.css?v=20260518b">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -243,21 +243,22 @@
       </button>
     </div>
 
-    <div class="sidebar-db">
-      <div class="sidebar-db-title db-panel-toggle" onclick="toggleDbPanel()" title="Expandir / recolher">
-        <i class="fa-solid fa-database"></i>
-        <span>Banco de Dados</span>
-        <i class="fa-solid fa-chevron-down" id="db-chevron" style="margin-left:auto;font-size:9px;transition:transform .25s"></i>
-      </div>
-      <button class="db-btn db-btn-auto" id="btn-auto-backup" onclick="setupAutoBackup()" title="Configurar backup automático a cada 5 min">
-        <i class="fa-solid fa-rotate"></i>
-        <span id="auto-backup-label">Auto-backup: desligado</span>
+    <div class="sidebar-db" id="sidebar-db">
+      <button class="db-more-btn" onclick="toggleDbPanel()" title="Banco de dados, backup e mais">
+        <i class="fa-solid fa-ellipsis"></i>
+        <span>Mais</span>
+        <span class="db-status-dot" title="Status do auto-backup"></span>
       </button>
-      <div class="auto-backup-status hidden" id="auto-backup-status">
-        <span class="ab-dot"></span>
-        <span id="ab-next-label">Próximo em 5:00</span>
-      </div>
-      <div id="db-panel-extra" style="display:none">
+      <div class="sidebar-db-flyout">
+        <div class="db-flyout-title"><i class="fa-solid fa-database"></i> Banco de Dados</div>
+        <button class="db-btn db-btn-auto" id="btn-auto-backup" onclick="setupAutoBackup()" title="Configurar backup automático a cada 5 min">
+          <i class="fa-solid fa-rotate"></i>
+          <span id="auto-backup-label">Auto-backup: desligado</span>
+        </button>
+        <div class="auto-backup-status hidden" id="auto-backup-status">
+          <span class="ab-dot"></span>
+          <span id="ab-next-label">Próximo em 5:00</span>
+        </div>
         <button class="db-btn db-btn-cct" onclick="openCctModal()" title="Convenção Coletiva de Trabalho">
           <i class="fa-solid fa-file-contract"></i>
           <span>Importar CCT</span>
@@ -271,8 +272,8 @@
           <span>Importar backup</span>
           <input type="file" id="import-file" accept=".json" onchange="importDatabase(event)" style="display:none">
         </label>
+        <div class="db-info" id="db-info"></div>
       </div>
-      <div class="db-info" id="db-info"></div>
     </div>
 
     <div class="sidebar-footer">
@@ -4863,6 +4864,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260518d"></script>
+<script src="app.js?v=20260518e"></script>
 </body>
 </html>

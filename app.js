@@ -1180,9 +1180,8 @@ function roleLabel(role){
 }
 
 function applyUserSession(user){
-  document.getElementById('su-avatar').textContent=initials(user.username);
-  document.getElementById('su-name').textContent=user.username;
-  document.getElementById('su-role').textContent=roleLabel(user.role);
+  const _tbName=document.getElementById('topbar-user-name');
+  if(_tbName) _tbName.textContent=user.username||'';
   const mods=getUserModules(user);
   // Usuários & Acessos: master ou quem tem acesso ao log
   const usersLi=document.getElementById('nav-users-li');

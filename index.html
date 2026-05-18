@@ -237,18 +237,6 @@
       </li>
     </ul>
 
-    <!-- Sidebar: usuário logado -->
-    <div class="sidebar-user" id="sidebar-user">
-      <div class="su-avatar" id="su-avatar">?</div>
-      <div class="su-info">
-        <span class="su-name" id="su-name">—</span>
-        <span class="su-role" id="su-role">—</span>
-      </div>
-      <button class="su-logout" onclick="doLogout()" title="Sair">
-        <i class="fa-solid fa-right-from-bracket"></i>
-      </button>
-    </div>
-
     <div class="sidebar-db" id="sidebar-db">
       <button class="db-more-btn" onclick="toggleDbPanel()" title="Banco de dados, backup e mais">
         <i class="fa-solid fa-ellipsis"></i>
@@ -307,7 +295,7 @@
         <span class="topbar-date" id="topbar-date"></span>
         <div class="topbar-user" onclick="openMinhaConta()" style="cursor:pointer" title="Minha conta — segurança e verificação em 2 etapas">
           <i class="fa-solid fa-user-tie"></i>
-          <span>Gestor</span>
+          <span id="topbar-user-name">—</span>
           <i class="fa-solid fa-shield-halved" style="margin-left:6px;font-size:12px;opacity:.8"></i>
         </div>
         <button class="topbar-logout" onclick="confirmLogout()" title="Sair do sistema"
@@ -4907,6 +4895,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260518f"></script>
+<script src="app.js?v=20260518g"></script>
 </body>
 </html>

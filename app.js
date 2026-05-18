@@ -9033,7 +9033,10 @@ function _reportBeneficios(){
     }).join('') : `<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text-muted)">Nenhum colaborador encontrado</td></tr>`;
     tfoot=`<tr><td colspan="6">TOTAL</td><td><strong>${fmtMoney(tot)}</strong></td></tr>`;
   }
-  document.getElementById('report-body-area').innerHTML=_empTable(cols,rows,tfoot);
+  // Repete a barra de cabeçalho no rodapé, logo acima da linha de totais,
+  // para o usuário identificar a qual benefício cada total se refere.
+  const headRepeat=`<tr>${['',...cols].map(c=>`<th>${c}</th>`).join('')}</tr>`;
+  document.getElementById('report-body-area').innerHTML=_empTable(cols,rows,headRepeat+tfoot);
 }
 
 // 2. Cadastral Completo

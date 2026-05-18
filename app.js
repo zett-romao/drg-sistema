@@ -3668,6 +3668,7 @@ function onPayrollEmployeeChange(){
       _updateFolhaStatusBadge();
       renderAtestadosFolha();
       renderSaidasFolha();
+      renderAtrasosFolha();
       return;
     }
     const saved=State.payrolls.find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
@@ -3712,6 +3713,7 @@ function onPayrollEmployeeChange(){
   _updateFolhaStatusBadge();
   renderAtestadosFolha();
   renderSaidasFolha();
+  renderAtrasosFolha();
 }
 
 // Reset apenas dos campos da folha (não toca em vt-dia/vr-dia/pix/horarios — vêm do cadastro)
@@ -4890,6 +4892,119 @@ function confirmDeleteSaida(id){
   document.getElementById('modal-confirm').classList.remove('hidden');
 }
 
+// ============================================
+// ATRASOS
+// ============================================
+// Coleção `atrasos`. Cada doc é uma ocorrência de atraso. Os minutos das
+// ocorrências não-abonadas descontam (minutos × valor/min).
+function _atrasoTotais(empId, mes, ano){
+  let minutos=0, minutosDesc=0, count=0;
+  (State.atrasos||[]).forEach(a=>{
+    if(a.employeeId!==empId || a.mes!=mes || a.ano!=ano) return;
+    const m=parseInt(a.minutos)||0;
+    minutos+=m; count++;
+    if(!a.abonado) minutosDesc+=m;
+  });
+  return {minutos, minutosDesc, count};
+}
+
+function renderAtrasosFolha(){
+  const lista=document.getElementById('atrasos-lista');
+  const resumo=document.getElementById('atrasos-resumo');
+  if(!lista||!resumo) return;
+  const empId=val('payroll-employee');
+  const mes=parseInt(val('payroll-mes')||currentMes());
+  const ano=parseInt(val('payroll-ano')||currentAno());
+  if(!empId){ resumo.textContent='Selecione um colaborador para ver os atrasos.'; lista.innerHTML=''; return; }
+  const arr=(State.atrasos||[]).filter(a=>a.employeeId===empId&&a.mes==mes&&a.ano==ano)
+    .sort((a,b)=>(parseInt(a.dia)||0)-(parseInt(b.dia)||0));
+  const tot=_atrasoTotais(empId,mes,ano);
+  resumo.innerHTML = tot.count
+    ? `<i class="fa-solid fa-circle-info"></i> <strong>${tot.count} atraso(s) · ${minutesToStr(tot.minutos)}</strong> — ${tot.minutosDesc>0?minutesToStr(tot.minutosDesc)+' com desconto':'todos abonados'}.`
+    : 'Nenhum atraso registrado neste mês.';
+  if(!arr.length){ lista.innerHTML=''; return; }
+  lista.innerHTML=arr.map(a=>{
+    const m=parseInt(a.minutos)||0;
+    const badge=a.abonado
+      ? '<span style="color:#2E7D32;font-size:10px;font-weight:700">ABONADO</span>'
+      : '<span style="color:#C62828;font-size:10px;font-weight:700">DESCONTA</span>';
+    return `<div style="display:flex;align-items:center;gap:8px;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;margin-bottom:5px">
+      <i class="fa-solid fa-clock" style="color:#F59E0B"></i>
+      <span style="flex:1">Dia ${String(a.dia||'?').padStart(2,'0')} · ${minutesToStr(m)}${a.motivo?' — '+a.motivo:''}${a.justificado?' <span style="color:#1565C0;font-size:10px">(justificado)</span>':''}</span>
+      ${badge}
+      <button class="btn-icon" onclick="openAtrasoModal('${a.id}')" title="Editar"><i class="fa-solid fa-pen" style="color:#1565C0"></i></button>
+      <button class="btn-icon" onclick="confirmDeleteAtraso('${a.id}')" title="Excluir"><i class="fa-solid fa-trash" style="color:#C62828"></i></button>
+    </div>`;
+  }).join('');
+}
+
+function openAtrasoModal(id){
+  const empId=val('payroll-employee');
+  if(!empId){ toast('Selecione um colaborador na folha primeiro.','error'); return; }
+  const emp=State.employees.find(e=>e.id===empId)||{};
+  const mes=parseInt(val('payroll-mes')||currentMes());
+  const ano=parseInt(val('payroll-ano')||currentAno());
+  setVal('atraso-emp-id',empId); setVal('atraso-mes',mes); setVal('atraso-ano',ano);
+  document.getElementById('atraso-emp-nome').textContent=emp.nome||'—';
+  const a=id?(State.atrasos||[]).find(x=>x.id===id):null;
+  setVal('atraso-id', a?a.id:'');
+  setVal('atraso-dia', a?.dia||'');
+  setVal('atraso-minutos', a?.minutos||'');
+  setVal('atraso-motivo', a?.motivo||'');
+  const jc=document.getElementById('atraso-justificado'); if(jc) jc.checked=!!a?.justificado;
+  const ac=document.getElementById('atraso-abonado');      if(ac) ac.checked=!!a?.abonado;
+  document.getElementById('modal-atraso').classList.remove('hidden');
+}
+
+async function saveAtraso(){
+  const empId=val('atraso-emp-id'); if(!empId){ toast('Colaborador não definido.','error'); return; }
+  const dia=parseInt(val('atraso-dia'))||0;
+  const minutos=parseInt(val('atraso-minutos'))||0;
+  if(dia<1||dia>31){ toast('Informe um dia válido (1 a 31).','error'); return; }
+  if(minutos<1){ toast('Informe os minutos de atraso.','error'); return; }
+  const id=val('atraso-id');
+  const existente=id?(State.atrasos||[]).find(x=>x.id===id):null;
+  const btn=document.querySelector('#modal-atraso .btn-primary');
+  setBtnLoading(btn,true,'');
+  try {
+    const doc={
+      id:id||genId(), employeeId:empId,
+      mes:parseInt(val('atraso-mes'))||currentMes(), ano:parseInt(val('atraso-ano'))||currentAno(),
+      dia, minutos,
+      motivo:val('atraso-motivo')||'',
+      justificado:!!document.getElementById('atraso-justificado')?.checked,
+      abonado:!!document.getElementById('atraso-abonado')?.checked,
+      origem:existente?.origem||'manual',
+      createdAt:existente?.createdAt||new Date().toISOString(),
+      updatedAt:new Date().toISOString(),
+    };
+    await DB.save('atrasos', doc);
+    const empNome=(State.employees.find(e=>e.id===empId)||{}).nome||'—';
+    Auth.log('ATRASO_LANCADO', null, `${empNome} — dia ${dia}, ${minutesToStr(minutos)}${doc.abonado?' (abonado)':''}`);
+    closeModal('modal-atraso');
+    toast('Atraso registrado!');
+    renderAtrasosFolha(); recalculate();
+  } catch(e){
+    toast('Erro ao salvar atraso: '+(e?.message||e),'error');
+  } finally {
+    setBtnLoading(btn,false,'<i class="fa-solid fa-floppy-disk"></i> Salvar');
+  }
+}
+
+function confirmDeleteAtraso(id){
+  if(!(State.atrasos||[]).some(x=>x.id===id)) return;
+  document.getElementById('confirm-message').textContent='Excluir este atraso?';
+  const btn=document.getElementById('confirm-ok-btn');
+  btn.innerHTML='<i class="fa-solid fa-trash"></i> Excluir';
+  btn.onclick=async()=>{
+    try { await DB.remove('atrasos', id); } catch(e){}
+    closeModal('modal-confirm');
+    renderAtrasosFolha(); recalculate();
+    toast('Atraso excluído.','warning');
+  };
+  document.getElementById('modal-confirm').classList.remove('hidden');
+}
+
 // Conta os dias de TRABALHO previstos no mês para o colaborador, conforme a
 // escala (escala salva > âncora 12x36 > contratual). Base do proporcional.
 function _diasPrevistosEscala(emp, mes, ano){
@@ -4955,25 +5070,14 @@ function recalculate(){
   // aos dias previstos — dias extras viram HE, não inflam a remuneração.
   const diasPagos = Math.min(diasPrevistos || (dias + _atest.dias), dias + _atest.dias);
 
-  // Atrasos em minutos (campo opcional)
-  const minutosAtraso = numVal('payroll-atraso-min')||0;
-  // Abono de atraso: se abonado, registra mas não desconta do salário
-  const atrasoAbonado = !!document.getElementById('payroll-atraso-abonado')?.checked;
-  // Atestado abate horas de atraso; tolerância CLT 10min/dia; senão desconta (exceto abonado)
-  const minutosAtrasoEf = Math.max(0, minutosAtraso - _atest.horasMin);
-  const descontoAtraso = (minutosAtrasoEf>0 && !atrasoAbonado) ? minutosAtrasoEf*valorMinuto : 0;
+  // Atrasos — lista de ocorrências (coleção `atrasos`). Só as ocorrências
+  // NÃO abonadas descontam. O atestado abate horas de atraso.
+  const _atrasoTot = _atrasoTotais(val('payroll-employee'), _mesR, _anoR);
+  const minutosAtraso = _atrasoTot.minutos;
+  const minutosAtrasoEf = Math.max(0, _atrasoTot.minutosDesc - _atest.horasMin);
+  const descontoAtraso = minutosAtrasoEf>0 ? minutosAtrasoEf*valorMinuto : 0;
+  setVal('payroll-atraso-min', minutosAtraso||'');
   setVal('payroll-desconto-atraso', descontoAtraso>0 ? descontoAtraso.toFixed(2) : '0.00');
-  // Nota visual do abono
-  const atrasoNote = document.getElementById('atraso-abono-note');
-  if(atrasoNote){
-    if(minutosAtraso>0 && atrasoAbonado){
-      const tipoTxt = (val('payroll-atraso-tipo')==='motivado') ? 'motivado' : 'imotivado';
-      atrasoNote.style.display='';
-      atrasoNote.innerHTML=`<i class="fa-solid fa-handshake-angle"></i> Atraso de <strong>${minutosAtraso} min</strong> (${tipoTxt}) <strong>abonado</strong> — não será descontado do salário.`;
-    } else {
-      atrasoNote.style.display='none';
-    }
-  }
 
   // Remuneração PROPORCIONAL: salário × (dias pagos ÷ dias previstos na
   // escala). Cumpriu todos os dias previstos → salário cheio. Trabalhou
@@ -5320,11 +5424,10 @@ function loadPayrollRecord(id){
   setVal('payroll-noturno',p.adNoturno||'');
   setVal('payroll-acumulo',p.acumuloFuncao||'');
   setVal('payroll-insalubridade',p.insalubridade||'');
+  // Atrasos: ocorrências vêm da coleção `atrasos`; o recalculate preenche os
+  // campos ocultos de total/desconto. Aqui só restaura o total salvo.
   setVal('payroll-atraso-min',p.minutosAtraso||'');
   setVal('payroll-desconto-atraso',p.descontoAtraso||'');
-  setVal('payroll-atraso-tipo',p.atrasoTipo||'imotivado');
-  const _atrChk=document.getElementById('payroll-atraso-abonado'); if(_atrChk) _atrChk.checked=!!p.atrasoAbonado;
-  setVal('payroll-atraso-justificativa',p.atrasoJustificativa||'');
   setVal('payroll-adiantamento-ativo',p.adiantamentoAtivo?'sim':'nao');
   setVal('payroll-adiantamento-perc',p.adiantamentoPerc||40);
   setVal('payroll-adiantamento-valor',p.adiantamentoValor||'');
@@ -5417,11 +5520,9 @@ async function savePayroll(){
     adNoturno:numVal('payroll-noturno'),
     acumuloFuncao:numVal('payroll-acumulo')||0,
     insalubridade:numVal('payroll-insalubridade')||0,
+    // Atrasos — detalhe na coleção `atrasos`; aqui ficam só os totais.
     minutosAtraso:numVal('payroll-atraso-min')||0,
     descontoAtraso:numVal('payroll-desconto-atraso')||0,
-    atrasoTipo:val('payroll-atraso-tipo')||'imotivado',
-    atrasoAbonado:!!document.getElementById('payroll-atraso-abonado')?.checked,
-    atrasoJustificativa:val('payroll-atraso-justificativa')||'',
     adiantamentoAtivo:val('payroll-adiantamento-ativo')==='sim',
     adiantamentoPerc:parseInt(val('payroll-adiantamento-perc')||'40'),
     adiantamentoValor:val('payroll-adiantamento-ativo')==='sim'?numVal('payroll-adiantamento-valor'):0,
@@ -10291,10 +10392,11 @@ async function applyPontoManual(){
   // Sempre grava o total de HE — inclusive vazio quando zerou (HE não
   // aprovada). Antes só gravava se >0, deixando valor velho na folha.
   setVal('payroll-he-total', heHorasAplic>0 ? heHorasAplic : '');
-  setVal('payroll-atraso-min', totalAtrasoMin>0 ? totalAtrasoMin : '');
+  // O atraso NÃO é mais preenchido a partir do ponto — é lançado como
+  // ocorrências no card de Atrasos. O ponto só informa o que detectou.
   recalculate();
   closeModal('modal-ponto-manual');
-  toast(`Aplicado: ${diasTrabalhados} dias trabalhados / ${faltas} falta(s)${totalHEmin>0?' / '+minutesToStr(totalHEmin)+' HE':''}${totalAtrasoMin>0?' / '+minutesToStr(totalAtrasoMin)+' atraso':''}.`);
+  toast(`Aplicado: ${diasTrabalhados} dias trabalhados / ${faltas} falta(s)${totalHEmin>0?' / '+minutesToStr(totalHEmin)+' HE':''}${totalAtrasoMin>0?` / o ponto detectou ${minutesToStr(totalAtrasoMin)} de atraso — registre no card Atrasos`:''}.`);
 }
 
 // ============================================
@@ -10443,9 +10545,6 @@ function printFolhaPonto(isPreview=false){
   const adiantamento=numVal('payroll-adiantamento-valor')||0;
   const descontoAtraso=numVal('payroll-desconto-atraso')||0;
   const minutosAtraso=numVal('payroll-atraso-min')||0;
-  const atrasoAbonado=!!document.getElementById('payroll-atraso-abonado')?.checked;
-  const atrasoTipo=val('payroll-atraso-tipo')||'imotivado';
-  const atrasoJustificativa=val('payroll-atraso-justificativa')||'';
   const descontoSaida=numVal('payroll-desconto-saida')||0;
   const minutosSaida=numVal('payroll-saida-min')||0;
   // VT/VR/VA são benefícios pagos à parte (vale/cartão) — não somam no líquido
@@ -10613,7 +10712,7 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
     ${acumulo>0?`<tr><td class="fin-label">Acúmulo de Função (+20%)</td><td class="fin-value">${fmtMoney(acumulo)}</td></tr>`:''}
     ${insalubridade>0?`<tr><td class="fin-label">Insalubridade</td><td class="fin-value">${fmtMoney(insalubridade)}</td></tr>`:''}
     <tr><td class="fin-label">Comissão de Boa Permanência</td><td class="fin-value">${bonificacao>0?fmtMoney(bonificacao):'<strong style="color:#999">N/C</strong>'}</td></tr>
-    ${minutosAtraso>0?`<tr><td class="fin-label">${atrasoAbonado?'Atraso Abonado':'Desconto Atraso'} — ${minutosAtraso} min (${atrasoTipo==='motivado'?'motivado':'imotivado'})${atrasoJustificativa?` <small style="color:#666">&middot; ${atrasoJustificativa}</small>`:''}</td><td class="fin-value" style="color:${atrasoAbonado?'#2E7D32':'#c0392b'}">${atrasoAbonado?'R$ 0,00':fmtMoney(descontoAtraso)}</td></tr>`:''}
+    ${minutosAtraso>0?`<tr><td class="fin-label">Desconto Atraso — ${minutosAtraso} min atrasados</td><td class="fin-value" style="color:${descontoAtraso>0?'#c0392b':'#2E7D32'}">${descontoAtraso>0?fmtMoney(descontoAtraso):'R$ 0,00'}</td></tr>`:''}
     ${minutosSaida>0?`<tr><td class="fin-label">Desconto Saídas — ${minutosSaida} min de saída no expediente</td><td class="fin-value" style="color:${descontoSaida>0?'#c0392b':'#2E7D32'}">${descontoSaida>0?fmtMoney(descontoSaida):'R$ 0,00'}</td></tr>`:''}
     ${adiantamento>0?`<tr><td class="fin-label">Adiantamento (${numVal('payroll-adiantamento-perc')||40}%)</td><td class="fin-value" style="color:#c0392b">${fmtMoney(adiantamento)}</td></tr>`:''}
     <tr class="fin-total"><td class="fin-label" style="color:#fff">TOTAL LÍQUIDO A RECEBER</td><td class="fin-value" style="color:#fff">${fmtMoney(totalLiquido)}</td></tr>
@@ -10693,9 +10792,6 @@ function _buildFolhaHtmlFromRecord(emp, p){
   const adiantamentoPerc= p.adiantamentoPerc||40;
   const descontoAtraso  = p.descontoAtraso||0;
   const minutosAtraso   = p.minutosAtraso||0;
-  const atrasoAbonado   = !!p.atrasoAbonado;
-  const atrasoTipo      = p.atrasoTipo||'imotivado';
-  const atrasoJustificativa = p.atrasoJustificativa||'';
   const descontoSaida   = p.descontoSaida||0;
   const minutosSaida    = p.minutosSaida||0;
   // Encargos legais (salvos a partir da v2026-05-08; fallback zero para registros antigos)
@@ -10863,7 +10959,7 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
       ${irrfVal>0?`<tr><td class="fin-label">IRRF</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(irrfVal)})</td></tr>`:''}
       ${pensaoVal>0?`<tr><td class="fin-label">Pensão Alimentícia</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(pensaoVal)})</td></tr>`:''}
       ${planoSaudeVal>0?`<tr><td class="fin-label">Plano de Saúde</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(planoSaudeVal)})</td></tr>`:''}
-      ${minutosAtraso>0?`<tr><td class="fin-label">${atrasoAbonado?'Atraso Abonado':'Desconto Atraso'} — ${minutosAtraso} min (${atrasoTipo==='motivado'?'motivado':'imotivado'})${atrasoJustificativa?` <small style="color:#666">&middot; ${atrasoJustificativa}</small>`:''}</td><td class="fin-value" style="color:${atrasoAbonado?'#2E7D32':'#c0392b'}">${atrasoAbonado?'R$ 0,00':`(${fmtMoney(descontoAtraso)})`}</td></tr>`:''}
+      ${minutosAtraso>0?`<tr><td class="fin-label">Desconto Atraso — ${minutosAtraso} min atrasados</td><td class="fin-value" style="color:${descontoAtraso>0?'#c0392b':'#2E7D32'}">${descontoAtraso>0?`(${fmtMoney(descontoAtraso)})`:'R$ 0,00'}</td></tr>`:''}
       ${minutosSaida>0?`<tr><td class="fin-label">Desconto Saídas — ${minutosSaida} min de saída no expediente</td><td class="fin-value" style="color:${descontoSaida>0?'#c0392b':'#2E7D32'}">${descontoSaida>0?`(${fmtMoney(descontoSaida)})`:'R$ 0,00'}</td></tr>`:''}
       ${adiantamento>0?`<tr><td class="fin-label">Adiantamento (${adiantamentoPerc}%)</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(adiantamento)})</td></tr>`:''}
       ${outrosDescVal>0?`<tr><td class="fin-label">Outros Descontos</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(outrosDescVal)})</td></tr>`:''}
@@ -13137,6 +13233,10 @@ async function init(){
   DB.listen('saidas', data => {
     State.saidas = data;
     if(State.currentSection==='payroll'){ renderSaidasFolha(); recalculate(); }
+  });
+  DB.listen('atrasos', data => {
+    State.atrasos = data;
+    if(State.currentSection==='payroll'){ renderAtrasosFolha(); recalculate(); }
   });
   DB.listen('escalasModelos', data => {
     State.escalasModelos = data;

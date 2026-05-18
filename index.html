@@ -658,43 +658,19 @@
                 </div>
 
                 <!-- Atrasos -->
-                <div class="form-row" style="margin-top:8px">
-                  <div class="form-group">
-                    <label><i class="fa-solid fa-clock text-warning"></i> Atrasos acumulados no mês <small>(minutos)</small></label>
-                    <input type="number" id="payroll-atraso-min" min="0" placeholder="0" oninput="recalculate()"
-                      title="CLT Art.58: tolerância de 5min/batida, máx 10min/dia. Informe os minutos que excedem a tolerância.">
+                <div class="benefit-card" id="atrasos-card" style="border-left:3px solid #F59E0B">
+                  <div class="benefit-label">
+                    <i class="fa-solid fa-clock" style="color:#F59E0B"></i>
+                    <span>Atrasos</span>
+                    <span class="benefit-platform">desconta os minutos atrasados</span>
                   </div>
-                  <div class="form-group">
-                    <label><i class="fa-solid fa-circle-info text-muted"></i> Desconto por atraso: R$</label>
-                    <input type="number" id="payroll-desconto-atraso" min="0" step="0.01" placeholder="0,00" readonly class="input-readonly">
-                  </div>
-                </div>
-                <div class="form-row">
-                  <div class="form-group">
-                    <label><i class="fa-solid fa-tag" style="color:#5C6BC0"></i> Tipo do atraso</label>
-                    <select id="payroll-atraso-tipo" onchange="recalculate()">
-                      <option value="imotivado">Imotivado — sem justificativa</option>
-                      <option value="motivado">Motivado — com justificativa</option>
-                    </select>
-                  </div>
-                  <div class="form-group form-group-2">
-                    <label><i class="fa-solid fa-comment-dots" style="color:#5C6BC0"></i> Justificativa / motivo do atraso</label>
-                    <input type="text" id="payroll-atraso-justificativa" placeholder="Ex.: consulta médica, problema no transporte...">
-                  </div>
-                </div>
-                <div class="form-row">
-                  <div class="form-group" style="grid-column:1 / -1">
-                    <div class="checkbox-group">
-                      <input type="checkbox" id="payroll-atraso-abonado" onchange="recalculate()">
-                      <label for="payroll-atraso-abonado" style="font-size:14px;font-weight:600;color:var(--text);cursor:pointer">
-                        <i class="fa-solid fa-handshake-angle" style="color:#2E7D32"></i> Abonar este atraso — <strong>não descontar do salário</strong>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-                <div id="atraso-abono-note" style="display:none;margin-top:6px;padding:7px 10px;background:#E8F5E9;border-left:3px solid #2E7D32;border-radius:4px;font-size:12px;color:#1B5E20"></div>
-                <div class="form-group" style="font-size:11px;color:var(--text-muted);margin-top:6px;margin-bottom:8px">
-                  <i class="fa-solid fa-scale-balanced"></i> CLT Art. 58 — Tolerância: 5 min por batida, máx 10 min/dia. Se exceder, desconta integralmente — exceto se o atraso for abonado.
+                  <div id="atrasos-resumo" style="font-size:12px;color:#B45309;margin-bottom:6px"></div>
+                  <div id="atrasos-lista"></div>
+                  <button type="button" class="btn btn-outline" onclick="openAtrasoModal()" style="margin-top:8px;font-size:12px;color:#B45309;border-color:#F59E0B">
+                    <i class="fa-solid fa-plus"></i> Adicionar atraso
+                  </button>
+                  <input type="hidden" id="payroll-atraso-min" value="">
+                  <input type="hidden" id="payroll-desconto-atraso" value="">
                 </div>
 
                 <!-- Atestados -->
@@ -3843,6 +3819,56 @@
   </div>
 </div>
 
+<!-- ===== MODAL: ATRASO ===== -->
+<div class="modal-overlay hidden" id="modal-atraso" onclick="closeModal('modal-atraso', event)">
+  <div class="modal-dialog" style="max-width:460px">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-clock" style="color:#F59E0B"></i> Atraso — <span id="atraso-emp-nome"></span></h3>
+      <button class="modal-close" onclick="closeModal('modal-atraso')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="atraso-id">
+      <input type="hidden" id="atraso-emp-id">
+      <input type="hidden" id="atraso-mes">
+      <input type="hidden" id="atraso-ano">
+      <div class="info-banner" style="background:#FFF8E1;color:#6D4C41">
+        <i class="fa-solid fa-scale-balanced"></i>
+        <span>CLT Art. 58 — tolerância de 5 min por batida (máx. 10 min/dia). Informe os minutos que <strong>excedem</strong> a tolerância. Atraso abonado não desconta.</span>
+      </div>
+      <div class="form-row">
+        <div class="form-group form-group-sm">
+          <label>Dia</label>
+          <input type="number" id="atraso-dia" min="1" max="31" placeholder="Ex.: 14">
+        </div>
+        <div class="form-group">
+          <label>Minutos de atraso</label>
+          <input type="number" id="atraso-minutos" min="1" placeholder="Ex.: 25">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Motivo / justificativa</label>
+        <input type="text" id="atraso-motivo" placeholder="Ex.: consulta médica, problema no transporte...">
+      </div>
+      <div class="form-group">
+        <div class="checkbox-group">
+          <input type="checkbox" id="atraso-justificado">
+          <label for="atraso-justificado" style="cursor:pointer">Atraso <strong>justificado</strong> (teve um motivo aceito)</label>
+        </div>
+      </div>
+      <div class="form-group">
+        <div class="checkbox-group">
+          <input type="checkbox" id="atraso-abonado">
+          <label for="atraso-abonado" style="cursor:pointer"><i class="fa-solid fa-handshake-angle" style="color:#2E7D32"></i> Abonar — <strong>não descontar do salário</strong></label>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-atraso')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveAtraso()" style="background:#F59E0B;border-color:#F59E0B"><i class="fa-solid fa-floppy-disk"></i> Salvar</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== MODAL: BANCO DE HORAS ===== -->
 <div class="modal-overlay hidden" id="modal-banco-horas" onclick="closeModal('modal-banco-horas', event)">
   <div class="modal-dialog modal-md">
@@ -4818,6 +4844,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260517as"></script>
+<script src="app.js?v=20260518a"></script>
 </body>
 </html>

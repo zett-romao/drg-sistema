@@ -1073,6 +1073,11 @@ function doLogout(){
   AutoBackup.stop();
 }
 
+// Logout com confirmação — usado pelo botão "Sair" da barra superior.
+function confirmLogout(){
+  if(confirm('Deseja sair do sistema?')) doLogout();
+}
+
 // ============================================
 // MINHA CONTA — 2FA (Google Authenticator)
 // ============================================

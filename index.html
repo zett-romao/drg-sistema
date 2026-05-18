@@ -8,7 +8,7 @@
   <meta http-equiv="Expires" content="0">
   <title id="page-title">D.R. Global Multi Services — Sistema de Gestão de Colaboradores</title>
   <link rel="icon" href="logo.png" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20260516f">
+  <link rel="stylesheet" href="styles.css?v=20260518a">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -658,7 +658,7 @@
                 </div>
 
                 <!-- Atrasos -->
-                <div class="benefit-card" id="atrasos-card" style="border-left:3px solid #F59E0B">
+                <div class="benefit-card ocorr-card" id="atrasos-card" style="border-left:3px solid #F59E0B">
                   <div class="benefit-label">
                     <i class="fa-solid fa-clock" style="color:#F59E0B"></i>
                     <span>Atrasos</span>
@@ -674,7 +674,7 @@
                 </div>
 
                 <!-- Atestados -->
-                <div class="benefit-card" id="atestados-card" style="border-left:3px solid #00897B">
+                <div class="benefit-card ocorr-card" id="atestados-card" style="border-left:3px solid #00897B">
                   <div class="benefit-label">
                     <i class="fa-solid fa-notes-medical" style="color:#00897B"></i>
                     <span>Atestados</span>
@@ -688,7 +688,7 @@
                 </div>
 
                 <!-- Saídas durante o expediente -->
-                <div class="benefit-card" id="saidas-card" style="border-left:3px solid #E65100">
+                <div class="benefit-card ocorr-card" id="saidas-card" style="border-left:3px solid #E65100">
                   <div class="benefit-label">
                     <i class="fa-solid fa-person-walking-arrow-right" style="color:#E65100"></i>
                     <span>Saídas durante o expediente</span>
@@ -3790,7 +3790,7 @@
           <input type="time" id="saida-hora-saida" onchange="_saidaRecalcInfo()">
         </div>
         <div class="form-group">
-          <label>Horário de retorno <small style="color:#888">(vazio = não voltou)</small></label>
+          <label>Horário de retorno</label>
           <input type="time" id="saida-hora-retorno" onchange="_saidaRecalcInfo()">
         </div>
       </div>
@@ -3841,11 +3841,11 @@
           <input type="number" id="atraso-dia" min="1" max="31" placeholder="Ex.: 14">
         </div>
         <div class="form-group">
-          <label>Início do atraso <small style="color:#888">(horário previsto)</small></label>
+          <label>Início do atraso</label>
           <input type="time" id="atraso-hora-inicio" onchange="_atrasoRecalcInfo()">
         </div>
         <div class="form-group">
-          <label>Fim do atraso <small style="color:#888">(horário em que chegou)</small></label>
+          <label>Fim do atraso</label>
           <input type="time" id="atraso-hora-fim" onchange="_atrasoRecalcInfo()">
         </div>
       </div>

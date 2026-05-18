@@ -500,6 +500,10 @@ ul { list-style: none; }
   border: 1.5px solid var(--border); border-radius: var(--radius);
   padding: 14px 16px; margin-bottom: 14px; background: #FAFBFD;
 }
+/* Cards de ocorrências da folha (Atrasos / Atestados / Saídas) — versão enxuta */
+.benefit-card.ocorr-card { padding: 9px 12px; margin-bottom: 8px; }
+.ocorr-card .benefit-label { margin-bottom: 6px; }
+.ocorr-card .btn-outline { margin-top: 5px !important; padding: 4px 11px; }
 .benefit-label {
   display: flex; align-items: center; gap: 8px;
   font-weight: 700; font-size: 13px; margin-bottom: 12px; color: var(--text);

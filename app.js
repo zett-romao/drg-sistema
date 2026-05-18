@@ -3075,6 +3075,7 @@ function renderHistoricoSalario(hist){
 // EXPORTAR RELATÓRIO CSV
 // ============================================
 function exportReportCsv(){
+  if(_currentReportType==='beneficios'){ _exportBeneficiosCsv(); return; }
   const mes=parseInt(val('report-mes')), ano=parseInt(val('report-ano'));
   if(!mes||!ano){ toast('Gere o relatório primeiro.','warning'); return; }
   const records=State.payrolls.filter(p=>p.mes===mes&&p.ano===ano);
@@ -3108,6 +3109,55 @@ function exportReportCsv(){
   a.href=url; a.download=`DRGlobal_relatorio_${MESES[mes]}_${ano}.csv`;
   document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
   toast('Relatório exportado em CSV!');
+}
+
+// CSV da Folha de Benefícios (VT, VR, VA, Bonificação)
+function _exportBeneficiosCsv(){
+  const mes=parseInt(val('report-benef-mes')), ano=parseInt(val('report-benef-ano'));
+  if(!mes||!ano){ toast('Gere o relatório primeiro.','warning'); return; }
+  const folha=val('report-benef-folha')||'consolidado';
+  const statusFilter=val('report-benef-status')||'ativo';
+  let emps=[...State.employees];
+  if(statusFilter!=='all') emps=emps.filter(e=>(e.status||'ativo')===statusFilter);
+  emps.sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR'));
+  const linhas=emps.map(e=>{
+    const p=State.payrolls.find(r=>r.employeeId===e.id&&r.mes===mes&&r.ano===ano);
+    return {emp:e,temFolha:!!p,
+      vt:p?(p.valeTransporte||0):0, vr:p?(p.valeRefeicao||0):0,
+      va:p?(p.valeAlimentacaoLiquido||0):0, bon:p?(p.bonificacao||0):0};
+  });
+  let cols, rowFn;
+  if(folha==='consolidado'){
+    cols=['Nº','Colaborador','Setor','Posto','Escala','VT (R$)','VR (R$)','VA (R$)','Bonificação (R$)','Total (R$)','Folha Lançada'];
+    rowFn=(l,i)=>[i+1,l.emp.nome||'—',l.emp.setor||'—',l.emp.posto||'—',escalaLabel(l.emp.escala||'5x2A'),
+      l.vt.toFixed(2),l.vr.toFixed(2),l.va.toFixed(2),l.bon.toFixed(2),(l.vt+l.vr+l.va+l.bon).toFixed(2),l.temFolha?'Sim':'Não'];
+  } else if(folha==='vales'){
+    cols=['Nº','Colaborador','Setor','Posto','VT (R$)','VR (R$)','VA (R$)','Total Vales (R$)','Folha Lançada'];
+    rowFn=(l,i)=>[i+1,l.emp.nome||'—',l.emp.setor||'—',l.emp.posto||'—',
+      l.vt.toFixed(2),l.vr.toFixed(2),l.va.toFixed(2),(l.vt+l.vr+l.va).toFixed(2),l.temFolha?'Sim':'Não'];
+  } else {
+    const cfg={
+      vt:{lbl:'Vale-Transporte (R$)',pick:l=>l.vt},
+      vr:{lbl:'Vale-Refeição (R$)',pick:l=>l.vr},
+      va:{lbl:'Vale-Alimentação (R$)',pick:l=>l.va},
+      bonificacao:{lbl:'Bonificação (R$)',pick:l=>l.bon}
+    }[folha];
+    const quintaLbl=folha==='bonificacao'?'Chave PIX':'Escala';
+    cols=['Nº','Colaborador','Setor','Posto',quintaLbl,cfg.lbl,'Folha Lançada'];
+    rowFn=(l,i)=>{
+      const q=folha==='bonificacao'?(l.emp.chavePix||'—'):escalaLabel(l.emp.escala||'5x2A');
+      return [i+1,l.emp.nome||'—',l.emp.setor||'—',l.emp.posto||'—',q,cfg.pick(l).toFixed(2),l.temFolha?'Sim':'Não'];
+    };
+  }
+  const csvCell=v=>{ const s=String(v); return /[;"\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s; };
+  const rows=[cols.join(';')];
+  linhas.forEach((l,i)=>rows.push(rowFn(l,i).map(csvCell).join(';')));
+  const blob=new Blob(['﻿'+rows.join('\n')],{type:'text/csv;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=`DRGlobal_beneficios_${folha}_${MESES[mes]}_${ano}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  toast('Folha de benefícios exportada em CSV!');
 }
 
 // ============================================
@@ -8659,6 +8709,7 @@ let _currentReportType = 'financeiro';
 // Configuração de todos os tipos de relatório disponíveis
 const _ALL_REPORT_TYPES = [
   {type:'financeiro',      icon:'fa-money-bill-wave',   label:'Financeiro Mensal',    desc:'Salário + benefícios por mês'},
+  {type:'beneficios',      icon:'fa-money-check-dollar', label:'Folha de Benefícios',  desc:'VT, VR, VA e bonificação por colaborador'},
   {type:'cadastral',       icon:'fa-id-card',            label:'Cadastral Completo',   desc:'Todos os dados dos colaboradores'},
   {type:'contatos',        icon:'fa-address-book',       label:'Contatos',             desc:'Telefone, e-mail e endereço'},
   {type:'ferias-marcadas', icon:'fa-umbrella-beach',     label:'Férias Marcadas',      desc:'Colaboradores com férias programadas'},
@@ -8710,10 +8761,11 @@ function selectReportType(type){
   _currentReportType = type;
   document.querySelectorAll('.report-type-btn').forEach(b=>b.classList.toggle('active', b.dataset.type===type));
   // Mostrar/ocultar grupos de filtro
-  ['filter-financeiro','filter-cadastral','filter-setor','filter-posto','filter-individual','filter-postos-cadastro','filter-contratos-rel'].forEach(id=>{
+  ['filter-financeiro','filter-beneficios','filter-cadastral','filter-setor','filter-posto','filter-individual','filter-postos-cadastro','filter-contratos-rel'].forEach(id=>{
     document.getElementById(id)?.classList.add('hidden');
   });
   if(type==='financeiro')       document.getElementById('filter-financeiro')?.classList.remove('hidden');
+  if(type==='beneficios')       document.getElementById('filter-beneficios')?.classList.remove('hidden');
   if(type==='cadastral'||type==='contatos') document.getElementById('filter-cadastral')?.classList.remove('hidden');
   if(type==='setor')            document.getElementById('filter-setor')?.classList.remove('hidden');
   if(type==='posto')            document.getElementById('filter-posto')?.classList.remove('hidden');
@@ -8781,7 +8833,7 @@ function printSelectedReport() {
   const period   = document.getElementById('report-period-label')?.textContent || '';
   const genDate  = document.getElementById('report-gen-date')?.textContent || '';
   const n = document.querySelectorAll('.report-row-check:checked').length;
-  const landscape = ['cadastral','contatos','financeiro','contratos-rel','postos-cadastro'].includes(_currentReportType);
+  const landscape = ['cadastral','contatos','financeiro','beneficios','contratos-rel','postos-cadastro'].includes(_currentReportType);
   const html = `<!DOCTYPE html><html lang="pt-BR"><head>
   <meta charset="UTF-8"><title>${subtitle}</title>
   <style>
@@ -8821,6 +8873,7 @@ function printSelectedReport() {
 function generateReportNew(){
   const type=_currentReportType;
   if(type==='financeiro')      _reportFinanceiro();
+  else if(type==='beneficios') _reportBeneficios();
   else if(type==='cadastral')  _reportCadastral();
   else if(type==='contatos')   _reportContatos();
   else if(type==='ferias-marcadas')  _reportFeriasMarcadas();
@@ -8873,6 +8926,113 @@ function _reportFinanceiro(){
         <td>${fmtMoney(p.bonificacao||0)}</td><td>${pix}</td></tr>`;
     }).join('');
   const tfoot=`<tr><td colspan="6">TOTAIS</td><td>${fmtMoney(tR)}</td><td>${fmtMoney(tVT)}</td><td>${fmtMoney(tVR)}</td><td>${fmtMoney(tVA)}</td><td>${fmtMoney(tAN)}</td><td>${fmtMoney(tB)}</td><td></td></tr>`;
+  document.getElementById('report-body-area').innerHTML=_empTable(cols,rows,tfoot);
+}
+
+// 1b. Folha de Benefícios — VT, VR, VA e Bonificação por colaborador.
+// Todos os valores vêm de dados já alimentados no sistema (Folha de Ponto).
+function _reportBeneficios(){
+  const mes=parseInt(val('report-benef-mes')), ano=parseInt(val('report-benef-ano'));
+  if(!mes||!ano){ toast('Selecione mês e ano.','error'); return; }
+  const folha=val('report-benef-folha')||'consolidado';
+  const statusFilter=val('report-benef-status')||'ativo';
+
+  let emps=[...State.employees];
+  if(statusFilter!=='all') emps=emps.filter(e=>(e.status||'ativo')===statusFilter);
+  emps.sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR'));
+
+  // Cruza cada colaborador com a folha de pagamento lançada do mês/ano.
+  const linhas=emps.map(e=>{
+    const p=State.payrolls.find(r=>r.employeeId===e.id&&r.mes===mes&&r.ano===ano);
+    return {
+      emp:e, temFolha:!!p,
+      vt:p?(p.valeTransporte||0):0,
+      vr:p?(p.valeRefeicao||0):0,
+      va:p?(p.valeAlimentacaoLiquido||0):0,
+      bon:p?(p.bonificacao||0):0
+    };
+  });
+
+  const FOLHAS={
+    consolidado:'Consolidada — Todos os Benefícios',
+    vales:'Vales — VT + VR + VA',
+    vt:'Vale-Transporte (VT)',
+    vr:'Vale-Refeição (VR)',
+    va:'Vale-Alimentação (VA)',
+    bonificacao:'Bonificação'
+  };
+  _reportHeader(`Folha de Benefícios — ${FOLHAS[folha]||FOLHAS.consolidado}`, `${MESES[mes]} / ${ano}`);
+
+  const tVT=linhas.reduce((s,l)=>s+l.vt,0);
+  const tVR=linhas.reduce((s,l)=>s+l.vr,0);
+  const tVA=linhas.reduce((s,l)=>s+l.va,0);
+  const tBon=linhas.reduce((s,l)=>s+l.bon,0);
+  const semFolha=linhas.filter(l=>!l.temFolha).length;
+
+  // Total da folha selecionada
+  let totFolha;
+  if(folha==='vt') totFolha=tVT;
+  else if(folha==='vr') totFolha=tVR;
+  else if(folha==='va') totFolha=tVA;
+  else if(folha==='bonificacao') totFolha=tBon;
+  else if(folha==='vales') totFolha=tVT+tVR+tVA;
+  else totFolha=tVT+tVR+tVA+tBon;
+
+  // Cartões-resumo
+  let cards=`<div class="r-stat-card"><div class="r-stat-value">${linhas.length}</div><div class="r-stat-label">Colaboradores</div></div>`;
+  if(folha==='consolidado'||folha==='vales'||folha==='vt')
+    cards+=`<div class="r-stat-card"><div class="r-stat-value">${fmtMoney(tVT)}</div><div class="r-stat-label">Vale Transporte</div></div>`;
+  if(folha==='consolidado'||folha==='vales'||folha==='vr')
+    cards+=`<div class="r-stat-card"><div class="r-stat-value">${fmtMoney(tVR)}</div><div class="r-stat-label">Vale Refeição</div></div>`;
+  if(folha==='consolidado'||folha==='vales'||folha==='va')
+    cards+=`<div class="r-stat-card"><div class="r-stat-value">${fmtMoney(tVA)}</div><div class="r-stat-label">Vale Alimentação</div></div>`;
+  if(folha==='consolidado'||folha==='bonificacao')
+    cards+=`<div class="r-stat-card"><div class="r-stat-value">${fmtMoney(tBon)}</div><div class="r-stat-label">Bonificação</div></div>`;
+  cards+=`<div class="r-stat-card" style="border-color:var(--primary)"><div class="r-stat-value" style="color:var(--primary)">${fmtMoney(totFolha)}</div><div class="r-stat-label">Total da Folha</div></div>`;
+  if(semFolha>0)
+    cards+=`<div class="r-stat-card" style="border-color:#e65100"><div class="r-stat-value" style="color:#e65100">${semFolha}</div><div class="r-stat-label">Sem folha lançada</div></div>`;
+  document.getElementById('report-summary').innerHTML=cards;
+
+  // Tabela conforme a folha selecionada
+  const muted='<span style="color:#94a3b8">—</span>';
+  const cellVal=(l,v)=>l.temFolha?fmtMoney(v):muted;
+  const nomeCell=l=>`<strong>${l.emp.nome||'—'}</strong>`+
+    (l.temFolha?'':' <span style="color:#e65100;font-size:11px;font-weight:600">• folha não lançada</span>');
+  const setorTd=l=>`<td>${l.emp.setor||'—'}</td>`;
+  const postoTd=l=>`<td style="font-size:11px">${l.emp.posto||'—'}</td>`;
+  let cols, rows, tfoot;
+
+  if(folha==='consolidado'){
+    cols=['#','Colaborador','Setor','Posto','VT','VR','VA','Bonificação','Total'];
+    rows=linhas.length? linhas.map((l,i)=>{
+      const tot=l.vt+l.vr+l.va+l.bon;
+      return `<tr><td>${i+1}</td><td>${nomeCell(l)}</td>${setorTd(l)}${postoTd(l)}<td>${cellVal(l,l.vt)}</td><td>${cellVal(l,l.vr)}</td><td>${cellVal(l,l.va)}</td><td>${cellVal(l,l.bon)}</td><td><strong>${l.temFolha?fmtMoney(tot):muted}</strong></td></tr>`;
+    }).join('') : `<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--text-muted)">Nenhum colaborador encontrado</td></tr>`;
+    tfoot=`<tr><td colspan="5">TOTAIS</td><td>${fmtMoney(tVT)}</td><td>${fmtMoney(tVR)}</td><td>${fmtMoney(tVA)}</td><td>${fmtMoney(tBon)}</td><td><strong>${fmtMoney(tVT+tVR+tVA+tBon)}</strong></td></tr>`;
+  } else if(folha==='vales'){
+    cols=['#','Colaborador','Setor','Posto','VT','VR','VA','Total Vales'];
+    rows=linhas.length? linhas.map((l,i)=>{
+      const tot=l.vt+l.vr+l.va;
+      return `<tr><td>${i+1}</td><td>${nomeCell(l)}</td>${setorTd(l)}${postoTd(l)}<td>${cellVal(l,l.vt)}</td><td>${cellVal(l,l.vr)}</td><td>${cellVal(l,l.va)}</td><td><strong>${l.temFolha?fmtMoney(tot):muted}</strong></td></tr>`;
+    }).join('') : `<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-muted)">Nenhum colaborador encontrado</td></tr>`;
+    tfoot=`<tr><td colspan="5">TOTAIS</td><td>${fmtMoney(tVT)}</td><td>${fmtMoney(tVR)}</td><td>${fmtMoney(tVA)}</td><td><strong>${fmtMoney(tVT+tVR+tVA)}</strong></td></tr>`;
+  } else {
+    const cfg={
+      vt:{lbl:'Vale-Transporte', pick:l=>l.vt},
+      vr:{lbl:'Vale-Refeição',   pick:l=>l.vr},
+      va:{lbl:'Vale-Alimentação',pick:l=>l.va},
+      bonificacao:{lbl:'Bonificação', pick:l=>l.bon}
+    }[folha];
+    const quinta = folha==='bonificacao' ? 'Chave PIX' : 'Escala';
+    cols=['#','Colaborador','Setor','Posto',quinta,cfg.lbl];
+    let tot=0;
+    rows=linhas.length? linhas.map((l,i)=>{
+      const v=cfg.pick(l); tot+=v;
+      const q = folha==='bonificacao' ? (l.emp.chavePix||'—') : escalaLabel(l.emp.escala||'5x2A');
+      return `<tr><td>${i+1}</td><td>${nomeCell(l)}</td>${setorTd(l)}${postoTd(l)}<td>${q}</td><td><strong>${cellVal(l,v)}</strong></td></tr>`;
+    }).join('') : `<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text-muted)">Nenhum colaborador encontrado</td></tr>`;
+    tfoot=`<tr><td colspan="6">TOTAL</td><td><strong>${fmtMoney(tot)}</strong></td></tr>`;
+  }
   document.getElementById('report-body-area').innerHTML=_empTable(cols,rows,tfoot);
 }
 
@@ -9234,7 +9394,7 @@ function printReport() {
   const empresa  = _e('nomeEmpresa');
 
   // Paisagem para relatórios com muitas colunas
-  const landscape = ['cadastral','contatos','financeiro','contratos-rel','postos-cadastro'].includes(_currentReportType);
+  const landscape = ['cadastral','contatos','financeiro','beneficios','contratos-rel','postos-cadastro'].includes(_currentReportType);
 
   const html = `<!DOCTYPE html><html lang="pt-BR"><head>
   <meta charset="UTF-8">
@@ -13644,6 +13804,8 @@ async function init(){
   document.getElementById('payroll-ano').value            = currentAno();
   document.getElementById('report-mes').value             = currentMes();
   document.getElementById('report-ano').value             = currentAno();
+  const _rbMes=document.getElementById('report-benef-mes'); if(_rbMes) _rbMes.value=currentMes();
+  const _rbAno=document.getElementById('report-benef-ano'); if(_rbAno) _rbAno.value=currentAno();
   const rIndAno=document.getElementById('report-individual-ano');
   if(rIndAno) rIndAno.value=currentAno();
   const decAno=document.getElementById('dec-ano');

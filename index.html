@@ -491,7 +491,7 @@
             <h2>Folha de Ponto</h2>
             <p>Processamento de folha de ponto e cálculo de benefícios</p>
           </div>
-          <button class="btn btn-outline" onclick="openReportsModal(['financeiro','individual'], 'Relatórios de Folha de Ponto')">
+          <button class="btn btn-outline" onclick="openReportsModal(['financeiro','beneficios','individual'], 'Relatórios de Folha de Ponto')">
             <i class="fa-solid fa-chart-bar"></i> Relatórios
           </button>
         </div>
@@ -1977,6 +1977,44 @@
                 <option value="inativo">Inativos</option>
                 <option value="afastado">Afastados</option>
                 <option value="licenca-maternidade">Lic. Maternidade</option>
+              </select>
+            </div>
+          </div>
+          <!-- Folha de Benefícios -->
+          <div class="report-filter-group hidden" id="filter-beneficios">
+            <div class="form-group">
+              <label>Mês</label>
+              <select id="report-benef-mes">
+                <option value="1">Janeiro</option><option value="2">Fevereiro</option>
+                <option value="3">Março</option><option value="4">Abril</option>
+                <option value="5">Maio</option><option value="6">Junho</option>
+                <option value="7">Julho</option><option value="8">Agosto</option>
+                <option value="9">Setembro</option><option value="10">Outubro</option>
+                <option value="11">Novembro</option><option value="12">Dezembro</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Ano</label>
+              <input type="number" id="report-benef-ano" value="2026" min="2020" max="2100">
+            </div>
+            <div class="form-group">
+              <label>Folha</label>
+              <select id="report-benef-folha">
+                <option value="consolidado">Consolidada — todos os benefícios</option>
+                <option value="vales">Vales — VT + VR + VA</option>
+                <option value="vt">Vale-Transporte (VT)</option>
+                <option value="vr">Vale-Refeição (VR)</option>
+                <option value="va">Vale-Alimentação (VA)</option>
+                <option value="bonificacao">Bonificação</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Status</label>
+              <select id="report-benef-status">
+                <option value="ativo">Ativos</option>
+                <option value="all">Todos</option>
+                <option value="inativo">Inativos</option>
+                <option value="afastado">Afastados</option>
               </select>
             </div>
           </div>
@@ -4930,6 +4968,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260518j"></script>
+<script src="app.js?v=20260518k"></script>
 </body>
 </html>

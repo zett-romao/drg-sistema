@@ -21,6 +21,10 @@
  *   /aprovar-pagamento { idToken, code, solicitacaoId } → valida 2FA + permissão e dispara o PIX
  *   /recuperar-acesso  { code }                         → [PÚBLICA] reseta o master se o código bater
  *   /login             { username, password }           → [PÚBLICA] verifica a senha e devolve custom token
+ *   /usuarios/listar       { idToken }                          → [master] lista usuários (sem hash)
+ *   /usuarios/salvar       { idToken, user, novaSenha? }        → [master] cria/edita usuário
+ *   /usuarios/excluir      { idToken, id }                      → [master] exclui usuário
+ *   /usuarios/trocar-senha { idToken, currentPassword, newPassword } → troca a própria senha
  *
  * SECRETS no Cloudflare (Settings → Variables and Secrets):
  *   FIREBASE_SERVICE_ACCOUNT  → JSON da conta de serviço
@@ -250,6 +254,26 @@ async function fsUpdate(path, obj, token){
   if (!res.ok) throw new Error('Firestore UPDATE ' + res.status + ' ' + (await res.text()));
   return true;
 }
+// id curto único (mesmo formato do genId do app).
+function genIdW(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,10); }
+// Lista uma coleção inteira (1 página de 300 — suficiente para `users`).
+async function fsListCollection(coll, token){
+  const res = await fetch(FS_BASE + '/' + coll + '?pageSize=300', {
+    headers: { Authorization: 'Bearer ' + token } });
+  if (!res.ok) throw new Error('Firestore list ' + res.status);
+  const data = await res.json();
+  return (data.documents || []).map(d => {
+    const o = fromFsFields(d.fields || {});
+    if (!o.id) { const p = d.name.split('/'); o.id = p[p.length - 1]; }
+    return o;
+  });
+}
+async function fsDeleteDoc(path, token){
+  const res = await fetch(FS_BASE + '/' + path, {
+    method: 'DELETE', headers: { Authorization: 'Bearer ' + token } });
+  if (!res.ok && res.status !== 404) throw new Error('Firestore DELETE ' + res.status);
+  return true;
+}
 // Busca o doc de `users` por username (login).
 async function fsFindUserByUsername(username, token){
   const res = await fetch(FS_BASE + ':runQuery', {
@@ -367,7 +391,85 @@ async function handleLogin(body, token, env){
   const customToken = await mintCustomToken(uid, { role: user.role || '', drg: true }, env);
   user.firebaseUid = uid;
   user.lastLogin   = agora;
+  delete user.passwordHash;   // o hash nunca volta para o cliente
   return { ok:true, user, customToken };
+}
+
+// ── Gestão de usuários (coleção `users` é só-servidor) ───────
+async function exigirMaster(auth, token){
+  const u = await fsFindUser(auth.uid, token);
+  if (!u)                  return { erro: 'usuário não encontrado' };
+  if (u.role !== 'master') return { erro: 'apenas o master pode gerir usuários' };
+  return { user: u };
+}
+async function handleUsuariosListar(auth, token){
+  const m = await exigirMaster(auth, token);
+  if (m.erro) return { ok:false, erro:m.erro };
+  const lista = await fsListCollection('users', token);
+  lista.forEach(u => { delete u.passwordHash; });
+  return { ok:true, usuarios:lista };
+}
+async function handleUsuariosSalvar(auth, body, token){
+  const m = await exigirMaster(auth, token);
+  if (m.erro) return { ok:false, erro:m.erro };
+  const dados = body.user || {};
+  const novaSenha = String(body.novaSenha || '');
+  const username = String(dados.username || '').trim().toLowerCase().replace(/\s+/g, '.');
+  const email    = String(dados.email || '').trim().toLowerCase();
+  if (!username) return { ok:false, erro:'usuário obrigatório' };
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { ok:false, erro:'e-mail inválido' };
+  const todos = await fsListCollection('users', token);
+  if (todos.some(u => u.username === username && u.id !== dados.id))
+    return { ok:false, erro:'já existe um usuário com esse nome' };
+  if (todos.some(u => (u.email || '').toLowerCase() === email && u.id !== dados.id))
+    return { ok:false, erro:'esse e-mail já está em uso por outro usuário' };
+  if (dados.id) {
+    const ex = todos.find(u => u.id === dados.id);
+    if (!ex) return { ok:false, erro:'usuário não encontrado' };
+    const merged = { ...ex, username, email,
+      role: dados.role || ex.role, active: dados.active !== false };
+    if ('showLog' in dados) merged.showLog = !!dados.showLog;
+    if (novaSenha) {
+      if (novaSenha.length < 6) return { ok:false, erro:'a senha precisa de ao menos 6 caracteres' };
+      merged.passwordHash = await sha256hex(novaSenha);
+      merged.forceChange  = false;
+    }
+    await fsSetDoc('users/' + dados.id, merged, token);
+    return { ok:true, id:dados.id };
+  }
+  if (!novaSenha || novaSenha.length < 6)
+    return { ok:false, erro:'informe uma senha de ao menos 6 caracteres' };
+  const id = genIdW();
+  await fsSetDoc('users/' + id, {
+    id, username, email, role: dados.role || 'operador',
+    active: dados.active !== false, passwordHash: await sha256hex(novaSenha),
+    createdAt: new Date().toISOString(), lastLogin: null, forceChange: false,
+  }, token);
+  return { ok:true, id };
+}
+async function handleUsuariosExcluir(auth, body, token){
+  const m = await exigirMaster(auth, token);
+  if (m.erro) return { ok:false, erro:m.erro };
+  const id = String(body.id || '');
+  if (!id)                    return { ok:false, erro:'id não informado' };
+  if (id === 'master-default') return { ok:false, erro:'o usuário padrão não pode ser removido' };
+  if (m.user.id === id)        return { ok:false, erro:'você não pode excluir o próprio usuário' };
+  await fsDeleteDoc('users/' + id, token);
+  return { ok:true };
+}
+async function handleTrocarSenha(auth, body, token){
+  const atual = String(body.currentPassword || '');
+  const nova  = String(body.newPassword || '');
+  if (nova.length < 6) return { ok:false, erro:'a nova senha precisa de ao menos 6 caracteres' };
+  const user = await fsFindUser(auth.uid, token);
+  if (!user) return { ok:false, erro:'usuário não encontrado' };
+  if ((await sha256hex(atual)) !== user.passwordHash)
+    return { ok:false, erro:'senha atual incorreta' };
+  await fsUpdate('users/' + user.id, {
+    passwordHash: await sha256hex(nova), forceChange: false,
+    senhaAlteradaEm: new Date().toISOString(),
+  }, token);
+  return { ok:true };
 }
 
 // ── Handlers de 2FA ──────────────────────────────────────────
@@ -495,6 +597,10 @@ export default {
       if (url.pathname === '/mfa/confirm') return json(await handleConfirm(auth, body.code, token), 200, origin);
       if (url.pathname === '/mfa/status')  return json(await handleStatus(auth, token), 200, origin);
       if (url.pathname === '/aprovar-pagamento') return json(await handleAprovarPagamento(auth, body, token), 200, origin);
+      if (url.pathname === '/usuarios/listar')       return json(await handleUsuariosListar(auth, token), 200, origin);
+      if (url.pathname === '/usuarios/salvar')       return json(await handleUsuariosSalvar(auth, body, token), 200, origin);
+      if (url.pathname === '/usuarios/excluir')      return json(await handleUsuariosExcluir(auth, body, token), 200, origin);
+      if (url.pathname === '/usuarios/trocar-senha') return json(await handleTrocarSenha(auth, body, token), 200, origin);
 
       return json({ error: 'rota desconhecida' }, 404, origin);
     } catch (e) {

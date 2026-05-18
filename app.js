@@ -524,14 +524,18 @@ const Auth = {
   },
 
   saveSession(user) {
-    sessionStorage.setItem('drg_session', JSON.stringify({ userId: user.id }));
+    // Guarda o usuário inteiro (sem hash — ele não vem mais do Worker).
+    // `users` é só-servidor agora; não dá pra reconstruir de Auth.users.
+    sessionStorage.setItem('drg_session', JSON.stringify({ user }));
     this.currentUser = user;
   },
   loadSession() {
     try {
       const s = JSON.parse(sessionStorage.getItem('drg_session') || 'null');
       if (!s) return null;
-      return this.users.find(u => u.id === s.userId && u.active) || null;
+      if (s.user && s.user.active !== false) return s.user;
+      // formato antigo {userId} — sem Auth.users não dá pra restaurar → relogar
+      return null;
     } catch { return null; }
   },
   clearSession() {
@@ -867,6 +871,10 @@ function showSection(name){
   }
   if(name==='users'){
     renderUsersTable(); renderPerfisTable(); renderLogTable();
+    // Lista de usuários vem do Worker (a coleção users é só-servidor).
+    if(Auth.currentUser?.role==='master'){
+      loadUsersFromWorker().then(()=>{ if(State.currentSection==='users') renderUsersTable(); });
+    }
     // Se usuário só tem acesso ao log (não a gestão de usuários), ocultar cards de usuários e perfis
     const userCard=document.querySelector('#section-users .card:first-child');
     const perfilCard=document.querySelector('#section-users .card:nth-child(2)');
@@ -957,38 +965,8 @@ function closeSidebarMobile(){
 // ============================================
 // LOGIN / LOGOUT
 // ============================================
-// Login pela camada Firebase Auth, com MIGRAÇÃO TRANSPARENTE.
-// É best-effort: qualquer falha vira `false` e o login segue pelo método
-// antigo (SHA-256) — ninguém é travado. A detecção de "já migrado" usa o
-// campo user.firebaseUid (não os códigos de erro do Firebase, que mudam
-// conforme a proteção de enumeração de e-mail).
-async function _firebaseAuthLogin(user, password, senhaAntigaOk){
-  if(typeof firebase==='undefined' || !firebase.auth) return false;
-  const fa = firebase.auth();
-  if(!user.firebaseUid){
-    // Ainda não migrado → só cria a conta Firebase se a senha conferiu
-    // pelo método antigo (nunca cria conta com senha errada).
-    if(!senhaAntigaOk) return false;
-    try {
-      await fa.createUserWithEmailAndPassword(user.email, password);
-    } catch(e){
-      if(e && e.code==='auth/email-already-in-use'){
-        await fa.signInWithEmailAndPassword(user.email, password);
-      } else {
-        throw e; // weak-password, operation-not-allowed, rede... → cai no antigo
-      }
-    }
-  } else {
-    await fa.signInWithEmailAndPassword(user.email, password);
-  }
-  const uid = fa.currentUser && fa.currentUser.uid;
-  if(uid && user.firebaseUid!==uid){
-    user.firebaseUid = uid;
-    DB.save('users', user).catch(console.error);
-  }
-  return true;
-}
-
+// Login 100% verificado no servidor (Worker). A senha nunca é conferida no
+// cliente — o Worker valida e devolve um Firebase Custom Token (sessão real).
 async function doLogin(event){
   event.preventDefault();
   const username=val('login-username'), password=val('login-password');
@@ -1006,54 +984,24 @@ async function doLogin(event){
       errorEl.classList.remove('hidden'); return;
     }
 
-    let user=null, viaWorker=false;
-
-    // 1) Login pelo Worker — verifica a senha no servidor e devolve um
-    //    custom token (sessão Firebase real). Se o Worker recusar, é erro
-    //    de credencial de verdade e paramos aqui.
+    let r;
     try {
-      const r=await _workerReqPublic('/login',{username,password});
-      if(r && r.ok && r.user && r.customToken){
-        await firebase.auth().signInWithCustomToken(r.customToken);
-        user=r.user; viaWorker=true;
-      } else if(r && r.ok===false){
-        Auth.log('LOGIN_FAILED',username,r.erro||'recusado pelo servidor');
-        errorMsg.textContent = /senha/i.test(r.erro||'') ? 'Senha incorreta.' : 'Usuário inválido ou sem acesso.';
-        errorEl.classList.remove('hidden'); return;
-      }
+      r=await _workerReqPublic('/login',{username,password});
     } catch(e){
-      // Worker fora do ar / inacessível → cai no método antigo (rede de segurança).
-      console.warn('Login via Worker indisponível, usando método local:', (e&&e.message)||e);
+      console.warn('Worker /login indisponível:', (e&&e.message)||e);
+      errorMsg.textContent='Servidor de login indisponível no momento. Verifique a conexão e tente de novo.';
+      errorEl.classList.remove('hidden'); return;
+    }
+    if(!r || r.ok!==true || !r.user || !r.customToken){
+      Auth.log('LOGIN_FAILED',username,(r&&r.erro)||'recusado pelo servidor');
+      errorMsg.textContent = /senha/i.test((r&&r.erro)||'') ? 'Senha incorreta.' : 'Usuário inválido ou sem acesso.';
+      errorEl.classList.remove('hidden'); return;
     }
 
-    // 2) Fallback: método antigo (SHA-256 local) — só roda se o Worker não respondeu.
-    if(!user){
-      const u=Auth.users.find(x=>x.username===username);
-      if(!u||!u.active){
-        Auth.log('LOGIN_FAILED',username,'Usuário não encontrado ou inativo');
-        errorMsg.textContent='Usuário inválido ou sem acesso.';
-        errorEl.classList.remove('hidden'); return;
-      }
-      const senhaAntigaOk = !!u.passwordHash && (await Auth.hashPassword(password))===u.passwordHash;
-      let firebaseOk=false;
-      if(u.email){
-        try { firebaseOk=await _firebaseAuthLogin(u,password,senhaAntigaOk); }
-        catch(e){ console.warn('Firebase Auth login:', e&&e.code||e); }
-      }
-      if(!senhaAntigaOk && !firebaseOk){
-        Auth.log('LOGIN_FAILED',username,'Senha incorreta');
-        errorMsg.textContent='Senha incorreta.';
-        errorEl.classList.remove('hidden'); return;
-      }
-      if(!firebaseOk){ firebase.auth().signInAnonymously().catch(()=>{}); }
-      u.lastLogin=new Date().toISOString();
-      await DB.save('users',u);
-      user=u;
-    }
-
-    // 3) Sessão estabelecida
+    await firebase.auth().signInWithCustomToken(r.customToken);
+    const user=r.user;
     Auth.saveSession(user);
-    Auth.log('LOGIN_SUCCESS',username,`Perfil: ${roleLabel(user.role)}${viaWorker?' · servidor':''}`);
+    Auth.log('LOGIN_SUCCESS',username,`Perfil: ${roleLabel(user.role)} · servidor`);
     document.getElementById('login-screen').classList.add('hidden');
     setVal('login-username',''); setVal('login-password','');
     errorEl.classList.add('hidden');
@@ -1275,23 +1223,21 @@ function openChangePasswordModal(forced=false){
 
 async function changePassword(){
   const user=Auth.currentUser; if(!user) return;
-  const current=val('cp-current'), newPass=val('cp-new'), confirm=val('cp-confirm');
-  if((await Auth.hashPassword(current))!==user.passwordHash){ toast('Senha atual incorreta.','error'); return; }
+  const current=val('cp-current'), newPass=val('cp-new'), confirmPass=val('cp-confirm');
+  if(!current){ toast('Informe a senha atual.','error'); return; }
   if(newPass.length<6){ toast('Mínimo 6 caracteres.','error'); return; }
-  if(newPass!==confirm){ toast('Senhas não coincidem.','error'); return; }
-  user.passwordHash=await Auth.hashPassword(newPass);
-  user.forceChange=false;
-  await DB.save('users',user);
-  // Sincroniza a senha no Firebase Auth (se este usuário já está logado lá)
+  if(newPass!==confirmPass){ toast('Senhas não coincidem.','error'); return; }
   try {
-    const fu = firebase.auth().currentUser;
-    if(fu && !fu.isAnonymous && user.firebaseUid && fu.uid===user.firebaseUid){
-      await fu.updatePassword(newPass);
-    }
-  } catch(e){ console.warn('Firebase updatePassword:', e&&e.code||e); }
-  Auth.log('PASSWORD_CHANGED',user.username);
-  closeModal('modal-change-pass');
-  toast('Senha alterada com sucesso!');
+    // Verificação e troca acontecem no Worker (a coleção users é só-servidor).
+    const r=await _aprovacaoReq('/usuarios/trocar-senha',{currentPassword:current,newPassword:newPass});
+    if(!r || r.ok!==true){ toast((r&&r.erro)||'Não foi possível alterar a senha.','error'); return; }
+    user.forceChange=false;
+    Auth.log('PASSWORD_CHANGED',user.username);
+    closeModal('modal-change-pass');
+    toast('Senha alterada com sucesso!');
+  } catch(e){
+    toast((e&&e.message)||'Erro ao alterar a senha.','error');
+  }
 }
 
 // ============================================
@@ -1328,43 +1274,44 @@ function openUserModal(id=null){
   }
 }
 
+// Carrega a lista de usuários do Worker (a coleção users é só-servidor).
+async function loadUsersFromWorker(){
+  try {
+    const r=await _aprovacaoReq('/usuarios/listar',{});
+    if(r && r.ok && Array.isArray(r.usuarios)){ Auth.users=r.usuarios; return true; }
+  } catch(e){ console.warn('Listar usuários:', (e&&e.message)||e); }
+  return false;
+}
+
 async function saveUser(){
   if(Auth.currentUser?.role!=='master') return;
   const id=val('usr-id'), username=val('usr-username').toLowerCase().replace(/\s+/g,'.'),
         role=val('usr-role'), active=val('usr-active')==='true',
-        password=val('usr-password'), confirm=val('usr-password-confirm'),
+        password=val('usr-password'), confirmPw=val('usr-password-confirm'),
         email=(val('usr-email')||'').trim().toLowerCase();
   if(!username){ toast('Usuário obrigatório.','error'); return; }
-  if(Auth.users.find(u=>u.username===username&&u.id!==id)){ toast('Usuário já existe.','error'); return; }
   if(!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ toast('Informe um e-mail válido — necessário para o login seguro.','error'); return; }
-  if(Auth.users.find(u=>(u.email||'').toLowerCase()===email&&u.id!==id)){ toast('Este e-mail já está em uso por outro usuário.','error'); return; }
+  if(password){
+    if(password.length<6){ toast('Mínimo 6 caracteres.','error'); return; }
+    if(password!==confirmPw){ toast('Senhas não coincidem.','error'); return; }
+  } else if(!id){
+    toast('Informe uma senha.','error'); return;
+  }
   const btn=document.querySelector('#modal-user .btn-primary');
   setBtnLoading(btn,true,'');
   try {
-    if(id){
-      const user=Auth.users.find(u=>u.id===id); if(!user) return;
-      if(password){
-        if(password.length<6){ toast('Mínimo 6 caracteres.','error'); return; }
-        if(password!==confirm){ toast('Senhas não coincidem.','error'); return; }
-        user.passwordHash=await Auth.hashPassword(password);
-        user.forceChange=false;
-      }
-      user.username=username; user.role=role; user.active=active; user.email=email;
-      await DB.save('users',user);
-      Auth.log('USER_UPDATED',Auth.currentUser.username,`Editado: ${username}`);
-      toast(`Usuário "${username}" atualizado.`);
-    } else {
-      if(!password){ toast('Informe uma senha.','error'); return; }
-      if(password.length<6){ toast('Mínimo 6 caracteres.','error'); return; }
-      if(password!==confirm){ toast('Senhas não coincidem.','error'); return; }
-      const hash=await Auth.hashPassword(password);
-      const newUser={id:genId(),username,email,passwordHash:hash,role,active,
-                     createdAt:new Date().toISOString(),lastLogin:null,forceChange:false};
-      await DB.save('users',newUser);
-      Auth.log('USER_CREATED',Auth.currentUser.username,`Criado: ${username} (${role})`);
-      toast(`Usuário "${username}" criado!`);
-    }
+    const r=await _aprovacaoReq('/usuarios/salvar',{
+      user:{ id:id||undefined, username, email, role, active },
+      novaSenha: password||undefined,
+    });
+    if(!r || r.ok!==true){ toast((r&&r.erro)||'Não foi possível salvar o usuário.','error'); return; }
+    Auth.log(id?'USER_UPDATED':'USER_CREATED',Auth.currentUser.username,`${id?'Editado':'Criado'}: ${username}`);
+    toast(`Usuário "${username}" ${id?'atualizado':'criado'}.`);
     closeModal('modal-user');
+    await loadUsersFromWorker();
+    if(State.currentSection==='users') renderUsersTable();
+  } catch(e){
+    toast((e&&e.message)||'Erro ao salvar usuário.','error');
   } finally {
     setBtnLoading(btn,false,'<i class="fa-solid fa-floppy-disk"></i> Salvar');
   }
@@ -1401,10 +1348,17 @@ function confirmDeleteUser(id){
   const btn=document.getElementById('confirm-ok-btn');
   btn.innerHTML='<i class="fa-solid fa-trash"></i> Excluir';
   btn.onclick=async()=>{
-    await DB.remove('users',id);
-    Auth.log('USER_DELETED',Auth.currentUser.username,`Removido: ${u.username}`);
+    try {
+      const r=await _aprovacaoReq('/usuarios/excluir',{id});
+      if(!r || r.ok!==true){ toast((r&&r.erro)||'Não foi possível excluir.','error'); return; }
+      Auth.log('USER_DELETED',Auth.currentUser.username,`Removido: ${u.username}`);
+      toast(`Usuário "${u.username}" excluído.`,'warning');
+      await loadUsersFromWorker();
+      if(State.currentSection==='users') renderUsersTable();
+    } catch(e){
+      toast((e&&e.message)||'Erro ao excluir usuário.','error');
+    }
     closeModal('modal-confirm');
-    toast(`Usuário "${u.username}" excluído.`,'warning');
   };
   document.getElementById('modal-confirm').classList.remove('hidden');
 }
@@ -1530,10 +1484,11 @@ function importDatabase(event){
       btn.onclick=async()=>{
         setBtnLoading(btn,true,'');
         try {
+          // `users` NÃO é restaurado por backup — é coleção só-servidor,
+          // gerida pelo Worker (criação/edição via /usuarios/*).
           const tasks=[
             ...backup.employees.map(r=>DB.save('employees',r)),
             ...backup.payrolls.map(r=>DB.save('payrolls',r)),
-            ...(backup.users||[]).map(r=>DB.save('users',r)),
             ...(backup.accessLog||[]).slice(0,200).map(r=>DB.save('accessLog',r))
           ];
           await Promise.all(tasks);
@@ -12650,10 +12605,19 @@ function confirmDeletePerfil(id){
 async function toggleShowLog(userId){
   if(Auth.currentUser?.role!=='master') return;
   const u=Auth.users.find(u=>u.id===userId); if(!u) return;
-  u.showLog=!u.showLog;
-  await DB.save('users',u);
-  Auth.log('USER_UPDATED',Auth.currentUser.username,`Log ${u.showLog?'liberado':'bloqueado'} para: ${u.username}`);
-  toast(`Log ${u.showLog?'liberado':'bloqueado'} para ${u.username}.`);
+  const novo=!u.showLog;
+  try {
+    const r=await _aprovacaoReq('/usuarios/salvar',{
+      user:{ id:u.id, username:u.username, email:u.email, role:u.role, active:u.active, showLog:novo },
+    });
+    if(!r || r.ok!==true){ toast((r&&r.erro)||'Não foi possível atualizar.','error'); return; }
+    Auth.log('USER_UPDATED',Auth.currentUser.username,`Log ${novo?'liberado':'bloqueado'} para: ${u.username}`);
+    toast(`Log ${novo?'liberado':'bloqueado'} para ${u.username}.`);
+    await loadUsersFromWorker();
+    if(State.currentSection==='users') renderUsersTable();
+  } catch(e){
+    toast((e&&e.message)||'Erro ao atualizar.','error');
+  }
 }
 
 // ============================================
@@ -12806,10 +12770,9 @@ async function init(){
 
   // 3. Carregar dados iniciais em paralelo
   try {
-    const [employees, payrolls, users, logs, cctDocs, perfisDocs] = await Promise.all([
+    const [employees, payrolls, logs, cctDocs, perfisDocs] = await Promise.all([
       DB.getAll('employees'),
       DB.getAll('payrolls'),
-      DB.getAll('users'),
       DB.col('accessLog').orderBy('timestamp','desc').limit(200).get()
         .then(s=>s.docs.map(d=>d.data())),
       DB.col('cct').get().then(s=>s.docs.map(d=>d.data())),
@@ -12817,7 +12780,6 @@ async function init(){
     ]);
     State.employees = employees;
     State.payrolls  = payrolls;
-    Auth.users      = users;
     Auth.accessLog  = logs;
     State.cct = cctDocs.find(c=>c.id==='current')||null;
     State.perfis = perfisDocs;
@@ -12840,14 +12802,11 @@ async function init(){
     showLoading('Migrando dados locais para o Firebase...');
     const ok = await DB.migrateFromLocalStorage();
     if(ok){
-      const [emp,pay,usr] = await Promise.all([DB.getAll('employees'),DB.getAll('payrolls'),DB.getAll('users')]);
-      State.employees = emp; State.payrolls = pay; Auth.users = usr;
+      const [emp,pay] = await Promise.all([DB.getAll('employees'),DB.getAll('payrolls')]);
+      State.employees = emp; State.payrolls = pay;
       toast('Dados migrados do armazenamento local para o Firebase!','success');
     }
   }
-
-  // 5. Garantir usuário padrão
-  await Auth.ensureDefaultUser();
 
   // 6. Iniciar listeners em tempo real
   DB.listen('employees', data => {
@@ -12862,10 +12821,8 @@ async function init(){
     if(State.currentSection==='dashboard') renderDashboard();
     updateDbInfo();
   });
-  DB.listen('users', data => {
-    Auth.users = data;
-    if(State.currentSection==='users') renderUsersTable();
-  });
+  // `users` NÃO tem listener — é coleção só-servidor; a lista vem do Worker
+  // (loadUsersFromWorker) sob demanda ao abrir a tela de Usuários.
   DB.listen('accessLog', data => {
     Auth.accessLog = data.sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));
     if(State.currentSection==='users') renderLogTable();

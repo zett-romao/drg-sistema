@@ -4807,9 +4807,13 @@ function renderSaidasFolha(){
     const badge=s.abonada
       ? '<span style="color:#2E7D32;font-size:10px;font-weight:700">ABONADA</span>'
       : '<span style="color:#C62828;font-size:10px;font-weight:700">DESCONTA</span>';
+    const arq=s.arquivoUrl
+      ? `<a href="${s.arquivoUrl}" target="_blank" title="Ver documento"><i class="fa-solid fa-paperclip" style="color:#1565C0"></i></a>`
+      : '';
     return `<div style="display:flex;align-items:center;gap:8px;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;margin-bottom:5px">
       <i class="fa-solid fa-person-walking-arrow-right" style="color:#E65100"></i>
       <span style="flex:1">Dia ${String(s.dia||'?').padStart(2,'0')} · ${minutesToStr(m)}${horario?` <small style="color:#888">${horario}</small>`:''}${s.motivo?' — '+s.motivo:''}${s.justificada?' <span style="color:#1565C0;font-size:10px">(justificada)</span>':''}</span>
+      ${arq}
       ${badge}
       <button class="btn-icon" onclick="openSaidaModal('${s.id}')" title="Editar"><i class="fa-solid fa-pen" style="color:#1565C0"></i></button>
       <button class="btn-icon" onclick="confirmDeleteSaida('${s.id}')" title="Excluir"><i class="fa-solid fa-trash" style="color:#C62828"></i></button>
@@ -4833,6 +4837,11 @@ function openSaidaModal(id){
   setVal('saida-motivo', s?.motivo||'');
   const jc=document.getElementById('saida-justificada'); if(jc) jc.checked=!!s?.justificada;
   const ac=document.getElementById('saida-abonada');     if(ac) ac.checked=!!s?.abonada;
+  const fileInput=document.getElementById('saida-arquivo'); if(fileInput) fileInput.value='';
+  const arqInfo=document.getElementById('saida-arquivo-atual');
+  if(arqInfo) arqInfo.innerHTML = s?.arquivoUrl
+    ? `<i class="fa-solid fa-paperclip"></i> Documento atual: <a href="${s.arquivoUrl}" target="_blank">${s.arquivoNome||'ver arquivo'}</a> — envie outro para substituir.`
+    : '';
   _saidaRecalcInfo();
   document.getElementById('modal-saida').classList.remove('hidden');
 }
@@ -4850,18 +4859,35 @@ async function saveSaida(){
   }
   const minutos=_saidaMinutos({horarioSaida,horarioRetorno}, emp);
   if(minutos<=0){ toast('Os horários informados não geram tempo de ausência — confira.','error'); return; }
-  const id=val('saida-id');
-  const existente=id?(State.saidas||[]).find(x=>x.id===id):null;
+  const editId=val('saida-id');
+  const id=editId||genId();
+  const existente=editId?(State.saidas||[]).find(x=>x.id===editId):null;
   const btn=document.querySelector('#modal-saida .btn-primary');
   setBtnLoading(btn,true,'');
   try {
+    let arquivoUrl=existente?.arquivoUrl||'', arquivoNome=existente?.arquivoNome||'';
+    const fileInput=document.getElementById('saida-arquivo');
+    const file=fileInput&&fileInput.files[0];
+    if(file){
+      DB.initStorage();
+      if(DB.storage){
+        const ext=(file.name.split('.').pop()||'dat').toLowerCase();
+        const ref=DB.storage.ref(`saidas/${empId}/${id}_${Date.now()}.${ext}`);
+        await ref.put(file);
+        arquivoUrl=await ref.getDownloadURL();
+        arquivoNome=file.name;
+      } else {
+        toast('Storage indisponível — saída salva sem o documento.','warning');
+      }
+    }
     const doc={
-      id:id||genId(), employeeId:empId,
+      id, employeeId:empId,
       mes:parseInt(val('saida-mes'))||currentMes(), ano:parseInt(val('saida-ano'))||currentAno(),
       dia, horarioSaida, horarioRetorno,
       motivo:val('saida-motivo')||'',
       justificada:!!document.getElementById('saida-justificada')?.checked,
       abonada:!!document.getElementById('saida-abonada')?.checked,
+      arquivoUrl, arquivoNome,
       createdAt:existente?.createdAt||new Date().toISOString(),
       updatedAt:new Date().toISOString(),
     };

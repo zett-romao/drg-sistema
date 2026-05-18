@@ -3811,6 +3811,11 @@
           <label for="saida-abonada" style="cursor:pointer"><i class="fa-solid fa-handshake-angle" style="color:#2E7D32"></i> Abonar — <strong>não descontar do salário</strong></label>
         </div>
       </div>
+      <div class="form-group">
+        <label><i class="fa-solid fa-paperclip"></i> Documento da saída <small style="color:#888">(opcional — foto ou PDF, fica arquivado no sistema)</small></label>
+        <input type="file" id="saida-arquivo" accept=".pdf,image/jpeg,image/png,image/webp">
+        <div id="saida-arquivo-atual" style="font-size:12px;margin-top:4px;color:#E65100"></div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal('modal-saida')">Cancelar</button>
@@ -4858,6 +4863,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260518c"></script>
+<script src="app.js?v=20260518d"></script>
 </body>
 </html>

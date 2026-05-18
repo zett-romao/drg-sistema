@@ -9000,22 +9000,24 @@ function _reportBeneficios(){
     (l.temFolha?'':' <span style="color:#e65100;font-size:11px;font-weight:600">• folha não lançada</span>');
   const setorTd=l=>`<td>${l.emp.setor||'—'}</td>`;
   const postoTd=l=>`<td style="font-size:11px">${l.emp.posto||'—'}</td>`;
-  let cols, rows, tfoot;
+  let cols, rows, tfoot, moneyFrom;
 
   if(folha==='consolidado'){
     cols=['#','Colaborador','Setor','Posto','VT','VR','VA','Bonificação','Total'];
+    moneyFrom=6;
     rows=linhas.length? linhas.map((l,i)=>{
       const tot=l.vt+l.vr+l.va+l.bon;
       return `<tr><td>${i+1}</td><td>${nomeCell(l)}</td>${setorTd(l)}${postoTd(l)}<td>${cellVal(l,l.vt)}</td><td>${cellVal(l,l.vr)}</td><td>${cellVal(l,l.va)}</td><td>${cellVal(l,l.bon)}</td><td><strong>${l.temFolha?fmtMoney(tot):muted}</strong></td></tr>`;
     }).join('') : `<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--text-muted)">Nenhum colaborador encontrado</td></tr>`;
-    tfoot=`<tr><td colspan="5">TOTAIS</td><td>${fmtMoney(tVT)}</td><td>${fmtMoney(tVR)}</td><td>${fmtMoney(tVA)}</td><td>${fmtMoney(tBon)}</td><td><strong>${fmtMoney(tVT+tVR+tVA+tBon)}</strong></td></tr>`;
+    tfoot=`<tr><td></td><td></td><td><strong>TOTAIS</strong></td><td></td><td></td><td>${fmtMoney(tVT)}</td><td>${fmtMoney(tVR)}</td><td>${fmtMoney(tVA)}</td><td>${fmtMoney(tBon)}</td><td><strong>${fmtMoney(tVT+tVR+tVA+tBon)}</strong></td></tr>`;
   } else if(folha==='vales'){
     cols=['#','Colaborador','Setor','Posto','VT','VR','VA','Total Vales'];
+    moneyFrom=6;
     rows=linhas.length? linhas.map((l,i)=>{
       const tot=l.vt+l.vr+l.va;
       return `<tr><td>${i+1}</td><td>${nomeCell(l)}</td>${setorTd(l)}${postoTd(l)}<td>${cellVal(l,l.vt)}</td><td>${cellVal(l,l.vr)}</td><td>${cellVal(l,l.va)}</td><td><strong>${l.temFolha?fmtMoney(tot):muted}</strong></td></tr>`;
     }).join('') : `<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-muted)">Nenhum colaborador encontrado</td></tr>`;
-    tfoot=`<tr><td colspan="5">TOTAIS</td><td>${fmtMoney(tVT)}</td><td>${fmtMoney(tVR)}</td><td>${fmtMoney(tVA)}</td><td><strong>${fmtMoney(tVT+tVR+tVA)}</strong></td></tr>`;
+    tfoot=`<tr><td></td><td></td><td><strong>TOTAIS</strong></td><td></td><td></td><td>${fmtMoney(tVT)}</td><td>${fmtMoney(tVR)}</td><td>${fmtMoney(tVA)}</td><td><strong>${fmtMoney(tVT+tVR+tVA)}</strong></td></tr>`;
   } else {
     const cfg={
       vt:{lbl:'Vale-Transporte', pick:l=>l.vt},
@@ -9025,18 +9027,23 @@ function _reportBeneficios(){
     }[folha];
     const quinta = folha==='bonificacao' ? 'Chave PIX' : 'Escala';
     cols=['#','Colaborador','Setor','Posto',quinta,cfg.lbl];
+    moneyFrom=7;
     let tot=0;
     rows=linhas.length? linhas.map((l,i)=>{
       const v=cfg.pick(l); tot+=v;
       const q = folha==='bonificacao' ? (l.emp.chavePix||'—') : escalaLabel(l.emp.escala||'5x2A');
       return `<tr><td>${i+1}</td><td>${nomeCell(l)}</td>${setorTd(l)}${postoTd(l)}<td>${q}</td><td><strong>${cellVal(l,v)}</strong></td></tr>`;
     }).join('') : `<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text-muted)">Nenhum colaborador encontrado</td></tr>`;
-    tfoot=`<tr><td colspan="6">TOTAL</td><td><strong>${fmtMoney(tot)}</strong></td></tr>`;
+    tfoot=`<tr><td></td><td></td><td><strong>TOTAL</strong></td><td></td><td></td><td></td><td><strong>${fmtMoney(tot)}</strong></td></tr>`;
   }
+  // Alinhamento: coluna # centralizada e colunas de valores à direita —
+  // aplica-se ao cabeçalho, ao corpo e à linha de totais (tudo alinhado).
+  const alinha=`<style>#report-main-table td:nth-child(2),#report-main-table th:nth-child(2){text-align:center}`+
+    `#report-main-table td:nth-child(n+${moneyFrom}),#report-main-table th:nth-child(n+${moneyFrom}){text-align:right}</style>`;
   // Repete a barra de cabeçalho no rodapé, logo acima da linha de totais,
   // para o usuário identificar a qual benefício cada total se refere.
   const headRepeat=`<tr>${['',...cols].map(c=>`<th>${c}</th>`).join('')}</tr>`;
-  document.getElementById('report-body-area').innerHTML=_empTable(cols,rows,headRepeat+tfoot);
+  document.getElementById('report-body-area').innerHTML=alinha+_empTable(cols,rows,headRepeat+tfoot);
 }
 
 // 2. Cadastral Completo

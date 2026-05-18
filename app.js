@@ -829,6 +829,7 @@ function showSection(name){
   if(name==='payroll'        && !mods.payroll)      return;
   if(name==='escalas'        && !mods.escalas)      return;
   if(name==='pagamentos'     && !mods.pagamentos)      return;
+  if(name==='adiantamentos'  && !mods.pagamentos)      return;
   if(name==='aprovacoes'     && !mods.pagamentosLancar && !mods.pagamentosAprovar) return;
   if(name==='decimoterceiro' && !mods.decimoterceiro)  return;
   if(name==='ferias'         && !mods.ferias)          return;
@@ -853,7 +854,7 @@ function showSection(name){
   if(section) section.classList.add('active');
   if(navBtn)  navBtn.classList.add('active');
   const titles={dashboard:'Dashboard',employees:'Colaboradores',payroll:'Folha de Ponto',escalas:'Escalas',
-                pagamentos:'Pagamentos',aprovacoes:'Aprovações de Pagamentos',decimoterceiro:'13º Salário',ferias:'Férias',rescisao:'Rescisões',
+                pagamentos:'Pagamentos',adiantamentos:'Adiantamentos',aprovacoes:'Aprovações de Pagamentos',decimoterceiro:'13º Salário',ferias:'Férias',rescisao:'Rescisões',
                 contabilidade:'Contabilidade',users:'Usuários & Acessos',postos:'Postos de Trabalho',contratos:'Contratos',configuracoes:'Configurações'};
   document.getElementById('topbar-title').textContent=titles[name]||name;
   State.currentSection=name;
@@ -863,6 +864,7 @@ function showSection(name){
   if(name==='dashboard') renderDashboard();
   if(name==='pagamentos')      { _applyModoBanners(State.empresa?.modoContabilidade||'ambas'); renderPagamentos(); }
   if(name==='aprovacoes')      renderAprovacoes();
+  if(name==='adiantamentos')   renderAdiantamentos();
   if(name==='decimoterceiro')  renderDecimoTerceiro();
   if(name==='ferias')          renderFeriasModulo();
   if(name==='rescisao')        renderRescisoes();
@@ -1198,6 +1200,8 @@ function applyUserSession(user){
   if(btnHE) btnHE.classList.toggle('hidden', !(mods.aprovaHE || user.role==='master'));
   const pagLi=document.getElementById('nav-pagamentos-li');
   if(pagLi) pagLi.classList.toggle('hidden', !mods.pagamentos);
+  const adiLi=document.getElementById('nav-adiantamentos-li');
+  if(adiLi) adiLi.classList.toggle('hidden', !mods.pagamentos);
   const aprLi=document.getElementById('nav-aprovacoes-li');
   if(aprLi) aprLi.classList.toggle('hidden', !mods.pagamentosLancar && !mods.pagamentosAprovar);
   const decLi=document.getElementById('nav-decimoterceiro-li');
@@ -6564,6 +6568,153 @@ function _aprovacaoStatusBadge(st){
   };
   const m=map[st]||['#eee','#777',st||'—'];
   return `<span style="background:${m[0]};color:${m[1]};padding:2px 9px;border-radius:10px;font-size:11px;font-weight:600">${m[2]}</span>`;
+}
+
+// ============================================
+// ADIANTAMENTOS — lista e pagamento (reaproveita o fluxo de Aprovações)
+// ============================================
+function _adiantMesAno(){
+  const mes=parseInt(val('adiant-mes'))||(new Date().getMonth()+1);
+  const ano=parseInt(val('adiant-ano'))||(new Date().getFullYear());
+  return {mes,ano,comp:String(mes).padStart(2,'0')+'/'+ano};
+}
+
+function renderAdiantamentos(){
+  const tbody=document.getElementById('adiant-tbody'); if(!tbody) return;
+  const selAno=document.getElementById('adiant-ano');
+  if(selAno && !selAno.options.length){
+    const ya=new Date().getFullYear();
+    for(let y=ya-1;y<=ya+1;y++){
+      const o=document.createElement('option'); o.value=y; o.textContent=y;
+      if(y===ya) o.selected=true;
+      selAno.appendChild(o);
+    }
+  }
+  const selMes=document.getElementById('adiant-mes');
+  if(selMes && !selMes.value) selMes.value=new Date().getMonth()+1;
+  const {mes,ano,comp}=_adiantMesAno();
+
+  const lista=(State.payrolls||[])
+    .filter(p=>p.mes==mes && p.ano==ano && p.adiantamentoAtivo && (p.adiantamentoValor||0)>0)
+    .map(p=>{
+      const emp=State.employees.find(e=>e.id===p.employeeId)||{};
+      const sol=(State.solicitacoes||[]).find(s=>s.origem==='adiantamento' && s.employeeId===p.employeeId
+        && s.competencia===comp && (s.status==='pendente'||s.status==='pago'));
+      return {emp, valor:p.adiantamentoValor||0, sol};
+    })
+    .filter(x=>x.emp.id)
+    .sort((a,b)=>(a.emp.nome||'').localeCompare(b.emp.nome||''));
+
+  const cnt=document.getElementById('adiant-contador');
+  if(cnt){
+    const total=lista.reduce((s,x)=>s+x.valor,0);
+    const aPagar=lista.filter(x=>!x.sol).length;
+    cnt.innerHTML=lista.length
+      ? `<strong>${lista.length}</strong> adiantamento(s) em ${comp} &middot; Total ${fmtMoney(total)} &middot; <strong style="color:#E65100">${aPagar}</strong> a pagar`
+      : `<span style="color:#999">Nenhum adiantamento lançado em ${comp}</span>`;
+  }
+  if(!lista.length){
+    tbody.innerHTML=`<tr><td colspan="6" style="padding:26px;text-align:center;color:#999">Nenhum colaborador com adiantamento lançado em ${comp}.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML=lista.map((x,idx)=>{
+    const bg=idx%2?'#f9fafb':'#fff';
+    const st=x.sol?x.sol.status:'';
+    let statusHtml, acao, podeSelec=false;
+    if(st==='pendente'){
+      statusHtml='<span style="background:#FFF3E0;color:#E65100;padding:3px 9px;border-radius:10px;font-size:11px;font-weight:700">Solicitado</span>';
+      acao='<span style="font-size:11px;color:#999">aguardando aprovação</span>';
+    } else if(st==='pago'){
+      statusHtml='<span style="background:#E8F5E9;color:#2e7d32;padding:3px 9px;border-radius:10px;font-size:11px;font-weight:700">Pago</span>';
+      acao=`<span style="font-size:11px;color:#00695C">ID ${x.sol.asaasTransferId||'—'}</span>`;
+    } else {
+      statusHtml='<span style="background:#E3F2FD;color:#1565C0;padding:3px 9px;border-radius:10px;font-size:11px;font-weight:700">A pagar</span>';
+      acao=`<button class="btn btn-sm" style="background:#00695C;color:#fff;border-color:#00695C" onclick="event.stopPropagation();pagarAdiantamento('${x.emp.id}')"><i class="fa-brands fa-pix"></i> Pagar</button>`;
+      podeSelec=true;
+    }
+    const semPix=!x.emp.chavePix;
+    const chk=(podeSelec && !semPix)
+      ? `<input type="checkbox" class="adiant-check" data-emp="${x.emp.id}" onclick="event.stopPropagation()">`
+      : '';
+    const pix=semPix?'<span style="color:#c62828">sem chave PIX</span>':`<span style="font-family:monospace;font-size:11px">${x.emp.chavePix}</span>`;
+    return `<tr style="background:${bg};cursor:pointer" onclick="_abrirFolhaColaborador('${x.emp.id}')" title="Abrir a folha de ${(x.emp.nome||'').replace(/"/g,'')}">
+      <td style="padding:9px 10px;text-align:center">${chk}</td>
+      <td style="padding:9px 10px"><strong>${x.emp.nome||'—'}</strong></td>
+      <td style="padding:9px 10px;text-align:right;font-weight:700;color:#00695C">${fmtMoney(x.valor)}</td>
+      <td style="padding:9px 10px">${pix}</td>
+      <td style="padding:9px 10px;text-align:center">${statusHtml}</td>
+      <td style="padding:9px 10px">${acao}</td>
+    </tr>`;
+  }).join('');
+  const chkAll=document.getElementById('adiant-check-all'); if(chkAll) chkAll.checked=false;
+}
+
+function _adiantToggleAll(master){
+  document.querySelectorAll('#adiant-tbody .adiant-check').forEach(c=>{ c.checked=master.checked; });
+}
+
+function _abrirFolhaColaborador(empId){
+  showSection('payroll');
+  const sel=document.getElementById('payroll-employee');
+  if(sel){ sel.value=empId; if(typeof onPayrollEmployeeChange==='function') onPayrollEmployeeChange(); }
+}
+
+// Cria a solicitação de pagamento de um adiantamento — reaproveita _criarSolicitacaoPagamento.
+async function _criarSolicAdiantamento(emp, valor, comp){
+  if(!(valor>0)) throw new Error('valor do adiantamento inválido');
+  const pixKey=emp.chavePix||'';
+  if(!pixKey) throw new Error('colaborador sem chave PIX cadastrada');
+  const jaPend=(State.solicitacoes||[]).some(s=>s.origem==='adiantamento' && s.employeeId===emp.id
+    && s.competencia===comp && s.status==='pendente');
+  if(jaPend) throw new Error('já existe uma solicitação pendente para este adiantamento');
+  return _criarSolicitacaoPagamento({
+    employeeId:emp.id, employeeNome:emp.nome, payrollId:'',
+    valor, pixKey, keyType:detectPixKeyType(pixKey),
+    descricao:`Adiantamento ${comp} — ${emp.nome}`,
+    scheduleDate:new Date().toISOString().split('T')[0],
+    competencia:comp, origem:'adiantamento',
+  });
+}
+
+async function pagarAdiantamento(empId){
+  if(!getUserModules(Auth.currentUser).pagamentosLancar){
+    toast('Você não tem permissão para lançar pagamentos.','error'); return;
+  }
+  const {mes,ano,comp}=_adiantMesAno();
+  const p=(State.payrolls||[]).find(x=>x.employeeId===empId && x.mes==mes && x.ano==ano);
+  const emp=State.employees.find(e=>e.id===empId);
+  if(!p||!emp||!p.adiantamentoAtivo){ toast('Adiantamento não encontrado.','error'); return; }
+  try{
+    const sol=await _criarSolicAdiantamento(emp, p.adiantamentoValor||0, comp);
+    Auth.log('PAGAMENTO_SOLICITADO', null, `Adiantamento ${comp} | ${emp.nome} | R$ ${(p.adiantamentoValor||0).toFixed(2)} | sol ${sol.id}`);
+    toast(`Adiantamento de ${emp.nome}: solicitação criada — aguardando aprovação.`,'success');
+    renderAdiantamentos();
+  }catch(e){
+    toast('Não foi possível: '+(e.message||e),'error');
+  }
+}
+
+async function pagarAdiantamentosLote(){
+  if(!getUserModules(Auth.currentUser).pagamentosLancar){
+    toast('Você não tem permissão para lançar pagamentos.','error'); return;
+  }
+  const checks=[...document.querySelectorAll('#adiant-tbody .adiant-check:checked')];
+  if(!checks.length){ toast('Selecione ao menos um colaborador (marque as caixas).','warning'); return; }
+  const {mes,ano,comp}=_adiantMesAno();
+  let ok=0, erros=0;
+  for(const c of checks){
+    const empId=c.dataset.emp;
+    const p=(State.payrolls||[]).find(x=>x.employeeId===empId && x.mes==mes && x.ano==ano);
+    const emp=State.employees.find(e=>e.id===empId);
+    if(!p||!emp){ erros++; continue; }
+    try{
+      const sol=await _criarSolicAdiantamento(emp, p.adiantamentoValor||0, comp);
+      Auth.log('PAGAMENTO_SOLICITADO', null, `Adiantamento ${comp} | ${emp.nome} | R$ ${(p.adiantamentoValor||0).toFixed(2)} | sol ${sol.id}`);
+      ok++;
+    }catch(e){ erros++; }
+  }
+  toast(`${ok} solicitação(ões) de adiantamento criada(s)${erros?` · ${erros} pulada(s)/com erro`:''}.`, erros?'warning':'success');
+  renderAdiantamentos();
 }
 
 function renderAprovacoes(){
@@ -13377,6 +13528,7 @@ async function init(){
   DB.listen('solicitacoesPagamento', data => {
     State.solicitacoes = data;
     if(State.currentSection==='aprovacoes') renderAprovacoes();
+    if(State.currentSection==='adiantamentos') renderAdiantamentos();
     if(State.currentSection==='dashboard') renderDashboard();
   });
 

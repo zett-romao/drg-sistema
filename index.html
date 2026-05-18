@@ -175,6 +175,12 @@
           <span>Pagamentos</span>
         </a>
       </li>
+      <li id="nav-adiantamentos-li" class="hidden">
+        <a class="nav-link" id="nav-adiantamentos" onclick="showSection('adiantamentos')">
+          <i class="fa-solid fa-hand-holding-dollar"></i>
+          <span>Adiantamentos</span>
+        </a>
+      </li>
       <li id="nav-aprovacoes-li" class="hidden">
         <a class="nav-link" id="nav-aprovacoes" onclick="showSection('aprovacoes')">
           <i class="fa-solid fa-hourglass-half"></i>
@@ -1751,6 +1757,44 @@
                 </tr>
               </thead>
               <tbody id="aprovacoes-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== ADIANTAMENTOS ===== -->
+      <section id="section-adiantamentos" class="section">
+        <div class="page-header">
+          <h2>Adiantamentos</h2>
+          <p>Colaboradores com adiantamento quinzenal lançado na folha. Pagar gera uma solicitação que precisa ser aprovada em Aprovações de Pagamentos (com 2FA).</p>
+        </div>
+        <div class="card">
+          <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+            <div id="adiant-contador" style="font-size:14px"></div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <select id="adiant-mes" onchange="renderAdiantamentos()" style="font-weight:700">
+                <option value="1">Janeiro</option><option value="2">Fevereiro</option><option value="3">Março</option>
+                <option value="4">Abril</option><option value="5">Maio</option><option value="6">Junho</option>
+                <option value="7">Julho</option><option value="8">Agosto</option><option value="9">Setembro</option>
+                <option value="10">Outubro</option><option value="11">Novembro</option><option value="12">Dezembro</option>
+              </select>
+              <select id="adiant-ano" onchange="renderAdiantamentos()" style="font-weight:700"></select>
+              <button class="btn btn-primary btn-sm" onclick="pagarAdiantamentosLote()"><i class="fa-solid fa-money-bill-transfer"></i> Pagar selecionados</button>
+            </div>
+          </div>
+          <div class="card-body" style="overflow-x:auto;padding:0">
+            <table style="width:100%;border-collapse:collapse;font-size:13px">
+              <thead>
+                <tr style="background:#f1f5f9;text-align:left">
+                  <th style="padding:9px 10px;width:34px;text-align:center"><input type="checkbox" id="adiant-check-all" onclick="_adiantToggleAll(this)" title="Selecionar todos"></th>
+                  <th style="padding:9px 10px">Colaborador</th>
+                  <th style="padding:9px 10px;text-align:right">Adiantamento</th>
+                  <th style="padding:9px 10px">Chave PIX</th>
+                  <th style="padding:9px 10px;text-align:center">Status</th>
+                  <th style="padding:9px 10px">Ação</th>
+                </tr>
+              </thead>
+              <tbody id="adiant-tbody"></tbody>
             </table>
           </div>
         </div>
@@ -4863,6 +4907,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260518e"></script>
+<script src="app.js?v=20260518f"></script>
 </body>
 </html>

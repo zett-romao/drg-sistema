@@ -3667,6 +3667,7 @@ function onPayrollEmployeeChange(){
       renderPayrollHistory(empId);
       _updateFolhaStatusBadge();
       renderAtestadosFolha();
+      renderSaidasFolha();
       return;
     }
     const saved=State.payrolls.find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
@@ -3710,6 +3711,7 @@ function onPayrollEmployeeChange(){
   recalculate(); renderPayrollHistory(empId);
   _updateFolhaStatusBadge();
   renderAtestadosFolha();
+  renderSaidasFolha();
 }
 
 // Reset apenas dos campos da folha (não toca em vt-dia/vr-dia/pix/horarios — vêm do cadastro)
@@ -4724,6 +4726,118 @@ function confirmDeleteAtestado(id){
   document.getElementById('modal-confirm').classList.remove('hidden');
 }
 
+// ============================================
+// SAÍDAS DURANTE O EXPEDIENTE
+// ============================================
+// Coleção `saidas`. Cada doc é uma ocorrência de saída no meio do turno.
+// Os minutos ausentes não-abonados são descontados (minutos × valor/min).
+function _saidaTotais(empId, mes, ano){
+  let minutos=0, minutosDesc=0, count=0;
+  (State.saidas||[]).forEach(s=>{
+    if(s.employeeId!==empId || s.mes!=mes || s.ano!=ano) return;
+    const m=parseInt(s.minutos)||0;
+    minutos+=m; count++;
+    if(!s.abonada) minutosDesc+=m;
+  });
+  return {minutos, minutosDesc, count};
+}
+
+function renderSaidasFolha(){
+  const lista=document.getElementById('saidas-lista');
+  const resumo=document.getElementById('saidas-resumo');
+  if(!lista||!resumo) return;
+  const empId=val('payroll-employee');
+  const mes=parseInt(val('payroll-mes')||currentMes());
+  const ano=parseInt(val('payroll-ano')||currentAno());
+  if(!empId){ resumo.textContent='Selecione um colaborador para ver as saídas.'; lista.innerHTML=''; return; }
+  const arr=(State.saidas||[]).filter(s=>s.employeeId===empId&&s.mes==mes&&s.ano==ano)
+    .sort((a,b)=>(parseInt(a.dia)||0)-(parseInt(b.dia)||0));
+  const tot=_saidaTotais(empId,mes,ano);
+  resumo.innerHTML = tot.count
+    ? `<i class="fa-solid fa-circle-info"></i> <strong>${tot.count} saída(s) · ${minutesToStr(tot.minutos)}</strong> — ${tot.minutosDesc>0?minutesToStr(tot.minutosDesc)+' com desconto':'todas abonadas'}.`
+    : 'Nenhuma saída registrada neste mês.';
+  if(!arr.length){ lista.innerHTML=''; return; }
+  lista.innerHTML=arr.map(s=>{
+    const m=parseInt(s.minutos)||0;
+    const badge=s.abonada
+      ? '<span style="color:#2E7D32;font-size:10px;font-weight:700">ABONADA</span>'
+      : '<span style="color:#C62828;font-size:10px;font-weight:700">DESCONTA</span>';
+    return `<div style="display:flex;align-items:center;gap:8px;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;margin-bottom:5px">
+      <i class="fa-solid fa-person-walking-arrow-right" style="color:#E65100"></i>
+      <span style="flex:1">Dia ${String(s.dia||'?').padStart(2,'0')} · ${minutesToStr(m)}${s.motivo?' — '+s.motivo:''}${s.justificada?' <span style="color:#1565C0;font-size:10px">(justificada)</span>':''}</span>
+      ${badge}
+      <button class="btn-icon" onclick="openSaidaModal('${s.id}')" title="Editar"><i class="fa-solid fa-pen" style="color:#1565C0"></i></button>
+      <button class="btn-icon" onclick="confirmDeleteSaida('${s.id}')" title="Excluir"><i class="fa-solid fa-trash" style="color:#C62828"></i></button>
+    </div>`;
+  }).join('');
+}
+
+function openSaidaModal(id){
+  const empId=val('payroll-employee');
+  if(!empId){ toast('Selecione um colaborador na folha primeiro.','error'); return; }
+  const emp=State.employees.find(e=>e.id===empId)||{};
+  const mes=parseInt(val('payroll-mes')||currentMes());
+  const ano=parseInt(val('payroll-ano')||currentAno());
+  setVal('saida-emp-id',empId); setVal('saida-mes',mes); setVal('saida-ano',ano);
+  document.getElementById('saida-emp-nome').textContent=emp.nome||'—';
+  const s=id?(State.saidas||[]).find(x=>x.id===id):null;
+  setVal('saida-id', s?s.id:'');
+  setVal('saida-dia', s?.dia||'');
+  setVal('saida-minutos', s?.minutos||'');
+  setVal('saida-motivo', s?.motivo||'');
+  const jc=document.getElementById('saida-justificada'); if(jc) jc.checked=!!s?.justificada;
+  const ac=document.getElementById('saida-abonada');     if(ac) ac.checked=!!s?.abonada;
+  document.getElementById('modal-saida').classList.remove('hidden');
+}
+
+async function saveSaida(){
+  const empId=val('saida-emp-id'); if(!empId){ toast('Colaborador não definido.','error'); return; }
+  const dia=parseInt(val('saida-dia'))||0;
+  const minutos=parseInt(val('saida-minutos'))||0;
+  if(dia<1||dia>31){ toast('Informe um dia válido (1 a 31).','error'); return; }
+  if(minutos<1){ toast('Informe os minutos ausentes.','error'); return; }
+  const id=val('saida-id');
+  const existente=id?(State.saidas||[]).find(x=>x.id===id):null;
+  const btn=document.querySelector('#modal-saida .btn-primary');
+  setBtnLoading(btn,true,'');
+  try {
+    const doc={
+      id:id||genId(), employeeId:empId,
+      mes:parseInt(val('saida-mes'))||currentMes(), ano:parseInt(val('saida-ano'))||currentAno(),
+      dia, minutos,
+      motivo:val('saida-motivo')||'',
+      justificada:!!document.getElementById('saida-justificada')?.checked,
+      abonada:!!document.getElementById('saida-abonada')?.checked,
+      createdAt:existente?.createdAt||new Date().toISOString(),
+      updatedAt:new Date().toISOString(),
+    };
+    await DB.save('saidas', doc);
+    const empNome=(State.employees.find(e=>e.id===empId)||{}).nome||'—';
+    Auth.log('SAIDA_LANCADA', null, `${empNome} — dia ${dia}, ${minutos}min${doc.abonada?' (abonada)':''}`);
+    closeModal('modal-saida');
+    toast('Saída registrada!');
+    renderSaidasFolha(); recalculate();
+  } catch(e){
+    toast('Erro ao salvar saída: '+(e?.message||e),'error');
+  } finally {
+    setBtnLoading(btn,false,'<i class="fa-solid fa-floppy-disk"></i> Salvar');
+  }
+}
+
+function confirmDeleteSaida(id){
+  if(!(State.saidas||[]).some(x=>x.id===id)) return;
+  document.getElementById('confirm-message').textContent='Excluir esta saída?';
+  const btn=document.getElementById('confirm-ok-btn');
+  btn.innerHTML='<i class="fa-solid fa-trash"></i> Excluir';
+  btn.onclick=async()=>{
+    try { await DB.remove('saidas', id); } catch(e){}
+    closeModal('modal-confirm');
+    renderSaidasFolha(); recalculate();
+    toast('Saída excluída.','warning');
+  };
+  document.getElementById('modal-confirm').classList.remove('hidden');
+}
+
 // Conta os dias de TRABALHO previstos no mês para o colaborador, conforme a
 // escala (escala salva > âncora 12x36 > contratual). Base do proporcional.
 function _diasPrevistosEscala(emp, mes, ano){
@@ -5082,9 +5196,14 @@ function recalculate(){
     const irrf=calcIRRF(totalBruto,emp.dependentesIRRF||0,pensaoEnc,planoEnc,inss);
     const adiantEnc=ativoAdiant?numVal('payroll-adiantamento-valor')||0:0;
     const atrasoEnc=numVal('payroll-desconto-atraso')||0;
+    // Desconto de saídas durante o expediente (minutos ausentes não-abonados)
+    const _saidaTot=_saidaTotais(val('payroll-employee'),_mesR,_anoR);
+    const descontoSaida=Math.round(_saidaTot.minutosDesc*valorMinuto*100)/100;
+    setVal('payroll-saida-min', _saidaTot.minutos||'');
+    setVal('payroll-desconto-saida', descontoSaida>0?descontoSaida.toFixed(2):'0.00');
     // VT/VR/VA são benefícios pagos à parte (vale/cartão) — NÃO entram no
     // líquido em dinheiro a receber.
-    const totalLiqFinal=Math.max(0,totalBruto-inss-irrf-pensaoEnc-planoEnc-outDesc-adiantEnc-atrasoEnc);
+    const totalLiqFinal=Math.max(0,totalBruto-inss-irrf-pensaoEnc-planoEnc-outDesc-adiantEnc-atrasoEnc-descontoSaida);
     setVal('payroll-total-bruto',       totalBruto.toFixed(2));
     setVal('payroll-outros-proventos',  outProv.toFixed(2));
     setVal('payroll-outros-descontos',  outDesc.toFixed(2));
@@ -5275,6 +5394,9 @@ async function savePayroll(){
     fgts:                numVal('payroll-fgts')||0,
     planoSaudeDesc:      numVal('payroll-plano-saude-desc')||0,
     pensaoAlimenticiaDesc:numVal('payroll-pensao')||0,
+    // Saídas durante o expediente (detalhe na coleção `saidas`)
+    minutosSaida:        numVal('payroll-saida-min')||0,
+    descontoSaida:       numVal('payroll-desconto-saida')||0,
     totalLiquidoFinal:   numVal('payroll-total-liquido-final')||0,
     // Preserva os pontos do app — savePayroll nunca deve apagar pontoManualDias
     // Sanitiza: Firestore rejeita undefined; converte para null ou remove
@@ -10268,8 +10390,10 @@ function printFolhaPonto(isPreview=false){
   const atrasoAbonado=!!document.getElementById('payroll-atraso-abonado')?.checked;
   const atrasoTipo=val('payroll-atraso-tipo')||'imotivado';
   const atrasoJustificativa=val('payroll-atraso-justificativa')||'';
+  const descontoSaida=numVal('payroll-desconto-saida')||0;
+  const minutosSaida=numVal('payroll-saida-min')||0;
   // VT/VR/VA são benefícios pagos à parte (vale/cartão) — não somam no líquido
-  const totalLiquido=remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade+bonificacao-adiantamento-descontoAtraso;
+  const totalLiquido=remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade+bonificacao-adiantamento-descontoAtraso-descontoSaida;
 
   // Posto do colaborador
   const posto=State.postos.find(p=>p.razaoSocial===emp.posto)||{razaoSocial:emp.posto||'—', endereco:'—'};
@@ -10434,6 +10558,7 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
     ${insalubridade>0?`<tr><td class="fin-label">Insalubridade</td><td class="fin-value">${fmtMoney(insalubridade)}</td></tr>`:''}
     <tr><td class="fin-label">Comissão de Boa Permanência</td><td class="fin-value">${bonificacao>0?fmtMoney(bonificacao):'<strong style="color:#999">N/C</strong>'}</td></tr>
     ${minutosAtraso>0?`<tr><td class="fin-label">${atrasoAbonado?'Atraso Abonado':'Desconto Atraso'} — ${minutosAtraso} min (${atrasoTipo==='motivado'?'motivado':'imotivado'})${atrasoJustificativa?` <small style="color:#666">&middot; ${atrasoJustificativa}</small>`:''}</td><td class="fin-value" style="color:${atrasoAbonado?'#2E7D32':'#c0392b'}">${atrasoAbonado?'R$ 0,00':fmtMoney(descontoAtraso)}</td></tr>`:''}
+    ${minutosSaida>0?`<tr><td class="fin-label">Desconto Saídas — ${minutosSaida} min de saída no expediente</td><td class="fin-value" style="color:${descontoSaida>0?'#c0392b':'#2E7D32'}">${descontoSaida>0?fmtMoney(descontoSaida):'R$ 0,00'}</td></tr>`:''}
     ${adiantamento>0?`<tr><td class="fin-label">Adiantamento (${numVal('payroll-adiantamento-perc')||40}%)</td><td class="fin-value" style="color:#c0392b">${fmtMoney(adiantamento)}</td></tr>`:''}
     <tr class="fin-total"><td class="fin-label" style="color:#fff">TOTAL LÍQUIDO A RECEBER</td><td class="fin-value" style="color:#fff">${fmtMoney(totalLiquido)}</td></tr>
   </table>
@@ -10515,6 +10640,8 @@ function _buildFolhaHtmlFromRecord(emp, p){
   const atrasoAbonado   = !!p.atrasoAbonado;
   const atrasoTipo      = p.atrasoTipo||'imotivado';
   const atrasoJustificativa = p.atrasoJustificativa||'';
+  const descontoSaida   = p.descontoSaida||0;
+  const minutosSaida    = p.minutosSaida||0;
   // Encargos legais (salvos a partir da v2026-05-08; fallback zero para registros antigos)
   const inssVal         = p.inss||0;
   const irrfVal         = p.irrf||0;
@@ -10528,8 +10655,8 @@ function _buildFolhaHtmlFromRecord(emp, p){
   // p.totalLiquidoFinal salvo, que em registros antigos somava VT/VR/VA
   // indevidamente). VT/VR/VA são benefícios pagos à parte.
   const totalLiquido    = totalBrutoVal>0
-    ? Math.max(0, totalBrutoVal-inssVal-irrfVal-pensaoVal-planoSaudeVal-outrosDescVal-adiantamento-descontoAtraso)
-    : Math.max(0, remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade+bonificacao-adiantamento-descontoAtraso);
+    ? Math.max(0, totalBrutoVal-inssVal-irrfVal-pensaoVal-planoSaudeVal-outrosDescVal-adiantamento-descontoAtraso-descontoSaida)
+    : Math.max(0, remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade+bonificacao-adiantamento-descontoAtraso-descontoSaida);
 
   // Tabela de dias do ponto
   const diasPonto    = p.pontoManualDias||[];
@@ -10681,6 +10808,7 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
       ${pensaoVal>0?`<tr><td class="fin-label">Pensão Alimentícia</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(pensaoVal)})</td></tr>`:''}
       ${planoSaudeVal>0?`<tr><td class="fin-label">Plano de Saúde</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(planoSaudeVal)})</td></tr>`:''}
       ${minutosAtraso>0?`<tr><td class="fin-label">${atrasoAbonado?'Atraso Abonado':'Desconto Atraso'} — ${minutosAtraso} min (${atrasoTipo==='motivado'?'motivado':'imotivado'})${atrasoJustificativa?` <small style="color:#666">&middot; ${atrasoJustificativa}</small>`:''}</td><td class="fin-value" style="color:${atrasoAbonado?'#2E7D32':'#c0392b'}">${atrasoAbonado?'R$ 0,00':`(${fmtMoney(descontoAtraso)})`}</td></tr>`:''}
+      ${minutosSaida>0?`<tr><td class="fin-label">Desconto Saídas — ${minutosSaida} min de saída no expediente</td><td class="fin-value" style="color:${descontoSaida>0?'#c0392b':'#2E7D32'}">${descontoSaida>0?`(${fmtMoney(descontoSaida)})`:'R$ 0,00'}</td></tr>`:''}
       ${adiantamento>0?`<tr><td class="fin-label">Adiantamento (${adiantamentoPerc}%)</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(adiantamento)})</td></tr>`:''}
       ${outrosDescVal>0?`<tr><td class="fin-label">Outros Descontos</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(outrosDescVal)})</td></tr>`:''}
     </table>
@@ -12949,6 +13077,10 @@ async function init(){
   DB.listen('atestados', data => {
     State.atestados = data;
     if(State.currentSection==='payroll'){ renderAtestadosFolha(); recalculate(); }
+  });
+  DB.listen('saidas', data => {
+    State.saidas = data;
+    if(State.currentSection==='payroll'){ renderSaidasFolha(); recalculate(); }
   });
   DB.listen('escalasModelos', data => {
     State.escalasModelos = data;

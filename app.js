@@ -7132,36 +7132,53 @@ const ESCALA_RULES = {
 };
 
 // Chama a API do Gemini com visão
-async function callGemini(base64Data, mimeType, escala){
+async function callGemini(base64Data, mimeType, escala, mes, ano){
   const escalaRule=ESCALA_RULES[escala]||ESCALA_RULES['5x2A'];
-  const prompt=`Você é um sistema de leitura de folha de ponto brasileira. Analise a imagem desta folha de ponto e extraia os dados com PRECISÃO MÁXIMA.
+  const diasNoMes=(mes&&ano)?new Date(ano,mes,0).getDate():31;
+  const refTxt=(mes&&ano)?`Esta folha é do mês ${mes}/${ano}, que tem ${diasNoMes} dias.`:'';
+  const prompt=`Você é um sistema de leitura de folha de ponto brasileira. Analise a imagem/PDF desta folha de ponto e extraia os horários de CADA DIA com PRECISÃO MÁXIMA. A folha pode ser digitada ou preenchida à mão.
 
-ESTRUTURA DA FOLHA: cada linha representa 1 dia do mês. As colunas geralmente são: DIA | DIA DA SEMANA | ENTRADA | INÍCIO INTERVALO | RETORNO INTERVALO | SAÍDA | RUBRICA | HORA EXTRA | OBS. A ordem pode variar levemente — adapte-se.
+${refTxt}
 
-ESCALA DO COLABORADOR (regra crítica de negócio):
+ESTRUTURA DA FOLHA: cada linha representa 1 dia do mês. As colunas geralmente são: DIA | DIA DA SEMANA | ENTRADA | INÍCIO INTERVALO | RETORNO INTERVALO | SAÍDA | RUBRICA | HORA EXTRA | OBS. A ordem pode variar — adapte-se.
+
+ESCALA DO COLABORADOR (regra de negócio para distinguir folga de falta):
 ${escalaRule}
 
 Retorne SOMENTE um JSON válido com este formato exato:
 {
-  "nome": "nome completo do colaborador (procure no cabeçalho) ou null",
-  "cargo": "cargo/função (no cabeçalho) ou null",
-  "ctps": "número da CTPS (no cabeçalho) ou null",
-  "diasTrabalhados": <inteiro> dias COM registro de ENTRADA E SAÍDA preenchidos,
-  "faltas": <inteiro> dias contados como FALTA segundo a regra da ESCALA acima (NUNCA conte folgas programadas, sábados/domingos de quem não trabalha neles, atestados ou férias),
-  "horasExtras": <decimal> soma das horas da coluna HORA EXTRA (em horas decimais, ex: 1.5 = 1h30min). Se vazio, 0,
-  "observacoes": "texto das observações relevantes encontradas (resumo curto) ou null"
+  "nome": "nome completo do colaborador (cabeçalho) ou null",
+  "cargo": "cargo/função (cabeçalho) ou null",
+  "ctps": "número da CTPS (cabeçalho) ou null",
+  "dias": [
+    {"dia":1,"tipo":"trabalho","entrada":"08:00","intervaloInicio":"12:00","intervaloFim":"13:00","saida":"17:00"}
+  ],
+  "diasTrabalhados": <inteiro>,
+  "faltas": <inteiro>,
+  "horasExtras": <decimal>,
+  "observacoes": "resumo curto das observações ou null"
 }
 
-ANTI-ENGANO — NUNCA cometa estes erros comuns:
-1. NÃO conte sábado/domingo como falta se a escala for 5x2 — eles são folga.
-2. NÃO conte qualquer linha vazia como falta na escala 12x36 — sem indicação explícita na OBS, falta = 0.
-3. NÃO conte atestados, férias ou afastamentos como falta. Linhas com "ATESTADO", "FÉRIAS", "AFAST.", "INSS", "LICENÇA" são justificadas e ficam fora.
-4. NÃO confunda "DSR" (descanso semanal remunerado) ou "FOLGA" com falta — são folgas programadas.
-5. Se a folha tem campo de TOTAL no rodapé com valor de faltas, ANTES use esse total como referência se for compatível com a escala.
+REGRAS DO ARRAY "dias" (a parte mais importante):
+- Inclua UM objeto para CADA dia do mês, de 1 até ${diasNoMes}, em ordem crescente de "dia".
+- "tipo": um de "trabalho" (tem horário batido), "folga", "falta", "atestado", "ferias", "feriado", "dsr".
+- Horários SEMPRE no formato 24 horas "HH:MM" (ex.: "07:00", "13:30", "22:00"). Campo em branco na folha = null.
+- Em dias de folga/falta/atestado/ferias/feriado/dsr, os 4 horários são null.
+- Se a folha registra só ENTRADA e SAÍDA (sem intervalo), preencha esses dois e deixe intervaloInicio/intervaloFim como null.
+- Copie o horário EXATAMENTE como está escrito — não arredonde, não invente, não complete.
+- Turno noturno: se a saída cai no dia seguinte, registre mesmo assim a hora do relógio (ex.: entrada "19:00", saida "07:00").
 
-Sanidade obrigatória: diasTrabalhados + faltas + folgas + atestados + férias ≈ total de dias do mês visível na folha.
+REGRAS DOS TOTAIS (devem ser coerentes com o array "dias"):
+- "diasTrabalhados": quantidade de dias com ENTRADA e SAÍDA preenchidas.
+- "faltas": dias contados como FALTA pela regra da ESCALA acima. NUNCA conte folgas, sábados/domingos de quem não trabalha neles, atestados, férias, feriados ou DSR.
+- "horasExtras": soma da coluna HORA EXTRA em horas decimais (1.5 = 1h30min). Se não houver, 0.
 
-Retorne APENAS o JSON, sem markdown, sem comentários, sem explicação. Se um valor não puder ser determinado, use null (texto) ou 0 (números).`;
+ANTI-ENGANO:
+1. NÃO conte sábado/domingo como falta na escala 5x2 — são folga.
+2. NÃO conte linha vazia como falta na escala 12x36 sem indicação explícita.
+3. "ATESTADO", "FÉRIAS", "AFAST.", "INSS", "LICENÇA", "DSR", "FOLGA", "FERIADO" são dias justificados — use o "tipo" correspondente, nunca "falta".
+
+Retorne APENAS o JSON, sem markdown, sem comentários. Se um valor não puder ser lido, use null (texto/horário) ou 0 (números).`;
 
   const resp=await fetch(GEMINI_PROXY_URL, {
     method:'POST',
@@ -7191,6 +7208,8 @@ Retorne APENAS o JSON, sem markdown, sem comentários, sem explicação. Se um v
   }
 }
 
+let _iaPontoExtracted = null;
+
 async function processPdf(){
   const file=State.currentPdfFile; if(!file){ toast('Nenhum arquivo selecionado.','error'); return; }
   const modal=document.getElementById('modal-pdf');
@@ -7202,7 +7221,7 @@ async function processPdf(){
   statusEl.innerHTML=`<div style="text-align:center;padding:20px">
     <div class="spinner" style="margin:0 auto 12px"></div>
     <div style="font-weight:600;color:var(--primary)">🤖 Inteligência Artificial analisando a folha...</div>
-    <div style="font-size:12px;color:var(--text-muted);margin-top:6px">Gemini está lendo os registros linha por linha. Aguarde.</div>
+    <div style="font-size:12px;color:var(--text-muted);margin-top:6px">Gemini está lendo os registros dia a dia. Aguarde.</div>
   </div>`;
   resultEl.classList.add('hidden'); footerEl.classList.add('hidden');
   try {
@@ -7210,24 +7229,43 @@ async function processPdf(){
     // Para PDF, usa o tipo do arquivo; para imagem, usa o MIME real
     let mimeType=file.type;
     if(mimeType==='application/pdf') mimeType='application/pdf';
-    // Pega escala do colaborador selecionado (afeta a regra de faltas)
+    // Escala + mês/ano do colaborador selecionado (afetam a leitura da IA)
     const empId=val('payroll-employee');
     const emp=State.employees.find(e=>e.id===empId);
     const escala=emp?.escala||'5x2A';
-    const extracted=await callGemini(base64, mimeType, escala);
-    // Preencher campos do resultado
-    setVal('ext-dias', extracted.diasTrabalhados||0);
-    setVal('ext-faltas', extracted.faltas||0);
-    setVal('ext-remuneracao','');
-    // Mostrar info extra
-    const nomeInfo=extracted.nome?`<br><i class="fa-solid fa-user"></i> <strong>${extracted.nome}</strong>`:'';
-    const cargoInfo=extracted.cargo?` — ${extracted.cargo}`:'';
+    const mes=parseInt(val('payroll-mes')||currentMes());
+    const ano=parseInt(val('payroll-ano')||currentAno());
+    const extracted=await callGemini(base64, mimeType, escala, mes, ano);
+    _iaPontoExtracted=extracted;
+    const diasIA=Array.isArray(extracted.dias)?extracted.dias:[];
+    const diasComHora=diasIA.filter(d=>d&&(d.entrada||d.saida));
+    const temDias=diasComHora.length>0;
+    // Info do que a IA leu
+    const nomeInfo=extracted.nome?`<br><i class="fa-solid fa-user"></i> <strong>${extracted.nome}</strong>${extracted.cargo?' — '+extracted.cargo:''}`:'';
     const heInfo=extracted.horasExtras>0?`<br><i class="fa-solid fa-clock"></i> Horas extras detectadas: <strong>${extracted.horasExtras}h</strong>`:'';
     const obsInfo=extracted.observacoes?`<br><i class="fa-solid fa-note-sticky"></i> Obs: ${extracted.observacoes}`:'';
     document.getElementById('extraction-info').innerHTML=`
       <div style="color:var(--success);font-weight:700"><i class="fa-solid fa-robot"></i> Gemini AI leu a folha com sucesso!</div>
-      ${nomeInfo}${cargoInfo}${heInfo}${obsInfo}
-      <div style="margin-top:8px;font-size:12px;color:var(--text-muted)">Verifique os valores abaixo e corrija se necessário antes de aplicar.</div>`;
+      ${nomeInfo}${heInfo}${obsInfo}
+      <div style="margin-top:6px"><i class="fa-solid fa-calendar-check"></i> Dias com horário lido: <strong>${temDias?diasComHora.length:(extracted.diasTrabalhados||0)}</strong> · Faltas estimadas: <strong>${extracted.faltas||0}</strong></div>
+      <div style="margin-top:8px;font-size:12px;color:var(--text-muted)">${temDias
+        ? 'Os horários serão abertos dia a dia na Folha de Ponto para você conferir antes de aplicar.'
+        : 'A IA não leu os horários dia a dia — confira e ajuste os totais abaixo antes de aplicar.'}</div>`;
+    // Campos-resumo só aparecem quando a IA NÃO trouxe o dia a dia
+    ['ext-dias','ext-faltas','ext-remuneracao'].forEach(id=>{
+      const el=document.getElementById(id);
+      const fg=el?el.closest('.form-group'):null;
+      if(fg) fg.style.display=temDias?'none':'';
+    });
+    if(!temDias){
+      setVal('ext-dias', extracted.diasTrabalhados||0);
+      setVal('ext-faltas', extracted.faltas||0);
+      setVal('ext-remuneracao','');
+    }
+    const applyBtn=document.getElementById('btn-aplicar-extracao');
+    if(applyBtn) applyBtn.innerHTML=temDias
+      ? '<i class="fa-solid fa-list-check"></i> Conferir na Folha de Ponto'
+      : '<i class="fa-solid fa-check"></i> Aplicar Dados';
     // Esconder raw text (não temos mais)
     const rawBlock=document.getElementById('ext-raw-text');
     if(rawBlock) rawBlock.parentElement?.classList?.add('hidden');
@@ -7246,10 +7284,54 @@ async function processPdf(){
   }
 }
 
-function applyExtraction(){
+// Normaliza um horário lido pela IA para "HH:MM" (input type=time exige).
+function _normHora(s){
+  if(s==null) return '';
+  const m=String(s).match(/(\d{1,2})\s*[:hH.]?\s*(\d{2})/);
+  if(!m) return '';
+  const h=parseInt(m[1],10), mi=parseInt(m[2],10);
+  if(isNaN(h)||isNaN(mi)||h>23||mi>59) return '';
+  return String(h).padStart(2,'0')+':'+String(mi).padStart(2,'0');
+}
+
+async function applyExtraction(){
+  const ex=_iaPontoExtracted;
+  const diasIA=ex&&Array.isArray(ex.dias)?ex.dias:[];
+  // Fluxo principal: a IA leu o ponto dia a dia → preenche o grid de Ponto
+  // Manual. É a partir dele que HE, atrasos, faltas, recálculo e impressão
+  // são alimentados — ou seja, os dados chegam a todo o sistema.
+  if(diasIA.some(d=>d&&(d.entrada||d.saida))){
+    const empId=val('payroll-employee');
+    if(!empId){ toast('Selecione um colaborador na Folha de Ponto antes de aplicar.','error'); return; }
+    closeModal('modal-pdf');
+    await openPontoManual();
+    let preenchidos=0;
+    diasIA.forEach(d=>{
+      const dia=parseInt(d&&d.dia);
+      if(!dia) return;
+      const card=document.querySelector(`#ponto-manual-grid [data-dia="${dia}"]`);
+      if(!card) return;
+      [['.pm-entrada',_normHora(d.entrada)],
+       ['.pm-int-ini',_normHora(d.intervaloInicio)],
+       ['.pm-int-fim',_normHora(d.intervaloFim)],
+       ['.pm-saida',  _normHora(d.saida)]].forEach(([sel,hora])=>{
+        if(!hora) return;
+        const inp=card.querySelector(sel);
+        if(!inp || inp.dataset.origem==='app') return; // preserva batida do app (GPS)
+        inp.value=hora;
+        inp.dataset.origem='ia';
+        _updatePontoOrigemMarker(inp);
+        preenchidos++;
+      });
+    });
+    calcResumoManual();
+    if(preenchidos>0) toast(`IA preencheu ${preenchidos} horário(s). Confira dia a dia e clique em "Aplicar na Folha".`,'success');
+    else toast('A IA não encontrou horários válidos. Lance o ponto manualmente.','warning');
+    return;
+  }
+  // Fallback: a IA só trouxe o resumo (sem dia a dia) → preenche os totais.
   setVal('payroll-dias',numVal('ext-dias'));
-  const faltasExt=numVal('ext-faltas');
-  setVal('payroll-faltas-injustificadas',faltasExt);
+  setVal('payroll-faltas-injustificadas',numVal('ext-faltas'));
   setVal('payroll-faltas-justificadas',0);
   const r=numVal('ext-remuneracao'); if(r>0) setVal('payroll-remuneracao',r.toFixed(2));
   recalculate(); closeModal('modal-pdf'); toast('Dados da folha aplicados com sucesso!');
@@ -10161,12 +10243,21 @@ function _updatePontoOrigemMarker(input){
   if(!parent) return;
   const existing = parent.querySelector('.pm-origem-mark');
   if(existing) existing.remove();
-  if(input.dataset.origem === 'manual' && input.value){
+  if(!input.value) return;
+  const origem = input.dataset.origem;
+  if(origem === 'manual'){
     const mark = document.createElement('span');
     mark.className = 'pm-origem-mark';
     mark.title = 'Editado pelo operador (origem manual)';
     mark.textContent = '*';
     mark.style.cssText = 'color:#E65100;font-weight:700;font-size:13px;margin-left:4px;vertical-align:middle';
+    parent.appendChild(mark);
+  } else if(origem === 'ia'){
+    const mark = document.createElement('span');
+    mark.className = 'pm-origem-mark';
+    mark.title = 'Horário lido pela IA — confira antes de aplicar';
+    mark.textContent = '🤖';
+    mark.style.cssText = 'font-size:10px;margin-left:4px;vertical-align:middle';
     parent.appendChild(mark);
   }
 }

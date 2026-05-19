@@ -7157,6 +7157,28 @@ function _parseGeminiJson(text){
   catch(e){ throw new Error('A IA devolveu um JSON malformado ('+e.message+'). Tente novamente.'); }
 }
 
+// Converte a string compacta de dias da IA ("1|folga|-|-|-|-;2|trabalho|07:00|...")
+// no array de objetos {dia,tipo,entrada,intervaloInicio,intervaloFim,saida}.
+function _parseDiasIA(diasStr){
+  const out=[];
+  String(diasStr||'').split(/[;\n]+/).forEach(linha=>{
+    const p=linha.split('|');
+    if(p.length<2) return;
+    const dia=parseInt(p[0]);
+    if(!dia||dia<1||dia>31) return;
+    const lim=v=>{ v=(v||'').trim(); return (!v||v==='-')?null:v; };
+    out.push({
+      dia,
+      tipo:((p[1]||'').trim().toLowerCase())||'trabalho',
+      entrada:lim(p[2]),
+      intervaloInicio:lim(p[3]),
+      intervaloFim:lim(p[4]),
+      saida:lim(p[5])
+    });
+  });
+  return out;
+}
+
 async function callGemini(base64Data, mimeType, escala, mes, ano){
   const escalaRule=ESCALA_RULES[escala]||ESCALA_RULES['5x2A'];
   const diasNoMes=(mes&&ano)?new Date(ano,mes,0).getDate():31;
@@ -7170,30 +7192,21 @@ ESTRUTURA DA FOLHA: cada linha representa 1 dia do mês. As colunas geralmente s
 ESCALA DO COLABORADOR (regra de negócio para distinguir folga de falta):
 ${escalaRule}
 
-Retorne SOMENTE um JSON válido com este formato exato:
-{
-  "nome": "nome completo do colaborador (cabeçalho) ou null",
-  "cargo": "cargo/função (cabeçalho) ou null",
-  "ctps": "número da CTPS (cabeçalho) ou null",
-  "dias": [
-    {"dia":1,"tipo":"trabalho","entrada":"08:00","intervaloInicio":"12:00","intervaloFim":"13:00","saida":"17:00"}
-  ],
-  "diasTrabalhados": <inteiro>,
-  "faltas": <inteiro>,
-  "horasExtras": <decimal>,
-  "observacoes": "resumo curto das observações ou null"
-}
+Retorne SOMENTE um JSON válido, COMPACTO, em UMA linha, com este formato exato:
+{"nome":"...","cargo":"...","ctps":"...","dias":"...","diasTrabalhados":0,"faltas":0,"horasExtras":0,"observacoes":"..."}
 
-REGRAS DO ARRAY "dias" (a parte mais importante):
-- Inclua UM objeto para CADA dia do mês, de 1 até ${diasNoMes}, em ordem crescente de "dia".
-- "tipo": um de "trabalho" (tem horário batido), "folga", "falta", "atestado", "ferias", "feriado", "dsr".
-- Horários SEMPRE no formato 24 horas "HH:MM" (ex.: "07:00", "13:30", "22:00"). Campo em branco na folha = null.
-- Em dias de folga/falta/atestado/ferias/feriado/dsr, os 4 horários são null.
-- Se a folha registra só ENTRADA e SAÍDA (sem intervalo), preencha esses dois e deixe intervaloInicio/intervaloFim como null.
+O CAMPO "dias" É UMA ÚNICA STRING DE TEXTO (não é lista nem array). Dentro dessa string:
+- Coloque um dia por vez, do dia 1 até o dia ${diasNoMes}, separados por ponto-e-vírgula ";".
+- Cada dia tem 6 campos separados por barra vertical "|", nesta ordem EXATA: dia|tipo|entrada|intervaloInicio|intervaloFim|saida
+- "tipo": um de trabalho, folga, falta, atestado, ferias, feriado, dsr.
+- Horários no formato 24 horas HH:MM (ex.: 07:00, 13:30, 22:00). Campo vazio = "-".
+- Em dias de folga/falta/atestado/ferias/feriado/dsr, os 4 horários são "-".
+- Se a folha registra só ENTRADA e SAÍDA (sem intervalo), use "-" nos dois campos de intervalo.
 - Copie o horário EXATAMENTE como está escrito — não arredonde, não invente, não complete.
-- Turno noturno: se a saída cai no dia seguinte, registre mesmo assim a hora do relógio (ex.: entrada "19:00", saida "07:00").
+- Turno noturno: registre a hora do relógio mesmo que a saída caia no dia seguinte.
+Exemplo do campo "dias": "1|folga|-|-|-|-;2|trabalho|07:00|11:00|12:00|16:00;3|atestado|-|-|-|-"
 
-REGRAS DOS TOTAIS (devem ser coerentes com o array "dias"):
+REGRAS DOS TOTAIS:
 - "diasTrabalhados": quantidade de dias com ENTRADA e SAÍDA preenchidas.
 - "faltas": dias contados como FALTA pela regra da ESCALA acima. NUNCA conte folgas, sábados/domingos de quem não trabalha neles, atestados, férias, feriados ou DSR.
 - "horasExtras": soma da coluna HORA EXTRA em horas decimais (1.5 = 1h30min). Se não houver, 0.
@@ -7201,9 +7214,9 @@ REGRAS DOS TOTAIS (devem ser coerentes com o array "dias"):
 ANTI-ENGANO:
 1. NÃO conte sábado/domingo como falta na escala 5x2 — são folga.
 2. NÃO conte linha vazia como falta na escala 12x36 sem indicação explícita.
-3. "ATESTADO", "FÉRIAS", "AFAST.", "INSS", "LICENÇA", "DSR", "FOLGA", "FERIADO" são dias justificados — use o "tipo" correspondente, nunca "falta".
+3. "ATESTADO", "FÉRIAS", "AFAST.", "INSS", "LICENÇA", "DSR", "FOLGA", "FERIADO" são dias justificados — nunca "falta".
 
-Retorne APENAS o JSON, sem markdown, sem comentários. O JSON deve ser ESTRITAMENTE válido — separe CADA objeto do array "dias" por vírgula. Se um valor não puder ser lido, use null (texto/horário) ou 0 (números).`;
+Retorne APENAS o JSON em uma única linha, compacto, sem markdown, sem comentários, sem quebras de linha. Se um valor não puder ser lido, use "-" (texto/horário) ou 0 (números).`;
 
   const resp=await fetch(GEMINI_PROXY_URL, {
     method:'POST',
@@ -7222,7 +7235,26 @@ Retorne APENAS o JSON, sem markdown, sem comentários. O JSON deve ser ESTRITAME
   const data=await resp.json();
   const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
   console.log('Gemini raw response:', text);
-  return _parseGeminiJson(text);
+  try {
+    const parsed=_parseGeminiJson(text);
+    if(typeof parsed.dias==='string') parsed.dias=_parseDiasIA(parsed.dias);
+    else if(!Array.isArray(parsed.dias)) parsed.dias=[];
+    return parsed;
+  } catch(e){
+    // Salvação: a IA pode truncar a resposta. Extrai os campos por regex —
+    // inclusive um "dias" cortado no meio (string sem aspas de fechamento).
+    const gS=k=>{ const m=text.match(new RegExp('"'+k+'"\\s*:\\s*"([^"]*)')); return m?m[1]:null; };
+    const gN=k=>{ const m=text.match(new RegExp('"'+k+'"\\s*:\\s*(-?[0-9]+(?:\\.[0-9]+)?)')); return m?Number(m[1]):0; };
+    const diasArr=_parseDiasIA(gS('dias')||'');
+    if(diasArr.length){
+      return { nome:gS('nome'), cargo:gS('cargo'), ctps:gS('ctps'), dias:diasArr,
+        diasTrabalhados:gN('diasTrabalhados'), faltas:gN('faltas'),
+        horasExtras:gN('horasExtras'), observacoes:gS('observacoes'), _parcial:true };
+    }
+    const err=new Error(e.message);
+    err.rawResponse=text;
+    throw err;
+  }
 }
 
 let _iaPontoExtracted = null;
@@ -7261,8 +7293,11 @@ async function processPdf(){
     const nomeInfo=extracted.nome?`<br><i class="fa-solid fa-user"></i> <strong>${extracted.nome}</strong>${extracted.cargo?' — '+extracted.cargo:''}`:'';
     const heInfo=extracted.horasExtras>0?`<br><i class="fa-solid fa-clock"></i> Horas extras detectadas: <strong>${extracted.horasExtras}h</strong>`:'';
     const obsInfo=extracted.observacoes?`<br><i class="fa-solid fa-note-sticky"></i> Obs: ${extracted.observacoes}`:'';
+    const okLine=extracted._parcial
+      ? '<div style="color:#E65100;font-weight:700"><i class="fa-solid fa-triangle-exclamation"></i> Leitura PARCIAL — a resposta da IA veio cortada. Confira com atenção; pode faltar dia.</div>'
+      : '<div style="color:var(--success);font-weight:700"><i class="fa-solid fa-robot"></i> Gemini AI leu a folha com sucesso!</div>';
     document.getElementById('extraction-info').innerHTML=`
-      <div style="color:var(--success);font-weight:700"><i class="fa-solid fa-robot"></i> Gemini AI leu a folha com sucesso!</div>
+      ${okLine}
       ${nomeInfo}${heInfo}${obsInfo}
       <div style="margin-top:6px"><i class="fa-solid fa-calendar-check"></i> Dias com horário lido: <strong>${temDias?diasComHora.length:(extracted.diasTrabalhados||0)}</strong> · Faltas estimadas: <strong>${extracted.faltas||0}</strong></div>
       <div style="margin-top:8px;font-size:12px;color:var(--text-muted)">${temDias
@@ -7290,12 +7325,18 @@ async function processPdf(){
     resultEl.classList.remove('hidden');
     footerEl.classList.remove('hidden');
   } catch(err){
+    const rawHtml = err.rawResponse
+      ? `<details open style="margin-top:10px;text-align:left;font-size:11px">
+           <summary style="cursor:pointer;color:var(--primary)">Resposta recebida da IA (para diagnóstico)</summary>
+           <pre style="white-space:pre-wrap;word-break:break-word;background:#f5f5f5;padding:8px;border-radius:6px;max-height:220px;overflow:auto;font-size:10px">${String(err.rawResponse).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
+         </details>`
+      : '';
     statusEl.innerHTML=`<div style="color:var(--danger);text-align:center;padding:20px">
       <i class="fa-solid fa-circle-xmark" style="font-size:32px;display:block;margin-bottom:10px"></i>
       <strong>Erro ao processar com IA</strong><br>
       <span style="font-size:12px">${err.message}</span><br>
-      <span style="font-size:11px;color:var(--text-muted);margin-top:6px;display:block">Verifique se a chave Gemini está válida ou tente novamente.</span>
-    </div>`;
+      <span style="font-size:11px;color:var(--text-muted);margin-top:6px;display:block">A IA às vezes erra — clique em "Analisar com IA" de novo. Se persistir, mostre a resposta abaixo ao suporte.</span>
+    </div>${rawHtml}`;
     footerEl.classList.remove('hidden');
     footerEl.innerHTML='<button class="btn btn-outline" onclick="closeModal(\'modal-pdf\')">Fechar</button>';
   }

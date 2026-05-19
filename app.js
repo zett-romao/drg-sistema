@@ -7132,6 +7132,31 @@ const ESCALA_RULES = {
 };
 
 // Chama a API do Gemini com visão
+// Faz o parse do JSON devolvido pelo Gemini, tolerando erros comuns do
+// modelo: cercas markdown, vírgula faltando entre objetos/strings do array,
+// vírgula sobrando antes de } ou ], comentários de bloco.
+function _parseGeminiJson(text){
+  const raw=String(text||'');
+  // 1) tentativa direta (em JSON mode normalmente já vem certo)
+  try { return JSON.parse(raw); } catch(_e){}
+  // 2) tira cercas markdown e isola do 1º "{" ao último "}"
+  let t=raw.replace(/```(?:json)?/gi,'').trim();
+  const ini=t.indexOf('{'), fim=t.lastIndexOf('}');
+  if(ini>=0 && fim>ini) t=t.slice(ini,fim+1);
+  try { return JSON.parse(t); } catch(_e){}
+  // 3) repara os erros comuns do modelo e tenta pela última vez
+  const r=t
+    .replace(/\/\*[\s\S]*?\*\//g,'')                       // comentários de bloco
+    .replace(/}\s*{/g,'},{')                               // vírgula faltando entre objetos
+    .replace(/]\s*\[/g,'],[')                              // ... entre arrays
+    .replace(/}\s*\[/g,'},[')
+    .replace(/]\s*{/g,'],{')
+    .replace(/("(?:[^"\\]|\\.)*")\s*\n\s*(")/g,'$1,\n$2')  // ... entre valores string
+    .replace(/,\s*([}\]])/g,'$1');                         // vírgula sobrando antes de } ]
+  try { return JSON.parse(r); }
+  catch(e){ throw new Error('A IA devolveu um JSON malformado ('+e.message+'). Tente novamente.'); }
+}
+
 async function callGemini(base64Data, mimeType, escala, mes, ano){
   const escalaRule=ESCALA_RULES[escala]||ESCALA_RULES['5x2A'];
   const diasNoMes=(mes&&ano)?new Date(ano,mes,0).getDate():31;
@@ -7178,7 +7203,7 @@ ANTI-ENGANO:
 2. NÃO conte linha vazia como falta na escala 12x36 sem indicação explícita.
 3. "ATESTADO", "FÉRIAS", "AFAST.", "INSS", "LICENÇA", "DSR", "FOLGA", "FERIADO" são dias justificados — use o "tipo" correspondente, nunca "falta".
 
-Retorne APENAS o JSON, sem markdown, sem comentários. Se um valor não puder ser lido, use null (texto/horário) ou 0 (números).`;
+Retorne APENAS o JSON, sem markdown, sem comentários. O JSON deve ser ESTRITAMENTE válido — separe CADA objeto do array "dias" por vírgula. Se um valor não puder ser lido, use null (texto/horário) ou 0 (números).`;
 
   const resp=await fetch(GEMINI_PROXY_URL, {
     method:'POST',
@@ -7197,15 +7222,7 @@ Retorne APENAS o JSON, sem markdown, sem comentários. Se um valor não puder se
   const data=await resp.json();
   const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
   console.log('Gemini raw response:', text);
-  // Tenta parse direto (quando responseMimeType=application/json funciona)
-  try {
-    return JSON.parse(text);
-  } catch(e) {
-    // Fallback: extrai JSON do texto se vier com markdown ou outro wrapper
-    const jsonMatch=text.match(/\{[\s\S]*\}/);
-    if(!jsonMatch) throw new Error('Resposta da IA não reconhecida: '+text.substring(0,200));
-    return JSON.parse(jsonMatch[0]);
-  }
+  return _parseGeminiJson(text);
 }
 
 let _iaPontoExtracted = null;
@@ -7446,13 +7463,7 @@ REGRAS IMPORTANTES:
   }
   const data=await resp.json();
   const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
-  try {
-    return JSON.parse(text);
-  } catch(e){
-    const m=text.match(/\{[\s\S]*\}/);
-    if(!m) throw new Error('Resposta da IA não reconhecida: '+text.substring(0,200));
-    return JSON.parse(m[0]);
-  }
+  return _parseGeminiJson(text);
 }
 
 // Lê todos os documentos selecionados, mescla os resultados e preenche o formulário

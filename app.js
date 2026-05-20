@@ -6809,7 +6809,10 @@ function renderAdiantamentos(){
       const _parts=[];
       if(_semFolha.length) _parts.push(`<div style="margin-top:6px"><strong style="color:#E65100"><i class="fa-solid fa-triangle-exclamation"></i> ${_semFolha.length} colaborador(es) marcado(s) ainda sem folha de ${comp}:</strong><ul style="margin:4px 0 0 22px;padding:0">${_semFolha.map(_li).join('')}</ul></div>`);
       if(_semAdiantNaFolha.length) _parts.push(`<div style="margin-top:8px"><strong style="color:#E65100"><i class="fa-solid fa-triangle-exclamation"></i> ${_semAdiantNaFolha.length} folha(s) de ${comp} lançada(s) sem adiantamento ativo:</strong><ul style="margin:4px 0 0 22px;padding:0">${_semAdiantNaFolha.map(_li).join('')}</ul></div>`);
-      if(_semValor.length) _parts.push(`<div style="margin-top:8px"><strong style="color:#E65100"><i class="fa-solid fa-triangle-exclamation"></i> ${_semValor.length} folha(s) de ${comp} com adiantamento ativo mas valor ZERADO (folha salva antes da regra atual — abra e salve novamente para recalcular):</strong><ul style="margin:4px 0 0 22px;padding:0">${_semValor.map(_li).join('')}</ul></div>`);
+      if(_semValor.length){
+        const _liRecalc=e=>`<li style="margin:4px 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><a onclick="_abrirFolhaColaborador('${e.id}')" style="color:#1565C0;cursor:pointer;text-decoration:underline">${e.nome||'—'}</a><button onclick="_recalcAdiantamento('${e.id}',${mes},${ano})" title="Atualiza o valor do adiantamento direto, sem abrir a folha" style="background:#00695C;color:#fff;border:none;border-radius:6px;padding:3px 10px;font-size:11px;font-weight:700;cursor:pointer"><i class="fa-solid fa-rotate"></i> Recalcular agora</button></li>`;
+        _parts.push(`<div style="margin-top:8px"><strong style="color:#E65100"><i class="fa-solid fa-triangle-exclamation"></i> ${_semValor.length} folha(s) de ${comp} com adiantamento ativo mas valor ZERADO (salva antes da regra atual):</strong><ul style="margin:4px 0 0 22px;padding:0">${_semValor.map(_liRecalc).join('')}</ul><div style="margin-top:6px;font-size:11px;color:#7C5500">Clique em <strong>"Recalcular agora"</strong> para corrigir num clique. Ou clique no nome para abrir a folha e revisar (o valor já vem certo na tela — basta rolar até o final e clicar em <strong>"Salvar Folha"</strong>).</div></div>`);
+      }
       _diagEl.innerHTML=`<div style="padding:10px 14px;background:#FFF3E0;border:1px solid #FFB74D;border-radius:8px;font-size:13px">
         <div><strong>Faltando alguém aqui?</strong> Estes colaboradores estão marcados como "Recebe adiantamento quinzenal" no cadastro, mas não aparecem na lista:</div>
         ${_parts.join('')}
@@ -6862,6 +6865,30 @@ function _abrirFolhaColaborador(empId){
   showSection('payroll');
   const sel=document.getElementById('payroll-employee');
   if(sel){ sel.value=empId; if(typeof onPayrollEmployeeChange==='function') onPayrollEmployeeChange(); }
+}
+
+// Recalcula o valor do adiantamento de uma folha já salva (salário base ×
+// percentual) e salva direto, sem precisar abrir a Folha de Ponto. Usado
+// pelo botão "Recalcular agora" no diagnóstico de Adiantamentos.
+async function _recalcAdiantamento(empId, mes, ano){
+  const emp=State.employees.find(e=>e.id===empId);
+  const p=(State.payrolls||[]).find(pp=>pp.employeeId===empId && pp.mes==mes && pp.ano==ano);
+  if(!emp || !p){ toast('Folha do colaborador não encontrada.','error'); return; }
+  const salBase=+emp.salarioBase||0;
+  if(salBase<=0){ toast('Salário base do colaborador não está cadastrado.','error'); return; }
+  const perc=parseInt(p.adiantamentoPerc||40);
+  const novoValor=+(salBase*perc/100).toFixed(2);
+  const updated={...p, adiantamentoValor:novoValor, updatedAt:new Date().toISOString()};
+  try {
+    await DB.save('payrolls', updated);
+    const ix=State.payrolls.findIndex(x=>x.id===p.id);
+    if(ix>=0) State.payrolls[ix]=updated;
+    toast(`${emp.nome}: adiantamento recalculado para ${fmtMoney(novoValor)}.`,'success');
+    renderAdiantamentos();
+  } catch(e){
+    console.error(e);
+    toast('Erro ao salvar a folha. Tente abrir manualmente.','error');
+  }
 }
 
 // Cria a solicitação de pagamento de um adiantamento — reaproveita _criarSolicitacaoPagamento.

@@ -3463,6 +3463,8 @@ function openEmployeeModal(id=null){
     if(acumChk) acumChk.checked=!!(emp.acumuloFuncao);
     const bonifChk=document.getElementById('emp-bonificacao-sempre-pagar');
     if(bonifChk) bonifChk.checked=!!(emp.bonificacaoSemprePagar);
+    const adiantChk=document.getElementById('emp-recebe-adiantamento');
+    if(adiantChk) adiantChk.checked=!!(emp.recebeAdiantamento);
     const chk=document.getElementById('emp-turno-noturno'); if(chk) chk.checked=!!(emp.turnoNoturno);
     setVal('emp-ciclo-12x36-inicio', emp.ciclo12x36Inicio||'');
     // Aba Encargos & IRRF
@@ -3534,6 +3536,7 @@ function openEmployeeModal(id=null){
     const chk=document.getElementById('emp-turno-noturno'); if(chk) chk.checked=false;
     const acumChk=document.getElementById('emp-acumulo-funcao'); if(acumChk) acumChk.checked=false;
     const bonifChk=document.getElementById('emp-bonificacao-sempre-pagar'); if(bonifChk) bonifChk.checked=false;
+    const adiantChk=document.getElementById('emp-recebe-adiantamento'); if(adiantChk) adiantChk.checked=false;
     const semRefChk=document.getElementById('emp-sem-refeicao'); if(semRefChk){ semRefChk.checked=false; onSemRefeicaoChange(); }
     // Encargos & IRRF — limpar para novo colaborador
     setVal('emp-dependentes-irrf',0);
@@ -3635,6 +3638,7 @@ async function saveEmployee(){
     insalubridade:numVal('emp-insalubridade')||0,
     acumuloFuncao:!!(document.getElementById('emp-acumulo-funcao')?.checked),
     bonificacaoSemprePagar:!!(document.getElementById('emp-bonificacao-sempre-pagar')?.checked),
+    recebeAdiantamento:!!(document.getElementById('emp-recebe-adiantamento')?.checked),
     // Encargos & IRRF
     dependentesIRRF:parseInt(val('emp-dependentes-irrf')||0),
     pensaoAlimenticia:numVal('emp-pensao-alimenticia')||0,
@@ -3839,6 +3843,9 @@ function onPayrollEmployeeChange(){
     } else {
       // Sem registro salvo: zera os campos específicos da folha (mas não os de cadastro)
       _resetPayrollFieldsOnly();
+      // Defaults vindos do cadastro para uma folha NOVA: se o colaborador está
+      // marcado como "Recebe adiantamento quinzenal", já entra com Sim.
+      if(emp.recebeAdiantamento) setVal('payroll-adiantamento-ativo','sim');
     }
     setVal('payroll-vt-dia',emp.valorDiarioVt||'');
     setVal('payroll-vr-dia',emp.valorDiarioVr||'');
@@ -6764,6 +6771,40 @@ function renderAdiantamentos(){
       ? `<strong>${lista.length}</strong> adiantamento(s) em ${comp} &middot; Total ${fmtMoney(total)} &middot; <strong style="color:#E65100">${aPagar}</strong> a pagar`
       : `<span style="color:#999">Nenhum adiantamento lançado em ${comp}</span>`;
   }
+
+  // Diagnóstico — colaboradores marcados como "Recebe adiantamento" no
+  // cadastro mas que NÃO aparecem aqui (folha não lançada OU folha lançada
+  // sem adiantamento ativo). Sem nenhum marcado, mostra uma dica leve.
+  const _empsAtivos=(State.employees||[]).filter(e=>(e.status||'ativo')==='ativo');
+  const _marcados=_empsAtivos.filter(e=>e.recebeAdiantamento);
+  const _semFolha=[], _semAdiantNaFolha=[];
+  _marcados.forEach(e=>{
+    const p=(State.payrolls||[]).find(pp=>pp.employeeId===e.id&&pp.mes==mes&&pp.ano==ano);
+    if(!p) _semFolha.push(e);
+    else if(!p.adiantamentoAtivo) _semAdiantNaFolha.push(e);
+  });
+  const _diagEl=document.getElementById('adiant-diagnostico');
+  if(_diagEl){
+    if(!_marcados.length){
+      _diagEl.innerHTML=`<div style="font-size:12px;color:#64748b;padding:8px 12px;background:#F8FAFC;border:1px dashed #CBD5E1;border-radius:8px">
+        <i class="fa-solid fa-circle-info"></i> Para um colaborador aparecer aqui, abra a Folha de Ponto do mês, marque <strong>"Aderiu ao adiantamento? Sim"</strong> e salve.
+        <br><span style="color:#94A3B8">Dica: marque <strong>"Recebe adiantamento quinzenal"</strong> no cadastro do colaborador para que a folha já venha marcada automaticamente.</span>
+      </div>`;
+    } else if(!_semFolha.length && !_semAdiantNaFolha.length){
+      _diagEl.innerHTML='';
+    } else {
+      const _li=e=>`<li style="margin:3px 0"><a onclick="_abrirFolhaColaborador('${e.id}')" style="color:#1565C0;cursor:pointer;text-decoration:underline">${e.nome||'—'}</a></li>`;
+      const _parts=[];
+      if(_semFolha.length) _parts.push(`<div style="margin-top:6px"><strong style="color:#E65100"><i class="fa-solid fa-triangle-exclamation"></i> ${_semFolha.length} colaborador(es) marcado(s) ainda sem folha de ${comp}:</strong><ul style="margin:4px 0 0 22px;padding:0">${_semFolha.map(_li).join('')}</ul></div>`);
+      if(_semAdiantNaFolha.length) _parts.push(`<div style="margin-top:8px"><strong style="color:#E65100"><i class="fa-solid fa-triangle-exclamation"></i> ${_semAdiantNaFolha.length} folha(s) de ${comp} lançada(s) sem adiantamento ativo:</strong><ul style="margin:4px 0 0 22px;padding:0">${_semAdiantNaFolha.map(_li).join('')}</ul></div>`);
+      _diagEl.innerHTML=`<div style="padding:10px 14px;background:#FFF3E0;border:1px solid #FFB74D;border-radius:8px;font-size:13px">
+        <div><strong>Faltando alguém aqui?</strong> Estes colaboradores estão marcados como "Recebe adiantamento quinzenal" no cadastro, mas não aparecem na lista:</div>
+        ${_parts.join('')}
+        <div style="margin-top:8px;font-size:11px;color:#7C5500">Clique no nome para abrir a Folha de Ponto.</div>
+      </div>`;
+    }
+  }
+
   if(!lista.length){
     tbody.innerHTML=`<tr><td colspan="6" style="padding:26px;text-align:center;color:#999">Nenhum colaborador com adiantamento lançado em ${comp}.</td></tr>`;
     return;

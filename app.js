@@ -190,6 +190,7 @@ const EMPRESA_DEFAULTS = {
   subdesc:             'Sistema de Gestão de Colaboradores',
   logoUrl:             '',
   modoContabilidade:   'ambas',  // 'interna' | 'externa' | 'ambas'
+  diaLimiteAdiantamento: 15,     // dia do mês em que o adiantamento quinzenal precisa estar pago
   cnae:                '6822-6/00',
   endereco:            'Alameda Rio Negro',
   numero:              '1030',
@@ -392,6 +393,7 @@ function applyEmpresaConfig(){
     setVal('cfg-logo-url',           e.logoUrl||'');
     setVal('cfg-subdesc',            e.subdesc||'');
     setVal('cfg-modo-contabilidade', e.modoContabilidade||'ambas');
+    setVal('cfg-dia-limite-adiantamento', e.diaLimiteAdiantamento||15);
   }
 
   // Banners de modo de contabilidade nas seções
@@ -441,6 +443,7 @@ async function saveEmpresaConfig(){
     logoUrl:           val('cfg-logo-url').trim(),
     subdesc:           val('cfg-subdesc').trim(),
     modoContabilidade: val('cfg-modo-contabilidade') || 'ambas',
+    diaLimiteAdiantamento: Math.min(28, Math.max(1, parseInt(val('cfg-dia-limite-adiantamento'))||15)),
     cnae:              val('cfg-cnae').trim(),
     endereco:          val('cfg-endereco').trim(),
     numero:            val('cfg-numero').trim(),
@@ -1775,6 +1778,33 @@ function renderDashboard(){
         accent:'#E65100', iconBg:'#FFF3E0', iconColor:'#E65100', valueColor:'#E65100',
         sub:`${fmtMoney(totalP)} — clique para revisar`, subColor:'#E65100',
         onclick:"showSection('aprovacoes')", title:'Solicitações de pagamento pendentes de aprovação'})});
+    }
+
+    // Adiantamentos vencidos no mês corrente — passou do dia limite e o
+    // pagamento ainda não foi feito (nem via sistema, nem registrado como pago fora).
+    {
+      const _agora=new Date();
+      const _mesA=_agora.getMonth()+1, _anoA=_agora.getFullYear(), _diaA=_agora.getDate();
+      const _diaLim=Math.min(28,Math.max(1,parseInt(State.empresa?.diaLimiteAdiantamento)||15));
+      if(_diaA>_diaLim){
+        const _compA=String(_mesA).padStart(2,'0')+'/'+_anoA;
+        const _venc=(State.payrolls||[]).filter(p=>
+          p.mes==_mesA && p.ano==_anoA &&
+          p.adiantamentoAtivo && (p.adiantamentoValor||0)>0 &&
+          !p.adiantamentoPagoExterno &&
+          !(State.solicitacoes||[]).some(s=>s.origem==='adiantamento' && s.employeeId===p.employeeId &&
+            s.competencia===_compA && (s.status==='pendente'||s.status==='pago'))
+        );
+        if(_venc.length>0){
+          const _totV=_venc.reduce((s,p)=>s+(p.adiantamentoValor||0),0);
+          catalogo.push({key:'adiantVencidos', html:_statCard({
+            label:'Adiantamentos vencidos', value:_venc.length, icon:'fa-triangle-exclamation',
+            accent:'#c62828', iconBg:'#FFEBEE', iconColor:'#c62828', valueColor:'#c62828',
+            sub:`${fmtMoney(_totV)} — passou do dia ${_diaLim}; pague ou marque como pago fora`, subColor:'#c62828',
+            onclick:"showSection('adiantamentos')", title:'Adiantamentos vencidos do mês corrente'
+          })});
+        }
+      }
     }
   }
   if(colabsHoje.length>0||colabsSemana.length>0) catalogo.push({key:'beneficios', html:_statCard({label:'Benefícios a pagar hoje', value:colabsHoje.length, icon:'fa-money-check-dollar',
@@ -6763,13 +6793,22 @@ function renderAdiantamentos(){
   }
   const {mes,ano,comp}=_adiantMesAno();
 
+  // Vencimento: dia limite configurado em Configurações da Empresa (default 15).
+  // Passou do dia E nada foi pago (nem PIX via sistema nem registro "pago fora")
+  // ⇒ status "VENCIDO". Útil para o gestor não esquecer adiantamentos atrasados.
+  const diaLimite=Math.min(28,Math.max(1,parseInt(State.empresa?.diaLimiteAdiantamento)||15));
+  const cutoff=new Date(ano,mes-1,diaLimite,23,59,59,999);
+  const passouDoDia=new Date()>cutoff;
+
   const lista=(State.payrolls||[])
     .filter(p=>p.mes==mes && p.ano==ano && p.adiantamentoAtivo && (p.adiantamentoValor||0)>0)
     .map(p=>{
       const emp=State.employees.find(e=>e.id===p.employeeId)||{};
       const sol=(State.solicitacoes||[]).find(s=>s.origem==='adiantamento' && s.employeeId===p.employeeId
         && s.competencia===comp && (s.status==='pendente'||s.status==='pago'));
-      return {emp, valor:p.adiantamentoValor||0, sol};
+      const pagoExterno=p.adiantamentoPagoExterno||null;
+      const naoPago=!sol && !pagoExterno;
+      return {emp, valor:p.adiantamentoValor||0, sol, pagoExterno, vencido:naoPago && passouDoDia};
     })
     .filter(x=>x.emp.id)
     .sort((a,b)=>(a.emp.nome||'').localeCompare(b.emp.nome||''));
@@ -6777,9 +6816,15 @@ function renderAdiantamentos(){
   const cnt=document.getElementById('adiant-contador');
   if(cnt){
     const total=lista.reduce((s,x)=>s+x.valor,0);
-    const aPagar=lista.filter(x=>!x.sol).length;
+    const aPagar  =lista.filter(x=>!x.sol && !x.pagoExterno && !x.vencido).length;
+    const vencidos=lista.filter(x=>x.vencido).length;
+    const pagosExt=lista.filter(x=>x.pagoExterno).length;
+    const partes=[];
+    if(aPagar>0)   partes.push(`<strong style="color:#1565C0">${aPagar}</strong> a pagar`);
+    if(vencidos>0) partes.push(`<strong style="color:#c62828">${vencidos}</strong> vencido(s)`);
+    if(pagosExt>0) partes.push(`<strong style="color:#00695C">${pagosExt}</strong> pago(s) fora`);
     cnt.innerHTML=lista.length
-      ? `<strong>${lista.length}</strong> adiantamento(s) em ${comp} &middot; Total ${fmtMoney(total)} &middot; <strong style="color:#E65100">${aPagar}</strong> a pagar`
+      ? `<strong>${lista.length}</strong> adiantamento(s) em ${comp} &middot; Total ${fmtMoney(total)}${partes.length?' &middot; '+partes.join(' &middot; '):''}`
       : `<span style="color:#999">Nenhum adiantamento lançado em ${comp}</span>`;
   }
 
@@ -6826,18 +6871,30 @@ function renderAdiantamentos(){
     return;
   }
   tbody.innerHTML=lista.map((x,idx)=>{
-    const bg=idx%2?'#f9fafb':'#fff';
-    const st=x.sol?x.sol.status:'';
+    let bg=idx%2?'#f9fafb':'#fff';
     let statusHtml, acao, podeSelec=false;
-    if(st==='pendente'){
+    const _btnPagar=`<button class="btn btn-sm" style="background:#00695C;color:#fff;border-color:#00695C;font-size:11px;padding:4px 9px" onclick="event.stopPropagation();pagarAdiantamento('${x.emp.id}')"><i class="fa-brands fa-pix"></i> Pagar</button>`;
+    const _btnPagoFora=`<button class="btn btn-sm" style="background:#fff;color:#00695C;border:1px solid #00695C;font-size:11px;padding:4px 9px" onclick="event.stopPropagation();openPagoExternoModal('${x.emp.id}',${mes},${ano})" title="Marca como pago fora do sistema (você pagou via app do banco, em espécie etc.)"><i class="fa-solid fa-circle-check"></i> Pago fora</button>`;
+
+    if(x.pagoExterno){
+      const _dt=formatDateBr(x.pagoExterno.data)||'—';
+      const _obs=(x.pagoExterno.obs||'').replace(/"/g,'&quot;');
+      statusHtml=`<span style="background:#E0F2F1;color:#00695C;padding:3px 9px;border-radius:10px;font-size:11px;font-weight:700" title="Pago fora do sistema em ${_dt}${_obs?' — '+_obs:''}"><i class="fa-solid fa-circle-check"></i> Pago fora</span>`;
+      acao=`<button class="btn btn-sm" style="background:#fff;color:#c62828;border:1px solid #c62828;font-size:11px;padding:4px 9px" onclick="event.stopPropagation();desfazerPagoExterno('${x.emp.id}',${mes},${ano})" title="Desfaz a marcação de pago externo"><i class="fa-solid fa-rotate-left"></i> Desfazer</button>`;
+    } else if(x.sol?.status==='pendente'){
       statusHtml='<span style="background:#FFF3E0;color:#E65100;padding:3px 9px;border-radius:10px;font-size:11px;font-weight:700">Solicitado</span>';
       acao='<span style="font-size:11px;color:#999">aguardando aprovação</span>';
-    } else if(st==='pago'){
+    } else if(x.sol?.status==='pago'){
       statusHtml='<span style="background:#E8F5E9;color:#2e7d32;padding:3px 9px;border-radius:10px;font-size:11px;font-weight:700">Pago</span>';
       acao=`<span style="font-size:11px;color:#00695C">ID ${x.sol.asaasTransferId||'—'}</span>`;
+    } else if(x.vencido){
+      bg='#FFEBEE'; // fundo vermelho claro para destacar
+      statusHtml='<span style="background:#fff;color:#c62828;padding:3px 9px;border-radius:10px;font-size:11px;font-weight:700;border:1px solid #EF9A9A"><i class="fa-solid fa-triangle-exclamation"></i> VENCIDO</span>';
+      acao=`<div style="display:flex;gap:6px;flex-wrap:wrap">${_btnPagar}${_btnPagoFora}</div>`;
+      podeSelec=true;
     } else {
       statusHtml='<span style="background:#E3F2FD;color:#1565C0;padding:3px 9px;border-radius:10px;font-size:11px;font-weight:700">A pagar</span>';
-      acao=`<button class="btn btn-sm" style="background:#00695C;color:#fff;border-color:#00695C" onclick="event.stopPropagation();pagarAdiantamento('${x.emp.id}')"><i class="fa-brands fa-pix"></i> Pagar</button>`;
+      acao=`<div style="display:flex;gap:6px;flex-wrap:wrap">${_btnPagar}${_btnPagoFora}</div>`;
       podeSelec=true;
     }
     const semPix=!x.emp.chavePix;
@@ -6889,6 +6946,81 @@ async function _recalcAdiantamento(empId, mes, ano){
     console.error(e);
     toast('Erro ao salvar a folha. Tente abrir manualmente.','error');
   }
+}
+
+// "Pago fora do sistema" — registra que o adiantamento foi pago por fora
+// (app do banco, espécie etc.). Tira o item da lista de pendência e marca
+// como pago externo. O fluxo PIX via Aprovações continua disponível
+// normalmente; isso é só para casos em que a pressa fala mais alto.
+let _pagoExtCtx = null;
+function openPagoExternoModal(empId, mes, ano){
+  const emp=State.employees.find(e=>e.id===empId);
+  const p=(State.payrolls||[]).find(pp=>pp.employeeId===empId && pp.mes==mes && pp.ano==ano);
+  if(!emp || !p){ toast('Folha do colaborador não encontrada.','error'); return; }
+  if((State.solicitacoes||[]).some(s=>s.origem==='adiantamento' && s.employeeId===empId
+      && s.competencia===String(mes).padStart(2,'0')+'/'+ano && s.status==='pendente')){
+    toast('Já existe uma solicitação PIX pendente. Cancele primeiro em Aprovações antes de marcar como pago fora.','warning');
+    return;
+  }
+  _pagoExtCtx = {empId, mes, ano};
+  setVal('pago-ext-nome', emp.nome||'—');
+  setVal('pago-ext-valor', fmtMoney(p.adiantamentoValor||0));
+  setVal('pago-ext-comp', String(mes).padStart(2,'0')+'/'+ano);
+  setVal('pago-ext-data', new Date().toISOString().substring(0,10));
+  setVal('pago-ext-obs','');
+  document.getElementById('modal-pago-externo')?.classList.remove('hidden');
+}
+
+async function confirmarPagoExterno(){
+  if(!_pagoExtCtx){ toast('Contexto perdido — reabra o modal.','error'); return; }
+  const {empId, mes, ano} = _pagoExtCtx;
+  const data=val('pago-ext-data')||new Date().toISOString().substring(0,10);
+  const obs=(val('pago-ext-obs')||'').trim();
+  const p=(State.payrolls||[]).find(pp=>pp.employeeId===empId && pp.mes==mes && pp.ano==ano);
+  if(!p){ toast('Folha não encontrada.','error'); return; }
+  const emp=State.employees.find(e=>e.id===empId);
+  const updated={
+    ...p,
+    adiantamentoPagoExterno:{
+      data,
+      obs,
+      registradoEm:new Date().toISOString(),
+      registradoPor:Auth.currentUser?.username || Auth.currentUser?.nome || '—'
+    },
+    updatedAt:new Date().toISOString()
+  };
+  try{
+    await DB.save('payrolls', updated);
+    const ix=State.payrolls.findIndex(x=>x.id===p.id);
+    if(ix>=0) State.payrolls[ix]=updated;
+    Auth.log('ADIANT_PAGO_EXTERNO', null, `${emp?.nome||'—'} | ${String(mes).padStart(2,'0')}/${ano} | R$ ${(p.adiantamentoValor||0).toFixed(2)}${obs?' | '+obs:''}`);
+    toast(`${emp?.nome||'—'}: marcado como pago fora do sistema.`,'success');
+    closeModal('modal-pago-externo');
+    _pagoExtCtx=null;
+    renderAdiantamentos();
+    if(typeof renderDashboard==='function' && State.currentSection==='dashboard') renderDashboard();
+  }catch(e){
+    console.error(e);
+    toast('Erro ao salvar.','error');
+  }
+}
+
+async function desfazerPagoExterno(empId, mes, ano){
+  const emp=State.employees.find(e=>e.id===empId);
+  if(!confirm(`Desfazer a marcação de "pago fora" do adiantamento de ${emp?.nome||'esse colaborador'}? O item volta para a lista de pendências.`)) return;
+  const p=(State.payrolls||[]).find(pp=>pp.employeeId===empId && pp.mes==mes && pp.ano==ano);
+  if(!p){ toast('Folha não encontrada.','error'); return; }
+  const updated={...p, updatedAt:new Date().toISOString()};
+  delete updated.adiantamentoPagoExterno;
+  try{
+    await DB.save('payrolls', updated);
+    const ix=State.payrolls.findIndex(x=>x.id===p.id);
+    if(ix>=0) State.payrolls[ix]=updated;
+    Auth.log('ADIANT_PAGO_EXTERNO_DESFEITO', null, `${emp?.nome||'—'} | ${String(mes).padStart(2,'0')}/${ano}`);
+    toast('Marcação desfeita.','success');
+    renderAdiantamentos();
+    if(typeof renderDashboard==='function' && State.currentSection==='dashboard') renderDashboard();
+  }catch(e){ console.error(e); toast('Erro ao salvar.','error'); }
 }
 
 // Cria a solicitação de pagamento de um adiantamento — reaproveita _criarSolicitacaoPagamento.

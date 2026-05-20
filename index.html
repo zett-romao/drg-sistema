@@ -1894,6 +1894,13 @@
               <input type="text" id="cfg-subdesc" placeholder="Ex: Sistema de Gestão de Colaboradores">
             </div>
             <div class="form-group" style="margin-top:16px;padding-top:16px;border-top:1px solid #E0E0E0">
+              <label><i class="fa-solid fa-calendar-day" style="color:#00695C"></i> Dia limite para pagamento do adiantamento quinzenal</label>
+              <input type="number" id="cfg-dia-limite-adiantamento" min="1" max="28" placeholder="15" style="max-width:120px">
+              <small style="color:#888;margin-top:4px;display:block">
+                Adiantamentos não pagos até esse dia do mês ficam marcados como <strong style="color:#c62828">VENCIDO</strong> na página de Adiantamentos e geram um aviso no Dashboard.
+              </small>
+            </div>
+            <div class="form-group" style="margin-top:16px;padding-top:16px;border-top:1px solid #E0E0E0">
               <label><i class="fa-solid fa-code-branch" style="color:var(--primary)"></i> Modo de Contabilidade</label>
               <select id="cfg-modo-contabilidade">
                 <option value="ambas">Ambas — Uso interno + exportação para contador externo</option>
@@ -2994,6 +3001,40 @@
       <button class="btn btn-outline" onclick="closeModal('modal-pdf')">Cancelar</button>
       <button class="btn btn-primary" id="btn-aplicar-extracao" onclick="applyExtraction()">
         <i class="fa-solid fa-check"></i> Aplicar Dados
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: ADIANTAMENTO PAGO FORA DO SISTEMA ===== -->
+<div class="modal-overlay hidden" id="modal-pago-externo" onclick="closeModal('modal-pago-externo', event)">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-circle-check" style="color:#00695C"></i> Adiantamento pago fora do sistema</h3>
+      <button class="modal-close" onclick="closeModal('modal-pago-externo')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <div style="background:#F1F8E9;border:1px solid #C5E1A5;border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:13px">
+        <div><strong>Colaborador:</strong> <span id="pago-ext-nome"></span></div>
+        <div><strong>Valor:</strong> <span id="pago-ext-valor" style="color:#00695C;font-weight:700"></span></div>
+        <div><strong>Competência:</strong> <span id="pago-ext-comp"></span></div>
+      </div>
+      <div class="form-group">
+        <label>Data do pagamento</label>
+        <input type="date" id="pago-ext-data">
+      </div>
+      <div class="form-group">
+        <label>Observação <span style="font-size:11px;color:#888">(opcional — ex.: "PIX via Banco do Brasil pelo celular")</span></label>
+        <textarea id="pago-ext-obs" rows="2" placeholder="Como foi pago, comprovante etc. (opcional)"></textarea>
+      </div>
+      <div style="font-size:11px;color:#7C5500;background:#FFF8E1;border:1px solid #FFE082;border-radius:6px;padding:8px 10px">
+        <i class="fa-solid fa-circle-info"></i> Use isso quando você pagou via banco/espécie por fora. O adiantamento sai da lista de pendência mas fica registrado no histórico. Você pode desfazer depois se for engano.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-pago-externo')">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarPagoExterno()">
+        <i class="fa-solid fa-check"></i> Confirmar
       </button>
     </div>
   </div>
@@ -4982,6 +5023,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260518v"></script>
+<script src="app.js?v=20260518w"></script>
 </body>
 </html>

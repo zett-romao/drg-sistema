@@ -6788,11 +6788,12 @@ function renderAdiantamentos(){
   // sem adiantamento ativo). Sem nenhum marcado, mostra uma dica leve.
   const _empsAtivos=(State.employees||[]).filter(e=>(e.status||'ativo')==='ativo');
   const _marcados=_empsAtivos.filter(e=>e.recebeAdiantamento);
-  const _semFolha=[], _semAdiantNaFolha=[];
+  const _semFolha=[], _semAdiantNaFolha=[], _semValor=[];
   _marcados.forEach(e=>{
     const p=(State.payrolls||[]).find(pp=>pp.employeeId===e.id&&pp.mes==mes&&pp.ano==ano);
     if(!p) _semFolha.push(e);
     else if(!p.adiantamentoAtivo) _semAdiantNaFolha.push(e);
+    else if(!((p.adiantamentoValor||0)>0)) _semValor.push(e);
   });
   const _diagEl=document.getElementById('adiant-diagnostico');
   if(_diagEl){
@@ -6801,13 +6802,14 @@ function renderAdiantamentos(){
         <i class="fa-solid fa-circle-info"></i> Para um colaborador aparecer aqui, abra a Folha de Ponto do mês, marque <strong>"Aderiu ao adiantamento? Sim"</strong> e salve.
         <br><span style="color:#94A3B8">Dica: marque <strong>"Recebe adiantamento quinzenal"</strong> no cadastro do colaborador para que a folha já venha marcada automaticamente.</span>
       </div>`;
-    } else if(!_semFolha.length && !_semAdiantNaFolha.length){
+    } else if(!_semFolha.length && !_semAdiantNaFolha.length && !_semValor.length){
       _diagEl.innerHTML='';
     } else {
       const _li=e=>`<li style="margin:3px 0"><a onclick="_abrirFolhaColaborador('${e.id}')" style="color:#1565C0;cursor:pointer;text-decoration:underline">${e.nome||'—'}</a></li>`;
       const _parts=[];
       if(_semFolha.length) _parts.push(`<div style="margin-top:6px"><strong style="color:#E65100"><i class="fa-solid fa-triangle-exclamation"></i> ${_semFolha.length} colaborador(es) marcado(s) ainda sem folha de ${comp}:</strong><ul style="margin:4px 0 0 22px;padding:0">${_semFolha.map(_li).join('')}</ul></div>`);
       if(_semAdiantNaFolha.length) _parts.push(`<div style="margin-top:8px"><strong style="color:#E65100"><i class="fa-solid fa-triangle-exclamation"></i> ${_semAdiantNaFolha.length} folha(s) de ${comp} lançada(s) sem adiantamento ativo:</strong><ul style="margin:4px 0 0 22px;padding:0">${_semAdiantNaFolha.map(_li).join('')}</ul></div>`);
+      if(_semValor.length) _parts.push(`<div style="margin-top:8px"><strong style="color:#E65100"><i class="fa-solid fa-triangle-exclamation"></i> ${_semValor.length} folha(s) de ${comp} com adiantamento ativo mas valor ZERADO (folha salva antes da regra atual — abra e salve novamente para recalcular):</strong><ul style="margin:4px 0 0 22px;padding:0">${_semValor.map(_li).join('')}</ul></div>`);
       _diagEl.innerHTML=`<div style="padding:10px 14px;background:#FFF3E0;border:1px solid #FFB74D;border-radius:8px;font-size:13px">
         <div><strong>Faltando alguém aqui?</strong> Estes colaboradores estão marcados como "Recebe adiantamento quinzenal" no cadastro, mas não aparecem na lista:</div>
         ${_parts.join('')}

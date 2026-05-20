@@ -117,8 +117,13 @@ ul { list-style: none; }
   flex: 1;
   padding: 10px 10px;
   overflow-y: auto;
+  /* Distribui o espaço vertical sobrando entre todos os itens — em telas
+     grandes os itens ficam visualmente espaçados, sem buracão no fim. */
+  display: flex;
+  flex-direction: column;
+  justify-content: space-evenly;
 }
-.sidebar-nav li { margin-bottom: 2px; }
+.sidebar-nav li { margin-bottom: 0; flex-shrink: 0; }
 
 .nav-link {
   display: flex;

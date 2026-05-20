@@ -6749,7 +6749,14 @@ function renderAdiantamentos(){
     }
   }
   const selMes=document.getElementById('adiant-mes');
-  if(selMes && !selMes.value) selMes.value=new Date().getMonth()+1;
+  // <select> sempre tem .value (a primeira opção, "1" = Janeiro), então o
+  // !selMes.value antigo nunca era verdadeiro e nunca corrigia para o mês
+  // atual. Usa um flag de inicialização: na 1ª render aplica o mês atual,
+  // depois respeita a escolha do operador.
+  if(selMes && !selMes.dataset.inicializado){
+    selMes.value=new Date().getMonth()+1;
+    selMes.dataset.inicializado='1';
+  }
   const {mes,ano,comp}=_adiantMesAno();
 
   const lista=(State.payrolls||[])

@@ -5605,10 +5605,14 @@ function recalculate(){
   }
 
   // --- Adiantamento quinzenal ---
+  // SEMPRE calculado sobre o SALÁRIO BASE do cadastro (não sobre a
+  // remuneração apurada do mês). Padrão: adiantamento quinzenal é um %
+  // fixo do salário base, pago no meio do mês — independente de quantos
+  // dias da folha já foram lançados.
   const ativoAdiant=val('payroll-adiantamento-ativo')==='sim';
   const percAdiant=parseInt(val('payroll-adiantamento-perc')||'40');
-  if(ativoAdiant && remuneracao>0){
-    setVal('payroll-adiantamento-valor',((remuneracao*(percAdiant/100))).toFixed(2));
+  if(ativoAdiant && salBase>0){
+    setVal('payroll-adiantamento-valor',((salBase*(percAdiant/100))).toFixed(2));
   } else {
     setVal('payroll-adiantamento-valor','0.00');
   }

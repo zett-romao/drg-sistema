@@ -14440,7 +14440,14 @@ async function init(){
   const sessionUser = Auth.loadSession();
   if(sessionUser){
     Auth.currentUser = sessionUser;
-    firebase.auth().signInAnonymously().catch(()=>{});
+    // Só entra anônimo se NÃO houver sessão Firebase. A sessão segura do
+    // login (custom token) já foi restaurada no passo 2a e PRECISA ser
+    // preservada — é ela que autoriza aprovar pagamentos (2FA no Worker).
+    // Antes, este signInAnonymously incondicional destruía a sessão segura
+    // a cada recarga da página (Ctrl+F5) → erro "Sessão segura indisponível".
+    if(!firebase.auth().currentUser){
+      firebase.auth().signInAnonymously().catch(()=>{});
+    }
     document.getElementById('login-screen').classList.add('hidden');
     applyUserSession(sessionUser);
   }

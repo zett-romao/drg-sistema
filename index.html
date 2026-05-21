@@ -492,9 +492,6 @@
             <p>Processamento de folha de ponto e cálculo de benefícios</p>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn btn-outline" onclick="openPagamentoAvulsoModal(document.getElementById('payroll-employee')?.value||'')">
-              <i class="fa-solid fa-money-bill-wave"></i> Pagamento Avulso
-            </button>
             <button class="btn btn-outline" onclick="openReportsModal(['financeiro','beneficios','individual'], 'Relatórios de Folha de Ponto')">
               <i class="fa-solid fa-chart-bar"></i> Relatórios
             </button>
@@ -1020,6 +1017,12 @@
                     <i class="fa-solid fa-circle-info" style="color:#1a3a6b"></i>
                     FGTS é custo do empregador e <strong>não é descontado</strong> do colaborador. IRRF calculado com tabela progressiva 2026 após deduções de INSS, dependentes e pensão alimentícia.
                   </div>
+                </div>
+
+                <div style="margin:6px 0 14px">
+                  <button class="btn btn-outline" style="color:#00695C;border-color:#00695C" onclick="openPagamentoAvulsoModal(document.getElementById('payroll-employee')?.value||'')">
+                    <i class="fa-solid fa-money-bill-wave"></i> Pagamento Avulso
+                  </button>
                 </div>
 
                 <div class="form-group">
@@ -5162,6 +5165,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260521e"></script>
+<script src="app.js?v=20260521f"></script>
 </body>
 </html>

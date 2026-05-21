@@ -3816,25 +3816,41 @@ function confirmDeleteEmployee(id){
 // ============================================
 // FOLHA DE PONTO
 // ============================================
-// Preenche o select de colaboradores da folha respeitando o filtro de posto
+// Sufixo do nome do colaborador no select, conforme o status do cadastro
+function _empStatusSuffix(emp){
+  const st=(emp&&emp.status)||'ativo';
+  if(st==='inativo')             return ' (demitido)';
+  if(st==='afastado')            return ' (afastado)';
+  if(st==='licenca-maternidade') return ' (lic. maternidade)';
+  return '';
+}
+
+// Preenche o select de colaboradores da folha respeitando o filtro de posto.
+// Por padrão lista só os ativos; com "Incluir demitidos" marcado, também
+// mostra os colaboradores inativos (desligados) para consulta das folhas.
 function _populatePayrollEmployees(){
   const sel=document.getElementById('payroll-employee'); if(!sel) return;
   const currentId=sel.value;
   const fPosto=val('payroll-filter-posto')||'';
+  const incluirDemitidos=!!(document.getElementById('payroll-incluir-demitidos')||{}).checked;
   sel.innerHTML='<option value="">— Selecione o colaborador —</option>';
   State.employees
-    .filter(e=>(e.status||'ativo')==='ativo')
+    .filter(e=>{
+      const st=(e.status||'ativo');
+      return st==='ativo' || (incluirDemitidos && st==='inativo');
+    })
     .filter(e=>!fPosto || e.posto===fPosto)
     .sort((a,b)=>(a.nome||'').localeCompare(b.nome||''))
     .forEach(e=>{
       const opt=document.createElement('option');
-      opt.value=e.id; opt.textContent=e.nome;
+      opt.value=e.id; opt.textContent=e.nome+_empStatusSuffix(e);
       if(e.id===currentId) opt.selected=true;
       sel.appendChild(opt);
     });
 }
 
-// Troca do filtro de posto: repopula a lista e atualiza o formulário
+// Troca do filtro de posto / checkbox de demitidos: repopula a lista e
+// atualiza o formulário
 function onPayrollPostoFilterChange(){
   _populatePayrollEmployees();
   onPayrollEmployeeChange();
@@ -3856,12 +3872,15 @@ function _ensurePayrollEmployeeOption(empId){
     const temOpt = Array.from(fSel.options).some(o => o.value === (emp.posto||''));
     fSel.value = temOpt ? (emp.posto||'') : '';
   }
+  // Se o colaborador-alvo está demitido, liga o checkbox para ele aparecer na lista
+  const chkDem = document.getElementById('payroll-incluir-demitidos');
+  if(chkDem && emp && (emp.status||'ativo')==='inativo') chkDem.checked = true;
   _populatePayrollEmployees();
-  // Se mesmo assim não está na lista (inativo / sem posto), injeta a opção
+  // Se mesmo assim não está na lista (afastado / sem posto), injeta a opção
   if(emp && !Array.from(sel.options).some(o => o.value === empId)){
     const opt = document.createElement('option');
     opt.value = empId;
-    opt.textContent = emp.nome + ((emp.status && emp.status !== 'ativo') ? ' (inativo)' : '');
+    opt.textContent = emp.nome + _empStatusSuffix(emp);
     sel.appendChild(opt);
   }
 }

@@ -544,6 +544,16 @@
                       <option value="">Todos os postos</option>
                     </select>
                   </div>
+                  <div class="form-group">
+                    <label>&nbsp;</label>
+                    <div class="checkbox-group" style="padding:9px 0">
+                      <input type="checkbox" id="payroll-incluir-demitidos" onchange="onPayrollPostoFilterChange()">
+                      <label for="payroll-incluir-demitidos" style="font-size:14px;font-weight:600;color:var(--text);cursor:pointer">
+                        <i class="fa-solid fa-user-slash" style="color:#c62828"></i> Incluir demitidos
+                      </label>
+                      <span style="font-size:11px;color:var(--text-muted);margin-left:6px">(consultar folhas de colaboradores desligados)</span>
+                    </div>
+                  </div>
                 </div>
                 <div class="form-row">
                   <div class="form-group">
@@ -5152,6 +5162,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260521d"></script>
+<script src="app.js?v=20260521e"></script>
 </body>
 </html>

@@ -3538,6 +3538,7 @@ function openEmployeeModal(id=null){
     setVal('emp-vr-freq', emp.vrFreq||'diario');
     setVal('emp-vt-dia',emp.valorDiarioVt||''); setVal('emp-vr-dia',emp.valorDiarioVr||'');
     setVal('emp-va-mensal',emp.valorMensalVa||''); setVal('emp-pix',emp.chavePix||'');
+    setVal('emp-pix-tipo',emp.chavePixTipo||'');
     onVtFreqChange();
     onVrFreqChange();
     onTipoTransporteChange();
@@ -3613,7 +3614,7 @@ function openEmployeeModal(id=null){
     setVal('emp-registro', String(nextNum).padStart(4,'0'));
     ['emp-id','emp-nome','emp-rg','emp-cpf','emp-titulo','emp-pis','emp-ctps-numero','emp-ctps-serie',
      'emp-nascimento','emp-email','emp-celular','emp-cep','emp-endereco','emp-numero','emp-complemento',
-     'emp-bairro','emp-cidade','emp-vt-dia','emp-vr-dia','emp-va-mensal','emp-pix','emp-tipo-transporte',
+     'emp-bairro','emp-cidade','emp-vt-dia','emp-vr-dia','emp-va-mensal','emp-pix','emp-pix-tipo','emp-tipo-transporte',
      'emp-data-admissao','emp-data-demissao','emp-horario-entrada','emp-horario-saida',
      'emp-horario-ref-ini','emp-horario-ref-fim',
      'emp-salario-base','emp-posto','emp-setor','emp-exame-data','emp-exame-prazo','emp-exame-prazo-custom','emp-exame-vencimento',
@@ -3703,6 +3704,7 @@ async function saveEmployee(){
     valorDiarioVt:numVal('emp-vt-dia'), valorDiarioVr:numVal('emp-vr-dia'),
     valorMensalVa:numVal('emp-va-mensal'),
     chavePix:val('emp-pix'),
+    chavePixTipo:val('emp-pix-tipo') || (val('emp-pix') ? detectPixKeyType(val('emp-pix')) : ''),
     // Contrato & Trabalho
     dataAdmissao:val('emp-data-admissao'),
     dataDemissao:demissao,
@@ -6368,12 +6370,37 @@ const _asaasPost = (path, body) => _asaasReq('POST', path, body);
 // Detecta tipo da chave PIX automaticamente
 function detectPixKeyType(key) {
   if (!key) return 'CPF';
-  const clean = key.replace(/\D/g, '');
-  if (key.includes('@')) return 'EMAIL';
+  const s = String(key);
+  if (s.includes('@')) return 'EMAIL';
+  const clean = s.replace(/\D/g, '');
   if (clean.length === 14) return 'CNPJ';
-  if (clean.length === 11) return 'CPF';
-  if (clean.length === 10 || clean.length === 11) return 'PHONE';
+  if (clean.length === 10) return 'PHONE';
+  if (clean.length === 11) {
+    // 11 dígitos é ambíguo (CPF ou celular). Celular BR = DDD 11-99 com
+    // '9' no 1º dígito do número. Casou esse padrão → telefone; senão CPF.
+    const ddd = parseInt(clean.slice(0, 2), 10);
+    return (ddd >= 11 && ddd <= 99 && clean[2] === '9') ? 'PHONE' : 'CPF';
+  }
   return 'EVP';
+}
+
+// Formata a chave PIX no padrão que o Asaas espera, conforme o tipo:
+// CPF/CNPJ → só dígitos; Celular → +55 + DDD + número; e-mail/aleatória → como está.
+function _pixKeyParaAsaas(key, tipo){
+  const k = String(key || '').trim();
+  if (tipo === 'CPF' || tipo === 'CNPJ') return k.replace(/\D/g, '');
+  if (tipo === 'PHONE') {
+    if (k.startsWith('+')) return k.replace(/[^\d+]/g, '');
+    const d = k.replace(/\D/g, '');
+    return (d.length === 10 || d.length === 11) ? '+55' + d : k;
+  }
+  return k;
+}
+
+// Auto-sugere o tipo da chave PIX no cadastro quando ainda não foi escolhido.
+function onEmpPixInput(){
+  const sel = document.getElementById('emp-pix-tipo');
+  if (sel && !sel.value) sel.value = detectPixKeyType(val('emp-pix'));
 }
 
 // Abre modal de pagamento para o colaborador atual
@@ -6423,7 +6450,7 @@ function openPagarColaborador() {
   setVal('asaas-pagar-data', new Date().toISOString().split('T')[0]);
 
   // Tipo de chave
-  setVal('asaas-pagar-keytype', detectPixKeyType(pixKey));
+  setVal('asaas-pagar-keytype', emp.chavePixTipo || detectPixKeyType(pixKey));
 
   // Reset resultado
   const resEl = document.getElementById('asaas-pagar-resultado');
@@ -6524,6 +6551,7 @@ function openPagamentoAvulsoModal(empId){
 function onPagAvulsoEmpChange(){
   const emp=State.employees.find(e=>e.id===val('pag-avulso-emp'));
   setVal('pag-avulso-pix', emp?.chavePix||'');
+  setVal('pag-avulso-pix-tipo', (emp&&emp.chavePixTipo) || detectPixKeyType(emp?.chavePix||''));
 }
 
 async function confirmarPagamentoAvulso(){
@@ -6538,13 +6566,14 @@ async function confirmarPagamentoAvulso(){
   if(!(valor>0)){ toast('Informe um valor válido.','error'); return; }
   const pixKey=(val('pag-avulso-pix')||'').trim();
   if(!pixKey){ toast('Chave PIX não informada — cadastre no colaborador ou digite aqui.','error'); return; }
+  const pixTipo=val('pag-avulso-pix-tipo')||detectPixKeyType(pixKey);
   const data=val('pag-avulso-data')||new Date().toISOString().substring(0,10);
   const btn=document.getElementById('pag-avulso-confirm');
   if(btn) setBtnLoading(btn,true,'');
   try{
     const sol=await _criarSolicitacaoPagamento({
       employeeId:emp.id, employeeNome:emp.nome, payrollId:'',
-      valor, pixKey, keyType:detectPixKeyType(pixKey),
+      valor, pixKey:_pixKeyParaAsaas(pixKey,pixTipo), keyType:pixTipo,
       descricao:`Avulso — ${desc}`,
       scheduleDate:data, origem:'avulso',
     });
@@ -6579,8 +6608,8 @@ async function executarPagamentoAsaas() {
     toast('Já existe uma solicitação pendente para esta folha.', 'warning'); return;
   }
 
-  const pixKey  = emp.chavePix || '';
-  const keyType = val('asaas-pagar-keytype') || 'CPF';
+  const keyType = emp.chavePixTipo || val('asaas-pagar-keytype') || detectPixKeyType(emp.chavePix||'');
+  const pixKey  = _pixKeyParaAsaas(emp.chavePix || '', keyType);
   const data    = val('asaas-pagar-data') || new Date().toISOString().split('T')[0];
   const mes     = document.getElementById('asaas-pagar-mes')?.textContent || '';
 
@@ -7165,12 +7194,13 @@ async function _criarSolicAdiantamento(emp, valor, comp){
   if(!(valor>0)) throw new Error('valor do adiantamento inválido');
   const pixKey=emp.chavePix||'';
   if(!pixKey) throw new Error('colaborador sem chave PIX cadastrada');
+  const pixTipo=emp.chavePixTipo||detectPixKeyType(pixKey);
   const jaPend=(State.solicitacoes||[]).some(s=>s.origem==='adiantamento' && s.employeeId===emp.id
     && s.competencia===comp && s.status==='pendente');
   if(jaPend) throw new Error('já existe uma solicitação pendente para este adiantamento');
   return _criarSolicitacaoPagamento({
     employeeId:emp.id, employeeNome:emp.nome, payrollId:'',
-    valor, pixKey, keyType:detectPixKeyType(pixKey),
+    valor, pixKey:_pixKeyParaAsaas(pixKey,pixTipo), keyType:pixTipo,
     descricao:`Adiantamento ${comp} — ${emp.nome}`,
     scheduleDate:new Date().toISOString().split('T')[0],
     competencia:comp, origem:'adiantamento',

@@ -2793,9 +2793,22 @@
             <input type="number" id="emp-va-mensal" min="0" step="0.01" placeholder="0,00">
           </div>
         </div>
-        <div class="form-group">
-          <label><i class="fa-brands fa-pix" style="color:#00bfa5"></i> Chave PIX</label>
-          <input type="text" id="emp-pix" placeholder="CPF, e-mail, telefone ou chave aleatória">
+        <div class="form-row">
+          <div class="form-group">
+            <label><i class="fa-brands fa-pix" style="color:#00bfa5"></i> Chave PIX</label>
+            <input type="text" id="emp-pix" placeholder="CPF, e-mail, telefone ou chave aleatória" onchange="onEmpPixInput()">
+          </div>
+          <div class="form-group">
+            <label>Tipo da chave PIX <span style="font-size:11px;color:var(--text-muted)">(informe o que o colaborador passou)</span></label>
+            <select id="emp-pix-tipo">
+              <option value="">— selecione —</option>
+              <option value="CPF">CPF</option>
+              <option value="CNPJ">CNPJ</option>
+              <option value="PHONE">Celular</option>
+              <option value="EMAIL">E-mail</option>
+              <option value="EVP">Chave aleatória</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -3048,9 +3061,21 @@
           <input type="date" id="pag-avulso-data">
         </div>
       </div>
-      <div class="form-group">
-        <label>Chave PIX <span class="required">*</span></label>
-        <input type="text" id="pag-avulso-pix" placeholder="Chave PIX do destinatário">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Chave PIX <span class="required">*</span></label>
+          <input type="text" id="pag-avulso-pix" placeholder="Chave PIX do destinatário">
+        </div>
+        <div class="form-group">
+          <label>Tipo da chave <span class="required">*</span></label>
+          <select id="pag-avulso-pix-tipo">
+            <option value="CPF">CPF</option>
+            <option value="CNPJ">CNPJ</option>
+            <option value="PHONE">Celular</option>
+            <option value="EMAIL">E-mail</option>
+            <option value="EVP">Chave aleatória</option>
+          </select>
+        </div>
       </div>
     </div>
     <div class="modal-footer">
@@ -5127,6 +5152,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260521b"></script>
+<script src="app.js?v=20260521c"></script>
 </body>
 </html>

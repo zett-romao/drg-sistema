@@ -503,6 +503,13 @@ async function renderPainelRecursos(){
     <div style="font-size:12px;color:#475569;font-weight:600;margin-top:2px">${label}</div>
     ${sub?`<div style="font-size:11px;color:#94A3B8;margin-top:3px;line-height:1.3">${sub}</div>`:''}
   </div>`;
+  const linkExterno=(titulo,desc,url)=>`<a href="${url}" target="_blank" rel="noopener" style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;text-decoration:none;margin-bottom:6px">
+    <i class="fa-solid fa-arrow-up-right-from-square" style="color:#1565C0;margin-top:2px"></i>
+    <div style="flex:1">
+      <div style="font-size:13px;font-weight:700;color:#1E293B">${titulo}</div>
+      <div style="font-size:11px;color:#64748B;margin-top:1px;line-height:1.35">${desc}</div>
+    </div>
+  </a>`;
   const conta=arr=>(arr||[]).length;
   const nFmt=n=>Number(n||0).toLocaleString('pt-BR');
   const emps=State.employees||[];
@@ -543,7 +550,11 @@ async function renderPainelRecursos(){
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       ${box('Arquivos no armazenamento', arquivos, 'Fotos de colaboradores e documentos anexados (contagem aproximada)', '#0F766E')}
     </div>
-    <div style="font-size:10px;color:#94A3B8;margin-top:10px"><i class="fa-solid fa-circle-info"></i> As cotas de banco de dados (Firestore) e de armazenamento — limites do Firebase/Cloudflare — só aparecem nos painéis desses serviços; não dá para lê-las pelo navegador.</div>
+    <div style="font-weight:700;font-size:13px;color:#1E293B;margin:18px 0 4px"><i class="fa-solid fa-up-right-from-square" style="color:#475569"></i> Limites de infraestrutura — consultar nos painéis</div>
+    <div style="font-size:11px;color:#64748B;margin-bottom:8px">Cotas de banco de dados, armazenamento e requisições não são acessíveis pelo navegador. Abra direto no painel de cada serviço (precisa estar logado na conta):</div>
+    ${linkExterno('Firebase — Banco de dados e Armazenamento','Cota de leituras/gravações do Firestore e uso do Storage — projeto drg-sistema','https://console.firebase.google.com/project/drg-sistema/usage')}
+    ${linkExterno('Cloudflare — Worker da IA','Requisições do proxy do Gemini · em Workers &amp; Pages, abra drg-gemini-proxy e veja Metrics','https://dash.cloudflare.com/')}
+    ${linkExterno('Google AI Studio — uso da IA Gemini','Chave da API, limites de uso e faturamento do Gemini','https://aistudio.google.com/')}
   `;
 }
 

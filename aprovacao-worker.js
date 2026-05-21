@@ -29,6 +29,7 @@
  * SECRETS no Cloudflare (Settings → Variables and Secrets):
  *   FIREBASE_SERVICE_ACCOUNT  → JSON da conta de serviço
  *   RECOVERY_CODE             → código secreto de recuperação do master
+ *   ASAAS_API_KEY             → chave da API Asaas de PRODUÇÃO ($aact_...)
  * ============================================================
  */
 
@@ -325,17 +326,30 @@ async function temPermAprovar(user, token){
   }
   return false;
 }
-// Dispara a transferência PIX reusando o Worker drg-asaas (que guarda a chave da API).
-async function asaasTransfer(body){
-  const res = await fetch(ASAAS_WORKER + '/transfers', {
+// Dispara a transferência PIX DIRETO na API do Asaas (produção).
+// Chamada server-to-server a partir DESTE Worker — não passa por outro
+// Worker. O fetch de Worker-para-Worker via workers.dev se mostrou
+// instável (o Cloudflare devolvia HTTP 404 mesmo com o proxy drg-asaas
+// 100% correto). Por isso este Worker usa o seu próprio ASAAS_API_KEY.
+async function asaasTransfer(body, env){
+  if (!env || !env.ASAAS_API_KEY)
+    throw new Error('ASAAS_API_KEY nao configurado no Worker drg-aprovacao');
+  const res = await fetch('https://api.asaas.com/v3/transfers', {
     method:  'POST',
-    headers: { 'Content-Type': 'application/json', 'Origin': 'https://zett-romao.github.io' },
-    body:    JSON.stringify(body),
+    headers: {
+      'access_token': env.ASAAS_API_KEY,
+      'Content-Type': 'application/json',
+      'User-Agent':   'DRG-Kronos/3.0',
+    },
+    body: JSON.stringify(body),
   });
-  const data = await res.json().catch(() => ({}));
+  const txt = await res.text();
+  let data = {};
+  try { data = JSON.parse(txt); } catch (_) { /* corpo não-JSON */ }
   if (!res.ok) {
     const msg = (data.errors && data.errors[0] && data.errors[0].description)
-              || data.description || data.error || ('Asaas HTTP ' + res.status);
+              || data.description || data.error
+              || ('Asaas HTTP ' + res.status + ' — ' + (txt ? txt.slice(0, 300) : 'sem corpo'));
     throw new Error(msg);
   }
   return data;
@@ -497,7 +511,7 @@ async function handleStatus(auth, token){
 // ── Handler de Aprovação de Pagamento (Etapa 4c) ─────────────
 // Valida identidade + permissão "pagamentosAprovar" + 2FA TOTP,
 // confere a solicitação pendente e dispara o PIX no Asaas.
-async function handleAprovarPagamento(auth, body, token){
+async function handleAprovarPagamento(auth, body, token, env){
   const code  = String(body.code || '');
   const solId = String(body.solicitacaoId || '');
   if (!solId) throw new Error('solicitação não informada');
@@ -538,7 +552,7 @@ async function handleAprovarPagamento(auth, body, token){
       description:       sol.descricao || 'Pagamento DRG-Kronos',
     };
     if (sol.scheduleDate) tBody.scheduleDate = sol.scheduleDate;
-    resp = await asaasTransfer(tBody);
+    resp = await asaasTransfer(tBody, env);
   } catch (e) {
     await fsUpdate(path, { status: 'erro', erro: String(e.message || e),
       aprovadoPor: auth.uid, aprovadoPorNome: nome, aprovadoEm: agora }, token);
@@ -596,7 +610,7 @@ export default {
       if (url.pathname === '/mfa/enroll')  return json(await handleEnroll(auth, token), 200, origin);
       if (url.pathname === '/mfa/confirm') return json(await handleConfirm(auth, body.code, token), 200, origin);
       if (url.pathname === '/mfa/status')  return json(await handleStatus(auth, token), 200, origin);
-      if (url.pathname === '/aprovar-pagamento') return json(await handleAprovarPagamento(auth, body, token), 200, origin);
+      if (url.pathname === '/aprovar-pagamento') return json(await handleAprovarPagamento(auth, body, token, env), 200, origin);
       if (url.pathname === '/usuarios/listar')       return json(await handleUsuariosListar(auth, token), 200, origin);
       if (url.pathname === '/usuarios/salvar')       return json(await handleUsuariosSalvar(auth, body, token), 200, origin);
       if (url.pathname === '/usuarios/excluir')      return json(await handleUsuariosExcluir(auth, body, token), 200, origin);

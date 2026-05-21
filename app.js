@@ -7289,7 +7289,8 @@ function renderAprovacoes(){
       acoes=`<span style="font-size:11px;color:#c62828">${(s.motivoRecusa||'recusado')}</span>`;
     } else if(s.status==='erro'){
       acoes = podeAprovar
-        ? `<button class="btn btn-sm" style="background:#e65100;color:#fff;border-color:#e65100" onclick="openAprovarPagamento('${s.id}')" title="${(s.erro||'').replace(/"/g,'')}"><i class="fa-solid fa-rotate-right"></i> Tentar de novo</button>`
+        ? `<button class="btn btn-sm" style="background:#e65100;color:#fff;border-color:#e65100;margin-right:4px" onclick="openAprovarPagamento('${s.id}')" title="${(s.erro||'').replace(/"/g,'')}"><i class="fa-solid fa-rotate-right"></i> Tentar de novo</button>`
+          + `<button class="btn btn-sm btn-outline" style="color:#c62828;border-color:#ef9a9a" onclick="recusarSolicitacao('${s.id}')" title="${(s.erro||'').replace(/"/g,'')}"><i class="fa-solid fa-ban"></i> Recusar</button>`
         : `<span style="font-size:11px;color:#c62828">${s.erro||'erro'}</span>`;
     }
     return `<tr style="background:${bg}">

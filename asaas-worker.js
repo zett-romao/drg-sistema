@@ -53,8 +53,16 @@ export default {
     }
 
     // ── Monta a URL da Asaas (sempre produção) ────────────────────────────
-    const url      = new URL(request.url);
-    const asaasUrl = ASAAS_BASE + url.pathname + url.search;
+    // ASAAS_BASE já termina em "/v3". Se o chamador mandar o caminho com um
+    // "/v3" (ou "/api/v3") na frente, a URL viraria ".../v3/v3/transfers" e
+    // a Asaas responde HTTP 404 (corpo vazio → erro "Asaas HTTP 404").
+    // Removemos esse prefixo redundante para o proxy aceitar as duas formas.
+    const url  = new URL(request.url);
+    let   path = url.pathname;
+    path = path.replace(/^\/api(?=\/|$)/, '');   // remove "/api" redundante
+    path = path.replace(/^\/v3(?=\/|$)/,  '');   // remove "/v3" redundante
+    if (!path.startsWith('/')) path = '/' + path;
+    const asaasUrl = ASAAS_BASE + path + url.search;
 
     // ── Corpo da requisição ───────────────────────────────────────────────
     const hasBody  = request.method !== 'GET' && request.method !== 'HEAD';

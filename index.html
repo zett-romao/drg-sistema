@@ -3735,6 +3735,54 @@
         </div>
       </div>
 
+      <div class="divider"><span>Situação Especial / Estabilidade</span></div>
+      <div class="form-row">
+        <div class="form-group form-group-2">
+          <label>Situação do colaborador na data da rescisão</label>
+          <select id="resc-situacao-tipo" onchange="onRescSituacaoChange()">
+            <option value="nenhuma">Nenhuma — colaborador em atividade normal</option>
+            <option value="afastamento_inss">Afastamento INSS (auxílio-doença)</option>
+            <option value="licenca_maternidade">Licença-maternidade</option>
+            <option value="estab_gestante">Estabilidade gestante</option>
+            <option value="estab_acidentaria">Estabilidade acidentária (art. 118)</option>
+            <option value="estab_cipa">Estabilidade CIPA</option>
+            <option value="estab_pre_aposentadoria">Estabilidade pré-aposentadoria</option>
+            <option value="outra">Outra situação especial</option>
+          </select>
+        </div>
+      </div>
+      <div id="resc-situacao-campos" style="display:none">
+        <div id="resc-situacao-aviso" class="info-banner" style="background:#FFEBEE;color:#C62828;align-items:flex-start;gap:8px"></div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Início do afastamento / estabilidade</label>
+            <input type="date" id="resc-situacao-inicio" onchange="recalcRescisaoModal()">
+          </div>
+          <div class="form-group">
+            <label>Fim previsto da estabilidade</label>
+            <input type="date" id="resc-situacao-fim" onchange="recalcRescisaoModal()">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Motivo / detalhes da situação</label>
+          <textarea id="resc-situacao-motivo" rows="2" placeholder="Ex.: benefício INSS nº..., CID, data do parto, mandato CIPA..." style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px"></textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Indenização do período de estabilidade</label>
+            <select id="resc-estab-modo" onchange="onRescEstabModoChange()">
+              <option value="informar">Informar o valor manualmente</option>
+              <option value="calcular">Calcular automaticamente (meses restantes × salário)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Valor da indenização de estabilidade (R$)</label>
+            <input type="number" id="resc-estab-valor" min="0" step="0.01" placeholder="0,00" oninput="recalcRescisaoModal()">
+          </div>
+        </div>
+        <div id="resc-estab-calc-info" style="font-size:11px;color:#666;margin-top:-2px"></div>
+      </div>
+
       <div class="divider"><span>Verbas Rescisórias</span></div>
       <div class="form-row">
         <div class="form-group"><label>Saldo de salário (R$)</label><input type="text" id="resc-v-saldo" readonly class="input-readonly"></div>
@@ -5071,6 +5119,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260518x"></script>
+<script src="app.js?v=20260518y"></script>
 </body>
 </html>

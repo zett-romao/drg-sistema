@@ -7926,7 +7926,7 @@ function _calcRescisao(r){
   const sal=parseFloat(emp.salarioBase)||0;
   const cfg=RESCISAO_TIPOS[r.tipo]||RESCISAO_TIPOS.sem_justa_causa;
   const o={ avisoDias:0, anos:0, tempoServico:'—', saldoSalario:0, avisoValor:0, decimo:0, decimoAvos:0,
-    feriasVenc:0, feriasProp:0, feriasPropAvos:0, indenizAdic:0, inss:0, irrf:0,
+    feriasVenc:0, feriasProp:0, feriasPropAvos:0, indenizAdic:0, indenizEstabilidade:0, estabMeses:0, inss:0, irrf:0,
     fgtsMes:0, multaFgts:0, multaPct:0, pensao:0, adiantamentos:0, avisoDescontado:0,
     outrasVerbas:0, outrosDescontos:0, totalVerbas:0, totalDescontos:0, liquido:0,
     prazoPagamento:'' };
@@ -7968,6 +7968,18 @@ function _calcRescisao(r){
   }
   // Indenização adicional — art. 9º Lei 7.238/84 (1 salário)
   if(r.indenizacaoAdicional) o.indenizAdic=sal;
+  // Indenização do período de estabilidade (situação especial)
+  if(r.situacaoEspecial && r.situacaoEspecial!=='nenhuma'){
+    if(r.estabModo==='calcular'){
+      const fimEstab=r.situacaoFim?new Date(r.situacaoFim+'T00:00:00'):null;
+      if(fimEstab && !isNaN(fimEstab.getTime()) && fimEstab>dem){
+        o.estabMeses=Math.round(((fimEstab-dem)/(1000*60*60*24*30.44))*10)/10;
+        o.indenizEstabilidade=Math.round(o.estabMeses*sal*100)/100;
+      }
+    } else {
+      o.indenizEstabilidade=parseFloat(r.estabValorInformado)||0;
+    }
+  }
   // FGTS
   o.fgtsMes=(o.saldoSalario+o.decimo+o.avisoValor)*(pl.fgtsAliq/100);
   o.multaPct=cfg.multaFgts==='40'?pl.fgtsMulta40:(cfg.multaFgts==='20'?pl.fgtsMulta20:0);
@@ -7991,7 +8003,7 @@ function _calcRescisao(r){
   o.outrosDescontos=_somaRescItens(r.outrosDescontos);
   o.outrasVerbas=_somaRescItens(r.outrasVerbas);
   // Totais — verbas em dinheiro (a multa do FGTS vai para a conta vinculada / saque)
-  o.totalVerbas=o.saldoSalario+o.avisoValor+o.decimo+o.feriasVenc+o.feriasProp+o.indenizAdic+o.outrasVerbas;
+  o.totalVerbas=o.saldoSalario+o.avisoValor+o.decimo+o.feriasVenc+o.feriasProp+o.indenizAdic+o.indenizEstabilidade+o.outrasVerbas;
   o.totalDescontos=o.inss+o.irrf+o.pensao+o.adiantamentos+o.avisoDescontado+o.outrosDescontos;
   o.liquido=Math.max(0, o.totalVerbas-o.totalDescontos);
   // Prazo de pagamento — 10 dias corridos (CLT art. 477 §6º)
@@ -8059,6 +8071,12 @@ function _rescisaoFromModal(){
     avisoDescontado:numVal('resc-aviso-descontado'),
     outrasVerbas:collectRescItens('verbas'),
     outrosDescontos:collectRescItens('descontos'),
+    situacaoEspecial:val('resc-situacao-tipo')||'nenhuma',
+    situacaoInicio:val('resc-situacao-inicio')||'',
+    situacaoFim:val('resc-situacao-fim')||'',
+    situacaoMotivo:val('resc-situacao-motivo')||'',
+    estabModo:val('resc-estab-modo')||'informar',
+    estabValorInformado:numVal('resc-estab-valor')||0,
     pago:!!document.getElementById('resc-pago')?.checked,
     observacoes:val('resc-observacoes')
   };
@@ -8103,6 +8121,18 @@ function recalcRescisaoModal(){
   setVal('resc-total-descontos', o.totalDescontos.toFixed(2));
   setVal('resc-liquido',         o.liquido.toFixed(2));
   setVal('resc-prazo-pagamento', o.prazoPagamento);
+  // Situação especial — valor calculado e texto de apoio
+  const _estabModo=val('resc-estab-modo')||'informar';
+  if(_estabModo==='calcular') setVal('resc-estab-valor', o.indenizEstabilidade>0?o.indenizEstabilidade.toFixed(2):'');
+  const _estabInfo=document.getElementById('resc-estab-calc-info');
+  if(_estabInfo){
+    const _sit=val('resc-situacao-tipo')||'nenhuma';
+    if(_sit==='nenhuma') _estabInfo.innerHTML='';
+    else if(_estabModo==='calcular') _estabInfo.innerHTML=o.estabMeses>0
+      ? `&asymp; ${o.estabMeses} meses restantes &times; ${fmtMoney(parseFloat(emp.salarioBase)||0)} = ${fmtMoney(o.indenizEstabilidade)}. Estimativa dos salários do período — confira os reflexos (13º, férias, FGTS) com a contabilidade.`
+      : 'Para o cálculo automático, informe a Data de Demissão e o "Fim previsto da estabilidade" (posterior à demissão).';
+    else _estabInfo.innerHTML='Digite o valor da indenização conforme orientação da contabilidade/jurídico.';
+  }
   return o;
 }
 
@@ -8123,9 +8153,12 @@ function openRescisaoModal(id){
   // Reset
   ['resc-id','resc-data-demissao','resc-ferias-venc-dias','resc-saldo-fgts',
    'resc-pensao','resc-adiantamentos','resc-aviso-descontado',
-   'resc-observacoes'].forEach(f=>setVal(f,''));
+   'resc-observacoes','resc-situacao-inicio','resc-situacao-fim',
+   'resc-situacao-motivo','resc-estab-valor'].forEach(f=>setVal(f,''));
   setVal('resc-tipo','sem_justa_causa');
   setVal('resc-aviso-tipo','indenizado');
+  setVal('resc-situacao-tipo','nenhuma');
+  setVal('resc-estab-modo','informar');
   renderRescItens('verbas',[]);
   renderRescItens('descontos',[]);
   const indChk=document.getElementById('resc-indeniz-adic'); if(indChk) indChk.checked=false;
@@ -8149,6 +8182,12 @@ function openRescisaoModal(id){
     renderRescItens('verbas',r.outrasVerbas);
     renderRescItens('descontos',r.outrosDescontos);
     setVal('resc-observacoes',r.observacoes||'');
+    setVal('resc-situacao-tipo',r.situacaoEspecial||'nenhuma');
+    setVal('resc-situacao-inicio',r.situacaoInicio||'');
+    setVal('resc-situacao-fim',r.situacaoFim||'');
+    setVal('resc-situacao-motivo',r.situacaoMotivo||'');
+    setVal('resc-estab-modo',r.estabModo||'informar');
+    setVal('resc-estab-valor',r.estabValorInformado||'');
     empSel.disabled=true;
     _toggleRescisaoLock(r.status==='fechada');
   } else {
@@ -8159,15 +8198,62 @@ function openRescisaoModal(id){
     _toggleRescisaoLock(false);
   }
   modal.classList.remove('hidden');
-  recalcRescisaoModal();
+  onRescSituacaoChange();
 }
 
-// Quando troca o colaborador no modal — puxa pensão do cadastro
+// Avisos jurídicos por tipo de situação especial / estabilidade
+const RESC_SITUACAO_AVISOS = {
+  afastamento_inss: 'Contrato SUSPENSO pelo INSS (auxílio-doença). Em regra não cabe dispensa sem justa causa durante a suspensão — confirme a viabilidade com a contabilidade/jurídico.',
+  licenca_maternidade: 'Gestante/lactante tem estabilidade da confirmação da gravidez até 5 meses após o parto (ADCT art. 10, II, "b"). Dispensa sem justa causa no período gera direito à indenização do período remanescente.',
+  estab_gestante: 'Estabilidade da gestante: da confirmação da gravidez até 5 meses após o parto (ADCT art. 10, II, "b"). Dispensa sem justa causa no período gera indenização do período remanescente.',
+  estab_acidentaria: 'Estabilidade acidentária: 12 meses após o retorno do auxílio-doença acidentário (Lei 8.213/91, art. 118). Dispensa no período gera indenização.',
+  estab_cipa: 'Membro da CIPA tem estabilidade do registro da candidatura até 1 ano após o fim do mandato. Dispensa no período gera indenização.',
+  estab_pre_aposentadoria: 'Estabilidade pré-aposentadoria conforme convenção/acordo coletivo. Confira o prazo exato na CCT aplicável.',
+  outra: 'Situação especial registrada. Confira as regras aplicáveis com a contabilidade/jurídico antes de concluir a rescisão.'
+};
+
+// Quando troca o colaborador no modal — puxa pensão do cadastro e, pelo
+// status do colaborador, pré-seleciona a situação especial.
 function onRescEmployeeChange(){
   const emp=State.employees.find(e=>e.id===val('resc-employee'));
   if(emp){
     if(!val('resc-pensao')) setVal('resc-pensao',(parseFloat(emp.pensaoAlimenticia)||0)>0?parseFloat(emp.pensaoAlimenticia).toFixed(2):'');
     if(!val('resc-data-demissao') && emp.dataDemissao) setVal('resc-data-demissao',emp.dataDemissao);
+    if((val('resc-situacao-tipo')||'nenhuma')==='nenhuma'){
+      if(emp.status==='licenca-maternidade'){
+        setVal('resc-situacao-tipo','licenca_maternidade');
+        if(emp.licencaMaternidadeInicio)  setVal('resc-situacao-inicio', emp.licencaMaternidadeInicio);
+        if(emp.licencaMaternidadeTermino) setVal('resc-situacao-fim',    emp.licencaMaternidadeTermino);
+        onRescSituacaoChange();
+      } else if(emp.status==='afastado'){
+        setVal('resc-situacao-tipo','afastamento_inss');
+        onRescSituacaoChange();
+      }
+    }
+  }
+  recalcRescisaoModal();
+}
+
+// Mostra/oculta o bloco de situação especial e o aviso jurídico do tipo.
+function onRescSituacaoChange(){
+  const tipo=val('resc-situacao-tipo')||'nenhuma';
+  const campos=document.getElementById('resc-situacao-campos');
+  const aviso=document.getElementById('resc-situacao-aviso');
+  if(campos) campos.style.display=(tipo==='nenhuma')?'none':'';
+  if(aviso && tipo!=='nenhuma'){
+    aviso.innerHTML='<i class="fa-solid fa-triangle-exclamation"></i> <div><strong>Atenção — rescisão que exige cuidado.</strong> '+(RESC_SITUACAO_AVISOS[tipo]||'')+'</div>';
+  }
+  onRescEstabModoChange();
+}
+
+// Alterna o campo de valor da indenização de estabilidade entre editável
+// (informar) e somente leitura (calcular automaticamente).
+function onRescEstabModoChange(){
+  const modo=val('resc-estab-modo')||'informar';
+  const campo=document.getElementById('resc-estab-valor');
+  if(campo){
+    campo.readOnly=(modo==='calcular');
+    campo.classList.toggle('input-readonly', modo==='calcular');
   }
   recalcRescisaoModal();
 }
@@ -8175,7 +8261,8 @@ function onRescEmployeeChange(){
 function _toggleRescisaoLock(locked){
   const ids=['resc-tipo','resc-data-demissao','resc-aviso-tipo','resc-ferias-venc-dias',
     'resc-saldo-fgts','resc-indeniz-adic','resc-pensao','resc-adiantamentos',
-    'resc-aviso-descontado','resc-observacoes'];
+    'resc-aviso-descontado','resc-observacoes','resc-situacao-tipo','resc-situacao-inicio',
+    'resc-situacao-fim','resc-situacao-motivo','resc-estab-modo','resc-estab-valor'];
   ids.forEach(i=>{ const el=document.getElementById(i); if(el) el.disabled=locked; });
   document.querySelectorAll('#resc-verbas-list input, #resc-descontos-list input').forEach(el=>el.disabled=locked);
   document.querySelectorAll('#modal-rescisao button[onclick^="addRescItem"]').forEach(b=>b.disabled=locked);
@@ -8218,6 +8305,12 @@ async function saveRescisao(fechar){
     outrosDescontos:r.outrosDescontos||[],
     pago:r.pago,
     observacoes:r.observacoes||'',
+    situacaoEspecial:r.situacaoEspecial||'nenhuma',
+    situacaoInicio:r.situacaoInicio||'',
+    situacaoFim:r.situacaoFim||'',
+    situacaoMotivo:r.situacaoMotivo||'',
+    estabModo:r.estabModo||'informar',
+    estabValorInformado:r.estabValorInformado||0,
     // Snapshot dos valores calculados
     calc:o,
     status: fechar?'fechada':(existing?.status||'aberta'),
@@ -8378,6 +8471,7 @@ function _trctHtml(r, emp, o){
     {label:'95.99 Garantia semestral de salários', val:''}
   ];
   if(o.indenizAdic>0) verbas.push({label:'Indenização adicional — Lei 7.238/84', val:o.indenizAdic});
+  if(o.indenizEstabilidade>0) verbas.push({label:'Indenização do período de estabilidade', val:o.indenizEstabilidade});
   itensVerbas.forEach(it=>verbas.push({label:it.descricao||'Outras verbas', val:it.valor}));
   const descontos=[
     {label:'100 Pensão Alimentícia', val:o.pensao||''},

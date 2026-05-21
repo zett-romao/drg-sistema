@@ -7341,23 +7341,60 @@ function _refreshComprovanteViews(){
 // Aba "Pagamentos" do cadastro — lista os pagamentos PIX feitos ao
 // colaborador (coleção solicitacoesPagamento): data, descrição, valor,
 // status e o link do comprovante oficial.
+let _empPagFiltro  = 'pago';   // filtro de status da aba: 'pago' | 'todos'
+let _empPagAtualId = null;     // colaborador exibido na aba (para re-render)
+
+// Troca do filtro de status — re-renderiza a aba.
+function _empPagSetFiltro(sel){ _empPagFiltro = sel.value; renderEmpPagamentos(_empPagAtualId); }
+
+// Marca/desmarca todas as caixas de seleção da lista.
+function _empPagToggleAll(chk){
+  document.querySelectorAll('#emp-pagamentos-list .emp-pag-chk').forEach(c=>{ c.checked = chk.checked; });
+}
+
+// Abre, cada um em uma aba, os comprovantes das linhas selecionadas.
+function _empPagAbrirSelecionados(){
+  const chks=[...document.querySelectorAll('#emp-pagamentos-list .emp-pag-chk:checked')];
+  if(!chks.length){ toast('Selecione ao menos um comprovante (caixas à esquerda).','warning'); return; }
+  let n=0;
+  chks.forEach(c=>{ const u=c.dataset.comp; if(u){ window.open(u,'_blank','noopener'); n++; } });
+  toast(n+' comprovante(s) aberto(s) — baixe o PDF em cada aba.', n?'success':'warning');
+}
+
 function renderEmpPagamentos(empId){
   const box=document.getElementById('emp-pagamentos-list'); if(!box) return;
-  const lista=(State.solicitacoes||[])
+  _empPagAtualId = empId || null;
+  const todas=(State.solicitacoes||[])
     .filter(s=>empId && s.employeeId===empId)
     .sort((a,b)=>new Date(b.criadoEm||0)-new Date(a.criadoEm||0));
-  if(!lista.length){
+  if(!todas.length){
     box.innerHTML=`<div class="empty-state small"><i class="fa-solid fa-money-bill-wave"></i><p>Nenhum pagamento registrado</p></div>`;
     return;
   }
   _autoBuscarComprovantes();   // garante os comprovantes que ainda faltam
-  const totalPago=lista.filter(s=>s.status==='pago').reduce((t,s)=>t+(s.valor||0),0);
+  const lista = _empPagFiltro==='pago' ? todas.filter(s=>s.status==='pago') : todas;
+  const totalPago=todas.filter(s=>s.status==='pago').reduce((t,s)=>t+(s.valor||0),0);
+  const barra=`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+    <label style="font-size:12px;color:#666">Mostrar:</label>
+    <select id="emp-pag-filtro" onchange="_empPagSetFiltro(this)" style="padding:5px 9px;font-size:12px;border:1px solid var(--border);border-radius:6px">
+      <option value="pago"${_empPagFiltro==='pago'?' selected':''}>Somente pagos</option>
+      <option value="todos"${_empPagFiltro==='todos'?' selected':''}>Todos</option>
+    </select>
+    <button class="btn btn-sm btn-outline" style="color:#00695C;border-color:#00695C;font-size:12px" onclick="_empPagAbrirSelecionados()">
+      <i class="fa-solid fa-up-right-from-square"></i> Abrir comprovantes selecionados
+    </button>
+  </div>`;
+  if(!lista.length){
+    box.innerHTML=barra+`<div class="empty-state small"><i class="fa-solid fa-money-bill-wave"></i><p>Nenhum pagamento com esse filtro</p></div>`;
+    return;
+  }
   const linhas=lista.map(s=>{
     const dt=((s.scheduleDate||s.criadoEm||'')+'').substring(0,10).split('-').reverse().join('/');
-    let comp='<span style="color:#bbb">—</span>';
+    let comp='<span style="color:#bbb">—</span>', chk='';
     if(s.status==='pago'){
       if(s.asaasComprovante){
         comp=`<a href="${s.asaasComprovante}" target="_blank" rel="noopener" style="color:#00695C;font-weight:600;text-decoration:none;white-space:nowrap"><i class="fa-solid fa-receipt"></i> Ver comprovante</a>`;
+        chk=`<input type="checkbox" class="emp-pag-chk" data-comp="${s.asaasComprovante}">`;
       } else if(s.asaasTransferId){
         comp=`<button class="btn btn-sm btn-outline" style="color:#00695C;border-color:#00695C;font-size:11px;padding:3px 9px" onclick="verComprovante('${s.id}',this)"><i class="fa-solid fa-receipt"></i> Comprovante</button>`;
       } else {
@@ -7369,6 +7406,7 @@ function renderEmpPagamentos(empId){
       comp=`<span style="font-size:11px;color:#c62828">${s.erro||'erro'}</span>`;
     }
     return `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:8px 6px;text-align:center;width:30px">${chk}</td>
       <td style="padding:8px 10px;font-size:12px;white-space:nowrap">${dt||'—'}</td>
       <td style="padding:8px 10px;font-size:12px">${s.descricao||s.origem||'—'}</td>
       <td style="padding:8px 10px;text-align:right;font-weight:700;color:#00695C;white-space:nowrap">${fmtMoney(s.valor||0)}</td>
@@ -7376,9 +7414,10 @@ function renderEmpPagamentos(empId){
       <td style="padding:8px 10px">${comp}</td>
     </tr>`;
   }).join('');
-  box.innerHTML=`
+  box.innerHTML=barra+`
     <table style="width:100%;border-collapse:collapse">
       <thead><tr style="background:#f5f5f5">
+        <th style="padding:7px 6px;text-align:center;width:30px"><input type="checkbox" onclick="_empPagToggleAll(this)" title="Selecionar todos"></th>
         <th style="padding:7px 10px;text-align:left;font-size:11px;color:#666">Data</th>
         <th style="padding:7px 10px;text-align:left;font-size:11px;color:#666">Descrição</th>
         <th style="padding:7px 10px;text-align:right;font-size:11px;color:#666">Valor</th>

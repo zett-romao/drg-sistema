@@ -3651,6 +3651,7 @@ function openEmployeeModal(id=null){
     onExamePrazoChange(false);
     document.getElementById('doc-list').innerHTML=`<div class="empty-state small"><i class="fa-solid fa-folder-open"></i><p>Salve o colaborador antes de enviar documentos</p></div>`;
   }
+  renderEmpPagamentos(id);
 }
 
 // Exame médico: mostra/oculta o campo de prazo customizado e calcula o
@@ -7289,7 +7290,7 @@ async function verComprovante(solId, btnEl){
       sol.asaasComprovante=url; if(t.status) sol.asaasStatus=t.status;
       try{ await DB.merge('solicitacoesPagamento',solId,{asaasComprovante:url,asaasStatus:t.status||''}); }catch(_){}
       const w=window.open(url,'_blank','noopener');
-      renderAprovacoes();
+      _refreshComprovanteViews();
       if(!w) toast('Comprovante pronto — clique no botão verde para abrir.','success');
     } else {
       toast('Comprovante ainda sendo gerado pelo banco. Tente de novo em instantes.','warning');
@@ -7324,7 +7325,71 @@ async function _autoBuscarComprovantes(){
       }catch(_){ /* silencioso */ }
     }
   }finally{ _autoComprovBusy=false; }
-  if(achou) renderAprovacoes();
+  if(achou) _refreshComprovanteViews();
+}
+
+// Re-renderiza as telas que mostram comprovante: Aprovações e a aba
+// Pagamentos do cadastro (se o modal do colaborador estiver aberto).
+function _refreshComprovanteViews(){
+  renderAprovacoes();
+  const m=document.getElementById('modal-employee');
+  if(m && !m.classList.contains('hidden')){
+    const eid=val('emp-id'); if(eid) renderEmpPagamentos(eid);
+  }
+}
+
+// Aba "Pagamentos" do cadastro — lista os pagamentos PIX feitos ao
+// colaborador (coleção solicitacoesPagamento): data, descrição, valor,
+// status e o link do comprovante oficial.
+function renderEmpPagamentos(empId){
+  const box=document.getElementById('emp-pagamentos-list'); if(!box) return;
+  const lista=(State.solicitacoes||[])
+    .filter(s=>empId && s.employeeId===empId)
+    .sort((a,b)=>new Date(b.criadoEm||0)-new Date(a.criadoEm||0));
+  if(!lista.length){
+    box.innerHTML=`<div class="empty-state small"><i class="fa-solid fa-money-bill-wave"></i><p>Nenhum pagamento registrado</p></div>`;
+    return;
+  }
+  _autoBuscarComprovantes();   // garante os comprovantes que ainda faltam
+  const totalPago=lista.filter(s=>s.status==='pago').reduce((t,s)=>t+(s.valor||0),0);
+  const linhas=lista.map(s=>{
+    const dt=((s.scheduleDate||s.criadoEm||'')+'').substring(0,10).split('-').reverse().join('/');
+    let comp='<span style="color:#bbb">—</span>';
+    if(s.status==='pago'){
+      if(s.asaasComprovante){
+        comp=`<a href="${s.asaasComprovante}" target="_blank" rel="noopener" style="color:#00695C;font-weight:600;text-decoration:none;white-space:nowrap"><i class="fa-solid fa-receipt"></i> Ver comprovante</a>`;
+      } else if(s.asaasTransferId){
+        comp=`<button class="btn btn-sm btn-outline" style="color:#00695C;border-color:#00695C;font-size:11px;padding:3px 9px" onclick="verComprovante('${s.id}',this)"><i class="fa-solid fa-receipt"></i> Comprovante</button>`;
+      } else {
+        comp='<span style="font-size:11px;color:#999">pago</span>';
+      }
+    } else if(s.status==='recusado'){
+      comp=`<span style="font-size:11px;color:#c62828">${s.motivoRecusa||'recusado'}</span>`;
+    } else if(s.status==='erro'){
+      comp=`<span style="font-size:11px;color:#c62828">${s.erro||'erro'}</span>`;
+    }
+    return `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:8px 10px;font-size:12px;white-space:nowrap">${dt||'—'}</td>
+      <td style="padding:8px 10px;font-size:12px">${s.descricao||s.origem||'—'}</td>
+      <td style="padding:8px 10px;text-align:right;font-weight:700;color:#00695C;white-space:nowrap">${fmtMoney(s.valor||0)}</td>
+      <td style="padding:8px 10px;text-align:center">${_aprovacaoStatusBadge(s.status)}</td>
+      <td style="padding:8px 10px">${comp}</td>
+    </tr>`;
+  }).join('');
+  box.innerHTML=`
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr style="background:#f5f5f5">
+        <th style="padding:7px 10px;text-align:left;font-size:11px;color:#666">Data</th>
+        <th style="padding:7px 10px;text-align:left;font-size:11px;color:#666">Descrição</th>
+        <th style="padding:7px 10px;text-align:right;font-size:11px;color:#666">Valor</th>
+        <th style="padding:7px 10px;text-align:center;font-size:11px;color:#666">Status</th>
+        <th style="padding:7px 10px;text-align:left;font-size:11px;color:#666">Comprovante</th>
+      </tr></thead>
+      <tbody>${linhas}</tbody>
+    </table>
+    <div style="margin-top:10px;padding:8px 12px;background:#E8F5E9;border-radius:6px;font-size:13px;text-align:right">
+      Total pago a este colaborador: <strong style="color:#00695C">${fmtMoney(totalPago)}</strong>
+    </div>`;
 }
 
 function renderAprovacoes(){

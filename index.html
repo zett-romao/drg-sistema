@@ -2229,6 +2229,9 @@
         <button class="modal-tab" data-tab-id="tab-documentos" onclick="switchTab('tab-documentos')">
           <i class="fa-solid fa-folder-open"></i> Documentos
         </button>
+        <button class="modal-tab" data-tab-id="tab-pagamentos" onclick="switchTab('tab-pagamentos')">
+          <i class="fa-solid fa-money-bill-wave"></i> Pagamentos
+        </button>
         <button class="modal-tab" data-tab-id="tab-ferias" onclick="switchTab('tab-ferias')">
           <i class="fa-solid fa-umbrella-beach"></i> Férias
         </button>
@@ -2923,6 +2926,20 @@
           <div class="empty-state small">
             <i class="fa-solid fa-folder-open"></i>
             <p>Nenhum documento enviado</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Pagamentos -->
+      <div class="tab-pane" id="tab-pagamentos">
+        <div class="info-banner">
+          <i class="fa-solid fa-circle-info"></i>
+          Pagamentos feitos a este colaborador via PIX (Asaas). Cada pagamento concluído traz o link do comprovante oficial.
+        </div>
+        <div id="emp-pagamentos-list">
+          <div class="empty-state small">
+            <i class="fa-solid fa-money-bill-wave"></i>
+            <p>Nenhum pagamento registrado</p>
           </div>
         </div>
       </div>
@@ -5165,6 +5182,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260521h"></script>
+<script src="app.js?v=20260521i"></script>
 </body>
 </html>

@@ -491,9 +491,14 @@
             <h2>Folha de Ponto</h2>
             <p>Processamento de folha de ponto e cálculo de benefícios</p>
           </div>
-          <button class="btn btn-outline" onclick="openReportsModal(['financeiro','beneficios','individual'], 'Relatórios de Folha de Ponto')">
-            <i class="fa-solid fa-chart-bar"></i> Relatórios
-          </button>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-outline" onclick="openPagamentoAvulsoModal(document.getElementById('payroll-employee')?.value||'')">
+              <i class="fa-solid fa-money-bill-wave"></i> Pagamento Avulso
+            </button>
+            <button class="btn btn-outline" onclick="openReportsModal(['financeiro','beneficios','individual'], 'Relatórios de Folha de Ponto')">
+              <i class="fa-solid fa-chart-bar"></i> Relatórios
+            </button>
+          </div>
         </div>
 
         <!-- Stats da Folha de Ponto -->
@@ -3006,6 +3011,49 @@
   </div>
 </div>
 
+<!-- ===== MODAL: PAGAMENTO AVULSO ===== -->
+<div class="modal-overlay hidden" id="modal-pagamento-avulso" onclick="closeModal('modal-pagamento-avulso', event)">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-money-bill-wave" style="color:#00695C"></i> Pagamento Avulso</h3>
+      <button class="modal-close" onclick="closeModal('modal-pagamento-avulso')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:12px;color:#7C5500;background:#FFF8E1;border:1px solid #FFE082;border-radius:6px;padding:8px 10px;margin-bottom:12px">
+        <i class="fa-solid fa-circle-info"></i> Para prêmios, obrigações fora do hall legal e valores de rescisões feitas fora do sistema. Gera uma solicitação PIX que precisa ser aprovada em Aprovações (com 2FA). <strong>Não entra no cálculo da folha CLT.</strong>
+      </div>
+      <div class="form-group">
+        <label>Colaborador <span class="required">*</span></label>
+        <select id="pag-avulso-emp" onchange="onPagAvulsoEmpChange()"></select>
+      </div>
+      <div class="form-group">
+        <label>Descrição <span class="required">*</span></label>
+        <input type="text" id="pag-avulso-desc" maxlength="120" placeholder="Ex.: Prêmio de produtividade / Saldo de rescisão paga fora">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Valor (R$) <span class="required">*</span></label>
+          <input type="number" id="pag-avulso-valor" min="0" step="0.01" placeholder="0,00">
+        </div>
+        <div class="form-group">
+          <label>Data prevista</label>
+          <input type="date" id="pag-avulso-data">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Chave PIX <span class="required">*</span></label>
+        <input type="text" id="pag-avulso-pix" placeholder="Chave PIX do destinatário">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-pagamento-avulso')">Cancelar</button>
+      <button class="btn btn-primary" id="pag-avulso-confirm" onclick="confirmarPagamentoAvulso()">
+        <i class="fa-solid fa-paper-plane"></i> Enviar para aprovação
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== MODAL: ADIANTAMENTO PAGO FORA DO SISTEMA ===== -->
 <div class="modal-overlay hidden" id="modal-pago-externo" onclick="closeModal('modal-pago-externo', event)">
   <div class="modal-dialog modal-sm">
@@ -5023,6 +5071,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260518w"></script>
+<script src="app.js?v=20260518x"></script>
 </body>
 </html>

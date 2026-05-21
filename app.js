@@ -3313,6 +3313,7 @@ function renderEmployeeTable(){
   const th7 = document.getElementById('emp-th-col7');
   if(th6) th6.textContent = isLicenca ? 'Início Licença' : 'Admissão';
   if(th7) th7.textContent = isLicenca ? 'Prev. Retorno'  : 'CPF';
+  const podeAvulso = !!getUserModules(Auth.currentUser).pagamentosLancar;
   tbody.innerHTML=list.map((e)=>{
     const celularLimpo=(e.celular||'').replace(/\D/g,'');
     const whatsBtn=celularLimpo?`<button class="btn-icon btn-whatsapp-icon" onclick="openWhatsApp('${celularLimpo}','${e.nome.split(' ')[0]}')" title="WhatsApp"><i class="fa-brands fa-whatsapp"></i></button>`:'';
@@ -3337,6 +3338,7 @@ function renderEmployeeTable(){
       <td onclick="event.stopPropagation()"><div class="actions-cell">
         ${whatsBtn}
         <button class="btn-icon btn-primary-icon" onclick="openPayrollForEmployee('${e.id}')" title="Lançar Folha"><i class="fa-solid fa-file-invoice-dollar"></i></button>
+        ${podeAvulso?`<button class="btn-icon" style="color:#00695C" onclick="openPagamentoAvulsoModal('${e.id}')" title="Pagamento avulso"><i class="fa-solid fa-money-bill-wave"></i></button>`:''}
         <button class="btn-icon btn-warning-icon" onclick="openEmployeeModal('${e.id}')" title="Editar"><i class="fa-solid fa-pencil"></i></button>
         <button class="btn-icon btn-danger-icon" onclick="confirmDeleteEmployee('${e.id}')" title="Excluir"><i class="fa-solid fa-trash"></i></button>
       </div></td>
@@ -6420,6 +6422,71 @@ async function _criarSolicitacaoPagamento(d){
   };
   await DB.save('solicitacoesPagamento', sol);
   return sol;
+}
+
+// ============================================
+// PAGAMENTO AVULSO — prêmios, obrigações fora do hall legal e valores
+// de rescisões feitas fora do sistema. Gera uma solicitação PIX que vai
+// para Aprovações (com 2FA), origem 'avulso'. NÃO entra no cálculo da
+// folha CLT — é um pagamento à parte.
+// ============================================
+function openPagamentoAvulsoModal(empId){
+  if(!getUserModules(Auth.currentUser).pagamentosLancar){
+    toast('Você não tem permissão para lançar pagamentos.','error'); return;
+  }
+  const m=document.getElementById('modal-pagamento-avulso'); if(!m) return;
+  const sel=document.getElementById('pag-avulso-emp');
+  if(sel){
+    const emps=[...(State.employees||[])].sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR'));
+    sel.innerHTML='<option value="">— selecione —</option>'+emps.map(e=>{
+      const st=(e.status||'ativo')!=='ativo'?` (${e.status})`:'';
+      return `<option value="${e.id}">${(e.nome||'—')}${st}</option>`;
+    }).join('');
+    sel.value=empId||'';
+  }
+  setVal('pag-avulso-desc','');
+  setVal('pag-avulso-valor','');
+  setVal('pag-avulso-data', new Date().toISOString().substring(0,10));
+  onPagAvulsoEmpChange();
+  m.classList.remove('hidden');
+}
+
+function onPagAvulsoEmpChange(){
+  const emp=State.employees.find(e=>e.id===val('pag-avulso-emp'));
+  setVal('pag-avulso-pix', emp?.chavePix||'');
+}
+
+async function confirmarPagamentoAvulso(){
+  if(!getUserModules(Auth.currentUser).pagamentosLancar){
+    toast('Você não tem permissão para lançar pagamentos.','error'); return;
+  }
+  const emp=State.employees.find(e=>e.id===val('pag-avulso-emp'));
+  if(!emp){ toast('Selecione um colaborador.','error'); return; }
+  const desc=(val('pag-avulso-desc')||'').trim();
+  if(!desc){ toast('Informe a descrição do pagamento (ex.: Prêmio, Saldo de rescisão).','error'); return; }
+  const valor=numVal('pag-avulso-valor');
+  if(!(valor>0)){ toast('Informe um valor válido.','error'); return; }
+  const pixKey=(val('pag-avulso-pix')||'').trim();
+  if(!pixKey){ toast('Chave PIX não informada — cadastre no colaborador ou digite aqui.','error'); return; }
+  const data=val('pag-avulso-data')||new Date().toISOString().substring(0,10);
+  const btn=document.getElementById('pag-avulso-confirm');
+  if(btn) setBtnLoading(btn,true,'');
+  try{
+    const sol=await _criarSolicitacaoPagamento({
+      employeeId:emp.id, employeeNome:emp.nome, payrollId:'',
+      valor, pixKey, keyType:detectPixKeyType(pixKey),
+      descricao:`Avulso — ${desc}`,
+      scheduleDate:data, origem:'avulso',
+    });
+    Auth.log('PAGAMENTO_SOLICITADO', null, `Avulso | ${emp.nome} | R$ ${valor.toFixed(2)} | ${desc} | sol ${sol.id}`);
+    toast('Pagamento avulso enviado para Aprovações — precisa ser aprovado com 2FA.','success');
+    closeModal('modal-pagamento-avulso');
+  }catch(e){
+    console.error(e);
+    toast('Erro ao criar a solicitação: '+(e.message||e),'error');
+  }finally{
+    if(btn) setBtnLoading(btn,false,'<i class="fa-solid fa-paper-plane"></i> Enviar para aprovação');
+  }
 }
 
 async function executarPagamentoAsaas() {

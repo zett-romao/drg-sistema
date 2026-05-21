@@ -7296,6 +7296,11 @@ function renderAprovacoes(){
     const bg=idx%2?'#f9fafb':'#fff';
     const dt=(s.criadoEm||'').substring(0,10).split('-').reverse().join('/');
     const sched=(s.scheduleDate||'').split('-').reverse().join('/');
+    // Nome do colaborador clicavel → abre o cadastro (se o colaborador existe)
+    const _empCad=State.employees.find(e=>e.id===s.employeeId);
+    const nomeCell=_empCad
+      ? `<strong style="color:var(--primary);cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px" onclick="openEmployeeModal('${s.employeeId}')" title="Abrir cadastro de ${(s.employeeNome||'').replace(/"/g,'&quot;')}">${s.employeeNome||'—'}</strong>`
+      : `<strong>${s.employeeNome||'—'}</strong>`;
     let acoes='—';
     if(s.status==='pendente'){
       acoes = podeAprovar
@@ -7313,7 +7318,7 @@ function renderAprovacoes(){
         : `<span style="font-size:11px;color:#c62828">${s.erro||'erro'}</span>`;
     }
     return `<tr style="background:${bg}">
-      <td style="padding:9px 10px"><strong>${s.employeeNome||'—'}</strong>${s.origem==='lote'?' <span style="font-size:10px;color:#aaa">(lote)</span>':''}</td>
+      <td style="padding:9px 10px">${nomeCell}${s.origem==='lote'?' <span style="font-size:10px;color:#aaa">(lote)</span>':''}</td>
       <td style="padding:9px 10px;text-align:right;font-weight:700;color:#00695C">${fmtMoney(s.valor||0)}</td>
       <td style="padding:9px 10px;font-family:monospace;font-size:11px">${s.pixKey||'—'}</td>
       <td style="padding:9px 10px;font-size:12px">${sched||'—'}</td>

@@ -486,6 +486,65 @@ function renderConfiguracoes(){
   setVal('cfg-cep',                e.cep||'');
   setVal('cfg-telefone',           e.telefone||'');
   setVal('cfg-email',              e.email||'');
+  renderPainelRecursos();
+}
+
+// Estimativa de preço do Gemini 2.5 Flash (US$ por 1 milhão de tokens) e
+// câmbio — atualize aqui conforme o preço vigente em ai.google.dev.
+const IA_PRECO = { inUSDporM: 0.30, outUSDporM: 2.50, usdBrl: 5.40 };
+
+// Painel de Recursos (Configurações) — medidores de uso de IA, volume de
+// dados e arquivos enviados. Roda ao abrir a tela de Configurações.
+async function renderPainelRecursos(){
+  const body=document.getElementById('painel-recursos-body');
+  if(!body) return;
+  const box=(label,value,sub,cor)=>`<div style="flex:1;min-width:135px;background:#F8FAFC;border:1px solid #E2E8F0;border-left:3px solid ${cor};border-radius:8px;padding:10px 12px">
+    <div style="font-size:20px;font-weight:700;color:${cor};line-height:1.15">${value}</div>
+    <div style="font-size:12px;color:#475569;font-weight:600;margin-top:2px">${label}</div>
+    ${sub?`<div style="font-size:11px;color:#94A3B8;margin-top:3px;line-height:1.3">${sub}</div>`:''}
+  </div>`;
+  const conta=arr=>(arr||[]).length;
+  const nFmt=n=>Number(n||0).toLocaleString('pt-BR');
+  const emps=State.employees||[];
+  const ativos=emps.filter(e=>(e.status||'ativo')==='ativo').length;
+  // Arquivos enviados — contagem aproximada (não há acesso aos bytes)
+  let arquivos=emps.filter(e=>e.fotoUrl).length;
+  ['atestados','atrasos','saidas'].forEach(c=>{
+    (State[c]||[]).forEach(x=>{ if(x&&x.arquivoUrl) arquivos++; });
+  });
+  // Uso de IA — busca a coleção usoIA sob demanda
+  let usoIA=[];
+  try { usoIA=await DB.getAll('usoIA'); } catch(e){ console.warn('Painel: usoIA',e); }
+  const mesAtual=new Date().toISOString().substring(0,7);
+  const doMes=usoIA.filter(u=>(u.ts||'').substring(0,7)===mesAtual);
+  const sum=(arr,k)=>arr.reduce((s,u)=>s+(u[k]||0),0);
+  const custo=arr=>(sum(arr,'promptTokens')/1e6*IA_PRECO.inUSDporM + sum(arr,'outputTokens')/1e6*IA_PRECO.outUSDporM)*IA_PRECO.usdBrl;
+  body.innerHTML=`
+    <div style="font-size:12px;color:#64748b;margin-bottom:12px">Medidores dos recursos usados pelo sistema. Atualizado ao abrir esta tela.</div>
+    <div style="font-weight:700;font-size:13px;color:#1E293B;margin-bottom:6px"><i class="fa-solid fa-robot" style="color:#6A1B9A"></i> Uso de Inteligência Artificial (Gemini)</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+      ${box('Análises este mês', doMes.length, `Folha: ${doMes.filter(u=>u.tipo==='folha').length} &middot; Documentos: ${doMes.filter(u=>u.tipo==='cadastro').length}`, '#6A1B9A')}
+      ${box('Tokens este mês', nFmt(sum(doMes,'totalTokens')), 'Entrada + saída somados', '#6A1B9A')}
+      ${box('Custo estimado (mês)', fmtMoney(custo(doMes)), 'estimativa — ver nota abaixo', '#6A1B9A')}
+      ${box('Análises (total)', usoIA.length, `${nFmt(sum(usoIA,'totalTokens'))} tokens acumulados`, '#9333EA')}
+    </div>
+    <div style="font-size:10px;color:#94A3B8;margin-bottom:16px">O custo é uma <strong>estimativa</strong> (Gemini 2.5 Flash &approx; US$ ${IA_PRECO.inUSDporM}/mi tokens de entrada e US$ ${IA_PRECO.outUSDporM}/mi de saída; dólar a R$ ${IA_PRECO.usdBrl}). No nível gratuito do Gemini o custo real é R$ 0 — use como referência de volume. Preço e fatura reais ficam em ai.google.dev.</div>
+    <div style="font-weight:700;font-size:13px;color:#1E293B;margin-bottom:6px"><i class="fa-solid fa-database" style="color:#1565C0"></i> Volume de dados</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+      ${box('Colaboradores', emps.length, `${ativos} ativo(s)`, '#1565C0')}
+      ${box('Folhas de ponto', conta(State.payrolls), '', '#1565C0')}
+      ${box('Escalas', conta(State.escalas), '', '#1565C0')}
+      ${box('Contratos', conta(State.contratos), '', '#1565C0')}
+      ${box('Rescisões', conta(State.rescisoes), '', '#1565C0')}
+      ${box('Solic. de pagamento', conta(State.solicitacoes), '', '#1565C0')}
+      ${box('Postos de trabalho', conta(State.postos), '', '#1565C0')}
+    </div>
+    <div style="font-weight:700;font-size:13px;color:#1E293B;margin-bottom:6px"><i class="fa-solid fa-paperclip" style="color:#0F766E"></i> Arquivos enviados</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      ${box('Arquivos no armazenamento', arquivos, 'Fotos de colaboradores e documentos anexados (contagem aproximada)', '#0F766E')}
+    </div>
+    <div style="font-size:10px;color:#94A3B8;margin-top:10px"><i class="fa-solid fa-circle-info"></i> As cotas de banco de dados (Firestore) e de armazenamento — limites do Firebase/Cloudflare — só aparecem nos painéis desses serviços; não dá para lê-las pelo navegador.</div>
+  `;
 }
 
 // ============================================
@@ -7412,6 +7471,24 @@ const ESCALA_RULES = {
 };
 
 // Chama a API do Gemini com visão
+// Registra o uso de IA (tokens consumidos) na coleção `usoIA`, alimentando
+// o Painel de Recursos. Fire-and-forget — nunca atrapalha a análise.
+async function _registrarUsoIA(tipo, geminiData){
+  try{
+    const um=(geminiData&&geminiData.usageMetadata)||{};
+    await DB.save('usoIA', {
+      id: genId(),
+      ts: new Date().toISOString(),
+      tipo: tipo,
+      model: GEMINI_MODEL,
+      promptTokens: um.promptTokenCount||0,
+      outputTokens: um.candidatesTokenCount||0,
+      totalTokens: um.totalTokenCount||0,
+      usuario: (Auth.currentUser&&(Auth.currentUser.username||Auth.currentUser.nome))||''
+    });
+  }catch(e){ console.warn('Falha ao registrar uso de IA:', e); }
+}
+
 // Faz o parse do JSON devolvido pelo Gemini, tolerando erros comuns do
 // modelo: cercas markdown, vírgula faltando entre objetos/strings do array,
 // vírgula sobrando antes de } ou ], comentários de bloco.
@@ -7515,6 +7592,7 @@ Retorne APENAS o JSON em uma única linha, compacto, sem markdown, sem comentár
   const data=await resp.json();
   const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
   console.log('Gemini raw response:', text);
+  _registrarUsoIA('folha', data);
   try {
     const parsed=_parseGeminiJson(text);
     if(typeof parsed.dias==='string') parsed.dias=_parseDiasIA(parsed.dias);
@@ -7784,6 +7862,7 @@ REGRAS IMPORTANTES:
   }
   const data=await resp.json();
   const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
+  _registrarUsoIA('cadastro', data);
   return _parseGeminiJson(text);
 }
 

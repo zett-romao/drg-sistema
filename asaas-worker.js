@@ -15,8 +15,8 @@
  *   3. Cole este código no editor
  *   4. Salve (Save and Deploy)
  *   5. Vá em Settings → Variables → Add variable (secret):
- *      - ASAAS_API_KEY = sua chave
- *      - ASAAS_ENV = sandbox (ou production)
+ *      - ASAAS_API_KEY = sua chave (obrigatório)
+ *      - ASAAS_ENV (opcional) = defina como "sandbox" apenas para testes
  */
 
 'use strict';

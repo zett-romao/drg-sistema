@@ -4,9 +4,10 @@
  * Deploy no Cloudflare Workers como "drg-asaas"
  * URL resultante: https://drg-asaas.zett-romao.workers.dev
  *
- * SECRETS obrigatórios (Cloudflare Dashboard → Settings → Variables → Secret):
- *   ASAAS_API_KEY  — sua chave da API Asaas (começa com $aact_ para produção)
- *   ASAAS_ENV      — "sandbox" ou "production"
+ * SECRETS (Cloudflare Dashboard → Settings → Variables → Secret):
+ *   ASAAS_API_KEY  — sua chave da API Asaas (OBRIGATORIO; $aact_ = producao)
+ *   ASAAS_ENV      — OPCIONAL. "sandbox" para testes; ausente ou qualquer
+ *                    outro valor usa PRODUCAO (padrao).
  *
  * Como criar o Worker:
  *   1. Acesse dash.cloudflare.com → Workers & Pages → Create Application → Create Worker
@@ -26,8 +27,9 @@ const ALLOWED_ORIGINS = [
   'http://127.0.0.1',
 ];
 
+// URLs oficiais da API Asaas v3 (conferidas em docs.asaas.com).
 const ASAAS_BASE = {
-  sandbox:    'https://sandbox.asaas.com/api/v3',
+  sandbox:    'https://api-sandbox.asaas.com/v3',
   production: 'https://api.asaas.com/v3',
 };
 
@@ -55,7 +57,8 @@ export default {
       );
     }
 
-    const base = ASAAS_BASE[env.ASAAS_ENV || 'sandbox'];
+    // Producao e o padrao. So usa sandbox se ASAAS_ENV for exatamente "sandbox".
+    const base = (env.ASAAS_ENV === 'sandbox') ? ASAAS_BASE.sandbox : ASAAS_BASE.production;
 
     // ── Monta URL da Asaas ────────────────────────────────────────────────
     const url      = new URL(request.url);

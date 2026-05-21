@@ -62,6 +62,26 @@ export default {
     path = path.replace(/^\/api(?=\/|$)/, '');   // remove "/api" redundante
     path = path.replace(/^\/v3(?=\/|$)/,  '');   // remove "/v3" redundante
     if (!path.startsWith('/')) path = '/' + path;
+
+    // ── Whitelist de segurança ────────────────────────────────────────────
+    // Este proxy é PÚBLICO (a URL está no repositório). Por isso só encaminha
+    // o que o app no navegador realmente precisa:
+    //   • COBRANÇA: /customers, /payments, /subscriptions
+    //   • leitura de UMA transferência (GET /transfers/<id>), usada só para
+    //     puxar o comprovante do PIX — não move dinheiro.
+    // Qualquer outra coisa é recusada — em especial POST /transfers (saque)
+    // e GET /transfers (lista tudo). Transferências de verdade passam pelo
+    // Worker autenticado drg-aprovacao, não por aqui.
+    const cobranca   = ['/customers', '/payments', '/subscriptions']
+                         .some(p => path === p || path.startsWith(p + '/'));
+    const leTransfer = request.method === 'GET' && /^\/transfers\/[\w-]+$/.test(path);
+    if (!cobranca && !leTransfer) {
+      return new Response(
+        JSON.stringify({ error: 'Endpoint nao permitido por este proxy.' }),
+        { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } }
+      );
+    }
+
     const asaasUrl = ASAAS_BASE + path + url.search;
 
     // ── Corpo da requisição ───────────────────────────────────────────────

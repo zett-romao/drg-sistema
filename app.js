@@ -7267,11 +7267,72 @@ async function pagarAdiantamentosLote(){
   renderAdiantamentos();
 }
 
+// ── Comprovante (recibo) do PIX ──────────────────────────────
+// Solicitações cujo comprovante já foi buscado nesta sessão e trava de
+// concorrência — para a busca automática não repetir nem rodar 2x junto.
+const _comprovantesBuscados = new Set();
+let   _autoComprovBusy = false;
+
+// Abre o comprovante do PIX de uma solicitação paga. Se ainda não está
+// salvo, busca a transferência no Asaas, guarda o link na solicitação e
+// abre. O comprovante só existe depois que o PIX é concluído pelo banco.
+async function verComprovante(solId, btnEl){
+  const sol=(State.solicitacoes||[]).find(s=>s.id===solId);
+  if(sol && sol.asaasComprovante){ window.open(sol.asaasComprovante,'_blank','noopener'); return; }
+  if(!sol || !sol.asaasTransferId){ toast('Esta solicitação ainda não tem transferência no Asaas.','warning'); return; }
+  const _html=btnEl?btnEl.innerHTML:'';
+  if(btnEl){ btnEl.disabled=true; btnEl.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Buscando...'; }
+  try{
+    const t=await _asaasReq('GET','/transfers/'+encodeURIComponent(sol.asaasTransferId));
+    const url=(t&&t.transactionReceiptUrl)||'';
+    if(url){
+      sol.asaasComprovante=url; if(t.status) sol.asaasStatus=t.status;
+      try{ await DB.merge('solicitacoesPagamento',solId,{asaasComprovante:url,asaasStatus:t.status||''}); }catch(_){}
+      const w=window.open(url,'_blank','noopener');
+      renderAprovacoes();
+      if(!w) toast('Comprovante pronto — clique no botão verde para abrir.','success');
+    } else {
+      toast('Comprovante ainda sendo gerado pelo banco. Tente de novo em instantes.','warning');
+      if(btnEl){ btnEl.disabled=false; btnEl.innerHTML=_html; }
+    }
+  }catch(e){
+    toast('Não foi possível obter o comprovante: '+(e.message||e),'error');
+    if(btnEl){ btnEl.disabled=false; btnEl.innerHTML=_html; }
+  }
+}
+
+// Em 2º plano, busca os comprovantes das solicitações pagas que ainda não
+// têm o link salvo — assim o botão "Comprovante" já aparece pronto.
+async function _autoBuscarComprovantes(){
+  if(_autoComprovBusy) return;
+  const pend=(State.solicitacoes||[]).filter(s=>
+    s.status==='pago' && s.asaasTransferId && !s.asaasComprovante && !_comprovantesBuscados.has(s.id));
+  if(!pend.length) return;
+  _autoComprovBusy=true;
+  let achou=false;
+  try{
+    for(const s of pend){
+      _comprovantesBuscados.add(s.id);
+      try{
+        const t=await _asaasReq('GET','/transfers/'+encodeURIComponent(s.asaasTransferId));
+        const url=(t&&t.transactionReceiptUrl)||'';
+        if(url){
+          s.asaasComprovante=url; if(t.status) s.asaasStatus=t.status;
+          try{ await DB.merge('solicitacoesPagamento',s.id,{asaasComprovante:url,asaasStatus:t.status||''}); }catch(_){}
+          achou=true;
+        }
+      }catch(_){ /* silencioso */ }
+    }
+  }finally{ _autoComprovBusy=false; }
+  if(achou) renderAprovacoes();
+}
+
 function renderAprovacoes(){
   const tbody=document.getElementById('aprovacoes-tbody'); if(!tbody) return;
   const filtro=val('aprovacoes-filtro')||'pendente';
   const mods=getUserModules(Auth.currentUser);
   const podeAprovar=!!mods.pagamentosAprovar;
+  _autoBuscarComprovantes();   // puxa em 2o plano os comprovantes que faltam
 
   let lista=[...(State.solicitacoes||[])];
   if(filtro!=='todos') lista=lista.filter(s=>s.status===filtro);
@@ -7308,7 +7369,14 @@ function renderAprovacoes(){
           + `<button class="btn btn-sm btn-outline" style="color:#c62828;border-color:#ef9a9a" onclick="recusarSolicitacao('${s.id}')"><i class="fa-solid fa-ban"></i> Recusar</button>`
         : `<span style="font-size:11px;color:#999">aguardando aprovador</span>`;
     } else if(s.status==='pago'){
-      acoes=`<span style="font-size:11px;color:#00695C">ID: ${s.asaasTransferId||'—'}</span>`;
+      const idTxt=s.asaasTransferId?`<div style="font-size:10px;color:#aaa;margin-top:3px">ID: ${s.asaasTransferId}</div>`:'';
+      if(s.asaasComprovante){
+        acoes=`<a href="${s.asaasComprovante}" target="_blank" rel="noopener" class="btn btn-sm" style="background:#00695C;color:#fff;border-color:#00695C;text-decoration:none"><i class="fa-solid fa-receipt"></i> Comprovante</a>${idTxt}`;
+      } else if(s.asaasTransferId){
+        acoes=`<button class="btn btn-sm btn-outline" style="color:#00695C;border-color:#00695C" onclick="verComprovante('${s.id}',this)"><i class="fa-solid fa-receipt"></i> Comprovante</button>${idTxt}`;
+      } else {
+        acoes=`<span style="font-size:11px;color:#00695C">pago</span>`;
+      }
     } else if(s.status==='recusado'){
       acoes=`<span style="font-size:11px;color:#c62828">${(s.motivoRecusa||'recusado')}</span>`;
     } else if(s.status==='erro'){

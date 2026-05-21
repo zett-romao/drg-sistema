@@ -4,19 +4,17 @@
  * Deploy no Cloudflare Workers como "drg-asaas"
  * URL resultante: https://drg-asaas.zett-romao.workers.dev
  *
- * SECRETS (Cloudflare Dashboard → Settings → Variables → Secret):
- *   ASAAS_API_KEY  — sua chave da API Asaas (OBRIGATORIO; $aact_ = producao)
- *   ASAAS_ENV      — OPCIONAL. "sandbox" para testes; ausente ou qualquer
- *                    outro valor usa PRODUCAO (padrao).
+ * SECRET obrigatório (Cloudflare Dashboard → Settings → Variables → Secret):
+ *   ASAAS_API_KEY  — chave da API Asaas de PRODUÇÃO (começa com $aact_)
  *
- * Como criar o Worker:
- *   1. Acesse dash.cloudflare.com → Workers & Pages → Create Application → Create Worker
- *   2. Nomeie como "drg-asaas"
- *   3. Cole este código no editor
- *   4. Salve (Save and Deploy)
- *   5. Vá em Settings → Variables → Add variable (secret):
- *      - ASAAS_API_KEY = sua chave (obrigatório)
- *      - ASAAS_ENV (opcional) = defina como "sandbox" apenas para testes
+ * Este worker fala SEMPRE com a produção do Asaas (api.asaas.com/v3).
+ * O DRG-Kronos só faz pagamentos reais — não há modo sandbox aqui, de
+ * propósito (era o modo sandbox mal-configurado que causava erro 404).
+ *
+ * Como criar/atualizar o Worker:
+ *   1. dash.cloudflare.com → Workers & Pages → abra (ou crie) "drg-asaas"
+ *   2. Edit Code → cole este código → Save and Deploy
+ *   3. Settings → Variables and Secrets → Secret ASAAS_API_KEY = sua chave
  */
 
 'use strict';
@@ -27,11 +25,8 @@ const ALLOWED_ORIGINS = [
   'http://127.0.0.1',
 ];
 
-// URLs oficiais da API Asaas v3 (conferidas em docs.asaas.com).
-const ASAAS_BASE = {
-  sandbox:    'https://api-sandbox.asaas.com/v3',
-  production: 'https://api.asaas.com/v3',
-};
+// API Asaas v3 — PRODUÇÃO (endereço conferido em docs.asaas.com).
+const ASAAS_BASE = 'https://api.asaas.com/v3';
 
 export default {
   async fetch(request, env) {
@@ -57,12 +52,9 @@ export default {
       );
     }
 
-    // Producao e o padrao. So usa sandbox se ASAAS_ENV for exatamente "sandbox".
-    const base = (env.ASAAS_ENV === 'sandbox') ? ASAAS_BASE.sandbox : ASAAS_BASE.production;
-
-    // ── Monta URL da Asaas ────────────────────────────────────────────────
+    // ── Monta a URL da Asaas (sempre produção) ────────────────────────────
     const url      = new URL(request.url);
-    const asaasUrl = base + url.pathname + url.search;
+    const asaasUrl = ASAAS_BASE + url.pathname + url.search;
 
     // ── Corpo da requisição ───────────────────────────────────────────────
     const hasBody  = request.method !== 'GET' && request.method !== 'HEAD';

@@ -2849,6 +2849,13 @@ function renderAlerts(){
         alerts.push(`<div class="alert-item"><div class="alert-icon" style="color:${cor}"><i class="fa-solid fa-hourglass-half"></i></div><div><div class="alert-nome">${e.nome}</div><div class="alert-sub">Experiência — decisão da ${oque}: <strong>${quando}</strong> · <a href="javascript:void(0)" onclick="openEmployeeModal('${e.id}')" style="color:var(--primary);font-weight:600">abrir cadastro</a></div></div></div>`);
       }
     }
+    // Renovação automática do 1º período por decurso — informe ao gestor
+    if(e.expDecisao1PorDecurso && e.expDecisao1Data){
+      const dd=Math.round((hoje-new Date(e.expDecisao1Data+'T00:00:00'))/86400000);
+      if(dd>=0 && dd<=30){
+        alerts.push(`<div class="alert-item"><div class="alert-icon" style="color:#F57C00"><i class="fa-solid fa-clock"></i></div><div><div class="alert-nome">${e.nome}</div><div class="alert-sub" style="color:#E65100;font-weight:600">Renovado automaticamente p/ 2º período (${formatDateBr(e.expDecisao1Data)}) — sem decisão registrada</div></div></div>`);
+      }
+    }
     // Efetivado automaticamente por decurso de prazo — confira
     if(e.efetivadoPorDecurso && e.efetivadoEm){
       const dd=Math.round((hoje-new Date(e.efetivadoEm+'T00:00:00'))/86400000);
@@ -3764,7 +3771,7 @@ function renderExpPainel(emp){
                           : '<span style="color:#E65100;font-weight:600">a decidir</span>';
     html=`<div style="background:#EEF4FF;border:1px solid #C9D6F5;border-radius:8px;padding:11px 13px">
       <strong style="color:${venc?'#B71C1C':'#1a3a6b'}"><i class="fa-solid fa-hourglass-half"></i> Contrato de Experiência — dia ${Math.max(1,t.diaAtual)} de ${t.total}</strong>
-      <div style="font-size:12px;margin-top:5px">1º período: termina em <strong>${_dBR(t.fim1)}</strong> — ${stat(t.dec1)}</div>
+      <div style="font-size:12px;margin-top:5px">1º período: termina em <strong>${_dBR(t.fim1)}</strong> — ${stat(t.dec1)}${emp.expDecisao1PorDecurso?' <span style="color:#F57C00;font-size:11px">(automático por decurso)</span>':''}</div>
       ${t.dec1==='renovado'?`<div style="font-size:12px;margin-top:2px">2º período: termina em <strong>${_dBR(t.fim2)}</strong> — ${stat(t.dec2)}</div>`:''}`;
     if(t.gate){
       const prazo=t.diasParaGate<0?`<span style="color:#B71C1C;font-weight:700">prazo vencido há ${Math.abs(t.diasParaGate)} dia(s)</span>`
@@ -3822,20 +3829,47 @@ async function expDecidir(empId, gate, aprovado){
   }catch(e){ toast('Erro ao registrar a decisão: '+(e.message||e),'error'); }
 }
 
-// Efetivação automática por decurso de prazo — se a experiência passou do
-// fim do 2º período sem decisão, o contrato vira efetivo (indeterminado).
+// Decurso automático — se a experiência passa do fim do período SEM
+// decisão do usuário (mesmo depois dos avisos), o sistema decide sozinho:
+//   • 1º período vencido → "renovado" automático para o 2º período;
+//   • 2º período vencido → "efetivado" automático (contrato vira efetivo).
+// Nunca sobrescreve uma decisão real já registrada.
 function _expVerificarDecurso(){
   const hoje=new Date(); hoje.setHours(0,0,0,0);
+  const hojeISO=new Date().toISOString().split('T')[0];
   (State.employees||[]).forEach(emp=>{
     if(emp.tipoContrato!=='experiencia') return;
     const t=_expTimeline(emp); if(!t) return;
-    if(t.dec1==='reprovado' || t.dec2) return;
-    if(hoje>t.fim2){
-      const ch={ tipoContrato:'efetivo', efetivadoEm:new Date().toISOString().split('T')[0],
-                 efetivadoPorDecurso:true, updatedAt:new Date().toISOString() };
+    if(t.dec1==='reprovado' || t.dec2) return;  // já encerrada ou já decidida
+    const ch={};
+    let agiu=false;
+    // GATE 1 — passou do fim do 1º período sem decidir → auto-renova
+    let dec1Final = t.dec1;
+    if(t.dec1==='' && hoje>t.fim1){
+      ch.expDecisao1='renovado';
+      ch.expDecisao1Data=hojeISO;
+      ch.expDecisao1Por='Sistema (decurso de prazo)';
+      ch.expDecisao1Motivo='Renovação automática — sem decisão registrada até o fim do 1º período';
+      ch.expDecisao1PorDecurso=true;
+      dec1Final='renovado'; agiu=true;
+      try{ Auth.log('EXPERIENCIA_DECURSO_P1', null, `${emp.nome} — auto-renovado p/ 2o periodo por decurso`); }catch(_){}
+    }
+    // GATE 2 — passou do fim do 2º período (com 1º renovado) sem decidir → auto-efetiva
+    if(hoje>t.fim2 && dec1Final==='renovado'){
+      ch.expDecisao2='efetivado';
+      ch.expDecisao2Data=hojeISO;
+      ch.expDecisao2Por='Sistema (decurso de prazo)';
+      ch.expDecisao2Motivo='Efetivação automática — sem decisão registrada até o fim do 2º período';
+      ch.tipoContrato='efetivo';
+      ch.efetivadoEm=hojeISO;
+      ch.efetivadoPorDecurso=true;
+      agiu=true;
+      try{ Auth.log('EXPERIENCIA_DECURSO_P2', null, `${emp.nome} — efetivado automaticamente por decurso de prazo`); }catch(_){}
+    }
+    if(agiu){
+      ch.updatedAt=new Date().toISOString();
       Object.assign(emp,ch);
       DB.merge('employees', emp.id, ch).catch(()=>{});
-      try{ Auth.log('EXPERIENCIA_DECURSO', null, `${emp.nome} — efetivado automaticamente por decurso de prazo`); }catch(_){}
     }
   });
 }
@@ -3994,6 +4028,7 @@ async function saveEmployee(){
       data.expDecisao2=existing.expDecisao2||''; data.expDecisao2Data=existing.expDecisao2Data||'';
       data.expDecisao2Por=existing.expDecisao2Por||''; data.expDecisao2Motivo=existing.expDecisao2Motivo||'';
       data.efetivadoEm=existing.efetivadoEm||''; data.efetivadoPorDecurso=!!existing.efetivadoPorDecurso;
+      data.expDecisao1PorDecurso=!!existing.expDecisao1PorDecurso;
     }
   }
   const btn=document.querySelector('#modal-employee .modal-footer .btn-primary');

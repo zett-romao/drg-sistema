@@ -1912,6 +1912,7 @@ function renderDashboard(){
   _renderDashCards(catalogo);
   renderBirthdays();
   renderAlerts();
+  renderExperiencias();
   const recEl=document.getElementById('recent-payrolls'); if(!recEl) return;
   const recent=[...State.payrolls].sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).slice(0,6);
   if(recent.length===0){
@@ -3837,6 +3838,53 @@ function _expVerificarDecurso(){
       try{ Auth.log('EXPERIENCIA_DECURSO', null, `${emp.nome} — efetivado automaticamente por decurso de prazo`); }catch(_){}
     }
   });
+}
+
+// Painel "Experiências em andamento" no Dashboard — lista todos os
+// colaboradores ativos em contrato de experiência, com o dia atual e o
+// status da decisão. Mais urgentes (decisão vencida/chegando) primeiro.
+function renderExperiencias(){
+  const el=document.getElementById('dashboard-experiencias'); if(!el) return;
+  const lista=(State.employees||[])
+    .filter(e=>(e.status||'ativo')==='ativo' && e.tipoContrato==='experiencia')
+    .map(e=>({emp:e, t:_expTimeline(e)}))
+    .filter(x=>x.t)
+    .sort((a,b)=>{
+      const da=a.t.diasParaGate==null?9999:a.t.diasParaGate;
+      const db=b.t.diasParaGate==null?9999:b.t.diasParaGate;
+      return da-db;
+    });
+  if(!lista.length){
+    el.innerHTML=`<div class="empty-state small"><i class="fa-solid fa-hourglass-half"></i><p>Nenhum colaborador em experiência</p></div>`;
+    return;
+  }
+  const linhas=lista.map(({emp:e,t})=>{
+    let stat='';
+    if(t.dec1==='reprovado') stat='<span style="color:#B71C1C;font-weight:600">reprovado 1º período</span>';
+    else if(t.dec2==='reprovado') stat='<span style="color:#B71C1C;font-weight:600">reprovado na efetivação</span>';
+    else if(t.gate){
+      const venc=t.diasParaGate<0;
+      const cor=venc?'#B71C1C':t.diasParaGate<=10?'#E65100':'#1a3a6b';
+      const txt=venc?`vencida há ${Math.abs(t.diasParaGate)} dia(s)`:t.diasParaGate===0?'decidir hoje':`em ${t.diasParaGate} dia(s)`;
+      const oque=t.gate===1?'decisão 1º período':'decisão efetivação';
+      stat=`<span style="color:${cor};font-weight:600">${oque} ${txt}</span>`;
+    } else stat='<span style="color:#666">—</span>';
+    return `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:8px 10px;font-size:13px;font-weight:600"><a href="javascript:void(0)" onclick="openEmployeeModal('${e.id}')" style="color:var(--primary);text-decoration:none">${e.nome}</a></td>
+      <td style="padding:8px 10px;font-size:12px;white-space:nowrap">Dia ${Math.max(1,t.diaAtual)} de ${t.total}</td>
+      <td style="padding:8px 10px;font-size:12px;white-space:nowrap">1º: <strong>${_dBR(t.fim1)}</strong>${t.dec1==='renovado'?` · 2º: <strong>${_dBR(t.fim2)}</strong>`:''}</td>
+      <td style="padding:8px 10px;font-size:12px">${stat}</td>
+    </tr>`;
+  }).join('');
+  el.innerHTML=`<table style="width:100%;border-collapse:collapse">
+    <thead><tr style="background:#f5f5f5">
+      <th style="padding:7px 10px;text-align:left;font-size:11px;color:#666">Colaborador</th>
+      <th style="padding:7px 10px;text-align:left;font-size:11px;color:#666">Progresso</th>
+      <th style="padding:7px 10px;text-align:left;font-size:11px;color:#666">Datas-limite</th>
+      <th style="padding:7px 10px;text-align:left;font-size:11px;color:#666">Status</th>
+    </tr></thead>
+    <tbody>${linhas}</tbody>
+  </table>`;
 }
 
 async function saveEmployee(){

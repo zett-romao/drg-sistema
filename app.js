@@ -3686,6 +3686,7 @@ function openEmployeeModal(id=null){
     document.getElementById('doc-list').innerHTML=`<div class="empty-state small"><i class="fa-solid fa-folder-open"></i><p>Salve o colaborador antes de enviar documentos</p></div>`;
   }
   renderEmpPagamentos(id);
+  renderComunicacoesTab(id);
 }
 
 // Exame médico: mostra/oculta o campo de prazo customizado e calcula o
@@ -7688,6 +7689,224 @@ function renderEmpPagamentos(empId){
     <div style="margin-top:10px;padding:8px 12px;background:#E8F5E9;border-radius:6px;font-size:13px;text-align:right">
       Total pago a este colaborador: <strong style="color:#00695C">${fmtMoney(totalPago)}</strong>
     </div>`;
+}
+
+// ============================================
+// COMUNICAÇÕES — mensagens do gestor para o colaborador (Fase C)
+// ============================================
+let _comuDestinatarios = [];
+
+function openComunicarModal(empIdOrNull){
+  if(!getUserModules(Auth.currentUser).colaboradores){
+    toast('Você não tem permissão para enviar mensagens.','error'); return;
+  }
+  _comuDestinatarios = [];
+  if(empIdOrNull){
+    const emp=State.employees.find(e=>e.id===empIdOrNull);
+    if(emp) _comuDestinatarios.push(emp.id);
+  }
+  const sel=document.getElementById('comu-add-emp');
+  if(sel){
+    sel.innerHTML='<option value="">— selecionar colaborador —</option>';
+    State.employees
+      .filter(e=>(e.status||'ativo')==='ativo')
+      .sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR'))
+      .forEach(e=>{
+        const o=document.createElement('option');
+        o.value=e.id; o.textContent=e.nome;
+        sel.appendChild(o);
+      });
+  }
+  setVal('comu-assunto','');
+  setVal('comu-corpo','');
+  const fi=document.getElementById('comu-anexo'); if(fi) fi.value='';
+  _comuRenderDest();
+  document.getElementById('modal-comunicar').classList.remove('hidden');
+}
+
+function _comuRenderDest(){
+  const box=document.getElementById('comu-dest-list');
+  const cnt=document.getElementById('comu-dest-count');
+  if(cnt) cnt.textContent=_comuDestinatarios.length;
+  if(!box) return;
+  if(!_comuDestinatarios.length){
+    box.innerHTML='<span style="font-size:12px;color:#999;padding:4px 0">Nenhum destinatário</span>';
+    return;
+  }
+  box.innerHTML=_comuDestinatarios.map(id=>{
+    const e=State.employees.find(x=>x.id===id);
+    const nome=(e&&e.nome)||id;
+    return `<span style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:4px 10px;font-size:12px;display:inline-flex;align-items:center;gap:6px">
+      ${nome}
+      <button type="button" onclick="_comuRemoveDest('${id}')" title="Remover" style="background:none;border:none;color:#c62828;cursor:pointer;font-size:13px;line-height:1;padding:0">×</button>
+    </span>`;
+  }).join('');
+}
+
+function _comuAddDest(){
+  const sel=document.getElementById('comu-add-emp'); if(!sel) return;
+  const id=sel.value; if(!id) return;
+  if(!_comuDestinatarios.includes(id)) _comuDestinatarios.push(id);
+  sel.value='';
+  _comuRenderDest();
+}
+function _comuRemoveDest(id){
+  _comuDestinatarios=_comuDestinatarios.filter(x=>x!==id);
+  _comuRenderDest();
+}
+function _comuAddTodos(){
+  (State.employees||[]).filter(e=>(e.status||'ativo')==='ativo').forEach(e=>{
+    if(!_comuDestinatarios.includes(e.id)) _comuDestinatarios.push(e.id);
+  });
+  _comuRenderDest();
+}
+function _comuLimparDest(){ _comuDestinatarios=[]; _comuRenderDest(); }
+
+async function enviarComunicacao(){
+  const ids=[..._comuDestinatarios];
+  if(!ids.length){ toast('Adicione ao menos um destinatário.','warning'); return; }
+  const assunto=(val('comu-assunto')||'').trim();
+  if(!assunto){ toast('Informe o assunto.','warning'); return; }
+  const corpo=(val('comu-corpo')||'').trim();
+  if(!corpo){ toast('Escreva a mensagem.','warning'); return; }
+  const fi=document.getElementById('comu-anexo');
+  const file=fi && fi.files && fi.files[0] ? fi.files[0] : null;
+  if(file && file.size > 10*1024*1024){ toast('Anexo grande demais (máx. 10 MB).','error'); return; }
+
+  const btn=document.getElementById('comu-enviar');
+  setBtnLoading(btn,true,'');
+  try{
+    let anexoUrl='', anexoNome='', anexoTipo='';
+    if(file){
+      const ext=(file.name.split('.').pop()||'bin').toLowerCase();
+      const refId=Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+      const ref=firebase.storage().ref(`comunicacoes/${refId}.${ext}`);
+      await ref.put(file);
+      anexoUrl=await ref.getDownloadURL();
+      anexoNome=file.name;
+      anexoTipo=file.type||'';
+    }
+    const quem=(Auth.currentUser && (Auth.currentUser.username||Auth.currentUser.id))||'—';
+    const quemId=(Auth.currentUser && Auth.currentUser.id)||'';
+    const agora=new Date().toISOString();
+    let ok=0;
+    for(const empId of ids){
+      const e=State.employees.find(x=>x.id===empId);
+      const msg={
+        id: genId(),
+        employeeId: empId,
+        employeeNome: (e&&e.nome)||'',
+        assunto, corpo,
+        anexoUrl, anexoNome, anexoTipo,
+        origemUserId: quemId,
+        origemUserNome: quem,
+        criadoEm: agora,
+        lida: false,
+      };
+      try{ await DB.save('comunicacoes', _sanitizeForFirestore(msg)); ok++; }
+      catch(err){ console.error('Erro ao salvar comunicacao', err); }
+    }
+    try{ Auth.log('COMUNICACAO_ENVIADA', null, `${ok} destinatario(s) — ${assunto}`); }catch(_){}
+    toast(`Mensagem enviada para ${ok} colaborador(es).`, 'success');
+    closeModal('modal-comunicar');
+    const m=document.getElementById('modal-employee');
+    if(m && !m.classList.contains('hidden')){
+      const eid=val('emp-id');
+      if(eid && ids.includes(eid)) renderComunicacoesTab(eid);
+    }
+  }catch(e){
+    toast('Erro ao enviar: '+(e.message||e),'error');
+  }finally{
+    setBtnLoading(btn,false,'');
+  }
+}
+
+// Aba "Comunicações" no cadastro — log de mensagens manuais + snapshot
+// dos avisos automáticos correntes do colaborador.
+async function renderComunicacoesTab(empId){
+  const box=document.getElementById('emp-comunicacoes-list'); if(!box) return;
+  if(!empId){
+    box.innerHTML=`<div class="empty-state small"><i class="fa-solid fa-envelope"></i><p>Salve o colaborador para registrar comunicações</p></div>`;
+    return;
+  }
+  box.innerHTML='<div style="text-align:center;padding:20px;color:#999"><i class="fa-solid fa-spinner fa-spin"></i> Carregando comunicações...</div>';
+  let lista=[];
+  try{
+    const snap=await firebase.firestore().collection('comunicacoes').where('employeeId','==',empId).get();
+    lista=snap.docs.map(d=>({id:d.id,...d.data()}));
+  }catch(e){ console.error('comunicacoes:fetch',e); }
+  lista.sort((a,b)=>(b.criadoEm||'').localeCompare(a.criadoEm||''));
+  const emp=State.employees.find(e=>e.id===empId);
+  const autos = emp ? _computeAvisosAutomaticos(emp) : [];
+  let html='';
+  html+=`<div style="margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+    <strong style="font-size:13px">Mensagens enviadas (${lista.length})</strong>
+    <button class="btn btn-sm btn-primary" onclick="openComunicarModal('${empId}')" style="font-size:12px">
+      <i class="fa-solid fa-paper-plane"></i> Nova mensagem
+    </button>
+  </div>`;
+  if(!lista.length){
+    html+=`<div class="empty-state small" style="margin-bottom:14px"><i class="fa-solid fa-envelope-open"></i><p>Nenhuma mensagem enviada ainda</p></div>`;
+  } else {
+    html+=lista.map(m=>{
+      const dt=(m.criadoEm||'').substring(0,10).split('-').reverse().join('/');
+      const hr=(m.criadoEm||'').substring(11,16);
+      const anexo=m.anexoUrl?`<div style="margin-top:6px;font-size:12px"><a href="${m.anexoUrl}" target="_blank" rel="noopener" style="color:var(--primary)"><i class="fa-solid fa-paperclip"></i> ${m.anexoNome||'anexo'}</a></div>`:'';
+      return `<div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+          <strong style="font-size:13px;color:var(--text)">${m.assunto||'(sem assunto)'}</strong>
+          <span style="font-size:11px;color:#999;white-space:nowrap">${dt}${hr?' '+hr:''}</span>
+        </div>
+        <div style="font-size:12px;color:#555;margin-top:4px;white-space:pre-wrap">${m.corpo||''}</div>
+        ${anexo}
+        <div style="margin-top:6px;font-size:11px;color:#888">Enviado por ${m.origemUserNome||'—'}</div>
+      </div>`;
+    }).join('');
+  }
+  if(autos.length){
+    html+=`<div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border)">
+      <strong style="font-size:13px">Avisos automáticos do sistema (${autos.length})</strong>
+      <div style="font-size:11px;color:#888;margin-bottom:8px">O que o colaborador vê no app dele agora.</div>
+      ${autos.map(a=>`<div style="background:#fafafa;border-left:3px solid #999;padding:7px 10px;margin-bottom:6px;border-radius:4px;font-size:12px"><strong>${a.icone} ${a.titulo}</strong><br><span style="color:#555">${a.msg}</span></div>`).join('')}
+    </div>`;
+  }
+  box.innerHTML=html;
+}
+
+// Computa os avisos automáticos correntes do colaborador (snapshot do que
+// o app dele mostra agora) — usado no log da aba "Comunicações".
+function _computeAvisosAutomaticos(emp){
+  if(!emp) return [];
+  const hoje=new Date(); hoje.setHours(0,0,0,0);
+  const D=86400000;
+  const out=[];
+  if(emp.exameVencimento){
+    const venc=new Date(emp.exameVencimento+'T00:00:00');
+    const diff=Math.round((venc-hoje)/D);
+    if(diff<0) out.push({icone:'🩺',titulo:'Exame médico VENCIDO',msg:`Venceu há ${Math.abs(diff)} dia(s).`});
+    else if(diff<=10) out.push({icone:'🩺',titulo:'Exame médico vencendo',msg:`Vence em ${diff} dia(s).`});
+  }
+  (emp.ferias||[]).forEach(f=>{
+    if(!f.inicio||!f.fim) return;
+    const ini=new Date(f.inicio+'T00:00:00');
+    const fim=new Date(f.fim+'T00:00:00');
+    if(ini>hoje){
+      const dd=Math.round((ini-hoje)/D);
+      if(dd<=30) out.push({icone:'🏖️',titulo:'Férias programadas',msg:`Começa em ${dd} dia(s).`});
+    } else if(ini<=hoje&&fim>=hoje){
+      const r=Math.round((fim-hoje)/D);
+      out.push({icone:'🏖️',titulo:'Em férias agora',msg:`Retorno em ${r} dia(s).`});
+    }
+  });
+  if(emp.tipoContrato==='experiencia' && emp.expDecisao1==='renovado' && emp.expDecisao1Data){
+    const dd=Math.round((hoje-new Date(emp.expDecisao1Data+'T00:00:00'))/D);
+    if(dd>=0 && dd<=14) out.push({icone:'⏳',titulo:'Renovado p/ 2º período',msg:`Em ${emp.expDecisao1Data.split('-').reverse().join('/')}.`});
+  }
+  if(emp.efetivadoEm){
+    const dd=Math.round((hoje-new Date(emp.efetivadoEm+'T00:00:00'))/D);
+    if(dd>=0 && dd<=30) out.push({icone:'🤝',titulo:'Contrato efetivado',msg:`Em ${emp.efetivadoEm.split('-').reverse().join('/')}.`});
+  }
+  return out;
 }
 
 function renderAprovacoes(){

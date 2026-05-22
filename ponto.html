@@ -898,14 +898,14 @@ function navTo(sec) {
     document.getElementById('nav-' + s).classList.toggle('active', s === sec);
   });
   if (sec === 'historico') renderHistorico();
-  if (sec === 'avisos')    renderAvisos();
+  if (sec === 'avisos')   { _avisosDataCache = null; renderAvisos(); }
 }
 
 // ─── AVISOS — alertas automáticos pro colaborador ───────────────────────────
 let _avisosDataCache = null;
 async function _carregarAvisosData(){
   if(_avisosDataCache) return _avisosDataCache;
-  const out = { solicitacoes: [] };
+  const out = { solicitacoes: [], comunicacoes: [] };
   try{
     const snap = await dbCol('solicitacoesPagamento')
       .where('employeeId','==',currentEmp.id)
@@ -913,6 +913,12 @@ async function _carregarAvisosData(){
       .get();
     out.solicitacoes = snap.docs.map(d => ({ id:d.id, ...d.data() }));
   }catch(e){ console.error('avisos:solicitacoes', e); }
+  try{
+    const snap = await dbCol('comunicacoes')
+      .where('employeeId','==',currentEmp.id)
+      .get();
+    out.comunicacoes = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+  }catch(e){ console.error('avisos:comunicacoes', e); }
   _avisosDataCache = out;
   return out;
 }
@@ -1019,6 +1025,19 @@ async function renderAvisos(){
       av.push({tipo:'info', icone:'⏳', titulo:'Renovado para o 2º período', msg:`Seu contrato de experiência foi renovado em ${_avisosFmtData(emp.expDecisao1Data)}.`});
     }
   }
+
+  // Mensagens da gestão (últimos 60 dias) — mais recentes primeiro
+  (data.comunicacoes||[]).slice().sort((a,b)=>(b.criadoEm||'').localeCompare(a.criadoEm||'')).forEach(m=>{
+    const dt = (m.criadoEm||'').substring(0,10);
+    if(!dt) return;
+    const dd = Math.round((hoje-new Date(dt+'T00:00:00'))/D);
+    if(dd>=0 && dd<=60){
+      const anexo = m.anexoUrl ? `<br><a href="${m.anexoUrl}" target="_blank" rel="noopener" style="color:#1e293b;font-weight:600;text-decoration:underline">📎 ${m.anexoNome||'anexo'}</a>` : '';
+      const quem  = m.origemUserNome ? `<div style="margin-top:6px;font-size:11px;color:#64748b">— de ${m.origemUserNome} · ${_avisosFmtData(dt)}</div>` : '';
+      const corpoHtml = (m.corpo||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+      av.push({tipo:'aviso', icone:'✉️', titulo:m.assunto||'Mensagem da gestão', msg:`${corpoHtml}${anexo}${quem}`});
+    }
+  });
 
   // Render
   if(!av.length){

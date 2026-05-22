@@ -408,6 +408,9 @@
             <button class="btn btn-outline" onclick="openReportsModal(['cadastral','contatos','ferias-marcadas','ferias-pendentes','afastados','licenca-mat','setor'], 'Relatórios de Colaboradores')">
               <i class="fa-solid fa-chart-bar"></i> Relatórios
             </button>
+            <button class="btn btn-outline" onclick="openComunicarModal()" style="color:#1976D2;border-color:#1976D2">
+              <i class="fa-solid fa-envelope"></i> Comunicar
+            </button>
             <button class="btn btn-primary" onclick="openEmployeeModal()">
               <i class="fa-solid fa-user-plus"></i> Novo Colaborador
             </button>
@@ -2242,6 +2245,9 @@
         <button class="modal-tab" data-tab-id="tab-pagamentos" onclick="switchTab('tab-pagamentos')">
           <i class="fa-solid fa-money-bill-wave"></i> Pagamentos
         </button>
+        <button class="modal-tab" data-tab-id="tab-comunicacoes" onclick="switchTab('tab-comunicacoes')">
+          <i class="fa-solid fa-envelope"></i> Comunicações
+        </button>
         <button class="modal-tab" data-tab-id="tab-ferias" onclick="switchTab('tab-ferias')">
           <i class="fa-solid fa-umbrella-beach"></i> Férias
         </button>
@@ -2968,6 +2974,20 @@
           <div class="empty-state small">
             <i class="fa-solid fa-money-bill-wave"></i>
             <p>Nenhum pagamento registrado</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Comunicações -->
+      <div class="tab-pane" id="tab-comunicacoes">
+        <div class="info-banner">
+          <i class="fa-solid fa-circle-info"></i>
+          Histórico de mensagens enviadas a este colaborador, e os avisos automáticos do sistema (o que ele vê no app).
+        </div>
+        <div id="emp-comunicacoes-list">
+          <div class="empty-state small">
+            <i class="fa-solid fa-envelope"></i>
+            <p>Salve o colaborador para registrar comunicações</p>
           </div>
         </div>
       </div>
@@ -5212,9 +5232,53 @@
   </div>
 </div>
 
+<!-- ===== MODAL: COMUNICAR COLABORADOR ===== -->
+<div class="modal-overlay hidden" id="modal-comunicar" onclick="closeModal('modal-comunicar', event)">
+  <div class="modal-dialog">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-envelope" style="color:#1976D2"></i> Comunicar Colaborador</h3>
+      <button class="modal-close" onclick="closeModal('modal-comunicar')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group" style="grid-column:1 / -1">
+          <label>Adicionar destinatário</label>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <select id="comu-add-emp" onchange="_comuAddDest()" style="flex:1;min-width:200px"></select>
+            <button type="button" class="btn btn-outline" onclick="_comuAddTodos()" style="font-size:12px">Todos ativos</button>
+            <button type="button" class="btn btn-outline" onclick="_comuLimparDest()" style="font-size:12px">Limpar</button>
+          </div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Destinatários (<span id="comu-dest-count">0</span>)</label>
+        <div id="comu-dest-list" style="min-height:38px;padding:8px;background:#f8fafc;border:1px solid var(--border);border-radius:6px;display:flex;flex-wrap:wrap;gap:6px"></div>
+      </div>
+      <div class="form-group">
+        <label>Assunto <span class="required">*</span></label>
+        <input type="text" id="comu-assunto" maxlength="150" placeholder="Ex.: Lembrete de reunião, Comunicado interno, etc.">
+      </div>
+      <div class="form-group">
+        <label>Mensagem <span class="required">*</span></label>
+        <textarea id="comu-corpo" rows="6" placeholder="Escreva a mensagem..." style="width:100%;padding:9px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;resize:vertical"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Anexo (opcional) <small style="color:var(--text-muted);font-weight:400">— PDF, imagem ou documento (até 10 MB)</small></label>
+        <input type="file" id="comu-anexo" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-comunicar')">Cancelar</button>
+      <button class="btn btn-primary" id="comu-enviar" onclick="enviarComunicacao()">
+        <i class="fa-solid fa-paper-plane"></i> Enviar
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260521o"></script>
+<script src="app.js?v=20260521p"></script>
 </body>
 </html>

@@ -123,6 +123,12 @@
 </head>
 <body>
 
+<!-- BANNER NOVA VERSÃO -->
+<div id="banner-nova-versao" style="display:none;position:fixed;top:0;left:0;right:0;background:linear-gradient(90deg,#1e40af,#2563eb);color:#fff;padding:10px 14px;text-align:center;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,.25);font-size:13px;font-weight:600">
+  🎉 Nova versão do app disponível!
+  <button onclick="aplicarNovaVersao()" style="margin-left:10px;background:#fff;color:#1e40af;border:none;padding:6px 14px;border-radius:6px;font-weight:700;cursor:pointer;font-size:13px">Atualizar agora</button>
+</div>
+
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 
@@ -371,11 +377,35 @@ let currentEmp     = null;
 let currentPayroll = null;
 let clockInterval  = null;
 
-// ─── SERVICE WORKER (PWA) ────────────────────────────────────────────────────
+// ─── SERVICE WORKER (PWA) + DETECÇÃO DE NOVA VERSÃO ───────────────────────
 if ('serviceWorker' in navigator) {
+  // Se já tinha um SW controlando, qualquer troca daqui pra frente
+  // significa que uma versão NOVA acabou de assumir → mostra o banner.
+  const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js').catch(() => {});
+    navigator.serviceWorker.register('ponto-sw.js').then(reg => {
+      // Re-checa por nova versão quando o app volta pra frente
+      // e periodicamente (a cada 30 min) enquanto fica aberto.
+      const checar = () => { try{ reg.update(); }catch(_){} };
+      document.addEventListener('visibilitychange', () => {
+        if(document.visibilityState === 'visible') checar();
+      });
+      setInterval(checar, 30*60*1000);
+    }).catch(() => {});
+    // Quando o SW novo assume o controle, dispara o banner.
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if(_swInicial) mostrarBannerNovaVersao();
+    });
   });
+}
+function mostrarBannerNovaVersao(){
+  const b = document.getElementById('banner-nova-versao');
+  if(b) b.style.display = '';
+}
+function aplicarNovaVersao(){
+  // Limpa caches de sessão para evitar dados travados e recarrega
+  try{ sessionStorage.removeItem('drg_ponto_emp'); }catch(_){}
+  window.location.reload();
 }
 
 // ─── RELÓGIO ──────────────────────────────────────────────────────────────────

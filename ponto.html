@@ -688,6 +688,11 @@ async function baterPonto() {
   const now  = new Date();
   const pad  = n => String(n).padStart(2,'0');
   const hora = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  // Confirmação — evita batida acidental. Pede OK em TODAS as batidas.
+  const _nomesPonto = {entrada:'ENTRADA', intIni:'INÍCIO DO INTERVALO', intFim:'FIM DO INTERVALO', saida:'SAÍDA'};
+  if(!confirm(`Confirma o registro?\n\n${_nomesPonto[prox]||String(prox).toUpperCase()} às ${hora}`)){
+    renderBotao(); return;
+  }
   const j    = _diaJornada();
   const mes  = j.mes;
   const ano  = j.ano;

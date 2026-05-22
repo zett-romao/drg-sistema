@@ -3798,6 +3798,7 @@
             <option value="justa_causa">Dispensa por justa causa</option>
             <option value="acordo">Acordo (art. 484-A)</option>
             <option value="fim_contrato">Término de contrato (experiência/determinado)</option>
+            <option value="experiencia_antecipada">Rescisão antecipada (experiência — Art. 479)</option>
             <option value="indireta">Rescisão indireta</option>
             <option value="aposentadoria">Aposentadoria</option>
             <option value="falecimento">Falecimento do colaborador</option>
@@ -3895,6 +3896,10 @@
       </div>
       <div class="form-row">
         <div class="form-group form-group-2"><label>Indenização adicional (R$)</label><input type="text" id="resc-v-indeniz" readonly class="input-readonly"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Indenização Art. 479 (R$) <small style="color:var(--text-muted);font-weight:400">(rescisão antecipada)</small></label><input type="text" id="resc-v-indeniz-art479" readonly class="input-readonly"></div>
+        <div class="form-group"><label>Cálculo Art. 479</label><input type="text" id="resc-v-indeniz-art479-dias" readonly class="input-readonly" placeholder="—"></div>
       </div>
       <div style="margin-bottom:8px">
         <label style="font-weight:600;font-size:13px;color:var(--text)"><i class="fa-solid fa-circle-plus" style="color:#2E7D32"></i> Outras verbas — adicione quantas precisar, com o nome de cada uma</label>
@@ -5210,6 +5215,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260521m"></script>
+<script src="app.js?v=20260521n"></script>
 </body>
 </html>

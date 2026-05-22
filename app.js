@@ -8421,6 +8421,7 @@ const RESCISAO_TIPOS = {
   justa_causa:     {label:'Dispensa por justa causa',   aviso:'nenhum',     m13:false, feriasProp:false, multaFgts:'0'},
   acordo:          {label:'Acordo (art. 484-A)',        aviso:'metade',     m13:true,  feriasProp:true,  multaFgts:'20'},
   fim_contrato:    {label:'Término de contrato',        aviso:'nenhum',     m13:true,  feriasProp:true,  multaFgts:'0'},
+  experiencia_antecipada: {label:'Rescisão antecipada (experiência — Art. 479)', aviso:'nenhum', m13:true, feriasProp:true, multaFgts:'0'},
   aposentadoria:   {label:'Aposentadoria',              aviso:'nenhum',     m13:true,  feriasProp:true,  multaFgts:'0'},
   falecimento:     {label:'Falecimento do colaborador', aviso:'nenhum',     m13:true,  feriasProp:true,  multaFgts:'0'}
 };
@@ -8467,7 +8468,7 @@ function _calcRescisao(r){
   const sal=parseFloat(emp.salarioBase)||0;
   const cfg=RESCISAO_TIPOS[r.tipo]||RESCISAO_TIPOS.sem_justa_causa;
   const o={ avisoDias:0, anos:0, tempoServico:'—', saldoSalario:0, avisoValor:0, decimo:0, decimoAvos:0,
-    feriasVenc:0, feriasProp:0, feriasPropAvos:0, indenizAdic:0, indenizEstabilidade:0, estabMeses:0, inss:0, irrf:0,
+    feriasVenc:0, feriasProp:0, feriasPropAvos:0, indenizAdic:0, indenizArt479:0, indenizArt479Dias:0, indenizEstabilidade:0, estabMeses:0, inss:0, irrf:0,
     fgtsMes:0, multaFgts:0, multaPct:0, pensao:0, adiantamentos:0, avisoDescontado:0,
     outrasVerbas:0, outrosDescontos:0, totalVerbas:0, totalDescontos:0, liquido:0,
     prazoPagamento:'' };
@@ -8509,6 +8510,18 @@ function _calcRescisao(r){
   }
   // Indenização adicional — art. 9º Lei 7.238/84 (1 salário)
   if(r.indenizacaoAdicional) o.indenizAdic=sal;
+  // Indenização Art. 479 — rescisão antecipada de contrato de experiência.
+  // (metade da remuneração dos dias que faltavam até o término do contrato)
+  if(r.tipo==='experiencia_antecipada' && emp.tipoContrato==='experiencia'){
+    const _p1=parseInt(emp.expPeriodo1)||45;
+    const _p2=parseInt(emp.expPeriodo2)||45;
+    const _totalDias = emp.expDecisao1==='renovado' ? (_p1+_p2) : _p1;
+    const _fimContrato = new Date(adm.getTime()+(_totalDias-1)*86400000);
+    if(_fimContrato>dem){
+      o.indenizArt479Dias = Math.round((_fimContrato-dem)/86400000);
+      o.indenizArt479 = (sal/30)*o.indenizArt479Dias*0.5;
+    }
+  }
   // Indenização do período de estabilidade (situação especial)
   if(r.situacaoEspecial && r.situacaoEspecial!=='nenhuma'){
     if(r.estabModo==='calcular'){
@@ -8544,7 +8557,7 @@ function _calcRescisao(r){
   o.outrosDescontos=_somaRescItens(r.outrosDescontos);
   o.outrasVerbas=_somaRescItens(r.outrasVerbas);
   // Totais — verbas em dinheiro (a multa do FGTS vai para a conta vinculada / saque)
-  o.totalVerbas=o.saldoSalario+o.avisoValor+o.decimo+o.feriasVenc+o.feriasProp+o.indenizAdic+o.indenizEstabilidade+o.outrasVerbas;
+  o.totalVerbas=o.saldoSalario+o.avisoValor+o.decimo+o.feriasVenc+o.feriasProp+o.indenizAdic+o.indenizArt479+o.indenizEstabilidade+o.outrasVerbas;
   o.totalDescontos=o.inss+o.irrf+o.pensao+o.adiantamentos+o.avisoDescontado+o.outrosDescontos;
   o.liquido=Math.max(0, o.totalVerbas-o.totalDescontos);
   // Prazo de pagamento — 10 dias corridos (CLT art. 477 §6º)
@@ -8650,6 +8663,8 @@ function recalcRescisaoModal(){
   setVal('resc-v-ferias-prop',o.feriasProp.toFixed(2));
   setVal('resc-v-ferias-prop-avos', o.feriasPropAvos>0?`${o.feriasPropAvos}/12`:'—');
   setVal('resc-v-indeniz',    o.indenizAdic.toFixed(2));
+  setVal('resc-v-indeniz-art479',     o.indenizArt479.toFixed(2));
+  setVal('resc-v-indeniz-art479-dias',o.indenizArt479Dias>0?`${o.indenizArt479Dias} dia(s) × 50%`:'—');
   // Descontos
   setVal('resc-d-inss',  o.inss.toFixed(2));
   setVal('resc-d-irrf',  o.irrf.toFixed(2));
@@ -9012,6 +9027,7 @@ function _trctHtml(r, emp, o){
     {label:'95.99 Garantia semestral de salários', val:''}
   ];
   if(o.indenizAdic>0) verbas.push({label:'Indenização adicional — Lei 7.238/84', val:o.indenizAdic});
+  if(o.indenizArt479>0) verbas.push({label:`Indenização Art. 479 — rescisão antecipada (${o.indenizArt479Dias} dia(s) × 50%)`, val:o.indenizArt479});
   if(o.indenizEstabilidade>0) verbas.push({label:'Indenização do período de estabilidade', val:o.indenizEstabilidade});
   itensVerbas.forEach(it=>verbas.push({label:it.descricao||'Outras verbas', val:it.valor}));
   const descontos=[
@@ -9037,7 +9053,7 @@ function _trctHtml(r, emp, o){
     }
     return h;
   };
-  const tipoContrato = r.tipo==='fim_contrato'
+  const tipoContrato = (r.tipo==='fim_contrato' || r.tipo==='experiencia_antecipada')
     ? '2 - Contrato de trabalho por prazo determinado'
     : '1 - Contrato de trabalho por prazo indeterminado';
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>TRCT — ${emp.nome||''}</title>

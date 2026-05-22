@@ -2825,6 +2825,7 @@ function renderAlerts(){
   const el=document.getElementById('dashboard-alerts'); if(!el) return;
   const hoje=new Date(); hoje.setHours(0,0,0,0);
   const alerts=[];
+  _expVerificarDecurso();
   State.employees.filter(e=>(e.status||'ativo')==='ativo').forEach(e=>{
     // Exame médico vencendo em até 30 dias
     if(e.exameVencimento){
@@ -2834,6 +2835,24 @@ function renderAlerts(){
         const cor=diff<0?'var(--danger)':diff<=7?'#E65100':'#F57F17';
         const txt=diff<0?`Vencido há ${Math.abs(diff)} dias`:diff===0?'Vence hoje':`Vence em ${diff} dias`;
         alerts.push(`<div class="alert-item"><div class="alert-icon" style="color:${cor}"><i class="fa-solid fa-stethoscope"></i></div><div><div class="alert-nome">${e.nome}</div><div class="alert-sub">Exame médico — ${txt} (${formatDateBr(e.exameVencimento)})</div></div></div>`);
+      }
+    }
+    // Contrato de experiência — decisão chegando (até 10 dias) ou vencida
+    if(e.tipoContrato==='experiencia'){
+      const te=_expTimeline(e);
+      if(te && te.gate && te.diasParaGate!=null && te.diasParaGate<=10){
+        const venc=te.diasParaGate<0;
+        const cor=venc?'var(--danger)':'#E65100';
+        const oque=te.gate===1?'1º período (renovar ou reprovar)':'efetivação (efetivar ou reprovar)';
+        const quando=venc?`vencida há ${Math.abs(te.diasParaGate)} dia(s)`:te.diasParaGate===0?'decidir hoje':`decidir em ${te.diasParaGate} dia(s)`;
+        alerts.push(`<div class="alert-item"><div class="alert-icon" style="color:${cor}"><i class="fa-solid fa-hourglass-half"></i></div><div><div class="alert-nome">${e.nome}</div><div class="alert-sub">Experiência — decisão da ${oque}: <strong>${quando}</strong> · <a href="javascript:void(0)" onclick="openEmployeeModal('${e.id}')" style="color:var(--primary);font-weight:600">abrir cadastro</a></div></div></div>`);
+      }
+    }
+    // Efetivado automaticamente por decurso de prazo — confira
+    if(e.efetivadoPorDecurso && e.efetivadoEm){
+      const dd=Math.round((hoje-new Date(e.efetivadoEm+'T00:00:00'))/86400000);
+      if(dd>=0 && dd<=30){
+        alerts.push(`<div class="alert-item"><div class="alert-icon" style="color:var(--danger)"><i class="fa-solid fa-triangle-exclamation"></i></div><div><div class="alert-nome">${e.nome}</div><div class="alert-sub" style="color:#B71C1C;font-weight:600">Efetivado automaticamente por decurso de prazo (${formatDateBr(e.efetivadoEm)}) — confira o cadastro</div></div></div>`);
       }
     }
     // Férias: verificar programadas futuras e pendentes
@@ -3545,9 +3564,13 @@ function openEmployeeModal(id=null){
     // Contrato & Trabalho
     setVal('emp-data-admissao',emp.dataAdmissao||''); setVal('emp-data-demissao',emp.dataDemissao||'');
     setVal('emp-status',emp.status||'ativo'); setVal('emp-escala',emp.escala||'5x2A');
+    setVal('emp-tipo-contrato',emp.tipoContrato||'efetivo');
+    setVal('emp-exp-periodo1',emp.expPeriodo1||45);
+    setVal('emp-exp-periodo2',emp.expPeriodo2||45);
     setVal('emp-licenca-inicio',emp.licencaMaternidadeInicio||'');
     setVal('emp-licenca-termino',emp.licencaMaternidadeTermino||'');
     onEmpStatusChange();
+    onEmpTipoContratoChange();
     setVal('emp-horario-entrada',emp.horarioEntrada||''); setVal('emp-horario-saida',emp.horarioSaida||'');
     setVal('emp-horario-ref-ini',emp.horarioRefIni||''); setVal('emp-horario-ref-fim',emp.horarioRefFim||'');
     const semRefChk=document.getElementById('emp-sem-refeicao');
@@ -3632,9 +3655,12 @@ function openEmployeeModal(id=null){
      'emp-titulo-zona','emp-titulo-secao','emp-ctps-emissao',
      'emp-cnh','emp-cnh-categoria','emp-ciclo-12x36-inicio','emp-cargo'].forEach(id=>setVal(id,''));
     setVal('emp-estado','SP'); setVal('emp-status','ativo'); setVal('emp-escala','5x2A');
+    setVal('emp-tipo-contrato','experiencia');
+    setVal('emp-exp-periodo1',45); setVal('emp-exp-periodo2',45);
     setVal('emp-insalubridade',0);
     setVal('emp-vt-freq','diario'); setVal('emp-vr-freq','diario');
     onEmpStatusChange();
+    onEmpTipoContratoChange();
     onVtFreqChange(); onVrFreqChange();
     const chk=document.getElementById('emp-turno-noturno'); if(chk) chk.checked=false;
     const acumChk=document.getElementById('emp-acumulo-funcao'); if(acumChk) acumChk.checked=false;
@@ -3670,6 +3696,147 @@ function onExamePrazoChange(recompute){
   if(isNaN(d.getTime())) return;
   d.setMonth(d.getMonth()+meses);
   setVal('emp-exame-vencimento', d.toISOString().split('T')[0]);
+}
+
+// ============================================
+// CONTRATO DE EXPERIÊNCIA — acompanhamento (Fase 1)
+// ============================================
+// Linha do tempo da experiência a partir da Data de Admissão. Retorna
+// null se o colaborador não está em contrato de experiência.
+function _expTimeline(emp){
+  if(!emp || emp.tipoContrato!=='experiencia' || !emp.dataAdmissao) return null;
+  const p1=parseInt(emp.expPeriodo1)||45;
+  const p2=parseInt(emp.expPeriodo2)||45;
+  const adm=new Date(emp.dataAdmissao+'T00:00:00'); if(isNaN(adm.getTime())) return null;
+  const hoje=new Date(); hoje.setHours(0,0,0,0);
+  const D=86400000;
+  const fim1=new Date(adm.getTime()+(p1-1)*D);
+  const fim2=new Date(adm.getTime()+(p1+p2-1)*D);
+  const diaAtual=Math.floor((hoje-adm)/D)+1;
+  const dec1=emp.expDecisao1||'';
+  const dec2=emp.expDecisao2||'';
+  let gate=0;
+  if(dec1==='') gate=1;
+  else if(dec1==='renovado' && dec2==='') gate=2;
+  const fimGate=gate===1?fim1:gate===2?fim2:null;
+  const diasParaGate=fimGate?Math.round((fimGate-hoje)/D):null;
+  return { p1,p2,adm,fim1,fim2,diaAtual,total:p1+p2,dec1,dec2,gate,fimGate,diasParaGate };
+}
+function _dBR(d){ return d.toLocaleDateString('pt-BR'); }
+
+// Mostra/esconde os campos de período e o painel conforme o tipo de contrato.
+function onEmpTipoContratoChange(){
+  const exp=val('emp-tipo-contrato')==='experiencia';
+  const p1=document.getElementById('emp-exp-p1-wrap');
+  const p2=document.getElementById('emp-exp-p2-wrap');
+  if(p1) p1.style.display=exp?'':'none';
+  if(p2) p2.style.display=exp?'':'none';
+  renderExpPainel(State.employees.find(e=>e.id===State.editingEmployeeId));
+}
+
+// Painel "Acompanhamento da Experiência" dentro do cadastro do colaborador.
+function renderExpPainel(emp){
+  const box=document.getElementById('emp-exp-painel'); if(!box) return;
+  if(val('emp-tipo-contrato')!=='experiencia' || !emp || !emp.dataAdmissao){
+    box.style.display='none'; box.innerHTML=''; return;
+  }
+  const empView={...emp, tipoContrato:'experiencia',
+    expPeriodo1:parseInt(val('emp-exp-periodo1'))||45,
+    expPeriodo2:parseInt(val('emp-exp-periodo2'))||45};
+  const t=_expTimeline(empView);
+  if(!t){ box.style.display='none'; box.innerHTML=''; return; }
+  box.style.display='';
+  let html='';
+  if(t.dec1==='reprovado' || t.dec2==='reprovado'){
+    const ger=t.dec1==='reprovado';
+    const dt=ger?emp.expDecisao1Data:emp.expDecisao2Data;
+    const por=ger?emp.expDecisao1Por:emp.expDecisao2Por;
+    const mot=ger?emp.expDecisao1Motivo:emp.expDecisao2Motivo;
+    const fimResc=ger?t.fim1:t.fim2;
+    html=`<div style="background:#FFEBEE;border:1px solid #EF9A9A;border-radius:8px;padding:11px 13px">
+      <strong style="color:#B71C1C"><i class="fa-solid fa-circle-xmark"></i> ${ger?'Reprovado no 1º período da experiência':'Não efetivado — experiência encerrada'}</strong>
+      <div style="font-size:12px;color:#555;margin-top:5px">Decisão em ${dt?formatDateBr(dt):'—'} por ${por||'—'}.${mot?'<br>Motivo: '+mot:''}<br>Para encerrar: faça a rescisão tipo <strong>"Término de contrato"</strong> com data ${_dBR(fimResc)}.</div>
+    </div>`;
+  } else {
+    const venc=t.diasParaGate!=null && t.diasParaGate<0;
+    const stat=dec=> dec ? (dec==='renovado'?'<span style="color:#2E7D32;font-weight:600">renovado</span>':dec==='efetivado'?'<span style="color:#2E7D32;font-weight:600">efetivado</span>':'<span style="color:#B71C1C;font-weight:600">reprovado</span>')
+                          : '<span style="color:#E65100;font-weight:600">a decidir</span>';
+    html=`<div style="background:#EEF4FF;border:1px solid #C9D6F5;border-radius:8px;padding:11px 13px">
+      <strong style="color:${venc?'#B71C1C':'#1a3a6b'}"><i class="fa-solid fa-hourglass-half"></i> Contrato de Experiência — dia ${Math.max(1,t.diaAtual)} de ${t.total}</strong>
+      <div style="font-size:12px;margin-top:5px">1º período: termina em <strong>${_dBR(t.fim1)}</strong> — ${stat(t.dec1)}</div>
+      ${t.dec1==='renovado'?`<div style="font-size:12px;margin-top:2px">2º período: termina em <strong>${_dBR(t.fim2)}</strong> — ${stat(t.dec2)}</div>`:''}`;
+    if(t.gate){
+      const prazo=t.diasParaGate<0?`<span style="color:#B71C1C;font-weight:700">prazo vencido há ${Math.abs(t.diasParaGate)} dia(s)</span>`
+                 :t.diasParaGate===0?'<span style="color:#B71C1C;font-weight:700">decidir hoje</span>'
+                 :`decidir em até ${t.diasParaGate} dia(s)`;
+      const lblSim=t.gate===1?'Aprovar p/ 2º período':'Efetivar';
+      html+=`<div style="margin-top:9px;padding-top:8px;border-top:1px solid #C9D6F5">
+        <div style="font-size:12px;margin-bottom:7px">Decisão do ${t.gate===1?'1º período':'período final (efetivação)'} — ${prazo}:</div>
+        <button type="button" class="btn btn-sm" style="background:#2E7D32;color:#fff;border-color:#2E7D32;margin-right:6px" onclick="expDecidir('${emp.id}',${t.gate},true)"><i class="fa-solid fa-check"></i> ${lblSim}</button>
+        <button type="button" class="btn btn-sm btn-outline" style="color:#B71C1C;border-color:#EF9A9A" onclick="expDecidir('${emp.id}',${t.gate},false)"><i class="fa-solid fa-ban"></i> Reprovar</button>
+        ${!emp.id?'<div style="font-size:11px;color:#888;margin-top:5px">Salve o colaborador para registrar a decisão.</div>':''}
+      </div>`;
+    }
+    html+='</div>';
+  }
+  box.innerHTML=html;
+}
+
+// Registra a decisão da experiência: gate 1 (1º período) ou 2 (efetivação).
+async function expDecidir(empId, gate, aprovado){
+  const emp=State.employees.find(e=>e.id===empId);
+  if(!emp){ toast('Salve o colaborador antes de registrar a decisão.','warning'); return; }
+  const perg = gate===1
+    ? (aprovado?'Aprovar este colaborador para o 2º período de experiência?':'Reprovar este colaborador no 1º período da experiência?')
+    : (aprovado?'Efetivar este colaborador? O contrato passa a ser efetivo, com as regras comuns.':'Reprovar a efetivação e encerrar a experiência?');
+  if(!confirm(perg)) return;
+  let motivo='';
+  if(!aprovado){
+    motivo=(prompt('Motivo da reprovação:')||'').trim();
+    if(!motivo){ toast('Reprovação cancelada — o motivo é obrigatório.','warning'); return; }
+  }
+  const hojeISO=new Date().toISOString().split('T')[0];
+  const quem=(Auth.currentUser&&(Auth.currentUser.nome||Auth.currentUser.username))||'—';
+  const ch={updatedAt:new Date().toISOString()};
+  if(gate===1){
+    ch.expDecisao1=aprovado?'renovado':'reprovado';
+    ch.expDecisao1Data=hojeISO; ch.expDecisao1Por=quem; ch.expDecisao1Motivo=motivo;
+  } else {
+    ch.expDecisao2=aprovado?'efetivado':'reprovado';
+    ch.expDecisao2Data=hojeISO; ch.expDecisao2Por=quem; ch.expDecisao2Motivo=motivo;
+    if(aprovado){ ch.tipoContrato='efetivo'; ch.efetivadoEm=hojeISO; ch.efetivadoPorDecurso=false; }
+  }
+  try{
+    await DB.merge('employees', empId, ch);
+    const ix=State.employees.findIndex(e=>e.id===empId);
+    if(ix>=0) State.employees[ix]={...State.employees[ix],...ch};
+    Auth.log('EXPERIENCIA_DECISAO', null, `${emp.nome} — ${gate===1?'1o periodo':'efetivacao'}: ${aprovado?'aprovado':'reprovado'}${motivo?' ('+motivo+')':''}`);
+    toast(gate===1?(aprovado?'Renovado para o 2º período.':'Reprovado no 1º período.')
+                  :(aprovado?'Colaborador efetivado!':'Experiência encerrada — não efetivado.'),
+          aprovado?'success':'warning');
+    const updated=State.employees.find(e=>e.id===empId);
+    if(ch.tipoContrato==='efetivo'){ setVal('emp-tipo-contrato','efetivo'); onEmpTipoContratoChange(); }
+    else renderExpPainel(updated);
+    if(State.currentSection==='dashboard' && typeof renderDashboard==='function') renderDashboard();
+  }catch(e){ toast('Erro ao registrar a decisão: '+(e.message||e),'error'); }
+}
+
+// Efetivação automática por decurso de prazo — se a experiência passou do
+// fim do 2º período sem decisão, o contrato vira efetivo (indeterminado).
+function _expVerificarDecurso(){
+  const hoje=new Date(); hoje.setHours(0,0,0,0);
+  (State.employees||[]).forEach(emp=>{
+    if(emp.tipoContrato!=='experiencia') return;
+    const t=_expTimeline(emp); if(!t) return;
+    if(t.dec1==='reprovado' || t.dec2) return;
+    if(hoje>t.fim2){
+      const ch={ tipoContrato:'efetivo', efetivadoEm:new Date().toISOString().split('T')[0],
+                 efetivadoPorDecurso:true, updatedAt:new Date().toISOString() };
+      Object.assign(emp,ch);
+      DB.merge('employees', emp.id, ch).catch(()=>{});
+      try{ Auth.log('EXPERIENCIA_DECURSO', null, `${emp.nome} — efetivado automaticamente por decurso de prazo`); }catch(_){}
+    }
+  });
 }
 
 async function saveEmployee(){
@@ -3713,6 +3880,9 @@ async function saveEmployee(){
     licencaMaternidadeInicio: status==='licenca-maternidade' ? val('emp-licenca-inicio') : '',
     licencaMaternidadeTermino: status==='licenca-maternidade' ? val('emp-licenca-termino') : '',
     escala:val('emp-escala')||'5x2A',
+    tipoContrato:val('emp-tipo-contrato')||'efetivo',
+    expPeriodo1:parseInt(val('emp-exp-periodo1'))||45,
+    expPeriodo2:parseInt(val('emp-exp-periodo2'))||45,
     ciclo12x36Inicio:val('emp-ciclo-12x36-inicio')||'',
     horarioEntrada:val('emp-horario-entrada'),
     horarioSaida:val('emp-horario-saida'),
@@ -3770,6 +3940,12 @@ async function saveEmployee(){
         hist.push({data:new Date().toISOString().split('T')[0],valor:data.salarioBase});
       }
       data.historicoSalario=hist;
+      // preserva os campos da experiência que não vêm do formulário
+      data.expDecisao1=existing.expDecisao1||''; data.expDecisao1Data=existing.expDecisao1Data||'';
+      data.expDecisao1Por=existing.expDecisao1Por||''; data.expDecisao1Motivo=existing.expDecisao1Motivo||'';
+      data.expDecisao2=existing.expDecisao2||''; data.expDecisao2Data=existing.expDecisao2Data||'';
+      data.expDecisao2Por=existing.expDecisao2Por||''; data.expDecisao2Motivo=existing.expDecisao2Motivo||'';
+      data.efetivadoEm=existing.efetivadoEm||''; data.efetivadoPorDecurso=!!existing.efetivadoPorDecurso;
     }
   }
   const btn=document.querySelector('#modal-employee .modal-footer .btn-primary');

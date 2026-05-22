@@ -239,12 +239,26 @@
       </div>
     </div>
 
+    <div class="sec" id="sec-avisos">
+      <div class="home-body">
+        <div class="card" style="padding-bottom:8px">
+          <div class="card-label">Avisos</div>
+          <div id="avisos-lista">
+            <div class="spinner-wrap"><div class="spinner"></div>Carregando...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <!-- Navegação inferior -->
   <div class="bottom-nav">
     <button class="nav-btn active" id="nav-ponto" onclick="navTo('ponto')">
       <span class="nav-icon">⏱️</span>Ponto
+    </button>
+    <button class="nav-btn" id="nav-avisos" onclick="navTo('avisos')">
+      <span class="nav-icon">🔔</span>Avisos
     </button>
     <button class="nav-btn" id="nav-historico" onclick="navTo('historico')">
       <span class="nav-icon">📋</span>Histórico
@@ -879,11 +893,154 @@ function renderHistorico() {
 
 // ─── NAVEGAÇÃO ────────────────────────────────────────────────────────────────
 function navTo(sec) {
-  ['ponto','historico'].forEach(s => {
+  ['ponto','avisos','historico'].forEach(s => {
     document.getElementById('sec-' + s).classList.toggle('active', s === sec);
     document.getElementById('nav-' + s).classList.toggle('active', s === sec);
   });
   if (sec === 'historico') renderHistorico();
+  if (sec === 'avisos')    renderAvisos();
+}
+
+// ─── AVISOS — alertas automáticos pro colaborador ───────────────────────────
+let _avisosDataCache = null;
+async function _carregarAvisosData(){
+  if(_avisosDataCache) return _avisosDataCache;
+  const out = { solicitacoes: [] };
+  try{
+    const snap = await dbCol('solicitacoesPagamento')
+      .where('employeeId','==',currentEmp.id)
+      .where('status','==','pago')
+      .get();
+    out.solicitacoes = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+  }catch(e){ console.error('avisos:solicitacoes', e); }
+  _avisosDataCache = out;
+  return out;
+}
+function _avisosFmtData(s){ return (s||'').toString().substring(0,10).split('-').reverse().join('/'); }
+function _avisosFmtMoeda(v){ return (v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+
+async function renderAvisos(){
+  const box = document.getElementById('avisos-lista'); if(!box) return;
+  if(!currentEmp){ box.innerHTML='<div style="text-align:center;padding:24px;color:#94a3b8">Faça login para ver seus avisos.</div>'; return; }
+  box.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div>Carregando...</div>';
+  const data = await _carregarAvisosData();
+  const emp = currentEmp;
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const D = 86400000;
+  const av = [];
+
+  // Exame médico
+  if(emp.exameVencimento){
+    const venc = new Date(emp.exameVencimento+'T00:00:00');
+    const diff = Math.round((venc-hoje)/D);
+    if(diff < 0) av.push({tipo:'urgente', icone:'🩺', titulo:'Exame médico VENCIDO', msg:`Venceu há ${Math.abs(diff)} dia(s) — agende um novo exame com a empresa.`});
+    else if(diff <= 10) av.push({tipo:'aviso', icone:'🩺', titulo:'Exame médico vencendo', msg:`Vence em ${diff} dia(s) (${_avisosFmtData(emp.exameVencimento)}). Agende com antecedência.`});
+  }
+
+  // Férias programadas / em curso
+  (emp.ferias||[]).forEach(f=>{
+    if(!f.inicio || !f.fim) return;
+    const ini = new Date(f.inicio+'T00:00:00');
+    const fim = new Date(f.fim+'T00:00:00');
+    if(ini > hoje){
+      const dd = Math.round((ini-hoje)/D);
+      if(dd <= 30) av.push({tipo:'info', icone:'🏖️', titulo:'Férias programadas', msg:`Começa em ${dd} dia(s) — de ${_avisosFmtData(f.inicio)} a ${_avisosFmtData(f.fim)} (${f.dias||'?'} dias).`});
+    } else if(ini <= hoje && fim >= hoje){
+      const rest = Math.round((fim-hoje)/D);
+      av.push({tipo:'success', icone:'🏖️', titulo:'Em férias agora', msg:`Retorno em ${rest} dia(s), em ${_avisosFmtData(f.fim)}. Bom descanso!`});
+    }
+  });
+
+  // Férias vencidas (período aquisitivo)
+  if(emp.dataAdmissao){
+    const adm = new Date(emp.dataAdmissao+'T00:00:00');
+    const meses = Math.floor((hoje-adm)/(D*30.44));
+    if(meses >= 12){
+      const fs = (emp.ferias||[]).filter(f=>f.fim && new Date(f.fim+'T00:00:00')<hoje).sort((a,b)=>b.fim.localeCompare(a.fim));
+      const ultFim = fs.length ? new Date(fs[0].fim+'T00:00:00') : adm;
+      const msesSem = Math.floor((hoje-ultFim)/(D*30.44));
+      if(msesSem >= 12) av.push({tipo:'urgente', icone:'⏰', titulo:'Período aquisitivo vencido', msg:`Você está há ${msesSem} meses sem férias — solicite à gestão.`});
+    }
+  }
+
+  // Transferência PIX recente (últimos 14 dias)
+  data.solicitacoes.forEach(s=>{
+    const dt = (s.aprovadoEm||s.criadoEm||'').substring(0,10);
+    if(!dt) return;
+    const dd = Math.round((hoje-new Date(dt+'T00:00:00'))/D);
+    if(dd >= 0 && dd <= 14){
+      const quando = dd===0?'hoje':dd===1?'ontem':`há ${dd} dias`;
+      av.push({tipo:'success', icone:'💵', titulo:'Transferência PIX recebida', msg:`${_avisosFmtMoeda(s.valor)} foi transferido para sua conta ${quando} — consulte seu banco.`});
+    }
+  });
+
+  // Aniversário pessoal
+  if(emp.dataNascimento){
+    const [_y,m,d] = emp.dataNascimento.split('-').map(Number);
+    if(m === hoje.getMonth()+1 && d === hoje.getDate()){
+      av.push({tipo:'success', icone:'🎂', titulo:'Feliz aniversário! 🎉', msg:'A equipe DRG deseja a você um dia incrível.'});
+    }
+  }
+
+  // Aniversário de empresa
+  if(emp.dataAdmissao){
+    const adm = new Date(emp.dataAdmissao+'T00:00:00');
+    if(adm.getMonth()===hoje.getMonth() && adm.getDate()===hoje.getDate() && adm.getFullYear()<hoje.getFullYear()){
+      const anos = hoje.getFullYear()-adm.getFullYear();
+      av.push({tipo:'success', icone:'🎉', titulo:`${anos} ano(s) de DRG!`, msg:'Parabéns pelo seu aniversário de empresa.'});
+    }
+  }
+
+  // Aumento de salário (últimos 30 dias)
+  const hist = emp.historicoSalario||[];
+  if(hist.length >= 2){
+    const ult = hist[hist.length-1];
+    const ant = hist[hist.length-2];
+    if(ult && ult.data){
+      const dd = Math.round((hoje-new Date(ult.data+'T00:00:00'))/D);
+      if(dd >= 0 && dd <= 30 && ult.valor>ant.valor){
+        av.push({tipo:'success', icone:'📈', titulo:'Aumento de salário', msg:`Seu salário foi atualizado: de ${_avisosFmtMoeda(ant.valor)} para ${_avisosFmtMoeda(ult.valor)}.`});
+      }
+    }
+  }
+
+  // Contrato efetivado (últimos 30 dias)
+  if(emp.efetivadoEm){
+    const dd = Math.round((hoje-new Date(emp.efetivadoEm+'T00:00:00'))/D);
+    if(dd >= 0 && dd <= 30){
+      av.push({tipo:'success', icone:'🤝', titulo:'Contrato efetivado!', msg:`Você foi efetivado em ${_avisosFmtData(emp.efetivadoEm)}. Bem-vindo ao quadro permanente.`});
+    }
+  }
+
+  // Experiência renovada (últimos 14 dias)
+  if(emp.tipoContrato==='experiencia' && emp.expDecisao1==='renovado' && emp.expDecisao1Data){
+    const dd = Math.round((hoje-new Date(emp.expDecisao1Data+'T00:00:00'))/D);
+    if(dd >= 0 && dd <= 14){
+      av.push({tipo:'info', icone:'⏳', titulo:'Renovado para o 2º período', msg:`Seu contrato de experiência foi renovado em ${_avisosFmtData(emp.expDecisao1Data)}.`});
+    }
+  }
+
+  // Render
+  if(!av.length){
+    box.innerHTML = `<div style="text-align:center;padding:40px 20px;color:#94a3b8">
+      <div style="font-size:48px">✅</div>
+      <div style="font-size:14px;margin-top:8px">Nenhum aviso no momento.</div>
+    </div>`;
+    return;
+  }
+  const ord = { urgente:0, aviso:1, info:2, success:3 };
+  av.sort((a,b)=>(ord[a.tipo]||9)-(ord[b.tipo]||9));
+  const cor = {urgente:'#ef4444',aviso:'#f97316',info:'#3b82f6',success:'#16a34a'};
+  const bg  = {urgente:'#fee2e2',aviso:'#fff7ed',info:'#eff6ff',success:'#f0fdf4'};
+  box.innerHTML = av.map(a=>`
+    <div style="background:${bg[a.tipo]};border-left:4px solid ${cor[a.tipo]};border-radius:8px;padding:12px 14px;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <span style="font-size:20px">${a.icone}</span>
+        <strong style="color:#1e293b;font-size:14px">${a.titulo}</strong>
+      </div>
+      <div style="font-size:13px;color:#475569;line-height:1.45">${a.msg}</div>
+    </div>
+  `).join('');
 }
 
 function mostrarTela(nome) {
@@ -896,6 +1053,7 @@ function doLogout() {
   sessionStorage.removeItem('drg_ponto_emp');
   currentEmp     = null;
   currentPayroll = null;
+  _avisosDataCache = null;
   clearInterval(clockInterval);
   mostrarTela('login');
   document.getElementById('login-mat').value = '';

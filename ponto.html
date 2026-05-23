@@ -100,7 +100,7 @@
     .hp.vazio{color:#cbd5e1;font-size:11px}
 
     /* NAVEGAÇÃO INFERIOR */
-    .bottom-nav{background:white;border-top:1px solid #e2e8f0;display:flex;flex-shrink:0;padding-bottom:max(8px,env(safe-area-inset-bottom))}
+    .top-nav{background:white;border-bottom:1px solid #e2e8f0;display:flex;flex-shrink:0}
     .nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 8px;border:none;background:none;cursor:pointer;color:#94a3b8;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;transition:color .2s}
     .nav-btn.active{color:#2563eb}
     .nav-icon{font-size:22px}
@@ -165,6 +165,19 @@
       <div class="sub">Ponto Eletrônico</div>
     </div>
     <button class="logout-btn" onclick="doLogout()">Sair</button>
+  </div>
+
+  <!-- Navegação superior (sempre visível) -->
+  <div class="top-nav">
+    <button class="nav-btn active" id="nav-ponto" onclick="navTo('ponto')">
+      <span class="nav-icon">⏱️</span>Ponto
+    </button>
+    <button class="nav-btn" id="nav-avisos" onclick="navTo('avisos')">
+      <span class="nav-icon">🔔</span>Avisos
+    </button>
+    <button class="nav-btn" id="nav-historico" onclick="navTo('historico')">
+      <span class="nav-icon">📋</span>Histórico
+    </button>
   </div>
 
   <!-- Conteúdo com seções -->
@@ -258,18 +271,6 @@
 
   </div>
 
-  <!-- Navegação inferior -->
-  <div class="bottom-nav">
-    <button class="nav-btn active" id="nav-ponto" onclick="navTo('ponto')">
-      <span class="nav-icon">⏱️</span>Ponto
-    </button>
-    <button class="nav-btn" id="nav-avisos" onclick="navTo('avisos')">
-      <span class="nav-icon">🔔</span>Avisos
-    </button>
-    <button class="nav-btn" id="nav-historico" onclick="navTo('historico')">
-      <span class="nav-icon">📋</span>Histórico
-    </button>
-  </div>
 
 </div>
 

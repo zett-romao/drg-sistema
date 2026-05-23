@@ -7807,6 +7807,10 @@ async function enviarComunicacao(){
       catch(err){ console.error('Erro ao salvar comunicacao', err); }
     }
     try{ Auth.log('COMUNICACAO_ENVIADA', null, `${ok} destinatario(s) — ${assunto}`); }catch(_){}
+    if(ok===0){
+      toast('Nenhuma mensagem foi salva — abra o console do navegador (F12) para o erro.','error');
+      return;
+    }
     toast(`Mensagem enviada para ${ok} colaborador(es).`, 'success');
     closeModal('modal-comunicar');
     const m=document.getElementById('modal-employee');

@@ -157,6 +157,12 @@
           <span>Colaboradores</span>
         </a>
       </li>
+      <li id="nav-comunicacao-li" class="hidden">
+        <a class="nav-link" id="nav-comunicacao" onclick="showSection('comunicacao')">
+          <i class="fa-solid fa-comments"></i>
+          <span>Comunicação</span>
+        </a>
+      </li>
       <li>
         <a class="nav-link" id="nav-payroll" onclick="showSection('payroll')">
           <i class="fa-solid fa-file-invoice-dollar"></i>
@@ -1837,6 +1843,11 @@
             </table>
           </div>
         </div>
+      </section>
+
+      <!-- ===== COMUNICAÇÃO — centro de mensagens em massa e individuais ===== -->
+      <section id="section-comunicacao" class="section">
+        <div id="comunicacao-content" style="padding:20px"></div>
       </section>
 
       <section id="section-configuracoes" class="section">
@@ -4930,6 +4941,7 @@
           <div class="checkbox-label perm-card"><label class="perm-mod"><input type="checkbox" name="mod" value="contratos"> <span><i class="fa-solid fa-file-signature" style="width:14px;color:var(--primary)"></i> Contratos</span></label><label class="perm-edit"><input type="checkbox" data-edit="contratos"> Editar</label></div>
           <div class="checkbox-label perm-card"><label class="perm-mod"><input type="checkbox" name="mod" value="users"> <span><i class="fa-solid fa-user-shield" style="width:14px;color:var(--primary)"></i> Usuários &amp; Acessos</span></label><label class="perm-edit"><input type="checkbox" data-edit="users"> Editar</label></div>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="log"> <span><i class="fa-solid fa-list-check" style="width:14px;color:var(--primary)"></i> Log de Acessos</span></label>
+          <label class="checkbox-label"><input type="checkbox" name="mod" value="comunicacao"> <span><i class="fa-solid fa-comments" style="width:14px;color:#1976D2"></i> Comunicação (Enviar mensagens)</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="comunicacoesApagar"> <span><i class="fa-solid fa-trash" style="width:14px;color:#c62828"></i> Apagar Mensagens (Comunicações)</span></label>
         </div>
       </div>
@@ -5252,10 +5264,15 @@
       <div class="form-row">
         <div class="form-group" style="grid-column:1 / -1">
           <label>Adicionar destinatário</label>
-          <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
             <select id="comu-add-emp" onchange="_comuAddDest()" style="flex:1;min-width:200px"></select>
-            <button type="button" class="btn btn-outline" onclick="_comuAddTodos()" style="font-size:12px">Todos ativos</button>
-            <button type="button" class="btn btn-outline" onclick="_comuLimparDest()" style="font-size:12px">Limpar</button>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+            <button type="button" class="btn btn-outline btn-sm" onclick="_comuAddTodos()" style="font-size:12px"><i class="fa-solid fa-users"></i> Todos ativos</button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="_comuAddPorPosto()" style="font-size:12px"><i class="fa-solid fa-building"></i> Por posto</button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="_comuAddPorSetor()" style="font-size:12px"><i class="fa-solid fa-sitemap"></i> Por setor</button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="_comuAddPorEscala()" style="font-size:12px"><i class="fa-solid fa-calendar-days"></i> Por escala</button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="_comuLimparDest()" style="font-size:12px;color:#c62828;border-color:#ef9a9a"><i class="fa-solid fa-eraser"></i> Limpar</button>
           </div>
         </div>
       </div>
@@ -5344,6 +5361,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260522q"></script>
+<script src="app.js?v=20260522r"></script>
 </body>
 </html>

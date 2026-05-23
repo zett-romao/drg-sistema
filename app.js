@@ -910,6 +910,7 @@ function showSection(name){
   if(name==='contabilidade'  && !mods.contabilidade)   return;
   if(name==='postos'         && !mods.postos)       return;
   if(name==='contratos'      && !mods.contratos)    return;
+  if(name==='comunicacao'    && !mods.comunicacao)  return;
   if(name==='configuracoes'  && Auth.currentUser?.role!=='master') return;
   // Empilha seção atual antes de trocar (exceto se estiver voltando ou já está na mesma seção)
   if(!_navigatingBack && State.currentSection && State.currentSection!==name){
@@ -928,7 +929,7 @@ function showSection(name){
   if(navBtn)  navBtn.classList.add('active');
   const titles={dashboard:'Dashboard',employees:'Colaboradores',payroll:'Folha de Ponto',escalas:'Escalas',
                 pagamentos:'Pagamentos',adiantamentos:'Adiantamentos',aprovacoes:'Aprovações de Pagamentos',decimoterceiro:'13º Salário',ferias:'Férias',rescisao:'Rescisões',
-                contabilidade:'Contabilidade',users:'Usuários & Acessos',postos:'Postos de Trabalho',contratos:'Contratos',configuracoes:'Configurações'};
+                contabilidade:'Contabilidade',users:'Usuários & Acessos',postos:'Postos de Trabalho',contratos:'Contratos',comunicacao:'Comunicação',configuracoes:'Configurações'};
   document.getElementById('topbar-title').textContent=titles[name]||name;
   State.currentSection=name;
   if(name==='employees') renderEmployeeTable();
@@ -942,6 +943,7 @@ function showSection(name){
   if(name==='ferias')          renderFeriasModulo();
   if(name==='rescisao')        renderRescisoes();
   if(name==='contabilidade')   { _applyModoBanners(State.empresa?.modoContabilidade||'ambas'); renderContabilidade(); }
+  if(name==='comunicacao')     renderComunicacaoSection();
   if(name==='configuracoes')  renderConfiguracoes();
   if(name==='postos')    renderPostosTable();
   if(name==='contratos') {
@@ -1338,6 +1340,9 @@ function applyUserSession(user){
   // Colaboradores: quem tem acesso ao módulo employees
   const empLi=document.getElementById('nav-employees-li');
   if(empLi) empLi.classList.toggle('hidden', !mods.employees);
+  // Comunicação: módulo dedicado (delegável). Master sempre tem.
+  const commLi=document.getElementById('nav-comunicacao-li');
+  if(commLi) commLi.classList.toggle('hidden', !mods.comunicacao);
   // Postos de Trabalho: master ou gestor
   const postosLi=document.getElementById('nav-postos-li');
   if(postosLi) postosLi.classList.toggle('hidden', !mods.postos);
@@ -7698,7 +7703,8 @@ let _comuAnexoHerdado      = null; // anexo da mensagem original (no Reenviar/Ed
 let _comuEditandoId        = null; // id da mensagem em edição (null = novo envio)
 
 function openComunicarModal(empIdOrNull){
-  if(!getUserModules(Auth.currentUser).employees && Auth.currentUser?.role!=='master'){
+  const _mods=getUserModules(Auth.currentUser);
+  if(!_mods.comunicacao && !_mods.employees && Auth.currentUser?.role!=='master'){
     toast('Você não tem permissão para enviar mensagens.','error'); return;
   }
   _comuDestinatarios = [];
@@ -7851,6 +7857,68 @@ function _comuAddTodos(){
   _comuRenderDest();
 }
 function _comuLimparDest(){ _comuDestinatarios=[]; _comuRenderDest(); }
+
+// ── Selecao em massa por filtro (posto, setor, escala) ─────────────────────
+// Pega valores unicos do campo escolhido entre os ativos, abre um prompt
+// para escolher (lista numerada) e adiciona todos do(s) selecionado(s).
+function _comuAddPorCampo(campo, rotulo){
+  const ativos = (State.employees||[]).filter(e=>(e.status||'ativo')==='ativo');
+  const valores = [...new Set(ativos.map(e => (e[campo]||'').toString().trim()).filter(Boolean))]
+    .sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  if(!valores.length){
+    toast(`Nenhum colaborador ativo com ${rotulo} informado.`,'warning');
+    return;
+  }
+  const lista = valores.map((v,i)=>`${i+1}. ${v}`).join('\n');
+  const resp  = prompt(`Selecionar por ${rotulo}\n\n${lista}\n\nDigite o(s) numero(s) separado(s) por virgula (ex: 1,3) ou "todos":`);
+  if(resp===null) return;
+  const txt = resp.trim().toLowerCase();
+  let escolhidos = [];
+  if(txt==='todos'){
+    escolhidos = valores.slice();
+  } else {
+    const idxs = txt.split(',').map(s=>parseInt(s.trim(),10)).filter(n=>n>=1 && n<=valores.length);
+    escolhidos = idxs.map(i=>valores[i-1]);
+  }
+  if(!escolhidos.length){ toast('Nada selecionado.','warning'); return; }
+  let n = 0;
+  ativos.forEach(e=>{
+    if(escolhidos.includes((e[campo]||'').toString().trim())){
+      if(!_comuDestinatarios.includes(e.id)){ _comuDestinatarios.push(e.id); n++; }
+    }
+  });
+  _comuRenderDest();
+  toast(`${n} colaborador(es) adicionado(s) (${rotulo}: ${escolhidos.join(', ')}).`,'success');
+}
+function _comuAddPorPosto() { _comuAddPorCampo('posto', 'Posto de trabalho'); }
+function _comuAddPorSetor() { _comuAddPorCampo('setor', 'Setor'); }
+function _comuAddPorEscala(){
+  // Escala tem labels — usar rotulo amigavel
+  const ativos = (State.employees||[]).filter(e=>(e.status||'ativo')==='ativo');
+  const codigos = [...new Set(ativos.map(e => (e.escala||'').toString().trim()).filter(Boolean))]
+    .sort((a,b)=>a.localeCompare(b));
+  if(!codigos.length){ toast('Nenhum colaborador ativo com escala informada.','warning'); return; }
+  const lista = codigos.map((c,i)=>`${i+1}. ${escalaLabel(c)} (${c})`).join('\n');
+  const resp  = prompt(`Selecionar por Escala\n\n${lista}\n\nDigite o(s) numero(s) separado(s) por virgula (ex: 1,3) ou "todos":`);
+  if(resp===null) return;
+  const txt = resp.trim().toLowerCase();
+  let escolhidos = [];
+  if(txt==='todos'){
+    escolhidos = codigos.slice();
+  } else {
+    const idxs = txt.split(',').map(s=>parseInt(s.trim(),10)).filter(n=>n>=1 && n<=codigos.length);
+    escolhidos = idxs.map(i=>codigos[i-1]);
+  }
+  if(!escolhidos.length){ toast('Nada selecionado.','warning'); return; }
+  let n = 0;
+  ativos.forEach(e=>{
+    if(escolhidos.includes((e.escala||'').toString().trim())){
+      if(!_comuDestinatarios.includes(e.id)){ _comuDestinatarios.push(e.id); n++; }
+    }
+  });
+  _comuRenderDest();
+  toast(`${n} colaborador(es) adicionado(s) (${escolhidos.map(escalaLabel).join(', ')}).`,'success');
+}
 
 async function enviarComunicacao(){
   const ids=[..._comuDestinatarios];
@@ -10583,6 +10651,207 @@ async function gerarRelatorioComunicacoesIndividual(empId){
   }
   modal.classList.remove('hidden');
   await _reportComunicacoesIndividual(empId);
+}
+
+// ===========================================================================
+// SECAO "COMUNICACAO" — centro de mensagens do menu lateral
+// ===========================================================================
+// State dos filtros da secao (mantido entre re-renders).
+let _comuSecaoFiltros = { busca:'', status:'todas', periodo:'30', somenteAnexo:false };
+let _comuSecaoCache   = null;   // array das mensagens do banco
+let _comuSecaoCarregando = false;
+
+async function renderComunicacaoSection(){
+  const box = document.getElementById('comunicacao-content');
+  if(!box) return;
+  // 1a vez: carrega do banco. Demais: usa cache (o usuario pode "Atualizar" se quiser).
+  if(!_comuSecaoCache && !_comuSecaoCarregando){
+    _comuSecaoCarregando = true;
+    box.innerHTML = '<div style="text-align:center;padding:40px;color:#666"><i class="fa-solid fa-spinner fa-spin"></i> Carregando mensagens do banco...</div>';
+    try{
+      const snap = await DB.col('comunicacoes').get();
+      _comuSecaoCache = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+    }catch(e){
+      console.error('comunicacao:fetch', e);
+      _comuSecaoCache = [];
+      toast('Erro ao carregar mensagens: '+(e.message||e),'error');
+    }
+    _comuSecaoCarregando = false;
+  }
+  _renderComunicacaoUI();
+}
+
+// Forca recarga do banco — chamado pelo botao "Atualizar"
+async function atualizarComunicacaoSection(){
+  _comuSecaoCache = null;
+  await renderComunicacaoSection();
+  toast('Lista atualizada.','success');
+}
+
+function _comuSecaoSetFiltro(key, valor){
+  _comuSecaoFiltros[key] = valor;
+  _renderComunicacaoUI();
+}
+
+function _renderComunicacaoUI(){
+  const box = document.getElementById('comunicacao-content');
+  if(!box) return;
+  const todas = _comuSecaoCache || [];
+  // aplica filtros
+  const D = 86400000;
+  const agora = Date.now();
+  const dias = parseInt(_comuSecaoFiltros.periodo||'30',10);
+  const busca = (_comuSecaoFiltros.busca||'').trim().toLowerCase();
+  const filtradas = todas.filter(m => {
+    if(dias>0 && m.criadoEm){
+      const dt = new Date(m.criadoEm).getTime();
+      if(isFinite(dt) && (agora - dt) > dias*D) return false;
+    }
+    if(_comuSecaoFiltros.status==='lidas'    && !m.lida) return false;
+    if(_comuSecaoFiltros.status==='naoLidas' && m.lida)  return false;
+    if(_comuSecaoFiltros.somenteAnexo && !m.anexoUrl)    return false;
+    if(busca){
+      const blob = `${m.assunto||''} ${m.corpo||''} ${m.employeeNome||''} ${m.origemUserNome||''}`.toLowerCase();
+      if(!blob.includes(busca)) return false;
+    }
+    return true;
+  });
+  filtradas.sort((a,b) => (b.criadoEm||'').localeCompare(a.criadoEm||''));
+  // stats — sobre o filtro corrente
+  const totLidas    = filtradas.filter(m=>m.lida).length;
+  const totNaoLidas = filtradas.length - totLidas;
+  const totAnexo    = filtradas.filter(m=>m.anexoUrl).length;
+  // monta UI
+  const fmtDt = iso => { const d=iso?new Date(iso):null; return (d && !isNaN(d.getTime())) ? d.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—'; };
+  const podeApagar = !!getUserModules(Auth.currentUser).comunicacoesApagar || Auth.currentUser?.role==='master';
+  // popula o cache de mensagens (reutilizado por editarMensagem/reenviarMensagem/apagarComunicacao)
+  filtradas.forEach(m => { _comuMensagensCache[m.id] = m; });
+  // header (botoes)
+  const headerHtml = `
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:18px">
+      <div>
+        <h2 style="margin:0;font-size:20px;color:var(--text)"><i class="fa-solid fa-comments" style="color:#1976D2"></i> Centro de Mensagens</h2>
+        <div style="font-size:12px;color:#888;margin-top:4px">Envie mensagens individualmente ou em massa para colaboradores. Tudo fica registrado para auditoria.</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="openComunicarModal()"><i class="fa-solid fa-paper-plane"></i> Nova mensagem</button>
+        <button class="btn btn-outline" onclick="atualizarComunicacaoSection()" title="Recarregar do banco"><i class="fa-solid fa-rotate"></i> Atualizar</button>
+        <button class="btn btn-outline" onclick="abrirRelatorioComunicacoesGeral()" title="Gerar relatorio PDF com auditoria de todas as mensagens"><i class="fa-solid fa-file-pdf"></i> Relatório (auditoria)</button>
+      </div>
+    </div>`;
+  // stats cards (alinhados ao padrao do sistema)
+  const statsHtml = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:18px">
+      <div style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center">
+        <div style="font-size:24px;font-weight:700;color:#1976D2">${filtradas.length}</div>
+        <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.4px">Mensagens (filtro)</div>
+      </div>
+      <div style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center">
+        <div style="font-size:24px;font-weight:700;color:#16a34a">${totLidas}</div>
+        <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.4px">Visualizadas</div>
+      </div>
+      <div style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center">
+        <div style="font-size:24px;font-weight:700;color:#94a3b8">${totNaoLidas}</div>
+        <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.4px">Não visualizadas</div>
+      </div>
+      <div style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center">
+        <div style="font-size:24px;font-weight:700;color:#E65100">${totAnexo}</div>
+        <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.4px">Com anexo</div>
+      </div>
+    </div>`;
+  // filtros
+  const filtrosHtml = `
+    <div style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:18px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;align-items:end">
+        <div>
+          <label style="font-size:12px;color:#475569;display:block;margin-bottom:4px">Buscar</label>
+          <input type="text" id="comu-sec-busca" placeholder="Nome, assunto, corpo..." value="${(_comuSecaoFiltros.busca||'').replace(/"/g,'&quot;')}" oninput="_comuSecaoSetFiltro('busca', this.value)" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+        </div>
+        <div>
+          <label style="font-size:12px;color:#475569;display:block;margin-bottom:4px">Status leitura</label>
+          <select onchange="_comuSecaoSetFiltro('status', this.value)" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+            <option value="todas"    ${_comuSecaoFiltros.status==='todas'?'selected':''}>Todas</option>
+            <option value="lidas"    ${_comuSecaoFiltros.status==='lidas'?'selected':''}>Visualizadas</option>
+            <option value="naoLidas" ${_comuSecaoFiltros.status==='naoLidas'?'selected':''}>Não visualizadas</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:12px;color:#475569;display:block;margin-bottom:4px">Período</label>
+          <select onchange="_comuSecaoSetFiltro('periodo', this.value)" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+            <option value="7"   ${_comuSecaoFiltros.periodo==='7'?'selected':''}>Últimos 7 dias</option>
+            <option value="30"  ${_comuSecaoFiltros.periodo==='30'?'selected':''}>Últimos 30 dias</option>
+            <option value="90"  ${_comuSecaoFiltros.periodo==='90'?'selected':''}>Últimos 90 dias</option>
+            <option value="365" ${_comuSecaoFiltros.periodo==='365'?'selected':''}>Último ano</option>
+            <option value="0"   ${_comuSecaoFiltros.periodo==='0'?'selected':''}>Todas</option>
+          </select>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;padding-top:18px">
+          <input type="checkbox" id="comu-sec-anexo" ${_comuSecaoFiltros.somenteAnexo?'checked':''} onchange="_comuSecaoSetFiltro('somenteAnexo', this.checked)">
+          <label for="comu-sec-anexo" style="font-size:13px;color:#475569;cursor:pointer">Somente com anexo</label>
+        </div>
+      </div>
+    </div>`;
+  // lista de mensagens (cards)
+  let listaHtml;
+  if(!filtradas.length){
+    listaHtml = `<div class="empty-state"><i class="fa-solid fa-envelope-open"></i><p>Nenhuma mensagem encontrada com este filtro.</p></div>`;
+  } else {
+    listaHtml = filtradas.map(m => {
+      const dtTxt = fmtDt(m.criadoEm);
+      const empCad = State.employees.find(e=>e.id===m.employeeId);
+      const nomeLink = empCad
+        ? `<a href="javascript:void(0)" onclick="openEmployeeModal('${m.employeeId}')" style="color:var(--primary);text-decoration:none;border-bottom:1px dotted var(--primary)">${m.employeeNome||empCad.nome||'—'}</a>`
+        : (m.employeeNome||'—');
+      const anexo = m.anexoUrl ? `<div style="margin-top:6px;font-size:12px"><a href="${m.anexoUrl}" target="_blank" rel="noopener" style="color:var(--primary)"><i class="fa-solid fa-paperclip"></i> ${m.anexoNome||'anexo'}</a></div>` : '';
+      const statusBadge = m.lida
+        ? `<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">✓✓ Visualizada${m.lidaEm?' '+fmtDt(m.lidaEm):''}</span>`
+        : `<span style="background:#f1f5f9;color:#475569;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">✓ Não visualizada</span>`;
+      return `<div style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:6px">
+          <div>
+            <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px">Para</div>
+            <div style="font-weight:600;font-size:14px;color:var(--text)">${nomeLink}</div>
+          </div>
+          <div style="text-align:right;font-size:11px;color:#999">${dtTxt}</div>
+        </div>
+        <div style="font-weight:700;font-size:14px;color:var(--text);margin-top:8px">${(m.assunto||'(sem assunto)').replace(/</g,'&lt;')}</div>
+        <div style="font-size:13px;color:#555;margin-top:4px;white-space:pre-wrap;line-height:1.45">${(m.corpo||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
+        ${anexo}
+        <div style="margin-top:10px;padding-top:8px;border-top:1px dashed var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            ${statusBadge}
+            <span style="font-size:11px;color:#888">Enviada por ${m.origemUserNome||'—'}${m.editadoEm?` · <em>editada</em>`:''}</span>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button type="button" onclick="editarMensagem('${m.id}')" class="btn btn-sm btn-outline" style="font-size:11px;padding:4px 10px;color:#E65100;border-color:#FFCC80"><i class="fa-solid fa-pen"></i> Editar</button>
+            <button type="button" onclick="reenviarMensagem('${m.id}')" class="btn btn-sm btn-outline" style="font-size:11px;padding:4px 10px;color:#1976D2;border-color:#1976D2"><i class="fa-solid fa-rotate-right"></i> Reenviar</button>
+            ${podeApagar?`<button type="button" onclick="_apagarComuSecao('${m.id}')" class="btn btn-sm btn-outline" style="font-size:11px;padding:4px 10px;color:#c62828;border-color:#ef9a9a"><i class="fa-solid fa-trash"></i> Apagar</button>`:''}
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+  box.innerHTML = headerHtml + statsHtml + filtrosHtml + listaHtml;
+  // reposiciona o cursor no campo de busca (perdido pelo innerHTML)
+  if(_comuSecaoFiltros.busca){
+    const el = document.getElementById('comu-sec-busca');
+    if(el){ el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+  }
+}
+
+// Apagar mensagem na secao Comunicacao + atualizar a UI local sem refetch.
+async function _apagarComuSecao(msgId){
+  await apagarComunicacao(msgId);
+  // remove do cache local e re-renderiza
+  if(Array.isArray(_comuSecaoCache)){
+    _comuSecaoCache = _comuSecaoCache.filter(m=>m.id!==msgId);
+  }
+  _renderComunicacaoUI();
+}
+
+// Atalho para o relatorio geral (mesmo do menu de Relatorios → "Mensagens (Auditoria)")
+function abrirRelatorioComunicacoesGeral(){
+  openReportsModal(['comunicacoes'], 'Mensagens (Auditoria)');
 }
 
 // 1. Financeiro Mensal
@@ -15096,13 +15365,14 @@ const MODULOS_LABELS={
   contratos:       'Administração',
   users:           'Usuários & Acessos',
   log:             'Log de Acessos',
+  comunicacao:        'Comunicação (Enviar mensagens)',
   comunicacoesApagar: 'Apagar Mensagens (Comunicações)'
 };
 
 // Retorna os módulos permitidos para o usuário
 function getUserModules(user){
   if(!user) return {};
-  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,escalas:true,aprovaHE:true,reports:true,pagamentos:true,pagamentosLancar:true,pagamentosAprovar:true,decimoterceiro:true,ferias:true,rescisao:true,contabilidade:true,postos:true,contratos:true,users:true,log:true,comunicacoesApagar:true};
+  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,escalas:true,aprovaHE:true,reports:true,pagamentos:true,pagamentosLancar:true,pagamentosAprovar:true,decimoterceiro:true,ferias:true,rescisao:true,contabilidade:true,postos:true,contratos:true,users:true,log:true,comunicacao:true,comunicacoesApagar:true};
   if(user.role==='operador') return {dashboard:true,employees:false,payroll:true,escalas:true,aprovaHE:false,reports:true,pagamentos:true,pagamentosLancar:false,pagamentosAprovar:false,decimoterceiro:true,ferias:true,rescisao:false,contabilidade:true,postos:false,contratos:false,users:false,log:!!user.showLog};
   if(user.role&&user.role.startsWith('p_')){
     const perfilId=user.role.replace('p_','');

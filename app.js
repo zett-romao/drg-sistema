@@ -3408,31 +3408,30 @@ function renderEmployeeTable(){
   // Atualiza cabeçalhos dinamicamente conforme filtro
   const th6 = document.getElementById('emp-th-col6');
   const th7 = document.getElementById('emp-th-col7');
-  if(th6) th6.textContent = isLicenca ? 'Início Licença' : 'Admissão';
-  if(th7) th7.textContent = isLicenca ? 'Prev. Retorno'  : 'CPF';
+  if(th6) th6.textContent = isLicenca ? 'Licença (início → retorno)' : 'Admissão';
   const podeAvulso = !!getUserModules(Auth.currentUser).pagamentosLancar;
   const podeComunicar = !!getUserModules(Auth.currentUser).employees || Auth.currentUser?.role === 'master';
   tbody.innerHTML=list.map((e)=>{
     const celularLimpo=(e.celular||'').replace(/\D/g,'');
     const whatsBtn=celularLimpo?`<button class="btn-icon btn-whatsapp-icon" onclick="openWhatsApp('${celularLimpo}','${e.nome.split(' ')[0]}')" title="WhatsApp"><i class="fa-brands fa-whatsapp"></i></button>`:'';
+    // Para o filtro "Licença Maternidade": mostra Início + Previsão juntos
+    // na coluna 6 (a coluna CPF foi removida da listagem).
     const col6 = isLicenca
-      ? `<strong style="color:#C2185B">${formatDateBr(e.licencaMaternidadeInicio)||'—'}</strong>`
+      ? `<div style="font-size:11px;color:#C2185B;line-height:1.35"><strong>${formatDateBr(e.licencaMaternidadeInicio)||'—'}</strong><br>até <strong>${formatDateBr(e.licencaMaternidadeTermino)||'—'}</strong></div>`
       : (e.dataAdmissao ? formatDateBr(e.dataAdmissao) : '—');
-    const col7 = isLicenca
-      ? `<strong style="color:#C2185B">${formatDateBr(e.licencaMaternidadeTermino)||'—'}</strong>`
-      : `<span class="td-mono">${e.cpf||'—'}</span>`;
-    return `<tr onclick="openEmployeeModal('${e.id}')" style="cursor:pointer" title="Abrir cadastro de ${(e.nome||'').replace(/"/g,'&quot;')}">
+    const nomeSafe=(e.nome||'').replace(/"/g,'&quot;');
+    const postoSafe=(e.posto||'').replace(/"/g,'&quot;');
+    return `<tr onclick="openEmployeeModal('${e.id}')" style="cursor:pointer" title="Abrir cadastro de ${nomeSafe}">
       <td><span class="badge badge-muted">${e.registro?String(e.registro).padStart(4,'0'):'—'}</span></td>
-      <td><div style="display:flex;align-items:center;gap:8px">
+      <td style="max-width:220px"><div style="display:flex;align-items:center;gap:8px;min-width:0">
         ${e.fotoUrl?`<img src="${e.fotoUrl}" class="emp-table-photo" alt="">`:`<div class="emp-table-initials">${initials(e.nome)}</div>`}
-        <span class="td-name">${e.nome}</span>
+        <span class="td-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${nomeSafe}">${e.nome}</span>
       </div></td>
       <td>${statusBadge(e.status)}</td>
-      <td><span class="td-escala">${escalaLabel(e.escala||'5x2A')}</span></td>
-      <td><span style="font-size:12px;color:var(--text-muted)">${e.posto||'—'}</span></td>
-      <td>${col6}</td>
-      <td>${col7}</td>
-      <td><span class="td-pix">${e.chavePix||'—'}</span></td>
+      <td><span class="td-escala" style="white-space:nowrap">${escalaLabel(e.escala||'5x2A')}</span></td>
+      <td style="max-width:200px"><span style="font-size:12px;color:var(--text-muted);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${postoSafe}">${e.posto||'—'}</span></td>
+      <td style="white-space:nowrap">${col6}</td>
+      <td><span class="td-pix" style="white-space:nowrap">${e.chavePix||'—'}</span></td>
       <td onclick="event.stopPropagation()"><div class="actions-cell">
         ${whatsBtn}
         <button class="btn-icon btn-primary-icon" onclick="openPayrollForEmployee('${e.id}')" title="Lançar Folha"><i class="fa-solid fa-file-invoice-dollar"></i></button>

@@ -7194,10 +7194,11 @@ async function executarPagamentoLote() {
 // ============================================
 function _aprovacaoStatusBadge(st){
   const map={
-    pendente:['#FFF3E0','#E65100','Pendente'],
-    pago:    ['#E8F5E9','#2e7d32','Pago'],
-    recusado:['#FCE4EC','#c62828','Recusado'],
-    erro:    ['#fce4e4','#c62828','Erro'],
+    pendente:  ['#FFF3E0','#E65100','Pendente'],
+    pago:      ['#E8F5E9','#2e7d32','Pago'],
+    recusado:  ['#FCE4EC','#c62828','Recusado'],
+    erro:      ['#fce4e4','#c62828','Erro'],
+    estornado: ['#FFF3E0','#E65100','Estornado'],
   };
   const m=map[st]||['#eee','#777',st||'—'];
   return `<span style="background:${m[0]};color:${m[1]};padding:2px 9px;border-radius:10px;font-size:11px;font-weight:600">${m[2]}</span>`;
@@ -7659,6 +7660,8 @@ function renderEmpPagamentos(empId){
       comp=`<span style="font-size:11px;color:#c62828">${s.motivoRecusa||'recusado'}</span>`;
     } else if(s.status==='erro'){
       comp=`<span style="font-size:11px;color:#c62828">${s.erro||'erro'}</span>`;
+    } else if(s.status==='estornado'){
+      comp=`<span style="font-size:11px;color:#E65100">${s.motivoEstorno||'estornado'}</span>`;
     }
     return `<tr style="border-bottom:1px solid var(--border)">
       <td style="padding:8px 6px;text-align:center;width:30px">${chk}</td>
@@ -8102,13 +8105,19 @@ function renderAprovacoes(){
         : `<span style="font-size:11px;color:#999">aguardando aprovador</span>`;
     } else if(s.status==='pago'){
       const idTxt=s.asaasTransferId?`<div style="font-size:10px;color:#aaa;margin-top:3px">ID: ${s.asaasTransferId}</div>`:'';
+      const estornarBtn = podeAprovar
+        ? `<div style="margin-top:5px"><button class="btn btn-sm btn-outline" style="color:#E65100;border-color:#FFCC80;font-size:11px;padding:3px 9px" onclick="estornarPagamento('${s.id}')" title="Marcar como estornado — use quando o PIX nao foi concluido no banco"><i class="fa-solid fa-rotate-left"></i> Estornar</button></div>`
+        : '';
       if(s.asaasComprovante){
-        acoes=`<a href="${s.asaasComprovante}" target="_blank" rel="noopener" class="btn btn-sm" style="background:#00695C;color:#fff;border-color:#00695C;text-decoration:none"><i class="fa-solid fa-receipt"></i> Comprovante</a>${idTxt}`;
+        acoes=`<a href="${s.asaasComprovante}" target="_blank" rel="noopener" class="btn btn-sm" style="background:#00695C;color:#fff;border-color:#00695C;text-decoration:none"><i class="fa-solid fa-receipt"></i> Comprovante</a>${idTxt}${estornarBtn}`;
       } else if(s.asaasTransferId){
-        acoes=`<button class="btn btn-sm btn-outline" style="color:#00695C;border-color:#00695C" onclick="verComprovante('${s.id}',this)"><i class="fa-solid fa-receipt"></i> Comprovante</button>${idTxt}`;
+        acoes=`<button class="btn btn-sm btn-outline" style="color:#00695C;border-color:#00695C" onclick="verComprovante('${s.id}',this)"><i class="fa-solid fa-receipt"></i> Comprovante</button>${idTxt}${estornarBtn}`;
       } else {
-        acoes=`<span style="font-size:11px;color:#00695C">pago</span>`;
+        acoes=`<span style="font-size:11px;color:#00695C">pago</span>${estornarBtn}`;
       }
+    } else if(s.status==='estornado'){
+      acoes=`<span style="font-size:11px;color:#E65100" title="${(s.motivoEstorno||'').replace(/"/g,'&quot;')}"><i class="fa-solid fa-rotate-left"></i> ${s.motivoEstorno||'estornado'}</span>`
+        + (s.estornadoEm?`<div style="font-size:10px;color:#aaa;margin-top:2px">por ${s.estornadoPorNome||'—'} · ${(s.estornadoEm||'').substring(0,10).split('-').reverse().join('/')}</div>`:'');
     } else if(s.status==='recusado'){
       acoes=`<span style="font-size:11px;color:#c62828">${(s.motivoRecusa||'recusado')}</span>`;
     } else if(s.status==='erro'){
@@ -8184,6 +8193,40 @@ async function confirmarAprovacaoPagamento(){
     resEl.innerHTML=`<div style="background:#fce4e4;border:1px solid #ef9a9a;border-radius:9px;padding:14px;font-size:13px;color:#c62828">
       <i class="fa-solid fa-triangle-exclamation"></i> ${e.message}</div>`;
     btn.disabled=false; btn.innerHTML='<i class="fa-solid fa-lock"></i> Aprovar e Pagar';
+  }
+}
+
+// Estorna um pagamento marcado como "pago" — usar quando o PIX nao foi
+// concluido no banco (devolvido / falhou apos a aprovacao). A linha sai
+// da lista "Pagos" e aparece no filtro "Estornados". Mantem o registro
+// para auditoria (motivo, quem estornou, quando).
+async function estornarPagamento(id){
+  const mods = getUserModules(Auth.currentUser);
+  if(!mods.pagamentosAprovar && Auth.currentUser?.role!=='master'){
+    toast('Sem permissão para estornar pagamentos.','error'); return;
+  }
+  const s = (State.solicitacoes||[]).find(x=>x.id===id);
+  if(!s){ toast('Solicitação não encontrada.','error'); return; }
+  if(s.status!=='pago'){ toast('Só dá pra estornar uma solicitação com status "Pago".','warning'); return; }
+  if(!confirm(`Estornar este pagamento?\n\n${s.employeeNome||''} — ${fmtMoney(s.valor||0)}\nID Asaas: ${s.asaasTransferId||'—'}\n\nUse quando o PIX nao chegou no banco (devolvido / falhou). A linha sai da lista "Pagos" e fica em "Estornados".`)) return;
+  const motivo = (prompt('Motivo do estorno (obrigatorio):')||'').trim();
+  if(!motivo){ toast('Estorno cancelado — o motivo é obrigatório.','warning'); return; }
+  const agora = new Date().toISOString();
+  const quem = (Auth.currentUser && (Auth.currentUser.username||Auth.currentUser.id))||'—';
+  try{
+    await DB.merge('solicitacoesPagamento', id, {
+      status: 'estornado',
+      motivoEstorno: motivo,
+      estornadoEm: agora,
+      estornadoPorNome: quem,
+      updatedAt: agora,
+    });
+    Object.assign(s, { status:'estornado', motivoEstorno:motivo, estornadoEm:agora, estornadoPorNome:quem });
+    try{ Auth.log('PAGAMENTO_ESTORNADO', null, `${s.employeeNome||''} — ${fmtMoney(s.valor||0)} — ${motivo}`); }catch(_){}
+    toast('Pagamento estornado. Saiu da lista de "Pagos".','success');
+    renderAprovacoes();
+  }catch(e){
+    toast('Erro ao estornar: '+(e.message||e),'error');
   }
 }
 

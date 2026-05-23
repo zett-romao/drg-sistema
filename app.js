@@ -11313,22 +11313,24 @@ function _renderComunicacaoUI(){
         <button class="btn btn-outline" onclick="abrirRelatorioComunicacoesGeral()" title="Gerar relatorio PDF com auditoria de todas as mensagens"><i class="fa-solid fa-file-pdf"></i> Relatório (auditoria)</button>
       </div>
     </div>`;
-  // stats cards (alinhados ao padrao do sistema)
+  // stats cards (alinhados ao padrao do sistema) — clicaveis, abrem drill-down
+  const _cardStyle = `background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center;cursor:pointer;transition:transform .15s ease,box-shadow .15s ease,border-color .15s ease`;
+  const _cardHover = `onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 14px rgba(0,0,0,.08)';" onmouseout="this.style.transform='';this.style.boxShadow='';"`;
   const statsHtml = `
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:18px">
-      <div style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center">
+      <div style="${_cardStyle};border-top:3px solid #1976D2" ${_cardHover} onclick="_comuDrillDown('todas')" title="Ver todas (filtro atual)">
         <div style="font-size:24px;font-weight:700;color:#1976D2">${filtradas.length}</div>
         <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.4px">Mensagens (filtro)</div>
       </div>
-      <div style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center">
+      <div style="${_cardStyle};border-top:3px solid #16a34a" ${_cardHover} onclick="_comuDrillDown('lidas')" title="Ver so as visualizadas">
         <div style="font-size:24px;font-weight:700;color:#16a34a">${totLidas}</div>
         <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.4px">Visualizadas</div>
       </div>
-      <div style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center">
+      <div style="${_cardStyle};border-top:3px solid #94a3b8" ${_cardHover} onclick="_comuDrillDown('naoLidas')" title="Ver so as nao visualizadas">
         <div style="font-size:24px;font-weight:700;color:#94a3b8">${totNaoLidas}</div>
         <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.4px">Não visualizadas</div>
       </div>
-      <div style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center">
+      <div style="${_cardStyle};border-top:3px solid #E65100" ${_cardHover} onclick="_comuDrillDown('anexo')" title="Ver so com anexo">
         <div style="font-size:24px;font-weight:700;color:#E65100">${totAnexo}</div>
         <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.4px">Com anexo</div>
       </div>
@@ -11426,6 +11428,93 @@ async function _apagarComuSecao(msgId){
 // Atalho para o relatorio geral (mesmo do menu de Relatorios → "Mensagens (Auditoria)")
 function abrirRelatorioComunicacoesGeral(){
   openReportsModal(['comunicacoes'], 'Mensagens (Auditoria)');
+}
+
+// Drill-down dos cards estatisticos — combina o filtro atual da secao com
+// o stat clicado e abre lista enxuta em modal flutuante. Cada linha leva
+// ao cadastro do colaborador na aba Comunicacoes.
+function _comuDrillDown(stat){
+  const todas = _comuSecaoCache || [];
+  // 1) aplica os MESMOS filtros que ja estao ativos na tela
+  const D = 86400000;
+  const agora = Date.now();
+  const dias = parseInt(_comuSecaoFiltros.periodo||'30',10);
+  const busca = (_comuSecaoFiltros.busca||'').trim().toLowerCase();
+  let lista = todas.filter(m => {
+    if(dias>0 && m.criadoEm){
+      const dt = new Date(m.criadoEm).getTime();
+      if(isFinite(dt) && (agora - dt) > dias*D) return false;
+    }
+    if(_comuSecaoFiltros.status==='lidas'    && !m.lida) return false;
+    if(_comuSecaoFiltros.status==='naoLidas' && m.lida)  return false;
+    if(_comuSecaoFiltros.somenteAnexo && !m.anexoUrl)    return false;
+    if(busca){
+      const blob = `${m.assunto||''} ${m.corpo||''} ${m.employeeNome||''} ${m.origemUserNome||''}`.toLowerCase();
+      if(!blob.includes(busca)) return false;
+    }
+    return true;
+  });
+  // 2) aplica o filtro do card clicado (alem do que ja' tinha)
+  let titulo = 'Mensagens (filtro atual)';
+  let cor    = '#1976D2';
+  if(stat==='lidas'){
+    lista = lista.filter(m => m.lida);
+    titulo = 'Mensagens visualizadas pelo colaborador';
+    cor = '#16a34a';
+  } else if(stat==='naoLidas'){
+    lista = lista.filter(m => !m.lida);
+    titulo = 'Mensagens não visualizadas ainda';
+    cor = '#94a3b8';
+  } else if(stat==='anexo'){
+    lista = lista.filter(m => m.anexoUrl);
+    titulo = 'Mensagens com anexo';
+    cor = '#E65100';
+  }
+  lista.sort((a,b) => (b.criadoEm||'').localeCompare(a.criadoEm||''));
+  // 3) monta lista enxuta — clicar leva ao cadastro do colaborador
+  const fmtDt = iso => { const d=iso?new Date(iso):null; return (d && !isNaN(d.getTime())) ? d.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—'; };
+  const linhasHtml = lista.length === 0
+    ? `<div style="text-align:center;padding:30px;color:#94a3b8"><i class="fa-solid fa-folder-open"></i><div style="margin-top:6px">Nenhum registro com este filtro</div></div>`
+    : lista.map(m => {
+        const emp = State.employees.find(e=>e.id===m.employeeId);
+        const nomeEmp = (emp && emp.nome) || m.employeeNome || '—';
+        const reg = (emp && emp.registro) ? String(emp.registro).padStart(4,'0') : '—';
+        const ico = m.anexoUrl ? `<i class="fa-solid fa-paperclip" style="color:#E65100;margin-left:4px" title="Tem anexo"></i>` : '';
+        const stat = m.lida
+          ? `<span style="color:#16a34a;font-weight:600;font-size:11px">✓✓</span>`
+          : `<span style="color:#94a3b8;font-size:11px">✓</span>`;
+        return `<div onclick="_comuAbrirRegistroDoCard('${m.employeeId}')" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #f1f5f9;cursor:pointer;transition:background .15s" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${nomeEmp} ${ico}</div>
+            <div style="font-size:11px;color:#94a3b8">Reg. ${reg} · ${m.origemUserNome||'—'}</div>
+            <div style="font-size:12px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px">${(m.assunto||'(sem assunto)').replace(/</g,'&lt;')}</div>
+          </div>
+          <div style="text-align:right;flex-shrink:0">
+            <div style="font-size:11px;color:#666;white-space:nowrap">${fmtDt(m.criadoEm)}</div>
+            <div style="margin-top:2px">${stat}</div>
+          </div>
+          <i class="fa-solid fa-chevron-right" style="color:#cbd5e1;font-size:11px;margin-left:4px"></i>
+        </div>`;
+      }).join('');
+  const headerHtml = `
+    <div style="padding:14px 18px;border-bottom:1px solid #f1f5f9;background:linear-gradient(0deg, #fff 0%, ${cor}11 100%)">
+      <div style="font-size:12px;color:${cor};font-weight:700;letter-spacing:.5px;text-transform:uppercase">${titulo}</div>
+      <div style="font-size:24px;font-weight:700;color:${cor};margin-top:2px">${lista.length}</div>
+      <div style="font-size:11px;color:#888;margin-top:2px">Clique em qualquer linha para abrir o cadastro do colaborador</div>
+    </div>`;
+  const html = `${headerHtml}<div style="max-height:60vh;overflow-y:auto">${linhasHtml}</div>`;
+  _showFloatingModal('Mensagens', html);
+}
+
+// Clicar em linha do drill-down: fecha o modal flutuante e abre o cadastro
+// do colaborador, ja' na aba "Comunicacoes".
+function _comuAbrirRegistroDoCard(empId){
+  const float = document.getElementById('modal-floating-disc');
+  if(float) float.remove();
+  if(!empId){ toast('Colaborador não identificado.','warning'); return; }
+  openEmployeeModal(empId);
+  // Espera o modal abrir e ja' alterna para a aba de Comunicacoes
+  setTimeout(() => { try{ switchTab('tab-comunicacoes'); }catch(_){} }, 250);
 }
 
 // 1. Financeiro Mensal

@@ -7694,7 +7694,9 @@ function renderEmpPagamentos(empId){
 // ============================================
 // COMUNICAÇÕES — mensagens do gestor para o colaborador (Fase C)
 // ============================================
-let _comuDestinatarios = [];
+let _comuDestinatarios     = [];
+let _comuMensagensCache    = {};   // msgId → mensagem (para reenviar)
+let _comuAnexoHerdado      = null; // anexo da mensagem original (no Reenviar)
 
 function openComunicarModal(empIdOrNull){
   if(!getUserModules(Auth.currentUser).employees && Auth.currentUser?.role!=='master'){
@@ -7720,9 +7722,39 @@ function openComunicarModal(empIdOrNull){
   setVal('comu-assunto','');
   setVal('comu-corpo','');
   const fi=document.getElementById('comu-anexo'); if(fi) fi.value='';
+  _comuAnexoHerdado = null;
+  _comuRenderAnexoHerdado();
   _comuRenderDest();
   document.getElementById('modal-comunicar').classList.remove('hidden');
 }
+
+// Reenviar uma mensagem já enviada: abre o composer com assunto + corpo
+// já preenchidos. O usuário escolhe os novos destinatários. Se a mensagem
+// tinha anexo, ele é herdado (mesmo arquivo) — pode ser substituído por
+// outro upload ou removido pelo link "remover".
+function reenviarMensagem(msgId){
+  const m = _comuMensagensCache[msgId];
+  if(!m){ toast('Mensagem não encontrada — recarregue a aba.','error'); return; }
+  openComunicarModal();
+  setVal('comu-assunto', m.assunto||'');
+  setVal('comu-corpo',   m.corpo||'');
+  if(m.anexoUrl){
+    _comuAnexoHerdado = { url:m.anexoUrl, nome:m.anexoNome||'anexo', tipo:m.anexoTipo||'' };
+  }
+  _comuRenderAnexoHerdado();
+}
+
+function _comuRenderAnexoHerdado(){
+  const el = document.getElementById('comu-anexo-herdado'); if(!el) return;
+  if(_comuAnexoHerdado){
+    el.style.display='';
+    el.innerHTML = `<i class="fa-solid fa-paperclip"></i> Anexo da mensagem original: <strong>${_comuAnexoHerdado.nome}</strong> — será reaproveitado se você não enviar outro arquivo. <button type="button" onclick="_comuLimparAnexoHerdado()" style="background:none;border:none;color:#c62828;cursor:pointer;font-size:11px;margin-left:6px;text-decoration:underline">remover</button>`;
+  } else {
+    el.style.display='none';
+    el.innerHTML='';
+  }
+}
+function _comuLimparAnexoHerdado(){ _comuAnexoHerdado=null; _comuRenderAnexoHerdado(); }
 
 function _comuRenderDest(){
   const box=document.getElementById('comu-dest-list');
@@ -7785,6 +7817,11 @@ async function enviarComunicacao(){
       anexoUrl=await ref.getDownloadURL();
       anexoNome=file.name;
       anexoTipo=file.type||'';
+    } else if(_comuAnexoHerdado){
+      // reenviar: reaproveita o anexo da mensagem original (sem novo upload)
+      anexoUrl  = _comuAnexoHerdado.url;
+      anexoNome = _comuAnexoHerdado.nome;
+      anexoTipo = _comuAnexoHerdado.tipo;
     }
     const quem=(Auth.currentUser && (Auth.currentUser.username||Auth.currentUser.id))||'—';
     const quemId=(Auth.currentUser && Auth.currentUser.id)||'';
@@ -7840,6 +7877,9 @@ async function renderComunicacoesTab(empId){
     lista=snap.docs.map(d=>({id:d.id,...d.data()}));
   }catch(e){ console.error('comunicacoes:fetch',e); }
   lista.sort((a,b)=>(b.criadoEm||'').localeCompare(a.criadoEm||''));
+  // cache das mensagens para o botão "Reenviar"
+  _comuMensagensCache = {};
+  lista.forEach(m => { _comuMensagensCache[m.id] = m; });
   const emp=State.employees.find(e=>e.id===empId);
   const autos = emp ? _computeAvisosAutomaticos(emp) : [];
   let html='';
@@ -7863,7 +7903,10 @@ async function renderComunicacoesTab(empId){
         </div>
         <div style="font-size:12px;color:#555;margin-top:4px;white-space:pre-wrap">${m.corpo||''}</div>
         ${anexo}
-        <div style="margin-top:6px;font-size:11px;color:#888">Enviado por ${m.origemUserNome||'—'}</div>
+        <div style="margin-top:8px;padding-top:7px;border-top:1px dashed var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="font-size:11px;color:#888">Enviado por ${m.origemUserNome||'—'}</span>
+          <button type="button" onclick="reenviarMensagem('${m.id}')" class="btn btn-sm btn-outline" style="font-size:11px;padding:3px 10px;color:#1976D2;border-color:#1976D2"><i class="fa-solid fa-rotate-right"></i> Reenviar</button>
+        </div>
       </div>`;
     }).join('');
   }

@@ -101,9 +101,27 @@
 
     /* NAVEGAÇÃO INFERIOR */
     .top-nav{background:white;border-bottom:1px solid #e2e8f0;display:flex;flex-shrink:0}
-    .nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 8px;border:none;background:none;cursor:pointer;color:#94a3b8;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;transition:color .2s}
+    .nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 8px;border:none;background:none;cursor:pointer;color:#94a3b8;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;transition:color .2s;position:relative}
     .nav-btn.active{color:#2563eb}
-    .nav-icon{font-size:22px}
+    .nav-icon{font-size:22px;position:relative;display:inline-block}
+    /* Badge vermelho no sino com numero de mensagens nao lidas */
+    .nav-badge{position:absolute;top:4px;left:50%;transform:translateX(8px);background:#ef4444;color:#fff;border-radius:11px;font-size:10px;font-weight:700;padding:1px 6px;min-width:18px;text-align:center;box-shadow:0 0 0 2px #fff;line-height:1.3;display:none;letter-spacing:0;animation:badgePulse 1.6s ease-in-out infinite}
+    .nav-badge.show{display:inline-block}
+    @keyframes badgePulse{0%,100%{transform:translateX(8px) scale(1)}50%{transform:translateX(8px) scale(1.08)}}
+
+    /* Popup de novas mensagens — aparece quando o app abre */
+    .popup-overlay{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:10000;display:none;align-items:center;justify-content:center;padding:20px}
+    .popup-overlay.show{display:flex}
+    .popup-card{background:#fff;border-radius:18px;max-width:380px;width:100%;padding:24px 22px;text-align:center;box-shadow:0 12px 48px rgba(0,0,0,.35);animation:popIn .28s ease}
+    @keyframes popIn{from{transform:scale(.85);opacity:0}to{transform:scale(1);opacity:1}}
+    .popup-icon{font-size:54px;margin-bottom:8px;line-height:1}
+    .popup-title{font-size:18px;font-weight:700;color:#1e293b;margin-bottom:8px}
+    .popup-msg{font-size:14px;color:#64748b;margin-bottom:22px;line-height:1.45}
+    .popup-btns{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+    .popup-btn{padding:11px 20px;border-radius:11px;font-weight:700;font-size:14px;cursor:pointer;border:none;font-family:inherit}
+    .popup-btn-primary{background:#2563eb;color:#fff}
+    .popup-btn-primary:active{background:#1d4ed8}
+    .popup-btn-secondary{background:#f1f5f9;color:#475569}
 
     /* SEÇÕES */
     .sec{display:none;flex:1;overflow-y:auto}
@@ -131,6 +149,19 @@
 
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
+
+<!-- POPUP: novas mensagens (aparece ao abrir o app, uma vez por sessao) -->
+<div class="popup-overlay" id="popup-novas-msgs">
+  <div class="popup-card">
+    <div class="popup-icon">📬</div>
+    <div class="popup-title" id="popup-msg-title">Você tem mensagens novas</div>
+    <div class="popup-msg" id="popup-msg-body">A gestão enviou comunicação para você. Toque em "Ver agora" para abrir.</div>
+    <div class="popup-btns">
+      <button class="popup-btn popup-btn-secondary" onclick="_fecharPopupMsgs(false)">Mais tarde</button>
+      <button class="popup-btn popup-btn-primary" onclick="_fecharPopupMsgs(true)">Ver agora</button>
+    </div>
+  </div>
+</div>
 
 <!-- ============================= TELA LOGIN ============================= -->
 <div class="screen active" id="screen-login">
@@ -174,6 +205,7 @@
     </button>
     <button class="nav-btn" id="nav-avisos" onclick="navTo('avisos')">
       <span class="nav-icon">🔔</span>Avisos
+      <span class="nav-badge" id="badge-avisos"></span>
     </button>
     <button class="nav-btn" id="nav-historico" onclick="navTo('historico')">
       <span class="nav-icon">📋</span>Histórico
@@ -384,7 +416,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=16').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=17').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -543,6 +575,57 @@ async function carregarHome() {
   await carregarPayroll();
   renderHoje();
   renderBotao();
+  // Em background: confere se ha mensagens novas, atualiza o badge do sino
+  // e — uma vez por sessao — abre o popup "Voce tem N mensagens novas".
+  _checarMensagensNovas().catch(e => console.warn('checar msgs', e));
+}
+
+// Carrega as comunicacoes do colaborador, atualiza o badge do sino e,
+// se houver nao-lidas, mostra o popup (uma vez por sessao do app).
+async function _checarMensagensNovas(){
+  if(!currentEmp) return;
+  await _carregarAvisosData();
+  const naoLidas = ((_avisosDataCache||{}).comunicacoes||[]).filter(m => !m.lida).length;
+  _atualizarBadgeAvisos(naoLidas);
+  if(naoLidas > 0) _mostrarPopupMsgs(naoLidas);
+}
+
+function _atualizarBadgeAvisos(qtdOpcional){
+  const badge = document.getElementById('badge-avisos');
+  if(!badge) return;
+  const qtd = (typeof qtdOpcional === 'number')
+    ? qtdOpcional
+    : ((_avisosDataCache||{}).comunicacoes||[]).filter(m => !m.lida).length;
+  if(qtd > 0){
+    badge.textContent = qtd > 99 ? '99+' : String(qtd);
+    badge.classList.add('show');
+  } else {
+    badge.classList.remove('show');
+  }
+}
+
+function _mostrarPopupMsgs(qtd){
+  if(qtd <= 0) return;
+  // Mostra apenas uma vez por sessao do app — sessionStorage zera quando o
+  // colaborador fecha e abre de novo, mas nao reaparece se ele apertou
+  // "Mais tarde" e ficou usando.
+  if(sessionStorage.getItem('drg_popup_msg_shown') === '1') return;
+  const overlay = document.getElementById('popup-novas-msgs');
+  if(!overlay) return;
+  document.getElementById('popup-msg-title').textContent =
+    qtd === 1 ? 'Você tem 1 mensagem nova' : `Você tem ${qtd} mensagens novas`;
+  document.getElementById('popup-msg-body').textContent =
+    qtd === 1
+      ? 'A gestão enviou uma comunicação para você. Toque em "Ver agora" para abrir.'
+      : 'A gestão enviou comunicações para você. Toque em "Ver agora" para abrir.';
+  overlay.classList.add('show');
+  sessionStorage.setItem('drg_popup_msg_shown','1');
+}
+
+function _fecharPopupMsgs(irParaAvisos){
+  const overlay = document.getElementById('popup-novas-msgs');
+  if(overlay) overlay.classList.remove('show');
+  if(irParaAvisos) navTo('avisos');
 }
 
 function renderEmp() {
@@ -1128,6 +1211,8 @@ async function renderAvisos(){
       try{ dbCol('comunicacoes').doc(m.id).update({ lida:true, lidaEm:nowISO }).catch(()=>{}); }catch(_){}
     }
   });
+  // Acabou de marcar tudo como lido nesta tela — zera o badge do sino.
+  _atualizarBadgeAvisos(0);
 
   // Diagnóstico de carga (visível pro suporte enquanto investigamos
   // por que mensagens não chegam) — mostra quantas mensagens vieram
@@ -1167,6 +1252,8 @@ function mostrarTela(nome) {
 // ─── LOGOUT ───────────────────────────────────────────────────────────────────
 function doLogout() {
   sessionStorage.removeItem('drg_ponto_emp');
+  // Permite que o popup de novas mensagens reapareca na proxima sessao
+  sessionStorage.removeItem('drg_popup_msg_shown');
   currentEmp     = null;
   currentPayroll = null;
   _avisosDataCache = null;
@@ -1174,6 +1261,7 @@ function doLogout() {
   mostrarTela('login');
   document.getElementById('login-mat').value = '';
   document.getElementById('login-pin').value = '';
+  _atualizarBadgeAvisos(0);
 }
 </script>
 </body>

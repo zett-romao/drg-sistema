@@ -384,7 +384,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=12').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=13').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -1000,15 +1000,18 @@ async function renderAvisos(){
     }
   }
 
-  // Transferência PIX recente (últimos 14 dias)
+  // Transferência PIX recente (últimos 14 dias) — timestamp completo
+  // para evitar perder o aviso por causa de fuso horário.
   data.solicitacoes.forEach(s=>{
-    const dt = (s.aprovadoEm||s.criadoEm||'').substring(0,10);
-    if(!dt) return;
-    const dd = Math.round((hoje-new Date(dt+'T00:00:00'))/D);
-    if(dd >= 0 && dd <= 14){
-      const quando = dd===0?'hoje':dd===1?'ontem':`há ${dd} dias`;
-      av.push({tipo:'success', icone:'💵', titulo:'Transferência PIX recebida', msg:`${_avisosFmtMoeda(s.valor)} foi transferido para sua conta ${quando} — consulte seu banco.`});
-    }
+    const raw = s.aprovadoEm||s.criadoEm;
+    if(!raw) return;
+    const created = new Date(raw);
+    if(isNaN(created.getTime())) return;
+    const ddFloat = (Date.now() - created.getTime()) / D;
+    if(ddFloat > 14) return;
+    const dd = Math.max(0, Math.floor(ddFloat));
+    const quando = dd===0?'hoje':dd===1?'ontem':`há ${dd} dias`;
+    av.push({tipo:'success', icone:'💵', titulo:'Transferência PIX recebida', msg:`${_avisosFmtMoeda(s.valor)} foi transferido para sua conta ${quando} — consulte seu banco.`});
   });
 
   // Aniversário pessoal
@@ -1057,17 +1060,21 @@ async function renderAvisos(){
     }
   }
 
-  // Mensagens da gestão (últimos 60 dias) — mais recentes primeiro
+  // Mensagens da gestão (últimos 60 dias) — mais recentes primeiro.
+  // Usa o timestamp completo (não só a data) para não bagunçar com fuso:
+  // uma mensagem criada às 00:14 UTC pode ter data "amanhã" em horário
+  // local de quem leu, mas ainda é uma mensagem válida.
   (data.comunicacoes||[]).slice().sort((a,b)=>(b.criadoEm||'').localeCompare(a.criadoEm||'')).forEach(m=>{
+    if(!m.criadoEm) return;
+    const created = new Date(m.criadoEm);
+    if(isNaN(created.getTime())) return;
+    const ddFloat = (Date.now() - created.getTime()) / D;
+    if(ddFloat > 60) return;        // mais de 60 dias atrás → esconde
     const dt = (m.criadoEm||'').substring(0,10);
-    if(!dt) return;
-    const dd = Math.round((hoje-new Date(dt+'T00:00:00'))/D);
-    if(dd>=0 && dd<=60){
-      const anexo = m.anexoUrl ? `<br><a href="${m.anexoUrl}" target="_blank" rel="noopener" style="color:#1e293b;font-weight:600;text-decoration:underline">📎 ${m.anexoNome||'anexo'}</a>` : '';
-      const quem  = m.origemUserNome ? `<div style="margin-top:6px;font-size:11px;color:#64748b">— de ${m.origemUserNome} · ${_avisosFmtData(dt)}</div>` : '';
-      const corpoHtml = (m.corpo||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
-      av.push({tipo:'aviso', icone:'✉️', titulo:m.assunto||'Mensagem da gestão', msg:`${corpoHtml}${anexo}${quem}`});
-    }
+    const anexo = m.anexoUrl ? `<br><a href="${m.anexoUrl}" target="_blank" rel="noopener" style="color:#1e293b;font-weight:600;text-decoration:underline">📎 ${m.anexoNome||'anexo'}</a>` : '';
+    const quem  = m.origemUserNome ? `<div style="margin-top:6px;font-size:11px;color:#64748b">— de ${m.origemUserNome} · ${_avisosFmtData(dt)}</div>` : '';
+    const corpoHtml = (m.corpo||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+    av.push({tipo:'aviso', icone:'✉️', titulo:m.assunto||'Mensagem da gestão', msg:`${corpoHtml}${anexo}${quem}`});
   });
 
   // Diagnóstico de carga (visível pro suporte enquanto investigamos

@@ -11470,7 +11470,13 @@ function _comuDrillDown(stat){
     titulo = 'Mensagens com anexo';
     cor = '#E65100';
   }
-  lista.sort((a,b) => (b.criadoEm||'').localeCompare(a.criadoEm||''));
+  // Define qual data e' relevante para o card clicado:
+  // - "lidas" → ordena e mostra LIDA EM (quando o colaborador viu)
+  // - demais → ordena e mostra ENVIADA EM (criadoEm)
+  const usarLidaEm = (stat==='lidas');
+  const campoData  = usarLidaEm ? 'lidaEm' : 'criadoEm';
+  const rotuloData = usarLidaEm ? 'Lida em' : 'Enviada em';
+  lista.sort((a,b) => (b[campoData]||b.criadoEm||'').localeCompare(a[campoData]||a.criadoEm||''));
   // 3) monta lista enxuta — clicar leva ao cadastro do colaborador
   const fmtDt = iso => { const d=iso?new Date(iso):null; if(!d||isNaN(d.getTime())) return '—'; return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}); };
   const linhasHtml = lista.length === 0
@@ -11483,6 +11489,8 @@ function _comuDrillDown(stat){
         const stat = m.lida
           ? `<span style="color:#16a34a;font-weight:600;font-size:11px">✓✓</span>`
           : `<span style="color:#94a3b8;font-size:11px">✓</span>`;
+        // Data principal varia: se for card "Visualizadas", mostra LIDA EM
+        const dtPrincipal = usarLidaEm ? m.lidaEm : m.criadoEm;
         return `<div onclick="_comuAbrirRegistroDoCard('${m.employeeId}')" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #f1f5f9;cursor:pointer;transition:background .15s" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
           <div style="flex:1;min-width:0">
             <div style="font-weight:600;font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${nomeEmp} ${ico}</div>
@@ -11490,7 +11498,9 @@ function _comuDrillDown(stat){
             <div style="font-size:12px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px">${(m.assunto||'(sem assunto)').replace(/</g,'&lt;')}</div>
           </div>
           <div style="text-align:right;flex-shrink:0">
-            <div style="font-size:11px;color:#666;white-space:nowrap">${fmtDt(m.criadoEm)}</div>
+            <div style="font-size:10px;color:${usarLidaEm?'#16a34a':'#94a3b8'};text-transform:uppercase;letter-spacing:.4px;font-weight:600">${rotuloData}</div>
+            <div style="font-size:11px;color:#666;white-space:nowrap">${fmtDt(dtPrincipal)}</div>
+            ${usarLidaEm ? `<div style="font-size:10px;color:#94a3b8;margin-top:2px" title="Enviada em">env. ${fmtDt(m.criadoEm)}</div>` : ''}
             <div style="margin-top:2px">${stat}</div>
           </div>
           <i class="fa-solid fa-chevron-right" style="color:#cbd5e1;font-size:11px;margin-left:4px"></i>

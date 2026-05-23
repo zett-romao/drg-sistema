@@ -8053,14 +8053,18 @@ async function renderDisciplinaTab(empId){
     lista = snap.docs.map(d => ({ id:d.id, ...d.data() }));
   }catch(e){ console.error('disciplina:fetch', e); }
   lista.sort((a,b) => (b.criadoEm||'').localeCompare(a.criadoEm||''));
-  const totAdv = lista.filter(x=>x.tipo==='advertencia').length;
-  const totSus = lista.filter(x=>x.tipo==='suspensao').length;
+  // Anuladas nao contam nas estatisticas — sao registros historicos
+  const ativas = lista.filter(x => !x.anulada);
+  const totAdv = ativas.filter(x=>x.tipo==='advertencia').length;
+  const totSus = ativas.filter(x=>x.tipo==='suspensao').length;
+  const totAnul = lista.filter(x=>x.anulada).length;
   const fmtDt = iso => { const d=iso?new Date(iso):null; return (d && !isNaN(d.getTime())) ? d.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—'; };
+  const podeAnular = !!getUserModules(Auth.currentUser).disciplinaApagar || Auth.currentUser?.role==='master';
   let html = `
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
       <div>
-        <strong style="font-size:13px">Atos disciplinares (${lista.length})</strong>
-        <div style="font-size:11px;color:#888;margin-top:2px">${totAdv} advertência(s) · ${totSus} suspensão(ões)</div>
+        <strong style="font-size:13px">Atos disciplinares (${ativas.length}${totAnul?` · ${totAnul} anulado(s)`:''})</strong>
+        <div style="font-size:11px;color:#888;margin-top:2px">${totAdv} advertência(s) · ${totSus} suspensão(ões) vigentes</div>
       </div>
       <button class="btn btn-sm btn-primary" onclick="_abrirNovaDisciplinaParaColaborador('${empId}')" style="font-size:12px">
         <i class="fa-solid fa-gavel"></i> Nova advertência/suspensão
@@ -8070,33 +8074,51 @@ async function renderDisciplinaTab(empId){
     html += `<div class="empty-state small"><i class="fa-solid fa-folder-open"></i><p>Sem atos disciplinares registrados</p></div>`;
   } else {
     html += lista.map(d => {
-      const cor = d.tipo==='advertencia' ? '#E65100' : '#c62828';
-      const bg  = d.tipo==='advertencia' ? '#fff7ed' : '#fee2e2';
+      const anulada = !!d.anulada;
+      const cor = anulada ? '#94a3b8'
+                : d.tipo==='advertencia' ? '#E65100' : '#c62828';
+      const bg  = anulada ? '#f1f5f9'
+                : d.tipo==='advertencia' ? '#fff7ed' : '#fee2e2';
       const lbl = d.tipo==='advertencia' ? 'ADVERTÊNCIA' : 'SUSPENSÃO';
+      const styleTexto = anulada ? 'opacity:.65' : '';
+      const styleAnul  = anulada ? 'text-decoration:line-through' : '';
       const hash16 = (d.anexoHash||'').substring(0,16);
       const recb = d.visualizadoEm
         ? `<span style="color:#16a34a;font-weight:600">✓✓ Visualizada em ${fmtDt(d.visualizadoEm)}</span>`
         : `<span style="color:#94a3b8">⏳ Aguardando visualização no app</span>`;
-      return `<div style="background:${bg};border-left:4px solid ${cor};border-radius:8px;padding:12px 14px;margin-bottom:10px">
+      // Bloco de anulacao (quando aplicavel)
+      const anulHtml = anulada
+        ? `<div style="background:#1e293b;color:#fff;border-radius:6px;padding:10px 12px;margin:8px 0;font-size:11.5px;line-height:1.5">
+            <strong style="color:#fca5a5">⊘ ANULADA</strong> em ${fmtDt(d.anuladaEm)} por <strong>${(d.anuladaPorNome||'—').replace(/</g,'&lt;')}</strong>
+            <div style="margin-top:4px;color:#cbd5e1">Motivo: ${(d.motivoAnulacao||'—').replace(/</g,'&lt;')}</div>
+          </div>`
+        : '';
+      // Botao anular — so' aparece para quem tem permissao E se ainda nao foi anulada
+      const btnAnular = (podeAnular && !anulada)
+        ? `<button class="btn btn-sm btn-outline" onclick="anularDisciplina('${d.id}')" style="font-size:11px;color:#c62828;border-color:#ef9a9a;margin-left:auto"><i class="fa-solid fa-ban"></i> Anular</button>`
+        : '';
+      return `<div style="background:${bg};border-left:4px solid ${cor};border-radius:8px;padding:12px 14px;margin-bottom:10px;${styleTexto}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:6px">
-          <div>
+          <div style="${styleAnul}">
             <span style="background:${cor};color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:.5px">${lbl}</span>
             ${d.tipo==='suspensao' && d.diasSuspensao ? `<span style="margin-left:6px;font-size:11px;color:${cor};font-weight:600">${d.diasSuspensao} dia(s)</span>` : ''}
           </div>
           <span style="font-size:11px;color:#666">${fmtDt(d.criadoEm)}</span>
         </div>
-        ${d.motivo ? `<div style="font-size:12px;color:#333;margin:6px 0;line-height:1.5"><strong>Motivo:</strong> ${(d.motivo||'').replace(/</g,'&lt;')}</div>` : ''}
-        ${d.artigoCLT ? `<div style="font-size:11px;color:#666"><strong>Fundamento:</strong> ${(d.artigoCLT||'').replace(/</g,'&lt;')}</div>` : ''}
+        ${anulHtml}
+        ${d.motivo ? `<div style="font-size:12px;color:#333;margin:6px 0;line-height:1.5;${styleAnul}"><strong>Motivo:</strong> ${(d.motivo||'').replace(/</g,'&lt;')}</div>` : ''}
+        ${d.artigoCLT ? `<div style="font-size:11px;color:#666;${styleAnul}"><strong>Fundamento:</strong> ${(d.artigoCLT||'').replace(/</g,'&lt;')}</div>` : ''}
         <div style="font-size:11px;color:#666;margin-top:6px">Aplicado por ${d.criadoPorNome||'—'}</div>
         <div style="margin-top:8px;padding:8px;background:rgba(255,255,255,.6);border-radius:6px;font-size:11px;font-family:Consolas,monospace;color:#555">
           🔒 SHA-256: <strong>${hash16}...${d.anexoHash?d.anexoHash.substring(d.anexoHash.length-8):''}</strong>
         </div>
-        <div style="margin-top:8px;font-size:11px">${recb}</div>
-        <div style="margin-top:10px;padding-top:8px;border-top:1px dashed rgba(0,0,0,.1);display:flex;gap:6px;flex-wrap:wrap">
+        ${!anulada ? `<div style="margin-top:8px;font-size:11px">${recb}</div>` : ''}
+        <div style="margin-top:10px;padding-top:8px;border-top:1px dashed rgba(0,0,0,.1);display:flex;gap:6px;flex-wrap:wrap;align-items:center">
           ${d.anexoUrl ? `<a href="${d.anexoUrl}" target="_blank" rel="noopener" class="btn btn-sm btn-outline" style="font-size:11px"><i class="fa-solid fa-paperclip"></i> ${(d.anexoNome||'anexo').substring(0,30)}</a>` : ''}
           ${d.reciboEnvioUrl ? `<a href="${d.reciboEnvioUrl}" target="_blank" rel="noopener" class="btn btn-sm btn-outline" style="font-size:11px;color:#1976D2;border-color:#1976D2"><i class="fa-solid fa-file-pdf"></i> Recibo de Envio</a>` : ''}
           ${d.reciboRecebimentoUrl ? `<a href="${d.reciboRecebimentoUrl}" target="_blank" rel="noopener" class="btn btn-sm btn-outline" style="font-size:11px;color:#16a34a;border-color:#16a34a"><i class="fa-solid fa-file-circle-check"></i> Recibo de Recebimento</a>` : ''}
           <button class="btn btn-sm btn-outline" onclick="_verHashesDisciplina('${d.id}')" style="font-size:11px;color:#7e22ce;border-color:#c084fc"><i class="fa-solid fa-fingerprint"></i> Hashes (auditoria)</button>
+          ${btnAnular}
         </div>
       </div>`;
     }).join('');
@@ -8162,6 +8184,68 @@ function _showFloatingModal(titulo, htmlConteudo){
       <div class="modal-body" style="padding:0">${htmlConteudo}</div>
     </div>`;
   document.body.appendChild(div);
+}
+
+// Anula um ato disciplinar — SOFT DELETE, nao apaga. O registro permanece
+// arquivado com marca de "ANULADA", motivo, quem e quando. A mensagem
+// correspondente em "comunicacoes" e' apagada (some do app do colaborador)
+// mas o snapshot em "auditoria_disciplina" fica intacto (write-once).
+// Isso preserva a trilha jurídica — voce sempre consegue provar que
+// existiu o ato, quem o anulou, quando e por que.
+async function anularDisciplina(discId){
+  const mods = getUserModules(Auth.currentUser);
+  if(!mods.disciplinaApagar && Auth.currentUser?.role!=='master'){
+    toast('Sem permissão para anular atos disciplinares.','error'); return;
+  }
+  let snap;
+  try{ snap = await firebase.firestore().collection('disciplina').doc(discId).get(); }
+  catch(e){ toast('Erro ao buscar registro: '+(e.message||e),'error'); return; }
+  if(!snap.exists){ toast('Registro nao encontrado.','error'); return; }
+  const d = snap.data();
+  if(d.anulada){ toast('Este ato ja foi anulado.','warning'); return; }
+  const tipoLabel = d.tipo==='advertencia' ? 'advertência' : 'suspensão';
+  if(!confirm(`Anular esta ${tipoLabel}?\n\nColaborador: ${d.employeeNome||'—'}\nMotivo original: ${d.motivo||'—'}\n\nA medida vai aparecer como ANULADA na aba Disciplina (registro mantido para auditoria). A mensagem some do app do colaborador.`)) return;
+  const motivoAnul = (prompt('Motivo da anulação (obrigatorio — sera arquivado para auditoria):')||'').trim();
+  if(!motivoAnul){ toast('Anulação cancelada — o motivo é obrigatório.','warning'); return; }
+  const agora = new Date().toISOString();
+  const quem  = (Auth.currentUser && (Auth.currentUser.username||Auth.currentUser.id))||'—';
+  const quemId= (Auth.currentUser && Auth.currentUser.id)||'';
+  try{
+    // 1. Marca como anulada (soft delete) — mantem o registro
+    await DB.merge('disciplina', discId, {
+      anulada: true,
+      anuladaEm: agora,
+      anuladaPorId: quemId,
+      anuladaPorNome: quem,
+      motivoAnulacao: motivoAnul,
+      updatedAt: agora,
+    });
+    // 2. Apaga a mensagem do app do colaborador (some da aba Avisos dele)
+    if(d.comunicacaoId){
+      try{ await DB.remove('comunicacoes', d.comunicacaoId); }catch(_){}
+    }
+    // 3. Snapshot do evento na auditoria imutavel
+    try{
+      await DB.save('auditoria_disciplina', _sanitizeForFirestore({
+        id: genId(),
+        disciplinaId: discId,
+        employeeId: d.employeeId,
+        tipo: d.tipo,
+        evento: 'ANULACAO',
+        motivoAnulacao: motivoAnul,
+        anuladaEm: agora,
+        anuladaPorId: quemId,
+        anuladaPorNome: quem,
+        snapshotOriginal: d,
+        criadoEm: agora,
+      }));
+    }catch(_){}
+    try{ Auth.log('DISCIPLINA_ANULADA', null, `${d.tipo.toUpperCase()} — ${d.employeeNome||''} — Motivo: ${motivoAnul}`); }catch(_){}
+    toast(`${tipoLabel.charAt(0).toUpperCase()+tipoLabel.slice(1)} anulada. Registro mantido para auditoria.`,'success');
+    renderDisciplinaTab(d.employeeId);
+  }catch(e){
+    toast('Erro ao anular: '+(e.message||e),'error');
+  }
 }
 
 // Apaga uma mensagem da coleção comunicacoes. Sumirá do app do colaborador
@@ -15856,13 +15940,14 @@ const MODULOS_LABELS={
   users:           'Usuários & Acessos',
   log:             'Log de Acessos',
   comunicacao:        'Comunicação (Enviar mensagens)',
-  comunicacoesApagar: 'Apagar Mensagens (Comunicações)'
+  comunicacoesApagar: 'Apagar Mensagens (Comunicações)',
+  disciplinaApagar:   'Anular Atos Disciplinares (Disciplina)'
 };
 
 // Retorna os módulos permitidos para o usuário
 function getUserModules(user){
   if(!user) return {};
-  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,escalas:true,aprovaHE:true,reports:true,pagamentos:true,pagamentosLancar:true,pagamentosAprovar:true,decimoterceiro:true,ferias:true,rescisao:true,contabilidade:true,postos:true,contratos:true,users:true,log:true,comunicacao:true,comunicacoesApagar:true};
+  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,escalas:true,aprovaHE:true,reports:true,pagamentos:true,pagamentosLancar:true,pagamentosAprovar:true,decimoterceiro:true,ferias:true,rescisao:true,contabilidade:true,postos:true,contratos:true,users:true,log:true,comunicacao:true,comunicacoesApagar:true,disciplinaApagar:true};
   if(user.role==='operador') return {dashboard:true,employees:false,payroll:true,escalas:true,aprovaHE:false,reports:true,pagamentos:true,pagamentosLancar:false,pagamentosAprovar:false,decimoterceiro:true,ferias:true,rescisao:false,contabilidade:true,postos:false,contratos:false,users:false,log:!!user.showLog};
   if(user.role&&user.role.startsWith('p_')){
     const perfilId=user.role.replace('p_','');

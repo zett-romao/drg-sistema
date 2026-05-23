@@ -3685,6 +3685,7 @@ function openEmployeeModal(id=null){
   }
   renderEmpPagamentos(id);
   renderComunicacoesTab(id);
+  renderDisciplinaTab(id);
 }
 
 // Exame médico: mostra/oculta o campo de prazo customizado e calcula o
@@ -7697,6 +7698,30 @@ function renderEmpPagamentos(empId){
 // ============================================
 // COMUNICAÇÕES — mensagens do gestor para o colaborador (Fase C)
 // ============================================
+
+// Utilitario: SHA-256 hex de um Blob/File ou string. Usa Web Crypto API
+// (nativo no navegador, sem dependencia externa). Retorna sempre maiusculo.
+// Usado para garantir integridade do anexo e da mensagem disciplinar —
+// se o conteudo muda 1 byte, o hash muda completamente.
+async function _sha256Hex(blobOrString){
+  let buf;
+  if(typeof blobOrString === 'string'){
+    buf = new TextEncoder().encode(blobOrString);
+  } else if(blobOrString instanceof Blob){
+    buf = await blobOrString.arrayBuffer();
+  } else {
+    throw new Error('Tipo invalido para _sha256Hex');
+  }
+  const hash = await crypto.subtle.digest('SHA-256', buf);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2,'0')).join('').toUpperCase();
+}
+
+// Formata um hash hex em blocos de 4 caracteres para leitura humana
+// (ex.: ABCD-1234-EF56-7890 ...) — usado nos recibos impressos.
+function _formatHashLegivel(hex){
+  return (hex||'').match(/.{1,4}/g)?.join('-') || hex || '';
+}
+
 let _comuDestinatarios     = [];
 let _comuMensagensCache    = {};   // msgId → mensagem (para reenviar/editar)
 let _comuAnexoHerdado      = null; // anexo da mensagem original (no Reenviar/Editar)
@@ -7726,6 +7751,10 @@ function openComunicarModal(empIdOrNull){
   }
   setVal('comu-assunto','');
   setVal('comu-corpo','');
+  setVal('comu-tipo','normal');
+  setVal('comu-disc-motivo','');
+  setVal('comu-disc-dias','');
+  setVal('comu-disc-artigo','');
   const fi=document.getElementById('comu-anexo'); if(fi) fi.value='';
   _comuAnexoHerdado = null;
   _comuEditandoId   = null;
@@ -7738,7 +7767,39 @@ function openComunicarModal(empIdOrNull){
   if(_addRow) _addRow.style.display = '';
   _comuRenderAnexoHerdado();
   _comuRenderDest();
+  _comuOnTipoChange(); // garante que o painel de disciplina esta escondido
   document.getElementById('modal-comunicar').classList.remove('hidden');
+}
+
+// Quando o tipo de mensagem muda, mostra/esconde o painel de disciplina
+// (motivo + dias de suspensao + artigo CLT) e ajusta visual do modal.
+function _comuOnTipoChange(){
+  const tipo  = (val('comu-tipo')||'normal').toLowerCase();
+  const painel = document.getElementById('comu-disciplina-painel');
+  const rowDias = document.getElementById('comu-disc-dias-row');
+  const hint   = document.getElementById('comu-disc-hint');
+  if(painel) painel.style.display = (tipo==='advertencia'||tipo==='suspensao') ? '' : 'none';
+  if(rowDias) rowDias.style.display = (tipo==='suspensao') ? '' : 'none';
+  // Borda colorida no modal pra reforcar visualmente que e' um documento disciplinar
+  const dlg = document.querySelector('#modal-comunicar .modal-dialog');
+  if(dlg){
+    dlg.style.borderTop = (tipo==='advertencia') ? '4px solid #E65100'
+                        : (tipo==='suspensao')   ? '4px solid #c62828'
+                        : '';
+  }
+  if(hint){
+    if(tipo==='advertencia'){
+      hint.style.display = '';
+      hint.style.color = '#E65100';
+      hint.innerHTML = '⚠ <strong>Advertência:</strong> o anexo é obrigatório (PDF do documento assinado ou carta). O sistema vai calcular o SHA-256 do arquivo, criar Recibo de Envio e arquivar tudo na aba <strong>Disciplina</strong> do colaborador.';
+    } else if(tipo==='suspensao'){
+      hint.style.display = '';
+      hint.style.color = '#c62828';
+      hint.innerHTML = '⛔ <strong>Suspensão:</strong> informe os dias de afastamento. O anexo é obrigatório. O sistema cria Recibo de Envio com SHA-256 e arquiva na aba <strong>Disciplina</strong>.';
+    } else {
+      hint.style.display = 'none';
+    }
+  }
 }
 
 // Editar uma mensagem ja enviada: abre o composer pre-preenchido,
@@ -7796,6 +7857,312 @@ function _comuRenderAnexoHerdado(){
   }
 }
 function _comuLimparAnexoHerdado(){ _comuAnexoHerdado=null; _comuRenderAnexoHerdado(); }
+
+// ===========================================================================
+// DISCIPLINA — advertencias e suspensoes (com cadeia de custodia SHA-256)
+// ===========================================================================
+
+// Gera o HTML do Recibo de Envio — documento que comprova que a empresa
+// enviou advertencia/suspensao com hash do anexo e timestamp do servidor.
+// O HTML e' arquivado no Storage e pode ser aberto/impressovia URL.
+function _gerarReciboEnvioHTML(d){
+  const dtBr = new Date(d.criadoEm).toLocaleString('pt-BR');
+  const tipoLabel = d.tipo==='advertencia' ? 'ADVERTÊNCIA ESCRITA'
+                  : d.tipo==='suspensao'   ? 'SUSPENSÃO DISCIPLINAR'
+                  : 'COMUNICADO';
+  const corTipo = d.tipo==='advertencia' ? '#E65100' : '#c62828';
+  const esc = s => (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const corpoEsc = esc(d.corpo).replace(/\n/g,'<br>');
+  const motivoEsc = esc(d.motivoDisc).replace(/\n/g,'<br>');
+  const hashAnexoFmt = _formatHashLegivel(d.anexoHash||'');
+  const hashMsgFmt   = _formatHashLegivel(d.mensagemHash||'');
+  return `<!DOCTYPE html><html lang="pt-BR"><head>
+<meta charset="UTF-8"><title>Recibo de Envio — ${tipoLabel} — ${esc(d.empNome)}</title>
+<style>
+  @page{size:A4;margin:18mm 16mm}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Arial,sans-serif;font-size:11px;color:#222;line-height:1.5}
+  .header{display:flex;align-items:center;gap:14px;border-bottom:3px solid ${corTipo};padding-bottom:10px;margin-bottom:18px}
+  .header h1{color:${corTipo};font-size:18px;letter-spacing:.5px}
+  .header .empresa{color:#666;font-size:11px;margin-top:2px}
+  .header .meta{margin-left:auto;text-align:right;font-size:9px;color:#888}
+  .tipo-badge{display:inline-block;background:${corTipo};color:#fff;padding:4px 12px;border-radius:4px;font-size:11px;font-weight:700;letter-spacing:.5px;margin-bottom:14px}
+  h2{font-size:12px;color:${corTipo};margin:18px 0 8px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #eee;padding-bottom:3px}
+  table{width:100%;border-collapse:collapse;margin-bottom:12px;font-size:11px}
+  td{padding:5px 8px;border-bottom:1px solid #eee;vertical-align:top}
+  td.l{font-weight:700;color:#475569;width:140px;background:#f8fafc}
+  .corpo-box{background:#fafafa;border-left:4px solid ${corTipo};padding:10px 14px;margin:6px 0;font-size:11px;white-space:pre-wrap;line-height:1.5}
+  .hash-box{background:#fff7ed;border:1px solid #fed7aa;border-radius:4px;padding:10px 12px;margin-top:6px}
+  .hash-box .lbl{font-size:10px;color:#92400e;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
+  .hash-box .val{font-family:Consolas,'Courier New',monospace;font-size:10px;color:#451a03;word-break:break-all;font-weight:600}
+  .footer{margin-top:24px;padding-top:12px;border-top:2px solid ${corTipo};font-size:10px;color:#555;line-height:1.6}
+  .footer .impt{font-weight:700;color:${corTipo}}
+  .assinatura{margin-top:36px;display:grid;grid-template-columns:1fr 1fr;gap:30px}
+  .assinatura div{border-top:1px solid #333;padding-top:6px;text-align:center;font-size:10px;color:#444}
+  .badge-info{background:#e0e7ff;color:#3730a3;padding:8px 12px;border-radius:6px;font-size:10px;margin-top:14px;line-height:1.5}
+</style></head>
+<body>
+  <div class="header">
+    <div>
+      <h1>RECIBO DE ENVIO</h1>
+      <div class="empresa">${esc(d.empresa)}</div>
+    </div>
+    <div class="meta">
+      Documento ID:<br><strong>${esc(d.discId)}</strong><br>
+      Emitido em ${dtBr}
+    </div>
+  </div>
+
+  <div class="tipo-badge">${tipoLabel}</div>
+
+  <h2>Identificação do Colaborador</h2>
+  <table>
+    <tr><td class="l">Nome</td><td><strong>${esc(d.empNome)}</strong></td></tr>
+    <tr><td class="l">Matrícula</td><td>${esc(d.empMatricula)}</td></tr>
+    <tr><td class="l">CPF</td><td>${esc(d.empCpf)}</td></tr>
+    <tr><td class="l">Cargo</td><td>${esc(d.empCargo)}</td></tr>
+    <tr><td class="l">Posto</td><td>${esc(d.empPosto)}</td></tr>
+  </table>
+
+  <h2>Dados do Ato Disciplinar</h2>
+  <table>
+    <tr><td class="l">Tipo</td><td><strong style="color:${corTipo}">${tipoLabel}</strong></td></tr>
+    ${d.tipo==='suspensao' ? `<tr><td class="l">Dias de suspensão</td><td><strong>${esc(d.diasSusp)}</strong> dia(s)</td></tr>` : ''}
+    <tr><td class="l">Motivo</td><td>${motivoEsc||'—'}</td></tr>
+    ${d.artigoCLT ? `<tr><td class="l">Fundamento</td><td>${esc(d.artigoCLT)}</td></tr>` : ''}
+    <tr><td class="l">Aplicado por</td><td>${esc(d.autorNome)}</td></tr>
+    <tr><td class="l">Data/hora envio</td><td><strong>${dtBr}</strong></td></tr>
+  </table>
+
+  <h2>Conteúdo da Notificação</h2>
+  <table>
+    <tr><td class="l">Assunto</td><td><strong>${esc(d.assunto)}</strong></td></tr>
+  </table>
+  <div class="corpo-box">${corpoEsc}</div>
+
+  <h2>Cadeia de Custódia — SHA-256</h2>
+  <table>
+    <tr><td class="l">Arquivo anexado</td><td><strong>${esc(d.anexoNome)}</strong></td></tr>
+  </table>
+  <div class="hash-box">
+    <div class="lbl">SHA-256 do anexo</div>
+    <div class="val">${hashAnexoFmt||'—'}</div>
+  </div>
+  ${hashMsgFmt ? `<div class="hash-box" style="margin-top:8px">
+    <div class="lbl">SHA-256 da mensagem (conjunto)</div>
+    <div class="val">${hashMsgFmt}</div>
+  </div>` : ''}
+
+  <div class="badge-info">
+    <strong>ℹ Como verificar a integridade:</strong> baixe o anexo original e recalcule o SHA-256 (ferramentas como certutil no Windows, sha256sum no Linux/Mac).
+    Se o hash bater com o registrado acima, o arquivo não foi alterado desde o envio.
+    O timestamp e os identificadores são gerados pelo servidor do sistema.
+  </div>
+
+  <div class="footer">
+    <p class="impt">Este recibo comprova o ENVIO do documento disciplinar pelo sistema DRG-Kronos.</p>
+    <p>O documento original foi anexado e seu hash criptográfico SHA-256 está registrado acima.</p>
+    <p>Um Recibo de Recebimento separado é gerado quando o colaborador visualiza a mensagem no app.</p>
+    <p style="margin-top:8px">ID da comunicação: <code>${esc(d.comunicacaoId)}</code> · ID disciplina: <code>${esc(d.discId)}</code></p>
+  </div>
+
+  <div class="assinatura">
+    <div>Pelo empregador<br><br><br>${esc(d.autorNome)}</div>
+    <div>Pelo colaborador<br><br><br>${esc(d.empNome)}<br>Matrícula ${esc(d.empMatricula)}</div>
+  </div>
+
+</body></html>`;
+}
+
+// Modal pos-envio de disciplina — oferece abrir o e-mail (mailto) e ver o recibo
+function _abrirPosEnvioDisciplina(disc){
+  const e = State.employees.find(x=>x.id===disc.employeeId);
+  const emailEmp = (e && e.email) || '';
+  const tipoLabel = disc.tipo==='advertencia' ? 'Advertência' : 'Suspensão';
+  const linhas = [
+    `<strong>${tipoLabel}</strong> registrada para <strong>${(e&&e.nome)||disc.employeeNome}</strong>.`,
+    `<small style="color:#666">SHA-256: <code style="font-size:11px">${(disc.anexoHash||'').substring(0,32)}...</code></small>`,
+    '',
+    'Próximas ações disponíveis:'
+  ];
+  const html = `
+    <div style="padding:18px;max-width:520px">
+      <div style="font-size:14px;line-height:1.6;margin-bottom:14px">${linhas.join('<br>')}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${disc.reciboEnvioUrl ? `<a href="${disc.reciboEnvioUrl}" target="_blank" rel="noopener" class="btn btn-primary"><i class="fa-solid fa-file-pdf"></i> Ver Recibo de Envio</a>` : ''}
+        <a href="${disc.anexoUrl}" target="_blank" rel="noopener" class="btn btn-outline"><i class="fa-solid fa-paperclip"></i> Abrir anexo</a>
+        ${emailEmp
+          ? `<button class="btn btn-outline" onclick="_abrirMailtoDisciplina('${disc.id}')"><i class="fa-solid fa-envelope"></i> Abrir e-mail para ${emailEmp}</button>`
+          : `<span style="font-size:12px;color:#999;padding:6px 10px">⚠ Colaborador sem e-mail cadastrado</span>`}
+      </div>
+      <div style="font-size:11px;color:#888;margin-top:12px">A mensagem ja' chegou no app do colaborador. O Recibo de Recebimento sera gerado quando ele visualizar.</div>
+    </div>`;
+  _showFloatingModal('Ato disciplinar registrado', html);
+  // guarda o recente para o mailto encontrar
+  window._discRecente = disc;
+}
+
+// Abre o cliente de e-mail (Outlook/Gmail/Apple Mail) com destinatario, assunto
+// e corpo ja' preenchidos. Anexos nao sao suportados via mailto:, entao
+// incluimos os links do anexo e do recibo no corpo.
+function _abrirMailtoDisciplina(discId){
+  const disc = window._discRecente;
+  if(!disc || disc.id!==discId){ toast('Dados não encontrados — feche e refaça.','error'); return; }
+  const e = State.employees.find(x=>x.id===disc.employeeId);
+  const emailEmp = (e && e.email) || '';
+  if(!emailEmp){ toast('Colaborador sem e-mail cadastrado.','error'); return; }
+  const tipoLabel = disc.tipo==='advertencia' ? 'Advertência Escrita' : 'Suspensão Disciplinar';
+  const subject = `${tipoLabel} — ${(e&&e.nome)||disc.employeeNome}`;
+  const lines = [
+    `Prezado(a) ${(e&&e.nome)||disc.employeeNome},`,
+    '',
+    `Comunicamos oficialmente a aplicação de ${tipoLabel.toLowerCase()}, conforme documento em anexo.`,
+    '',
+    disc.tipo==='suspensao' ? `Dias de suspensão: ${disc.diasSuspensao}` : '',
+    disc.motivo ? `Motivo: ${disc.motivo}` : '',
+    disc.artigoCLT ? `Fundamento: ${disc.artigoCLT}` : '',
+    '',
+    `Documento anexado: ${disc.anexoUrl}`,
+    disc.reciboEnvioUrl ? `Recibo de Envio: ${disc.reciboEnvioUrl}` : '',
+    '',
+    `SHA-256 do documento: ${disc.anexoHash}`,
+    `Data/hora de envio: ${new Date(disc.criadoEm).toLocaleString('pt-BR')}`,
+    '',
+    `A mesma mensagem foi enviada para o app do colaborador.`,
+    '',
+    `Atenciosamente,`,
+    `${disc.criadoPorNome}`,
+    `${_e('nomeEmpresa')}`
+  ].filter(s => s !== undefined);
+  const body = lines.join('\n');
+  const href = `mailto:${encodeURIComponent(emailEmp)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  window.location.href = href;
+}
+
+// Render do conteudo da aba Disciplina no modal do colaborador
+async function renderDisciplinaTab(empId){
+  const box = document.getElementById('emp-disciplina-list'); if(!box) return;
+  if(!empId){
+    box.innerHTML = `<div class="empty-state small"><i class="fa-solid fa-gavel"></i><p>Salve o colaborador para registrar atos disciplinares</p></div>`;
+    return;
+  }
+  box.innerHTML = '<div style="text-align:center;padding:20px;color:#999"><i class="fa-solid fa-spinner fa-spin"></i> Carregando disciplina...</div>';
+  let lista = [];
+  try{
+    const snap = await firebase.firestore().collection('disciplina').where('employeeId','==',empId).get();
+    lista = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+  }catch(e){ console.error('disciplina:fetch', e); }
+  lista.sort((a,b) => (b.criadoEm||'').localeCompare(a.criadoEm||''));
+  const totAdv = lista.filter(x=>x.tipo==='advertencia').length;
+  const totSus = lista.filter(x=>x.tipo==='suspensao').length;
+  const fmtDt = iso => { const d=iso?new Date(iso):null; return (d && !isNaN(d.getTime())) ? d.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—'; };
+  let html = `
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+      <div>
+        <strong style="font-size:13px">Atos disciplinares (${lista.length})</strong>
+        <div style="font-size:11px;color:#888;margin-top:2px">${totAdv} advertência(s) · ${totSus} suspensão(ões)</div>
+      </div>
+      <button class="btn btn-sm btn-primary" onclick="_abrirNovaDisciplinaParaColaborador('${empId}')" style="font-size:12px">
+        <i class="fa-solid fa-gavel"></i> Nova advertência/suspensão
+      </button>
+    </div>`;
+  if(!lista.length){
+    html += `<div class="empty-state small"><i class="fa-solid fa-folder-open"></i><p>Sem atos disciplinares registrados</p></div>`;
+  } else {
+    html += lista.map(d => {
+      const cor = d.tipo==='advertencia' ? '#E65100' : '#c62828';
+      const bg  = d.tipo==='advertencia' ? '#fff7ed' : '#fee2e2';
+      const lbl = d.tipo==='advertencia' ? 'ADVERTÊNCIA' : 'SUSPENSÃO';
+      const hash16 = (d.anexoHash||'').substring(0,16);
+      const recb = d.visualizadoEm
+        ? `<span style="color:#16a34a;font-weight:600">✓✓ Visualizada em ${fmtDt(d.visualizadoEm)}</span>`
+        : `<span style="color:#94a3b8">⏳ Aguardando visualização no app</span>`;
+      return `<div style="background:${bg};border-left:4px solid ${cor};border-radius:8px;padding:12px 14px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:6px">
+          <div>
+            <span style="background:${cor};color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:.5px">${lbl}</span>
+            ${d.tipo==='suspensao' && d.diasSuspensao ? `<span style="margin-left:6px;font-size:11px;color:${cor};font-weight:600">${d.diasSuspensao} dia(s)</span>` : ''}
+          </div>
+          <span style="font-size:11px;color:#666">${fmtDt(d.criadoEm)}</span>
+        </div>
+        ${d.motivo ? `<div style="font-size:12px;color:#333;margin:6px 0;line-height:1.5"><strong>Motivo:</strong> ${(d.motivo||'').replace(/</g,'&lt;')}</div>` : ''}
+        ${d.artigoCLT ? `<div style="font-size:11px;color:#666"><strong>Fundamento:</strong> ${(d.artigoCLT||'').replace(/</g,'&lt;')}</div>` : ''}
+        <div style="font-size:11px;color:#666;margin-top:6px">Aplicado por ${d.criadoPorNome||'—'}</div>
+        <div style="margin-top:8px;padding:8px;background:rgba(255,255,255,.6);border-radius:6px;font-size:11px;font-family:Consolas,monospace;color:#555">
+          🔒 SHA-256: <strong>${hash16}...${d.anexoHash?d.anexoHash.substring(d.anexoHash.length-8):''}</strong>
+        </div>
+        <div style="margin-top:8px;font-size:11px">${recb}</div>
+        <div style="margin-top:10px;padding-top:8px;border-top:1px dashed rgba(0,0,0,.1);display:flex;gap:6px;flex-wrap:wrap">
+          ${d.anexoUrl ? `<a href="${d.anexoUrl}" target="_blank" rel="noopener" class="btn btn-sm btn-outline" style="font-size:11px"><i class="fa-solid fa-paperclip"></i> ${(d.anexoNome||'anexo').substring(0,30)}</a>` : ''}
+          ${d.reciboEnvioUrl ? `<a href="${d.reciboEnvioUrl}" target="_blank" rel="noopener" class="btn btn-sm btn-outline" style="font-size:11px;color:#1976D2;border-color:#1976D2"><i class="fa-solid fa-file-pdf"></i> Recibo de Envio</a>` : ''}
+          ${d.reciboRecebimentoUrl ? `<a href="${d.reciboRecebimentoUrl}" target="_blank" rel="noopener" class="btn btn-sm btn-outline" style="font-size:11px;color:#16a34a;border-color:#16a34a"><i class="fa-solid fa-file-circle-check"></i> Recibo de Recebimento</a>` : ''}
+          <button class="btn btn-sm btn-outline" onclick="_verHashesDisciplina('${d.id}')" style="font-size:11px;color:#7e22ce;border-color:#c084fc"><i class="fa-solid fa-fingerprint"></i> Hashes (auditoria)</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+  box.innerHTML = html;
+}
+
+// Atalho: abre o modal de comunicar ja' pre-configurado para advertencia
+function _abrirNovaDisciplinaParaColaborador(empId){
+  openComunicarModal(empId);
+  setVal('comu-tipo','advertencia');
+  _comuOnTipoChange();
+}
+
+// Mostra os hashes completos em modal flutuante (para auditoria/comparacao)
+function _verHashesDisciplina(discId){
+  firebase.firestore().collection('disciplina').doc(discId).get().then(snap => {
+    if(!snap.exists){ toast('Registro nao encontrado.','error'); return; }
+    const d = snap.data();
+    const html = `
+      <div style="padding:18px;max-width:620px;font-size:12px">
+        <div style="margin-bottom:14px;color:#555">
+          <strong>Cadeia de custódia — SHA-256</strong><br>
+          Use estes hashes para verificar a integridade do documento. Se voce baixar o anexo e recalcular o SHA-256, deve dar exatamente o mesmo valor.
+        </div>
+        <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:6px;padding:10px;margin-bottom:10px">
+          <div style="font-size:11px;color:#92400e;font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">Hash do anexo</div>
+          <div style="font-family:Consolas,monospace;font-size:11px;color:#451a03;word-break:break-all;font-weight:600">${_formatHashLegivel(d.anexoHash||'—')}</div>
+        </div>
+        ${d.mensagemHash ? `<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:6px;padding:10px;margin-bottom:10px">
+          <div style="font-size:11px;color:#92400e;font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">Hash da mensagem (conjunto)</div>
+          <div style="font-family:Consolas,monospace;font-size:11px;color:#451a03;word-break:break-all;font-weight:600">${_formatHashLegivel(d.mensagemHash)}</div>
+        </div>` : ''}
+        <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:10px;font-size:11px;color:#0c4a6e;line-height:1.5">
+          <strong>Como verificar no Windows:</strong><br>
+          <code style="background:#fff;padding:2px 4px;border-radius:3px">certutil -hashfile "${(d.anexoNome||'arquivo').replace(/"/g,'\\"')}" SHA256</code>
+        </div>
+        <div style="margin-top:10px;font-size:11px;color:#888">
+          ID disciplina: <code>${discId}</code><br>
+          ID comunicação: <code>${d.comunicacaoId||'—'}</code><br>
+          Registrado em: ${new Date(d.criadoEm).toLocaleString('pt-BR')}
+        </div>
+      </div>`;
+    _showFloatingModal('Hashes de auditoria', html);
+  }).catch(e => toast('Erro: '+(e.message||e),'error'));
+}
+
+// Mini-modal flutuante reutilizavel (igual ao de stats)
+function _showFloatingModal(titulo, htmlConteudo){
+  const old = document.getElementById('modal-floating-disc');
+  if(old) old.remove();
+  const div = document.createElement('div');
+  div.id = 'modal-floating-disc';
+  div.className = 'modal-overlay';
+  div.style.zIndex = '11000';
+  div.onclick = (ev) => { if(ev.target===div) div.remove(); };
+  div.innerHTML = `
+    <div class="modal-dialog" style="max-width:680px;width:95%">
+      <div class="modal-header">
+        <h3>${titulo}</h3>
+        <button class="modal-close" onclick="document.getElementById('modal-floating-disc').remove()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body" style="padding:0">${htmlConteudo}</div>
+    </div>`;
+  document.body.appendChild(div);
+}
 
 // Apaga uma mensagem da coleção comunicacoes. Sumirá do app do colaborador
 // na próxima vez que ele abrir a aba Avisos (cache é invalidado por navTo).
@@ -7927,15 +8294,36 @@ async function enviarComunicacao(){
   if(!assunto){ toast('Informe o assunto.','warning'); return; }
   const corpo=(val('comu-corpo')||'').trim();
   if(!corpo){ toast('Escreva a mensagem.','warning'); return; }
+  const tipo=(val('comu-tipo')||'normal').toLowerCase();
+  const ehDisciplina = (tipo==='advertencia' || tipo==='suspensao');
   const fi=document.getElementById('comu-anexo');
   const file=fi && fi.files && fi.files[0] ? fi.files[0] : null;
   if(file && file.size > 10*1024*1024){ toast('Anexo grande demais (máx. 10 MB).','error'); return; }
+  // Disciplina exige anexo (nao reaproveita herdado para nao bagunçar cadeia)
+  if(ehDisciplina && !file){
+    toast('Para advertência/suspensão é obrigatório anexar o documento.','error'); return;
+  }
+  // Disciplina nao deve ser enviada em massa (uma por colaborador, com ato proprio)
+  if(ehDisciplina && ids.length > 1){
+    toast('Advertência/suspensão deve ser enviada individualmente (1 colaborador por envio).','error'); return;
+  }
+  const motivoDisc = ehDisciplina ? (val('comu-disc-motivo')||'').trim() : '';
+  if(ehDisciplina && !motivoDisc){ toast('Informe o motivo da medida disciplinar.','error'); return; }
+  const diasSusp = (tipo==='suspensao') ? parseInt(val('comu-disc-dias')||'0',10) : 0;
+  if(tipo==='suspensao' && (!diasSusp || diasSusp<1)){ toast('Informe os dias de suspensão (1 ou mais).','error'); return; }
+  const artigoCLT = ehDisciplina ? (val('comu-disc-artigo')||'').trim() : '';
 
   const btn=document.getElementById('comu-enviar');
   setBtnLoading(btn,true,'');
   try{
-    let anexoUrl='', anexoNome='', anexoTipo='';
+    let anexoUrl='', anexoNome='', anexoTipo='', anexoHash='';
     if(file){
+      // Calcula SHA-256 ANTES do upload — assim o hash representa exatamente
+      // o que o gestor anexou (cadeia de custodia comeca aqui).
+      if(ehDisciplina){
+        try{ anexoHash = await _sha256Hex(file); }
+        catch(e){ console.error('sha256', e); toast('Erro ao calcular hash do anexo.','error'); setBtnLoading(btn,false,''); return; }
+      }
       const ext=(file.name.split('.').pop()||'bin').toLowerCase();
       const refId=Date.now().toString(36)+Math.random().toString(36).slice(2,8);
       const ref=firebase.storage().ref(`comunicacoes/${refId}.${ext}`);
@@ -7985,33 +8373,135 @@ async function enviarComunicacao(){
     }
 
     let ok=0;
+    // Quando for disciplina, ja' sabemos que ids tem exatamente 1 elemento.
+    let disciplinaCriada = null;
     for(const empId of ids){
       const e=State.employees.find(x=>x.id===empId);
+      const msgId = genId();
+      // Hash da mensagem disciplinar (assunto + corpo + hash do anexo +
+      // timestamp + autor + colaborador) — preserva a integridade do conjunto.
+      let mensagemHash = '';
+      if(ehDisciplina){
+        const payloadParaHash = JSON.stringify({
+          tipo, assunto, corpo, motivoDisc, diasSusp, artigoCLT,
+          anexoHash, anexoNome,
+          employeeId: empId,
+          employeeNome: (e&&e.nome)||'',
+          origemUserId: quemId,
+          origemUserNome: quem,
+          criadoEm: agora,
+        });
+        try{ mensagemHash = await _sha256Hex(payloadParaHash); }catch(_){}
+      }
       const msg={
-        id: genId(),
+        id: msgId,
         employeeId: empId,
         employeeNome: (e&&e.nome)||'',
         assunto, corpo,
+        tipo,
         anexoUrl, anexoNome, anexoTipo,
         origemUserId: quemId,
         origemUserNome: quem,
         criadoEm: agora,
         lida: false,
       };
+      if(ehDisciplina){
+        msg.anexoHash = anexoHash;
+        msg.mensagemHash = mensagemHash;
+        msg.motivoDisciplina = motivoDisc;
+        msg.diasSuspensao = diasSusp;
+        msg.artigoCLT = artigoCLT;
+      }
       try{ await DB.save('comunicacoes', _sanitizeForFirestore(msg)); ok++; }
-      catch(err){ console.error('Erro ao salvar comunicacao', err); }
+      catch(err){ console.error('Erro ao salvar comunicacao', err); continue; }
+
+      // Para disciplina: criar registro em "disciplina" + snapshot em
+      // "auditoria_disciplina" + recibo de envio em HTML/PDF.
+      if(ehDisciplina){
+        const discId = genId();
+        const reciboHtml = _gerarReciboEnvioHTML({
+          discId,
+          tipo,
+          empNome: (e&&e.nome)||'',
+          empMatricula: (e&&e.registro) ? String(e.registro).padStart(4,'0') : '—',
+          empCpf: (e&&e.cpf)||'—',
+          empCargo: (e&&e.cargo)||'—',
+          empPosto: (e&&e.posto)||'—',
+          assunto, corpo, motivoDisc, diasSusp, artigoCLT,
+          anexoNome, anexoHash, anexoUrl,
+          mensagemHash,
+          autorNome: quem,
+          empresa: _e('nomeEmpresa'),
+          criadoEm: agora,
+          comunicacaoId: msgId,
+        });
+        let reciboUrl = '';
+        try{
+          const blob = new Blob([reciboHtml], { type:'text/html;charset=utf-8' });
+          const refR = firebase.storage().ref(`disciplina/recibos/envio-${discId}.html`);
+          await refR.put(blob);
+          reciboUrl = await refR.getDownloadURL();
+        }catch(err){ console.error('Falha ao subir recibo de envio', err); }
+        const disc = {
+          id: discId,
+          employeeId: empId,
+          employeeNome: (e&&e.nome)||'',
+          tipo,
+          motivo: motivoDisc,
+          diasSuspensao: diasSusp,
+          artigoCLT,
+          anexoUrl, anexoNome, anexoTipo, anexoHash,
+          mensagemHash,
+          comunicacaoId: msgId,
+          reciboEnvioUrl: reciboUrl,
+          reciboRecebimentoUrl: '',
+          criadoEm: agora,
+          criadoPorId: quemId,
+          criadoPorNome: quem,
+          visualizadoEm: '',
+        };
+        try{ await DB.save('disciplina', _sanitizeForFirestore(disc)); disciplinaCriada = disc; }
+        catch(err){ console.error('Erro ao salvar disciplina', err); }
+        // Snapshot imutavel — coleção write-once via Rules (a ser configurado)
+        try{
+          await DB.save('auditoria_disciplina', _sanitizeForFirestore({
+            id: genId(),
+            disciplinaId: discId,
+            employeeId: empId,
+            tipo,
+            snapshot: disc,
+            anexoHash,
+            mensagemHash,
+            criadoEm: agora,
+            criadoPorId: quemId,
+            criadoPorNome: quem,
+            evento: 'ENVIO',
+          }));
+        }catch(err){ console.error('Erro ao salvar auditoria', err); }
+        try{ Auth.log('DISCIPLINA_ENVIADA', null, `${tipo.toUpperCase()} — ${(e&&e.nome)||''} — Hash: ${(anexoHash||'').substring(0,16)}...`); }catch(_){}
+      }
     }
     try{ Auth.log('COMUNICACAO_ENVIADA', null, `${ok} destinatario(s) — ${assunto}`); }catch(_){}
     if(ok===0){
       toast('Nenhuma mensagem foi salva — abra o console do navegador (F12) para o erro.','error');
       return;
     }
-    toast(`Mensagem enviada para ${ok} colaborador(es).`, 'success');
-    closeModal('modal-comunicar');
+    if(ehDisciplina && disciplinaCriada){
+      toast(`${tipo==='advertencia'?'Advertência':'Suspensão'} registrada e enviada. Hash arquivado.`, 'success');
+      closeModal('modal-comunicar');
+      // Pos-envio: oferece abrir e-mail (mailto) + ver recibo de envio
+      _abrirPosEnvioDisciplina(disciplinaCriada);
+    } else {
+      toast(`Mensagem enviada para ${ok} colaborador(es).`, 'success');
+      closeModal('modal-comunicar');
+    }
     const m=document.getElementById('modal-employee');
     if(m && !m.classList.contains('hidden')){
       const eid=val('emp-id');
-      if(eid && ids.includes(eid)) renderComunicacoesTab(eid);
+      if(eid && ids.includes(eid)){
+        renderComunicacoesTab(eid);
+        if(ehDisciplina) renderDisciplinaTab(eid);
+      }
     }
   }catch(e){
     toast('Erro ao enviar: '+(e.message||e),'error');

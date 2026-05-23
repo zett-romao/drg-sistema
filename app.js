@@ -8058,7 +8058,7 @@ async function renderDisciplinaTab(empId){
   const totAdv = ativas.filter(x=>x.tipo==='advertencia').length;
   const totSus = ativas.filter(x=>x.tipo==='suspensao').length;
   const totAnul = lista.filter(x=>x.anulada).length;
-  const fmtDt = iso => { const d=iso?new Date(iso):null; return (d && !isNaN(d.getTime())) ? d.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—'; };
+  const fmtDt = iso => { const d=iso?new Date(iso):null; if(!d||isNaN(d.getTime())) return '—'; return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}); };
   const podeAnular = !!getUserModules(Auth.currentUser).disciplinaApagar || Auth.currentUser?.role==='master';
   let html = `
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
@@ -11296,7 +11296,7 @@ function _renderComunicacaoUI(){
   const totNaoLidas = filtradas.length - totLidas;
   const totAnexo    = filtradas.filter(m=>m.anexoUrl).length;
   // monta UI
-  const fmtDt = iso => { const d=iso?new Date(iso):null; return (d && !isNaN(d.getTime())) ? d.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—'; };
+  const fmtDt = iso => { const d=iso?new Date(iso):null; if(!d||isNaN(d.getTime())) return '—'; return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}); };
   const podeApagar = !!getUserModules(Auth.currentUser).comunicacoesApagar || Auth.currentUser?.role==='master';
   // popula o cache de mensagens (reutilizado por editarMensagem/reenviarMensagem/apagarComunicacao)
   filtradas.forEach(m => { _comuMensagensCache[m.id] = m; });
@@ -11472,7 +11472,7 @@ function _comuDrillDown(stat){
   }
   lista.sort((a,b) => (b.criadoEm||'').localeCompare(a.criadoEm||''));
   // 3) monta lista enxuta — clicar leva ao cadastro do colaborador
-  const fmtDt = iso => { const d=iso?new Date(iso):null; return (d && !isNaN(d.getTime())) ? d.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—'; };
+  const fmtDt = iso => { const d=iso?new Date(iso):null; if(!d||isNaN(d.getTime())) return '—'; return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}); };
   const linhasHtml = lista.length === 0
     ? `<div style="text-align:center;padding:30px;color:#94a3b8"><i class="fa-solid fa-folder-open"></i><div style="margin-top:6px">Nenhum registro com este filtro</div></div>`
     : lista.map(m => {

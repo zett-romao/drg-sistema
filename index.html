@@ -5289,6 +5289,61 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260522p"></script>
+<!-- Banner "Nova versao disponivel" (mesmo padrao do app do colaborador) -->
+<div id="banner-nova-versao" style="display:none;position:fixed;top:0;left:0;right:0;background:linear-gradient(90deg,#1e40af,#2563eb);color:#fff;padding:10px 14px;text-align:center;z-index:99999;box-shadow:0 2px 8px rgba(0,0,0,.25);font-size:13px;font-weight:600">
+  🎉 Nova versão do sistema disponível!
+  <button onclick="aplicarNovaVersao()" style="margin-left:10px;background:#fff;color:#1e40af;border:none;padding:6px 14px;border-radius:6px;font-weight:700;cursor:pointer;font-size:13px">Atualizar agora</button>
+  <button onclick="document.getElementById('banner-nova-versao').style.display='none'" style="margin-left:6px;background:transparent;color:#fff;border:1px solid rgba(255,255,255,.4);padding:6px 12px;border-radius:6px;font-weight:600;cursor:pointer;font-size:12px">Depois</button>
+</div>
+
+<!--
+  Detector automatico de nova versao do painel.
+  ------------------------------------------------------------------
+  Resolve o problema de "preciso dar Ctrl+F5 toda vez que deploya".
+  - Le a versao do <script app.js?v=...> que ja carregou.
+  - Faz fetch peridico do index.html (com cache:'no-store' pra
+    escapar do cache do navegador) e le o ?v= do html novo.
+  - Se mudou, mostra o banner azul "Nova versao disponivel".
+  - Botao "Atualizar agora" recarrega com cache-buster no URL,
+    forcando o navegador a buscar HTML+JS novos do servidor.
+  Inline aqui pra rodar mesmo se o app.js cacheado falhar.
+-->
+<script>
+(function(){
+  const scriptTag = Array.from(document.scripts).find(s => /app\.js\?v=/.test(s.src||''));
+  const verAtual  = scriptTag ? (scriptTag.src.match(/[?&]v=([^&"']+)/)||[])[1] : null;
+  if(!verAtual){ return; } // sem versao detectavel, nao da' pra comparar
+  function getVer(html){
+    const m = html && html.match(/app\.js\?v=([^"'&\s>]+)/);
+    return m ? m[1] : null;
+  }
+  function exibirBanner(){
+    const b = document.getElementById('banner-nova-versao');
+    if(b) b.style.display = '';
+  }
+  async function checar(){
+    try{
+      const r = await fetch('index.html?_t='+Date.now(), {cache:'no-store'});
+      if(!r.ok) return;
+      const html = await r.text();
+      const verNova = getVer(html);
+      if(verNova && verNova !== verAtual){ exibirBanner(); }
+    }catch(_){}
+  }
+  document.addEventListener('visibilitychange', () => {
+    if(document.visibilityState === 'visible') checar();
+  });
+  setInterval(checar, 5*60*1000);   // checa a cada 5 minutos
+  setTimeout(checar, 30*1000);      // primeira checagem 30s apos o load
+  window.aplicarNovaVersao = function(){
+    // Forca reload com cache-buster pra escapar do cache do navegador
+    const u = new URL(window.location.href);
+    u.searchParams.set('_v', Date.now().toString());
+    window.location.replace(u.toString());
+  };
+})();
+</script>
+
+<script src="app.js?v=20260522q"></script>
 </body>
 </html>

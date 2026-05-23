@@ -7907,6 +7907,11 @@ async function renderComunicacoesTab(empId){
       const dt=(m.criadoEm||'').substring(0,10).split('-').reverse().join('/');
       const hr=(m.criadoEm||'').substring(11,16);
       const anexo=m.anexoUrl?`<div style="margin-top:6px;font-size:12px"><a href="${m.anexoUrl}" target="_blank" rel="noopener" style="color:var(--primary)"><i class="fa-solid fa-paperclip"></i> ${m.anexoNome||'anexo'}</a></div>`:'';
+      // Reações do colaborador (emojis) — mostra o que ele já reagiu
+      const reacEntries = Object.entries(m.reacoes||{}).filter(([_,ids])=>(ids||[]).length>0);
+      const reacHtml = reacEntries.length
+        ? `<div style="margin-top:6px;font-size:12px;color:#475569"><span style="color:#94a3b8">Reagiu:</span> ${reacEntries.map(([emo])=>`<span style="font-size:14px;margin-right:2px">${emo}</span>`).join('')}</div>`
+        : '';
       return `<div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
           <strong style="font-size:13px;color:var(--text)">${m.assunto||'(sem assunto)'}</strong>
@@ -7914,6 +7919,7 @@ async function renderComunicacoesTab(empId){
         </div>
         <div style="font-size:12px;color:#555;margin-top:4px;white-space:pre-wrap">${m.corpo||''}</div>
         ${anexo}
+        ${reacHtml}
         <div style="margin-top:8px;padding-top:7px;border-top:1px dashed var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
           <span style="font-size:11px;color:#888">Enviado por ${m.origemUserNome||'—'}</span>
           <div style="display:flex;gap:6px;flex-wrap:wrap">

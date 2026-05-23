@@ -7745,6 +7745,27 @@ function _comuRenderAnexoHerdado(){
 }
 function _comuLimparAnexoHerdado(){ _comuAnexoHerdado=null; _comuRenderAnexoHerdado(); }
 
+// Apaga uma mensagem da coleção comunicacoes. Sumirá do app do colaborador
+// na próxima vez que ele abrir a aba Avisos (cache é invalidado por navTo).
+async function apagarComunicacao(msgId){
+  if(!getUserModules(Auth.currentUser).comunicacoesApagar && Auth.currentUser?.role!=='master'){
+    toast('Sem permissão para apagar mensagens.','error'); return;
+  }
+  const m = _comuMensagensCache[msgId];
+  const assuntoTxt = (m && m.assunto) || msgId;
+  if(!confirm(`Apagar a mensagem "${assuntoTxt}"?\n\nEla também sumirá do app do colaborador.`)) return;
+  try{
+    await DB.remove('comunicacoes', msgId);
+    try{ Auth.log('COMUNICACAO_APAGADA', null, `${(m&&m.employeeNome)||''} — ${assuntoTxt}`); }catch(_){}
+    delete _comuMensagensCache[msgId];
+    toast('Mensagem apagada.','success');
+    const eid = val('emp-id');
+    if(eid) renderComunicacoesTab(eid);
+  }catch(e){
+    toast('Erro ao apagar: '+(e.message||e),'error');
+  }
+}
+
 function _comuRenderDest(){
   const box=document.getElementById('comu-dest-list');
   const cnt=document.getElementById('comu-dest-count');
@@ -7869,6 +7890,7 @@ async function renderComunicacoesTab(empId){
   // cache das mensagens para o botão "Reenviar"
   _comuMensagensCache = {};
   lista.forEach(m => { _comuMensagensCache[m.id] = m; });
+  const podeApagar = !!getUserModules(Auth.currentUser).comunicacoesApagar || Auth.currentUser?.role==='master';
   const emp=State.employees.find(e=>e.id===empId);
   const autos = emp ? _computeAvisosAutomaticos(emp) : [];
   let html='';
@@ -7894,7 +7916,10 @@ async function renderComunicacoesTab(empId){
         ${anexo}
         <div style="margin-top:8px;padding-top:7px;border-top:1px dashed var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
           <span style="font-size:11px;color:#888">Enviado por ${m.origemUserNome||'—'}</span>
-          <button type="button" onclick="reenviarMensagem('${m.id}')" class="btn btn-sm btn-outline" style="font-size:11px;padding:3px 10px;color:#1976D2;border-color:#1976D2"><i class="fa-solid fa-rotate-right"></i> Reenviar</button>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button type="button" onclick="reenviarMensagem('${m.id}')" class="btn btn-sm btn-outline" style="font-size:11px;padding:3px 10px;color:#1976D2;border-color:#1976D2"><i class="fa-solid fa-rotate-right"></i> Reenviar</button>
+            ${podeApagar?`<button type="button" onclick="apagarComunicacao('${m.id}')" class="btn btn-sm btn-outline" style="font-size:11px;padding:3px 10px;color:#c62828;border-color:#ef9a9a"><i class="fa-solid fa-trash"></i> Apagar</button>`:''}
+          </div>
         </div>
       </div>`;
     }).join('');
@@ -14706,13 +14731,14 @@ const MODULOS_LABELS={
   postos:          'Postos de Trabalho',
   contratos:       'Administração',
   users:           'Usuários & Acessos',
-  log:             'Log de Acessos'
+  log:             'Log de Acessos',
+  comunicacoesApagar: 'Apagar Mensagens (Comunicações)'
 };
 
 // Retorna os módulos permitidos para o usuário
 function getUserModules(user){
   if(!user) return {};
-  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,escalas:true,aprovaHE:true,reports:true,pagamentos:true,pagamentosLancar:true,pagamentosAprovar:true,decimoterceiro:true,ferias:true,rescisao:true,contabilidade:true,postos:true,contratos:true,users:true,log:true};
+  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,escalas:true,aprovaHE:true,reports:true,pagamentos:true,pagamentosLancar:true,pagamentosAprovar:true,decimoterceiro:true,ferias:true,rescisao:true,contabilidade:true,postos:true,contratos:true,users:true,log:true,comunicacoesApagar:true};
   if(user.role==='operador') return {dashboard:true,employees:false,payroll:true,escalas:true,aprovaHE:false,reports:true,pagamentos:true,pagamentosLancar:false,pagamentosAprovar:false,decimoterceiro:true,ferias:true,rescisao:false,contabilidade:true,postos:false,contratos:false,users:false,log:!!user.showLog};
   if(user.role&&user.role.startsWith('p_')){
     const perfilId=user.role.replace('p_','');

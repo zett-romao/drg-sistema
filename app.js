@@ -8113,11 +8113,16 @@ function renderAprovacoes(){
         : `<span style="font-size:11px;color:#999">aguardando aprovador</span>`;
     } else if(s.status==='pago'){
       const idTxt=s.asaasTransferId?`<div style="font-size:10px;color:#aaa;margin-top:3px">ID: ${s.asaasTransferId}</div>`:'';
-      const estornarBtn = podeAprovar
+      // "Estornar" so' aparece quando NAO existe comprovante oficial da Asaas
+      // ainda. Comprovante presente = PIX confirmado pelo banco — nao da' pra
+      // estornar so' no sistema sem o dinheiro voltar de fato. Nesses casos,
+      // se houver problema, abre disputa direto na Asaas (fora do app).
+      const podeEstornar = podeAprovar && !s.asaasComprovante;
+      const estornarBtn = podeEstornar
         ? `<div style="margin-top:5px"><button class="btn btn-sm btn-outline" style="color:#E65100;border-color:#FFCC80;font-size:11px;padding:3px 9px" onclick="estornarPagamento('${s.id}')" title="Marcar como estornado — use quando o PIX nao foi concluido no banco"><i class="fa-solid fa-rotate-left"></i> Estornar</button></div>`
         : '';
       if(s.asaasComprovante){
-        acoes=`<a href="${s.asaasComprovante}" target="_blank" rel="noopener" class="btn btn-sm" style="background:#00695C;color:#fff;border-color:#00695C;text-decoration:none"><i class="fa-solid fa-receipt"></i> Comprovante</a>${idTxt}${estornarBtn}`;
+        acoes=`<a href="${s.asaasComprovante}" target="_blank" rel="noopener" class="btn btn-sm" style="background:#00695C;color:#fff;border-color:#00695C;text-decoration:none"><i class="fa-solid fa-receipt"></i> Comprovante</a>${idTxt}`;
       } else if(s.asaasTransferId){
         acoes=`<button class="btn btn-sm btn-outline" style="color:#00695C;border-color:#00695C" onclick="verComprovante('${s.id}',this)"><i class="fa-solid fa-receipt"></i> Comprovante</button>${idTxt}${estornarBtn}`;
       } else {
@@ -8216,6 +8221,13 @@ async function estornarPagamento(id){
   const s = (State.solicitacoes||[]).find(x=>x.id===id);
   if(!s){ toast('Solicitação não encontrada.','error'); return; }
   if(s.status!=='pago'){ toast('Só dá pra estornar uma solicitação com status "Pago".','warning'); return; }
+  // Blindagem: comprovante oficial = PIX confirmado pelo banco. Estornar so'
+  // no sistema cria divergencia (dinheiro saiu mas o registro diz que nao).
+  // Se mesmo assim houver problema, abra disputa direto na Asaas.
+  if(s.asaasComprovante){
+    toast('Este pagamento ja tem comprovante oficial da Asaas — nao pode ser estornado pelo sistema. Para contestar, abra disputa direto na Asaas.','error');
+    return;
+  }
   if(!confirm(`Estornar este pagamento?\n\n${s.employeeNome||''} — ${fmtMoney(s.valor||0)}\nID Asaas: ${s.asaasTransferId||'—'}\n\nUse quando o PIX nao chegou no banco (devolvido / falhou). A linha sai da lista "Pagos" e fica em "Estornados".`)) return;
   const motivo = (prompt('Motivo do estorno (obrigatorio):')||'').trim();
   if(!motivo){ toast('Estorno cancelado — o motivo é obrigatório.','warning'); return; }

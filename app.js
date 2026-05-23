@@ -8023,6 +8023,14 @@ async function renderComunicacoesTab(empId){
       ${autos.map(a=>`<div style="background:#fafafa;border-left:3px solid #999;padding:7px 10px;margin-bottom:6px;border-radius:4px;font-size:12px"><strong>${a.icone} ${a.titulo}</strong><br><span style="color:#555">${a.msg}</span></div>`).join('')}
     </div>`;
   }
+  // Ação no fim da aba: gerar relatório PDF SO deste colaborador — usado em
+  // auditorias / pastas individuais. Abre o modal universal de relatorios
+  // em modo dedicado (sem grid de tipos e sem filtros).
+  html+=`<div style="margin-top:20px;padding-top:14px;border-top:1px dashed var(--border);display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px">
+    <button type="button" class="btn btn-outline btn-sm" onclick="gerarRelatorioComunicacoesIndividual('${empId}')" style="font-size:12px;color:#1a3a6b;border-color:#1a3a6b">
+      <i class="fa-solid fa-file-pdf"></i> Gerar relatório PDF deste colaborador
+    </button>
+  </div>`;
   box.innerHTML=html;
 }
 
@@ -10243,6 +10251,12 @@ function openReportsModal(allowedTypes, title){
   const btnCsv=document.getElementById('btn-export-csv');
   if(btnPrint) btnPrint.style.display='none';
   if(btnCsv)   btnCsv.style.display='none';
+  // Restaura visibilidade caso o modal tenha sido aberto antes em "modo dedicado"
+  // (ex: pelo botao "Gerar relatorio PDF deste colaborador" da aba Comunicacoes).
+  const gridParent=document.getElementById('report-type-grid')?.parentElement;
+  if(gridParent) gridParent.style.display='';
+  const filtersArea=document.getElementById('report-filters-area');
+  if(filtersArea) filtersArea.style.display='';
 
   // Preenche botões de tipo
   const grid=document.getElementById('report-type-grid');
@@ -10346,7 +10360,7 @@ function printSelectedReport() {
   const period   = document.getElementById('report-period-label')?.textContent || '';
   const genDate  = document.getElementById('report-gen-date')?.textContent || '';
   const n = document.querySelectorAll('.report-row-check:checked').length;
-  const landscape = ['cadastral','contatos','financeiro','beneficios','contratos-rel','postos-cadastro'].includes(_currentReportType);
+  const landscape = ['cadastral','contatos','financeiro','beneficios','contratos-rel','postos-cadastro','comunicacoes'].includes(_currentReportType);
   const html = `<!DOCTYPE html><html lang="pt-BR"><head>
   <meta charset="UTF-8"><title>${subtitle}</title>
   <style>
@@ -10461,6 +10475,98 @@ async function _reportComunicacoes(){
         </tr>`;
       }).join('');
   document.getElementById('report-body-area').innerHTML = _empTable(cols, rows);
+}
+
+// Relatorio de comunicacoes de UM colaborador — alimentado pelo botao "Gerar
+// relatorio PDF deste colaborador" no fim da aba "Comunicacoes" do cadastro.
+// Igual ao relatorio geral, mas filtrado por employeeId e sem repetir o
+// nome/matricula/CPF em cada linha (vai pro cabecalho).
+async function _reportComunicacoesIndividual(empId){
+  const emp     = State.employees.find(e=>e.id===empId);
+  const nomeEmp = (emp && emp.nome) || '—';
+  const reg     = (emp && emp.registro) ? String(emp.registro).padStart(4,'0') : '—';
+  const cpf     = (emp && emp.cpf) || '—';
+
+  _reportHeader(`Comunicações — ${nomeEmp}`, 'Carregando...');
+  document.getElementById('report-body-area').innerHTML =
+    '<div style="text-align:center;padding:30px;color:#666"><i class="fa-solid fa-spinner fa-spin"></i> Carregando mensagens do colaborador...</div>';
+
+  let lista = [];
+  try{
+    const snap = await firebase.firestore().collection('comunicacoes').where('employeeId','==',empId).get();
+    lista = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+  }catch(e){
+    toast('Erro ao carregar mensagens: '+(e.message||e), 'error');
+    document.getElementById('report-body-area').innerHTML =
+      `<div style="text-align:center;padding:20px;color:#c62828">Erro ao carregar mensagens.</div>`;
+    return;
+  }
+  lista.sort((a,b) => (b.criadoEm||'').localeCompare(a.criadoEm||''));
+  _reportHeader(`Comunicações — ${nomeEmp}`,
+    `${lista.length} mensagem(ns) registrada(s) · Matrícula ${reg} · CPF ${cpf}`);
+  const totLidas    = lista.filter(m=>m.lida).length;
+  const totNaoLidas = lista.length - totLidas;
+  document.getElementById('report-summary').innerHTML = `
+    <div class="r-stat-card"><div class="r-stat-value">${lista.length}</div><div class="r-stat-label">Total de mensagens</div></div>
+    <div class="r-stat-card"><div class="r-stat-value" style="color:#16a34a">${totLidas}</div><div class="r-stat-label">Visualizadas</div></div>
+    <div class="r-stat-card"><div class="r-stat-value" style="color:#94a3b8">${totNaoLidas}</div><div class="r-stat-label">Não visualizadas</div></div>
+  `;
+  const cols = ['#','Assunto','Mensagem','Anexo','Autor','Enviada em','Visualizada em','Status'];
+  const rows = lista.length===0
+    ? `<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-muted)">Nenhuma mensagem registrada para este colaborador</td></tr>`
+    : lista.map((m,i)=>{
+        const enviadaEm = m.criadoEm ? new Date(m.criadoEm).toLocaleString('pt-BR') : '—';
+        const lidaEm    = (m.lida && m.lidaEm) ? new Date(m.lidaEm).toLocaleString('pt-BR') : '—';
+        const status    = m.lida
+          ? `<span style="color:#16a34a;font-weight:600">✓✓ visualizada</span>`
+          : `<span style="color:#94a3b8">✓ enviada</span>`;
+        const anexoTxt = m.anexoUrl
+          ? `<a href="${m.anexoUrl}" target="_blank" rel="noopener" style="color:var(--primary)">📎 ${m.anexoNome||'anexo'}</a>`
+          : '—';
+        const corpoTxt = (m.corpo||'').length > 400 ? (m.corpo||'').substring(0,400)+'...' : (m.corpo||'');
+        const corpoEsc = corpoTxt.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+        const asEsc    = (m.assunto||'(sem assunto)').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        const editadoStr = m.editadoEm ? `<br><em style="font-size:10px;color:#94a3b8">editado ${new Date(m.editadoEm).toLocaleString('pt-BR')}</em>` : '';
+        return `<tr>
+          <td>${i+1}</td>
+          <td>${asEsc}${editadoStr}</td>
+          <td style="font-size:11px;max-width:340px">${corpoEsc}</td>
+          <td>${anexoTxt}</td>
+          <td>${m.origemUserNome||'—'}</td>
+          <td>${enviadaEm}</td>
+          <td>${lidaEm}</td>
+          <td>${status}</td>
+        </tr>`;
+      }).join('');
+  document.getElementById('report-body-area').innerHTML = _empTable(cols, rows);
+}
+
+// Abre o modal universal de relatorios em "modo dedicado" (sem o grid de tipos
+// e sem os filtros) e renderiza direto o log de mensagens deste colaborador.
+// Chamado pelo botao "Gerar relatorio PDF deste colaborador" na aba Comunicacoes.
+async function gerarRelatorioComunicacoesIndividual(empId){
+  if(!empId){ toast('Salve o colaborador primeiro.','warning'); return; }
+  closeModal('modal-employee');
+  // Pequeno delay para o modal do colaborador fechar antes de abrir o de relatorios
+  await new Promise(r => setTimeout(r, 120));
+  const modal = document.getElementById('modal-reports');
+  if(!modal) return;
+  // Esconde grid de tipos e area de filtros — entramos em modo dedicado.
+  // O openReportsModal restaura essa visibilidade quando for chamado normal.
+  const gridParent = document.getElementById('report-type-grid')?.parentElement;
+  if(gridParent) gridParent.style.display = 'none';
+  const filtersArea = document.getElementById('report-filters-area');
+  if(filtersArea) filtersArea.style.display = 'none';
+  // Define o tipo para o printReport saber que e' landscape
+  window._currentReportType = 'comunicacoes';
+  // Titulo do modal
+  const titleEl = document.getElementById('modal-reports-title');
+  const emp = State.employees.find(e=>e.id===empId);
+  if(titleEl){
+    titleEl.innerHTML = `<i class="fa-solid fa-envelope"></i> Comunicações — ${(emp&&emp.nome)||'Colaborador'}`;
+  }
+  modal.classList.remove('hidden');
+  await _reportComunicacoesIndividual(empId);
 }
 
 // 1. Financeiro Mensal
@@ -10980,7 +11086,7 @@ function printReport() {
   const empresa  = _e('nomeEmpresa');
 
   // Paisagem para relatórios com muitas colunas
-  const landscape = ['cadastral','contatos','financeiro','beneficios','contratos-rel','postos-cadastro'].includes(_currentReportType);
+  const landscape = ['cadastral','contatos','financeiro','beneficios','contratos-rel','postos-cadastro','comunicacoes'].includes(_currentReportType);
 
   const html = `<!DOCTYPE html><html lang="pt-BR"><head>
   <meta charset="UTF-8">

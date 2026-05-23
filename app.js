@@ -3419,8 +3419,7 @@ function renderEmployeeTable(){
         <span class="td-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${nomeSafe}">${e.nome}</span>
       </div></td>
       <td>${statusBadge(e.status)}</td>
-      <td><span class="td-escala" style="white-space:nowrap">${escalaLabel(e.escala||'5x2A')}</span></td>
-      <td style="max-width:260px"><span style="font-size:12px;color:var(--text-muted);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${postoSafe}">${e.posto||'—'}</span></td>
+      <td style="max-width:300px"><span style="font-size:12px;color:var(--text-muted);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${postoSafe}">${e.posto||'—'}</span></td>
       <td onclick="event.stopPropagation()"><div class="actions-cell">
         ${whatsBtn}
         <button class="btn-icon btn-primary-icon" onclick="openPayrollForEmployee('${e.id}')" title="Lançar Folha"><i class="fa-solid fa-file-invoice-dollar"></i></button>

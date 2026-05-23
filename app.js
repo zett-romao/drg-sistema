@@ -3411,6 +3411,7 @@ function renderEmployeeTable(){
   if(th6) th6.textContent = isLicenca ? 'Início Licença' : 'Admissão';
   if(th7) th7.textContent = isLicenca ? 'Prev. Retorno'  : 'CPF';
   const podeAvulso = !!getUserModules(Auth.currentUser).pagamentosLancar;
+  const podeComunicar = !!getUserModules(Auth.currentUser).employees || Auth.currentUser?.role === 'master';
   tbody.innerHTML=list.map((e)=>{
     const celularLimpo=(e.celular||'').replace(/\D/g,'');
     const whatsBtn=celularLimpo?`<button class="btn-icon btn-whatsapp-icon" onclick="openWhatsApp('${celularLimpo}','${e.nome.split(' ')[0]}')" title="WhatsApp"><i class="fa-brands fa-whatsapp"></i></button>`:'';
@@ -3436,6 +3437,7 @@ function renderEmployeeTable(){
         ${whatsBtn}
         <button class="btn-icon btn-primary-icon" onclick="openPayrollForEmployee('${e.id}')" title="Lançar Folha"><i class="fa-solid fa-file-invoice-dollar"></i></button>
         ${podeAvulso?`<button class="btn-icon" style="color:#00695C" onclick="openPagamentoAvulsoModal('${e.id}')" title="Pagamento avulso"><i class="fa-solid fa-money-bill-wave"></i></button>`:''}
+        ${podeComunicar?`<button class="btn-icon" style="color:#1976D2" onclick="openComunicarModal('${e.id}')" title="Enviar mensagem"><i class="fa-solid fa-envelope"></i></button>`:''}
         <button class="btn-icon btn-warning-icon" onclick="openEmployeeModal('${e.id}')" title="Editar"><i class="fa-solid fa-pencil"></i></button>
         <button class="btn-icon btn-danger-icon" onclick="confirmDeleteEmployee('${e.id}')" title="Excluir"><i class="fa-solid fa-trash"></i></button>
       </div></td>

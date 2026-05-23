@@ -7882,13 +7882,17 @@ async function enviarComunicacao(){
     const quemId=(Auth.currentUser && Auth.currentUser.id)||'';
     const agora=new Date().toISOString();
 
-    // MODO EDIÇÃO — atualiza a mensagem original (mantém destinatário, reações e datas)
+    // MODO EDIÇÃO — atualiza a mensagem original (mantém destinatário, reações e datas).
+    // Reseta o "lida" para que a versão editada seja sinalizada como nao-vista
+    // ate o colaborador abrir a aba Avisos de novo.
     if(_comuEditandoId){
       const changes = {
         assunto, corpo,
         anexoUrl, anexoNome, anexoTipo,
         editadoEm: agora,
         editadoPorNome: quem,
+        lida: false,
+        lidaEm: '',
         updatedAt: agora,
       };
       try{
@@ -7985,6 +7989,10 @@ async function renderComunicacoesTab(empId){
       const reacHtml = reacEntries.length
         ? `<div style="margin-top:6px;font-size:12px;color:#475569"><span style="color:#94a3b8">Reagiu:</span> ${reacEntries.map(([emo])=>`<span style="font-size:14px;margin-right:2px">${emo}</span>`).join('')}</div>`
         : '';
+      // Confirmação de leitura — ✓✓ verde se visualizada
+      const lidaHtml = m.lida
+        ? `<span style="color:#16a34a;font-weight:600" title="Visualizada">✓✓ visualizada${m.lidaEm?` em ${(m.lidaEm||'').substring(0,10).split('-').reverse().join('/')} ${(m.lidaEm||'').substring(11,16)}`:''}</span>`
+        : `<span style="color:#94a3b8" title="Ainda não visualizada">✓ enviada · não visualizada</span>`;
       return `<div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
           <strong style="font-size:13px;color:var(--text)">${m.assunto||'(sem assunto)'}</strong>
@@ -7993,6 +8001,7 @@ async function renderComunicacoesTab(empId){
         <div style="font-size:12px;color:#555;margin-top:4px;white-space:pre-wrap">${m.corpo||''}</div>
         ${anexo}
         ${reacHtml}
+        <div style="margin-top:6px;font-size:11px">${lidaHtml}</div>
         <div style="margin-top:8px;padding-top:7px;border-top:1px dashed var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
           <span style="font-size:11px;color:#888">Enviado por ${m.origemUserNome||'—'}${m.editadoEm?` · <em>editado ${(m.editadoEm||'').substring(0,10).split('-').reverse().join('/')}</em>`:''}</span>
           <div style="display:flex;gap:6px;flex-wrap:wrap">

@@ -384,7 +384,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=14').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=15').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -1118,6 +1118,14 @@ async function renderAvisos(){
     const corpoHtml = (m.corpo||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
     const reacoesHtml = _avisosReacoesHtml(m);
     av.push({tipo:'aviso', icone:'✉️', titulo:m.assunto||'Mensagem da gestão', msg:`${corpoHtml}${anexo}${quem}${reacoesHtml}`});
+    // Confirmação de leitura — marca como visualizada na primeira vez que
+    // a mensagem chega na tela do colaborador.
+    if(!m.lida){
+      const nowISO = new Date().toISOString();
+      m.lida = true;
+      m.lidaEm = nowISO;
+      try{ dbCol('comunicacoes').doc(m.id).update({ lida:true, lidaEm:nowISO }).catch(()=>{}); }catch(_){}
+    }
   });
 
   // Diagnóstico de carga (visível pro suporte enquanto investigamos

@@ -384,7 +384,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=12').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -1070,9 +1070,16 @@ async function renderAvisos(){
     }
   });
 
+  // Diagnóstico de carga (visível pro suporte enquanto investigamos
+  // por que mensagens não chegam) — mostra quantas mensagens vieram
+  // do banco e qual tenant está em uso na consulta.
+  const _diagHtml = `<div style="font-size:11px;color:#64748b;padding:7px 10px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;margin-bottom:10px">
+    🔧 Diagnóstico: <strong>${(data.comunicacoes||[]).length}</strong> mensagem(ns) no banco · <strong>${(data.solicitacoes||[]).length}</strong> PIX pago(s) · Tenant: <code>${_tenantId||'(raiz)'}</code> · ID: <code>${(currentEmp.id||'').substring(0,8)}</code>
+  </div>`;
+
   // Render
   if(!av.length){
-    box.innerHTML = `<div style="text-align:center;padding:40px 20px;color:#94a3b8">
+    box.innerHTML = _diagHtml + `<div style="text-align:center;padding:40px 20px;color:#94a3b8">
       <div style="font-size:48px">✅</div>
       <div style="font-size:14px;margin-top:8px">Nenhum aviso no momento.</div>
     </div>`;
@@ -1082,7 +1089,7 @@ async function renderAvisos(){
   av.sort((a,b)=>(ord[a.tipo]||9)-(ord[b.tipo]||9));
   const cor = {urgente:'#ef4444',aviso:'#f97316',info:'#3b82f6',success:'#16a34a'};
   const bg  = {urgente:'#fee2e2',aviso:'#fff7ed',info:'#eff6ff',success:'#f0fdf4'};
-  box.innerHTML = av.map(a=>`
+  box.innerHTML = _diagHtml + av.map(a=>`
     <div style="background:${bg[a.tipo]};border-left:4px solid ${cor[a.tipo]};border-radius:8px;padding:12px 14px;margin-bottom:10px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
         <span style="font-size:20px">${a.icone}</span>

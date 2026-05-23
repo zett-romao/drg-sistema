@@ -2605,6 +2605,7 @@
               <option value="6x1A">6x1 — Variante A (07h–16h / Sáb 07h–11h)</option>
               <option value="6x1B">6x1 — Variante B (08h–16h20 / todos os dias)</option>
               <option value="6x1C">6x1 — Variante C (08h–17h / Sáb 08h–12h)</option>
+              <option value="6x1ALT">6x1 — Alternado (folga sáb ↔ dom)</option>
               <option value="12x36">12x36 (Doze por Trinta e Seis)</option>
             </select>
           </div>
@@ -2667,6 +2668,16 @@
             <label><i class="fa-solid fa-calendar-day" style="color:#5C6BC0"></i> Início do ciclo 12x36 (1º dia de trabalho)</label>
             <input type="date" id="emp-ciclo-12x36-inicio">
             <small style="color:var(--text-muted);font-size:11px">Data em que o colaborador inicia o ciclo. A partir dela o sistema projeta trabalho/folga alternados automaticamente, em todos os meses.</small>
+          </div>
+        </div>
+        <div class="form-row" id="row-alternada-folga" style="display:none">
+          <div class="form-group">
+            <label><i class="fa-solid fa-calendar-week" style="color:#5C6BC0"></i> Primeira folga (escala alternada)</label>
+            <select id="emp-alternada-folga">
+              <option value="dom">Domingo (semana 1)</option>
+              <option value="sab">Sábado (semana 1)</option>
+            </select>
+            <small style="color:var(--text-muted);font-size:11px">Dia da folga na 1ª semana, contada a partir da Data de Admissão. A folga alterna sáb↔dom a cada semana automaticamente.</small>
           </div>
         </div>
         <div class="form-row">
@@ -5277,6 +5288,6 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=20260522i"></script>
+<script src="app.js?v=20260522j"></script>
 </body>
 </html>

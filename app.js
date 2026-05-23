@@ -3440,10 +3440,13 @@ function onDemissaoChange(){
 function onEscalaChange(){
   const escala=val('emp-escala');
   const is12=(escalaFamilia(escala)==='12x36');
+  const isAlt=(escala==='6x1ALT');
   const row=document.getElementById('turno-noturno-row');
   if(row) row.style.display=is12?'':'none';
   const rowCiclo=document.getElementById('row-ciclo-12x36');
   if(rowCiclo) rowCiclo.style.display=is12?'':'none';
+  const rowAlt=document.getElementById('row-alternada-folga');
+  if(rowAlt) rowAlt.style.display=isAlt?'':'none';
 }
 
 function onEmpStatusChange(){
@@ -3590,6 +3593,7 @@ function openEmployeeModal(id=null){
     if(adiantChk) adiantChk.checked=!!(emp.recebeAdiantamento);
     const chk=document.getElementById('emp-turno-noturno'); if(chk) chk.checked=!!(emp.turnoNoturno);
     setVal('emp-ciclo-12x36-inicio', emp.ciclo12x36Inicio||'');
+    setVal('emp-alternada-folga',    emp.alternadaPrimeiraFolga||'dom');
     // Aba Encargos & IRRF
     setVal('emp-dependentes-irrf', emp.dependentesIRRF||0);
     setVal('emp-pensao-alimenticia', (emp.pensaoAlimenticia||0).toFixed(2));
@@ -3956,6 +3960,7 @@ async function saveEmployee(){
     expPeriodo1:parseInt(val('emp-exp-periodo1'))||45,
     expPeriodo2:parseInt(val('emp-exp-periodo2'))||45,
     ciclo12x36Inicio:val('emp-ciclo-12x36-inicio')||'',
+    alternadaPrimeiraFolga: val('emp-escala')==='6x1ALT' ? (val('emp-alternada-folga')||'dom') : '',
     horarioEntrada:val('emp-horario-entrada'),
     horarioSaida:val('emp-horario-saida'),
     horarioRefIni:val('emp-horario-ref-ini'),
@@ -4349,6 +4354,7 @@ function escalaLabel(escala){
     '6x1A':'6x1 — Var. A (07h–16h / Sáb 4h)',
     '6x1B':'6x1 — Var. B (08h–16h20)',
     '6x1C':'6x1 — Var. C (08h–17h / Sáb 4h)',
+    '6x1ALT':'6x1 — Alternado (sáb ↔ dom)',
     '12x36':'12x36'
   };
   return labels[escala]||escala||'5x2A';
@@ -11348,6 +11354,17 @@ function _getExpectedDay(emp, mes, ano, dia){
     }
     // sem âncora definida → cai no retorno genérico abaixo
   }
+  // 6x1 Alternado: folga sáb↔dom alternando — projeta sob demanda
+  if(emp.escala==='6x1ALT'){
+    if(_6x1ALTEhFolga(emp, ano, mes, dia)) return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
+    return {
+      tipo:'trabalho',
+      entrada: emp.horarioEntrada || '',
+      saida:   emp.horarioSaida   || '',
+      intIni:  emp.semRefeicao ? '' : (emp.horarioRefIni || '12:00'),
+      intFim:  emp.semRefeicao ? '' : (emp.horarioRefFim || '13:00')
+    };
+  }
   // Para 5x2 e fins de semana, sem horário esperado (é folga)
   if(fam==='5x2' && isWknd) return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
   if(fam==='6x1' && diaSem===0) return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
@@ -13732,7 +13749,8 @@ function _projectEscala(emp, mes, ano, prevDias){
   const fam = escalaFamilia(emp.escala || '5x2A');
   if(fam==='5x2')   return _projectEscala5x2(emp, mes, ano);
   if(fam==='6x1'){
-    if(emp.escala==='6x1B') return _projectEscala6x1B(emp, mes, ano, prevDias);
+    if(emp.escala==='6x1ALT') return _projectEscala6x1ALT(emp, mes, ano);
+    if(emp.escala==='6x1B')   return _projectEscala6x1B(emp, mes, ano, prevDias);
     return _projectEscala6x1AC(emp, mes, ano);
   }
   if(fam==='12x36') return _projectEscala12x36(emp, mes, ano, prevDias);
@@ -13758,6 +13776,40 @@ function _projectEscala6x1AC(emp, mes, ano){
   for(let d=1; d<=dpm; d++){
     const ds = new Date(ano, mes-1, d).getDay();
     const tipo = (ds===0) ? 'folga' : 'trabalho';
+    const h = (tipo==='trabalho') ? _escalaHorariosDia(emp, ds) : {entrada:'',intIni:'',intFim:'',saida:''};
+    dias.push({ dia:d, diaSem:ds, tipo, ...h });
+  }
+  return dias;
+}
+
+// 6x1 Alternado: a folga alterna sáb↔dom a cada semana, a partir da admissão.
+// A primeira folga (sáb ou dom) é definida em emp.alternadaPrimeiraFolga.
+function _6x1ALTEhFolga(emp, ano, mes, dia){
+  const date = new Date(ano, mes-1, dia);
+  const diaSem = date.getDay();          // 0=Dom, 6=Sáb
+  if(diaSem >= 1 && diaSem <= 5) return false;  // Seg–Sex sempre trabalho
+  if(!emp.dataAdmissao) return diaSem===0;       // sem âncora → fallback: domingo folga
+  const admissao = new Date(emp.dataAdmissao+'T00:00:00');
+  if(isNaN(admissao.getTime())) return diaSem===0;
+  // Normaliza para o domingo (início) da semana
+  const startOfWeek = (d) => {
+    const r = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    r.setDate(r.getDate() - r.getDay());
+    return r;
+  };
+  const weeks = Math.round((startOfWeek(date) - startOfWeek(admissao)) / (7*86400000));
+  const par   = ((weeks % 2) + 2) % 2;   // 0 = mesma paridade da semana de admissão
+  const primeiraIsSab = (emp.alternadaPrimeiraFolga || 'dom') === 'sab';
+  const sabFolgaNestaSemana = (par === 0) ? primeiraIsSab : !primeiraIsSab;
+  return sabFolgaNestaSemana ? (diaSem === 6) : (diaSem === 0);
+}
+
+function _projectEscala6x1ALT(emp, mes, ano){
+  const dias = [];
+  const dpm = new Date(ano, mes, 0).getDate();
+  for(let d=1; d<=dpm; d++){
+    const ds = new Date(ano, mes-1, d).getDay();
+    const tipo = _6x1ALTEhFolga(emp, ano, mes, d) ? 'folga' : 'trabalho';
     const h = (tipo==='trabalho') ? _escalaHorariosDia(emp, ds) : {entrada:'',intIni:'',intFim:'',saida:''};
     dias.push({ dia:d, diaSem:ds, tipo, ...h });
   }

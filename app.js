@@ -7983,9 +7983,13 @@ async function renderComunicacoesTab(empId){
   if(!lista.length){
     html+=`<div class="empty-state small" style="margin-bottom:14px"><i class="fa-solid fa-envelope-open"></i><p>Nenhuma mensagem enviada ainda</p></div>`;
   } else {
+    // Helpers de formatacao em horario local (criadoEm/lidaEm sao ISO em UTC;
+    // o usuario esta em America/Sao_Paulo — converter pelo Date do navegador).
+    const _fmtDt = iso => { const d=iso?new Date(iso):null; return (d && !isNaN(d.getTime())) ? d.toLocaleDateString('pt-BR') : ''; };
+    const _fmtHr = iso => { const d=iso?new Date(iso):null; return (d && !isNaN(d.getTime())) ? d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}) : ''; };
     html+=lista.map(m=>{
-      const dt=(m.criadoEm||'').substring(0,10).split('-').reverse().join('/');
-      const hr=(m.criadoEm||'').substring(11,16);
+      const dt=_fmtDt(m.criadoEm);
+      const hr=_fmtHr(m.criadoEm);
       const anexo=m.anexoUrl?`<div style="margin-top:6px;font-size:12px"><a href="${m.anexoUrl}" target="_blank" rel="noopener" style="color:var(--primary)"><i class="fa-solid fa-paperclip"></i> ${m.anexoNome||'anexo'}</a></div>`:'';
       // Reações do colaborador (emojis) — mostra o que ele já reagiu
       const reacEntries = Object.entries(m.reacoes||{}).filter(([_,ids])=>(ids||[]).length>0);
@@ -7994,7 +7998,7 @@ async function renderComunicacoesTab(empId){
         : '';
       // Confirmação de leitura — ✓✓ verde se visualizada
       const lidaHtml = m.lida
-        ? `<span style="color:#16a34a;font-weight:600" title="Visualizada">✓✓ visualizada${m.lidaEm?` em ${(m.lidaEm||'').substring(0,10).split('-').reverse().join('/')} ${(m.lidaEm||'').substring(11,16)}`:''}</span>`
+        ? `<span style="color:#16a34a;font-weight:600" title="Visualizada">✓✓ visualizada${m.lidaEm?` em ${_fmtDt(m.lidaEm)} ${_fmtHr(m.lidaEm)}`:''}</span>`
         : `<span style="color:#94a3b8" title="Ainda não visualizada">✓ enviada · não visualizada</span>`;
       return `<div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
@@ -8006,7 +8010,7 @@ async function renderComunicacoesTab(empId){
         ${reacHtml}
         <div style="margin-top:6px;font-size:11px">${lidaHtml}</div>
         <div style="margin-top:8px;padding-top:7px;border-top:1px dashed var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-          <span style="font-size:11px;color:#888">Enviado por ${m.origemUserNome||'—'}${m.editadoEm?` · <em>editado ${(m.editadoEm||'').substring(0,10).split('-').reverse().join('/')}</em>`:''}</span>
+          <span style="font-size:11px;color:#888">Enviado por ${m.origemUserNome||'—'}${m.editadoEm?` · <em>editado ${_fmtDt(m.editadoEm)}</em>`:''}</span>
           <div style="display:flex;gap:6px;flex-wrap:wrap">
             <button type="button" onclick="editarMensagem('${m.id}')" class="btn btn-sm btn-outline" style="font-size:11px;padding:3px 10px;color:#E65100;border-color:#FFCC80"><i class="fa-solid fa-pen"></i> Editar</button>
             <button type="button" onclick="reenviarMensagem('${m.id}')" class="btn btn-sm btn-outline" style="font-size:11px;padding:3px 10px;color:#1976D2;border-color:#1976D2"><i class="fa-solid fa-rotate-right"></i> Reenviar</button>

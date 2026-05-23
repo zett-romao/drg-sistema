@@ -7684,8 +7684,9 @@ function renderEmpPagamentos(empId){
 // COMUNICAÇÕES — mensagens do gestor para o colaborador (Fase C)
 // ============================================
 let _comuDestinatarios     = [];
-let _comuMensagensCache    = {};   // msgId → mensagem (para reenviar)
-let _comuAnexoHerdado      = null; // anexo da mensagem original (no Reenviar)
+let _comuMensagensCache    = {};   // msgId → mensagem (para reenviar/editar)
+let _comuAnexoHerdado      = null; // anexo da mensagem original (no Reenviar/Editar)
+let _comuEditandoId        = null; // id da mensagem em edição (null = novo envio)
 
 function openComunicarModal(empIdOrNull){
   if(!getUserModules(Auth.currentUser).employees && Auth.currentUser?.role!=='master'){
@@ -7712,9 +7713,45 @@ function openComunicarModal(empIdOrNull){
   setVal('comu-corpo','');
   const fi=document.getElementById('comu-anexo'); if(fi) fi.value='';
   _comuAnexoHerdado = null;
+  _comuEditandoId   = null;
+  // restaura o modal para o modo "Novo envio" (caso tenha sido aberto para edição antes)
+  const _tituloEl = document.querySelector('#modal-comunicar .modal-header h3');
+  if(_tituloEl) _tituloEl.innerHTML = '<i class="fa-solid fa-envelope" style="color:#1976D2"></i> Comunicar Colaborador';
+  const _btnEnv = document.getElementById('comu-enviar');
+  if(_btnEnv) _btnEnv.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Enviar';
+  const _addRow = document.getElementById('comu-add-emp')?.closest('.form-row');
+  if(_addRow) _addRow.style.display = '';
   _comuRenderAnexoHerdado();
   _comuRenderDest();
   document.getElementById('modal-comunicar').classList.remove('hidden');
+}
+
+// Editar uma mensagem ja enviada: abre o composer pre-preenchido,
+// trava o destinatario no original e salva por cima (DB.merge).
+function editarMensagem(msgId){
+  if(!getUserModules(Auth.currentUser).employees && Auth.currentUser?.role!=='master'){
+    toast('Sem permissão para editar mensagens.','error'); return;
+  }
+  const m = _comuMensagensCache[msgId];
+  if(!m){ toast('Mensagem não encontrada — recarregue a aba.','error'); return; }
+  openComunicarModal();
+  _comuEditandoId   = msgId;
+  _comuDestinatarios = m.employeeId ? [m.employeeId] : [];
+  setVal('comu-assunto', m.assunto||'');
+  setVal('comu-corpo',   m.corpo||'');
+  if(m.anexoUrl){
+    _comuAnexoHerdado = { url:m.anexoUrl, nome:m.anexoNome||'anexo', tipo:m.anexoTipo||'' };
+  }
+  // Trava a UI de adicionar destinatários (edição mantém o mesmo recebedor)
+  const addRow = document.getElementById('comu-add-emp')?.closest('.form-row');
+  if(addRow) addRow.style.display = 'none';
+  // Muda titulo + botao
+  const titleEl = document.querySelector('#modal-comunicar .modal-header h3');
+  if(titleEl) titleEl.innerHTML = '<i class="fa-solid fa-pen" style="color:#E65100"></i> Editar Mensagem';
+  const btn = document.getElementById('comu-enviar');
+  if(btn) btn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Salvar alterações';
+  _comuRenderAnexoHerdado();
+  _comuRenderDest();
 }
 
 // Reenviar uma mensagem já enviada: abre o composer com assunto + corpo
@@ -7778,9 +7815,11 @@ function _comuRenderDest(){
   box.innerHTML=_comuDestinatarios.map(id=>{
     const e=State.employees.find(x=>x.id===id);
     const nome=(e&&e.nome)||id;
+    // Em modo edição, nao mostra o "×" para nao deixar o usuario trocar de destinatario.
+    const closeBtn = _comuEditandoId ? '' : `<button type="button" onclick="_comuRemoveDest('${id}')" title="Remover" style="background:none;border:none;color:#c62828;cursor:pointer;font-size:13px;line-height:1;padding:0">×</button>`;
     return `<span style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:4px 10px;font-size:12px;display:inline-flex;align-items:center;gap:6px">
       ${nome}
-      <button type="button" onclick="_comuRemoveDest('${id}')" title="Remover" style="background:none;border:none;color:#c62828;cursor:pointer;font-size:13px;line-height:1;padding:0">×</button>
+      ${closeBtn}
     </span>`;
   }).join('');
 }
@@ -7836,6 +7875,34 @@ async function enviarComunicacao(){
     const quem=(Auth.currentUser && (Auth.currentUser.username||Auth.currentUser.id))||'—';
     const quemId=(Auth.currentUser && Auth.currentUser.id)||'';
     const agora=new Date().toISOString();
+
+    // MODO EDIÇÃO — atualiza a mensagem original (mantém destinatário, reações e datas)
+    if(_comuEditandoId){
+      const changes = {
+        assunto, corpo,
+        anexoUrl, anexoNome, anexoTipo,
+        editadoEm: agora,
+        editadoPorNome: quem,
+        updatedAt: agora,
+      };
+      try{
+        await DB.merge('comunicacoes', _comuEditandoId, changes);
+        try{ Auth.log('COMUNICACAO_EDITADA', null, `${assunto}`); }catch(_){}
+        toast('Mensagem atualizada.','success');
+        closeModal('modal-comunicar');
+        const m=document.getElementById('modal-employee');
+        if(m && !m.classList.contains('hidden')){
+          const eid=val('emp-id');
+          if(eid) renderComunicacoesTab(eid);
+        }
+      }catch(e){
+        toast('Erro ao atualizar: '+(e.message||e),'error');
+      }finally{
+        setBtnLoading(btn,false,'');
+      }
+      return;
+    }
+
     let ok=0;
     for(const empId of ids){
       const e=State.employees.find(x=>x.id===empId);
@@ -7921,8 +7988,9 @@ async function renderComunicacoesTab(empId){
         ${anexo}
         ${reacHtml}
         <div style="margin-top:8px;padding-top:7px;border-top:1px dashed var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-          <span style="font-size:11px;color:#888">Enviado por ${m.origemUserNome||'—'}</span>
+          <span style="font-size:11px;color:#888">Enviado por ${m.origemUserNome||'—'}${m.editadoEm?` · <em>editado ${(m.editadoEm||'').substring(0,10).split('-').reverse().join('/')}</em>`:''}</span>
           <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button type="button" onclick="editarMensagem('${m.id}')" class="btn btn-sm btn-outline" style="font-size:11px;padding:3px 10px;color:#E65100;border-color:#FFCC80"><i class="fa-solid fa-pen"></i> Editar</button>
             <button type="button" onclick="reenviarMensagem('${m.id}')" class="btn btn-sm btn-outline" style="font-size:11px;padding:3px 10px;color:#1976D2;border-color:#1976D2"><i class="fa-solid fa-rotate-right"></i> Reenviar</button>
             ${podeApagar?`<button type="button" onclick="apagarComunicacao('${m.id}')" class="btn btn-sm btn-outline" style="font-size:11px;padding:3px 10px;color:#c62828;border-color:#ef9a9a"><i class="fa-solid fa-trash"></i> Apagar</button>`:''}
           </div>

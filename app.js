@@ -7697,7 +7697,7 @@ function renderEmpPagamentos(empId){
 let _comuDestinatarios = [];
 
 function openComunicarModal(empIdOrNull){
-  if(!getUserModules(Auth.currentUser).colaboradores){
+  if(!getUserModules(Auth.currentUser).employees && Auth.currentUser?.role!=='master'){
     toast('Você não tem permissão para enviar mensagens.','error'); return;
   }
   _comuDestinatarios = [];

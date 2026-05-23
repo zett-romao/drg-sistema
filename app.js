@@ -10190,6 +10190,7 @@ const _ALL_REPORT_TYPES = [
   {type:'individual',      icon:'fa-file-invoice',       label:'Individual',           desc:'Ficha completa do colaborador'},
   {type:'postos-cadastro', icon:'fa-building-user',      label:'Postos Cadastrados',   desc:'Lista de postos e colaboradores alocados'},
   {type:'contratos-rel',   icon:'fa-file-signature',     label:'Contratos',            desc:'Contratos ativos, valores e reajustes'},
+  {type:'comunicacoes',    icon:'fa-envelope',           label:'Mensagens (Auditoria)', desc:'Log de mensagens — autor, destinatário, leitura e datas'},
 ];
 
 function openReportsModal(allowedTypes, title){
@@ -10354,6 +10355,69 @@ function generateReportNew(){
   else if(type==='individual')      _reportIndividual();
   else if(type==='postos-cadastro') _reportPostosCadastro();
   else if(type==='contratos-rel')   _reportContratos();
+  else if(type==='comunicacoes')    _reportComunicacoes();
+}
+
+// Relatório de Mensagens (Auditoria) — log completo da coleção comunicacoes,
+// com nome, matrícula, CPF, assunto, corpo, datas de envio e leitura.
+async function _reportComunicacoes(){
+  _reportHeader('Relatório de Mensagens (Auditoria)', 'Carregando...');
+  document.getElementById('report-body-area').innerHTML =
+    '<div style="text-align:center;padding:30px;color:#666"><i class="fa-solid fa-spinner fa-spin"></i> Carregando mensagens do banco...</div>';
+  let lista = [];
+  try{
+    const snap = await DB.col('comunicacoes').get();
+    lista = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+  }catch(e){
+    toast('Erro ao carregar mensagens: '+(e.message||e), 'error');
+    document.getElementById('report-body-area').innerHTML =
+      `<div style="text-align:center;padding:20px;color:#c62828">Erro ao carregar mensagens.</div>`;
+    return;
+  }
+  lista.sort((a,b) => (b.criadoEm||'').localeCompare(a.criadoEm||''));
+  _reportHeader('Relatório de Mensagens (Auditoria)', `${lista.length} mensagem(ns) registrada(s)`);
+  const totLidas    = lista.filter(m=>m.lida).length;
+  const totNaoLidas = lista.length - totLidas;
+  document.getElementById('report-summary').innerHTML = `
+    <div class="r-stat-card"><div class="r-stat-value">${lista.length}</div><div class="r-stat-label">Total de mensagens</div></div>
+    <div class="r-stat-card"><div class="r-stat-value" style="color:#16a34a">${totLidas}</div><div class="r-stat-label">Visualizadas</div></div>
+    <div class="r-stat-card"><div class="r-stat-value" style="color:#94a3b8">${totNaoLidas}</div><div class="r-stat-label">Não visualizadas</div></div>
+  `;
+  const cols = ['#','Colaborador','Matrícula','CPF','Assunto','Mensagem','Anexo','Autor','Enviada em','Visualizada em','Status'];
+  const rows = lista.length===0
+    ? `<tr><td colspan="11" style="text-align:center;padding:24px;color:var(--text-muted)">Nenhuma mensagem registrada</td></tr>`
+    : lista.map((m,i)=>{
+        const emp = State.employees.find(e=>e.id===m.employeeId);
+        const nome = (emp && emp.nome) || m.employeeNome || '—';
+        const matricula = (emp && emp.registro) ? String(emp.registro).padStart(4,'0') : '—';
+        const cpf  = (emp && emp.cpf) || '—';
+        const enviadaEm = m.criadoEm ? new Date(m.criadoEm).toLocaleString('pt-BR') : '—';
+        const lidaEm    = (m.lida && m.lidaEm) ? new Date(m.lidaEm).toLocaleString('pt-BR') : '—';
+        const status    = m.lida
+          ? `<span style="color:#16a34a;font-weight:600">✓✓ visualizada</span>`
+          : `<span style="color:#94a3b8">✓ enviada</span>`;
+        const anexoTxt = m.anexoUrl
+          ? `<a href="${m.anexoUrl}" target="_blank" rel="noopener" style="color:var(--primary)">📎 ${m.anexoNome||'anexo'}</a>`
+          : '—';
+        const corpoTxt = (m.corpo||'').length > 250 ? (m.corpo||'').substring(0,250)+'...' : (m.corpo||'');
+        const corpoEsc = corpoTxt.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+        const asEsc    = (m.assunto||'(sem assunto)').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        const editadoStr = m.editadoEm ? `<br><em style="font-size:10px;color:#94a3b8">editado ${new Date(m.editadoEm).toLocaleString('pt-BR')}</em>` : '';
+        return `<tr>
+          <td>${i+1}</td>
+          <td><strong>${nome}</strong></td>
+          <td>${matricula}</td>
+          <td>${cpf}</td>
+          <td>${asEsc}${editadoStr}</td>
+          <td style="font-size:11px;max-width:300px">${corpoEsc}</td>
+          <td>${anexoTxt}</td>
+          <td>${m.origemUserNome||'—'}</td>
+          <td>${enviadaEm}</td>
+          <td>${lidaEm}</td>
+          <td>${status}</td>
+        </tr>`;
+      }).join('');
+  document.getElementById('report-body-area').innerHTML = _empTable(cols, rows);
 }
 
 // 1. Financeiro Mensal

@@ -432,7 +432,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=19').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=20').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -797,13 +797,48 @@ function _horaIntIniRegistrada(){
 }
 
 // Detecta dia de folga conforme a escala do colaborador.
-// 5x2: sab e dom. 6x1A/B/C: dom. 6x1ALT/12x36: nao detecta aqui (deixa passar).
+// Cobre todas as escalas do sistema:
+// - 5x2A/B: sab e dom
+// - 6x1A: dom (variantes A)
+// - 6x1B: sem folga semanal fixa (todos os dias) — deixa passar
+// - 6x1C: dom (variante C)
+// - 6x1ALT (Alternado): semana 1 folga em SAB, semana 2 folga em DOM,
+//   alternando. Ancorada em dataAdmissao + alternadaPrimeiraFolga.
+// - 12x36: ciclo 24h trabalho / 24h folga, ancorado em ciclo12x36Inicio.
 function _ehDiaDeFolga(emp, dataObj){
   const escala = (emp && emp.escala ? emp.escala.toString().toUpperCase() : '');
-  const ds = dataObj.getDay(); // 0=dom, 6=sab
-  if(escala.indexOf('5X2')===0) return ds===0 || ds===6;
-  if(escala==='6X1A' || escala==='6X1B' || escala==='6X1C') return ds===0;
-  // 6X1ALT, 12X36 → fica para versao futura (Bloco B/D); por ora nao detecta
+  const ds = dataObj.getDay(); // 0=dom .. 6=sab
+  if(!escala) return false;
+  if(escala.indexOf('5X2')===0)               return ds===0 || ds===6;
+  if(escala==='6X1A' || escala==='6X1C')      return ds===0;
+  if(escala==='6X1B')                         return false; // todos os dias
+  if(escala==='6X1ALT'){
+    // Alternado: a primeira folga (sab ou dom) e' definida no cadastro.
+    // Quem trabalha sab/dom, no fim de semana seguinte folga no outro dia.
+    if(ds !== 0 && ds !== 6) return false;
+    const primeira = (emp.alternadaPrimeiraFolga||'sab').toLowerCase(); // 'sab' ou 'dom'
+    const adm = emp.dataAdmissao ? new Date(emp.dataAdmissao + 'T00:00:00') : null;
+    if(!adm || isNaN(adm.getTime())) return false;
+    // Pega a sexta-feira da semana de admissao para usar como ancora
+    const ancoraSex = new Date(adm.getTime());
+    ancoraSex.setDate(adm.getDate() - ((adm.getDay() + 2) % 7)); // volta ate sex
+    // Conta numero de semanas inteiras entre ancora e a data atual
+    const msSemana = 7*86400000;
+    const diasDiff = Math.floor((dataObj.getTime() - ancoraSex.getTime())/msSemana);
+    // Semana par (incluindo 0) = mesmo dia da "primeira folga"
+    const folgaHojeSab = (primeira === 'sab') ? (diasDiff % 2 === 0) : (diasDiff % 2 !== 0);
+    if(ds === 6 &&  folgaHojeSab) return true;
+    if(ds === 0 && !folgaHojeSab) return true;
+    return false;
+  }
+  if(escala==='12X36'){
+    // 12x36: 1 dia trabalha, 1 dia folga. Inicio do ciclo no cadastro.
+    const inicio = emp.ciclo12x36Inicio ? new Date(emp.ciclo12x36Inicio + 'T00:00:00') : null;
+    if(!inicio || isNaN(inicio.getTime())) return false;
+    const dias = Math.floor((dataObj.getTime() - inicio.getTime())/86400000);
+    if(dias < 0) return false;
+    return (dias % 2) === 1; // dia 0 trabalha, dia 1 folga, etc.
+  }
   return false;
 }
 

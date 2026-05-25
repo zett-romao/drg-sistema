@@ -163,6 +163,12 @@
           <span>Comunicação</span>
         </a>
       </li>
+      <li id="nav-autorizacoes-li" class="hidden">
+        <a class="nav-link" id="nav-autorizacoes" onclick="showSection('autorizacoes')">
+          <i class="fa-solid fa-user-shield"></i>
+          <span>Autorizações</span>
+        </a>
+      </li>
       <li>
         <a class="nav-link" id="nav-payroll" onclick="showSection('payroll')">
           <i class="fa-solid fa-file-invoice-dollar"></i>
@@ -1853,6 +1859,11 @@
       <!-- ===== COMUNICAÇÃO — centro de mensagens em massa e individuais ===== -->
       <section id="section-comunicacao" class="section">
         <div id="comunicacao-content" style="padding:20px"></div>
+      </section>
+
+      <!-- ===== AUTORIZAÇÕES — historico de pedidos de batida fora do horario ===== -->
+      <section id="section-autorizacoes" class="section">
+        <div id="autorizacoes-content" style="padding:20px"></div>
       </section>
 
       <section id="section-configuracoes" class="section">
@@ -5420,6 +5431,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260523a"></script>
+<script src="app.js?v=20260523b"></script>
 </body>
 </html>

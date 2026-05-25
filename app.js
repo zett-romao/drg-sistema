@@ -911,6 +911,7 @@ function showSection(name){
   if(name==='postos'         && !mods.postos)       return;
   if(name==='contratos'      && !mods.contratos)    return;
   if(name==='comunicacao'    && !mods.comunicacao)  return;
+  if(name==='autorizacoes'   && !mods.autorizarPonto) return;
   if(name==='configuracoes'  && Auth.currentUser?.role!=='master') return;
   // Empilha seção atual antes de trocar (exceto se estiver voltando ou já está na mesma seção)
   if(!_navigatingBack && State.currentSection && State.currentSection!==name){
@@ -929,7 +930,7 @@ function showSection(name){
   if(navBtn)  navBtn.classList.add('active');
   const titles={dashboard:'Dashboard',employees:'Colaboradores',payroll:'Folha de Ponto',escalas:'Escalas',
                 pagamentos:'Pagamentos',adiantamentos:'Adiantamentos',aprovacoes:'Aprovações de Pagamentos',decimoterceiro:'13º Salário',ferias:'Férias',rescisao:'Rescisões',
-                contabilidade:'Contabilidade',users:'Usuários & Acessos',postos:'Postos de Trabalho',contratos:'Contratos',comunicacao:'Comunicação',configuracoes:'Configurações'};
+                contabilidade:'Contabilidade',users:'Usuários & Acessos',postos:'Postos de Trabalho',contratos:'Contratos',comunicacao:'Comunicação',autorizacoes:'Autorizações de Ponto',configuracoes:'Configurações'};
   document.getElementById('topbar-title').textContent=titles[name]||name;
   State.currentSection=name;
   if(name==='employees') renderEmployeeTable();
@@ -944,6 +945,7 @@ function showSection(name){
   if(name==='rescisao')        renderRescisoes();
   if(name==='contabilidade')   { _applyModoBanners(State.empresa?.modoContabilidade||'ambas'); renderContabilidade(); }
   if(name==='comunicacao')     renderComunicacaoSection();
+  if(name==='autorizacoes')    renderAutorizacoesSection();
   if(name==='configuracoes')  renderConfiguracoes();
   if(name==='postos')    renderPostosTable();
   if(name==='contratos') {
@@ -1347,6 +1349,9 @@ function applyUserSession(user){
   // So' aparece pra quem tem a permissao autorizarPonto.
   const linkSup=document.getElementById('topbar-link-supervisor');
   if(linkSup) linkSup.classList.toggle('hidden', !mods.autorizarPonto);
+  // Autorizacoes (historico): mesma permissao do app de supervisor.
+  const autzLi=document.getElementById('nav-autorizacoes-li');
+  if(autzLi) autzLi.classList.toggle('hidden', !mods.autorizarPonto);
   // Postos de Trabalho: master ou gestor
   const postosLi=document.getElementById('nav-postos-li');
   if(postosLi) postosLi.classList.toggle('hidden', !mods.postos);
@@ -11529,6 +11534,232 @@ function _comuAbrirRegistroDoCard(empId){
   openEmployeeModal(empId);
   // Espera o modal abrir e ja' alterna para a aba de Comunicacoes
   setTimeout(() => { try{ switchTab('tab-comunicacoes'); }catch(_){} }, 250);
+}
+
+// ===========================================================================
+// AUTORIZACOES DE PONTO — historico de pedidos (Bloco D)
+// ===========================================================================
+// Espelha o padrao da secao Comunicacao: cards stats clicaveis + filtros +
+// lista enxuta. Carrega de "autorizacoesPonto" e mostra com filtros.
+let _autzCache    = null;
+let _autzFiltros  = { busca:'', status:'todos', periodo:'30' };
+let _autzCarregando = false;
+
+async function renderAutorizacoesSection(){
+  const box = document.getElementById('autorizacoes-content');
+  if(!box) return;
+  if(!_autzCache && !_autzCarregando){
+    _autzCarregando = true;
+    box.innerHTML = '<div style="text-align:center;padding:40px;color:#666"><i class="fa-solid fa-spinner fa-spin"></i> Carregando autorizações...</div>';
+    try{
+      const snap = await DB.col('autorizacoesPonto').get();
+      _autzCache = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+    }catch(e){
+      console.error('autz:fetch', e);
+      _autzCache = [];
+      toast('Erro ao carregar: '+(e.message||e),'error');
+    }
+    _autzCarregando = false;
+  }
+  _renderAutzUI();
+}
+
+async function atualizarAutorizacoesSection(){
+  _autzCache = null;
+  await renderAutorizacoesSection();
+  toast('Lista atualizada.','success');
+}
+
+function _autzSetFiltro(key, val){
+  _autzFiltros[key] = val;
+  _renderAutzUI();
+}
+
+function _renderAutzUI(){
+  const box = document.getElementById('autorizacoes-content');
+  if(!box) return;
+  const todos = _autzCache || [];
+  const D = 86400000;
+  const agora = Date.now();
+  const dias  = parseInt(_autzFiltros.periodo||'30',10);
+  const busca = (_autzFiltros.busca||'').trim().toLowerCase();
+  const filtradas = todos.filter(p => {
+    if(dias > 0 && p.tentativaEm){
+      const dt = new Date(p.tentativaEm).getTime();
+      if(isFinite(dt) && (agora-dt) > dias*D) return false;
+    }
+    if(_autzFiltros.status !== 'todos' && p.status !== _autzFiltros.status) return false;
+    if(busca){
+      const blob = `${p.employeeNome||''} ${p.employeeRegistro||''} ${p.autorizadoPorNome||''} ${p.motivo||''}`.toLowerCase();
+      if(!blob.includes(busca)) return false;
+    }
+    return true;
+  });
+  filtradas.sort((a,b) => (b.tentativaEm||'').localeCompare(a.tentativaEm||''));
+  // Stats
+  const cnt = {
+    todos: filtradas.length,
+    pendente: filtradas.filter(p=>p.status==='pendente').length,
+    autorizada: filtradas.filter(p=>p.status==='autorizada').length,
+    recusada: filtradas.filter(p=>p.status==='recusada').length,
+    expirada: filtradas.filter(p=>p.status==='expirada' || p.status==='cancelada').length,
+  };
+  const fmtDt = iso => { const d=iso?new Date(iso):null; if(!d||isNaN(d.getTime())) return '—'; return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}); };
+  const NOMES = {entrada:'Entrada', intIni:'Início intervalo', intFim:'Fim intervalo', saida:'Saída'};
+  // Header
+  const headerHtml = `
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:18px">
+      <div>
+        <h2 style="margin:0;font-size:20px;color:var(--text)"><i class="fa-solid fa-user-shield" style="color:#1976D2"></i> Autorizações de Ponto</h2>
+        <div style="font-size:12px;color:#888;margin-top:4px">Histórico de pedidos de batida fora do horário previsto. Auditoria completa.</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-outline" onclick="atualizarAutorizacoesSection()" title="Recarregar do banco"><i class="fa-solid fa-rotate"></i> Atualizar</button>
+        <button class="btn btn-outline" onclick="_autzImprimir()" title="Imprimir / salvar PDF do filtro atual"><i class="fa-solid fa-file-pdf"></i> Gerar PDF</button>
+      </div>
+    </div>`;
+  // Cards stats — clicaveis (filtram por status)
+  const _cardStyle = `background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center;cursor:pointer;transition:transform .15s ease,box-shadow .15s ease`;
+  const _cardHover = `onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 14px rgba(0,0,0,.08)';" onmouseout="this.style.transform='';this.style.boxShadow='';"`;
+  const cardClick = st => `onclick="_autzSetFiltro('status','${st}')"`;
+  const ativo = (st) => _autzFiltros.status===st ? `outline:3px solid var(--primary);outline-offset:-3px;` : '';
+  const statsHtml = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px">
+      <div style="${_cardStyle};border-top:3px solid #1976D2;${ativo('todos')}" ${_cardHover} ${cardClick('todos')}>
+        <div style="font-size:24px;font-weight:700;color:#1976D2">${cnt.todos}</div>
+        <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.4px">Todos (filtro)</div>
+      </div>
+      <div style="${_cardStyle};border-top:3px solid #E65100;${ativo('pendente')}" ${_cardHover} ${cardClick('pendente')}>
+        <div style="font-size:24px;font-weight:700;color:#E65100">${cnt.pendente}</div>
+        <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.4px">Pendentes</div>
+      </div>
+      <div style="${_cardStyle};border-top:3px solid #16a34a;${ativo('autorizada')}" ${_cardHover} ${cardClick('autorizada')}>
+        <div style="font-size:24px;font-weight:700;color:#16a34a">${cnt.autorizada}</div>
+        <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.4px">Autorizadas</div>
+      </div>
+      <div style="${_cardStyle};border-top:3px solid #c62828;${ativo('recusada')}" ${_cardHover} ${cardClick('recusada')}>
+        <div style="font-size:24px;font-weight:700;color:#c62828">${cnt.recusada}</div>
+        <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.4px">Recusadas</div>
+      </div>
+      <div style="${_cardStyle};border-top:3px solid #94a3b8;${ativo('expirada')}" ${_cardHover} ${cardClick('expirada')}>
+        <div style="font-size:24px;font-weight:700;color:#94a3b8">${cnt.expirada}</div>
+        <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.4px">Expiradas/Canceladas</div>
+      </div>
+    </div>`;
+  // Filtros
+  const filtrosHtml = `
+    <div style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:18px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;align-items:end">
+        <div>
+          <label style="font-size:12px;color:#475569;display:block;margin-bottom:4px">Buscar</label>
+          <input type="text" id="autz-busca" placeholder="Colaborador, matrícula, supervisor, motivo..." value="${(_autzFiltros.busca||'').replace(/"/g,'&quot;')}" oninput="_autzSetFiltro('busca', this.value)" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+        </div>
+        <div>
+          <label style="font-size:12px;color:#475569;display:block;margin-bottom:4px">Período</label>
+          <select onchange="_autzSetFiltro('periodo', this.value)" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+            <option value="7"   ${_autzFiltros.periodo==='7'?'selected':''}>Últimos 7 dias</option>
+            <option value="30"  ${_autzFiltros.periodo==='30'?'selected':''}>Últimos 30 dias</option>
+            <option value="90"  ${_autzFiltros.periodo==='90'?'selected':''}>Últimos 90 dias</option>
+            <option value="365" ${_autzFiltros.periodo==='365'?'selected':''}>Último ano</option>
+            <option value="0"   ${_autzFiltros.periodo==='0'?'selected':''}>Tudo</option>
+          </select>
+        </div>
+      </div>
+    </div>`;
+  // Lista
+  let listaHtml;
+  if(!filtradas.length){
+    listaHtml = `<div class="empty-state"><i class="fa-solid fa-shield-halved"></i><p>Nenhuma autorização com este filtro.</p></div>`;
+  } else {
+    listaHtml = filtradas.map(p => {
+      const corStatus = p.status==='pendente'   ? '#E65100'
+                      : p.status==='autorizada' ? '#16a34a'
+                      : p.status==='recusada'   ? '#c62828'
+                      : '#94a3b8';
+      const lblStatus = p.status==='pendente'  ? 'PENDENTE'
+                      : p.status==='autorizada'? 'AUTORIZADA'
+                      : p.status==='recusada'  ? 'RECUSADA'
+                      : p.status==='expirada'  ? 'EXPIRADA'
+                      : 'CANCELADA';
+      const diff = p.diferencaMinutos || 0;
+      const diffTxt = diff===0 ? '' :
+        diff > 0 ? `+${diff} min` : `${diff} min`;
+      const empCad = State.employees.find(e => e.id === p.employeeId);
+      const nomeLink = empCad
+        ? `<a href="javascript:void(0)" onclick="openEmployeeModal('${p.employeeId}')" style="color:var(--primary);text-decoration:none;border-bottom:1px dotted var(--primary)">${(p.employeeNome||'—').replace(/</g,'&lt;')}</a>`
+        : ((p.employeeNome||'—').replace(/</g,'&lt;'));
+      const matr = p.employeeRegistro ? String(p.employeeRegistro).padStart(4,'0') : '—';
+      const motivoBox = p.motivo
+        ? `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:7px 9px;margin-top:7px;font-size:12px;color:#713f12"><strong>📝 Motivo do colaborador:</strong> ${(p.motivo||'').replace(/</g,'&lt;')}</div>`
+        : '';
+      const recusaBox = (p.status==='recusada' && p.motivoRecusa)
+        ? `<div style="background:#fee2e2;border:1px solid #fca5a5;border-radius:6px;padding:7px 9px;margin-top:7px;font-size:12px;color:#7f1d1d"><strong>❌ Motivo da recusa:</strong> ${(p.motivoRecusa||'').replace(/</g,'&lt;')}</div>`
+        : '';
+      const supBox = (p.autorizadoPorNome)
+        ? `<div style="font-size:11px;color:#666;margin-top:6px">${p.status==='autorizada'?'✅ Autorizado':'❌ Recusado'} por <strong>${p.autorizadoPorNome}</strong>${p.autorizadoEm?' em '+fmtDt(p.autorizadoEm):''}</div>`
+        : '';
+      return `<div style="background:#fff;border:1px solid var(--border);border-left:4px solid ${corStatus};border-radius:8px;padding:12px 14px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px">
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700;font-size:14px;color:var(--text)">${nomeLink}</div>
+            <div style="font-size:11px;color:#888;margin-top:2px">Matrícula ${matr}${p.employeeCpf?' · CPF '+p.employeeCpf:''}</div>
+          </div>
+          <span style="background:${corStatus};color:#fff;padding:3px 10px;border-radius:12px;font-size:10px;font-weight:700;letter-spacing:.4px">${lblStatus}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:8px;background:#f8fafc;border-radius:6px;padding:9px">
+          <div><div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;font-weight:600">Batida</div><div style="font-size:13px;color:var(--text);font-weight:600">${NOMES[p.tipoBatida]||p.tipoBatida||'—'}</div></div>
+          <div><div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;font-weight:600">Hora real</div><div style="font-size:13px;color:var(--text);font-weight:600">${p.horarioReal||'—'}</div></div>
+          ${p.horarioPrevisto ? `<div><div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;font-weight:600">Previsto</div><div style="font-size:13px;color:var(--text);font-weight:600">${p.horarioPrevisto}</div></div>` : ''}
+          ${diffTxt ? `<div><div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;font-weight:600">Diferença</div><div style="font-size:13px;font-weight:600;color:${diff>0?'#c62828':'#1976D2'}">${diffTxt}</div></div>` : ''}
+          ${p.ehFolga ? `<div><div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;font-weight:600">Folga</div><div style="font-size:13px;font-weight:600;color:#7e22ce">SIM</div></div>` : ''}
+        </div>
+        ${motivoBox}
+        ${recusaBox}
+        ${supBox}
+        <div style="font-size:11px;color:#888;margin-top:6px">⏱ Solicitado em ${fmtDt(p.tentativaEm)}</div>
+      </div>`;
+    }).join('');
+  }
+  box.innerHTML = headerHtml + statsHtml + filtrosHtml + listaHtml;
+  // mantem foco no input de busca (perdido pelo innerHTML)
+  if(_autzFiltros.busca){
+    const el = document.getElementById('autz-busca');
+    if(el){ el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+  }
+}
+
+// Imprime/salva PDF do filtro atual — abre janela nova em paisagem
+function _autzImprimir(){
+  const box = document.getElementById('autorizacoes-content');
+  if(!box) return;
+  const cont = box.innerHTML;
+  const empresa = _e('nomeEmpresa');
+  const data = new Date().toLocaleString('pt-BR');
+  const html = `<!DOCTYPE html><html lang="pt-BR"><head>
+<meta charset="UTF-8"><title>Autorizações de Ponto</title>
+<style>
+  @page{size:A4 landscape;margin:12mm 14mm}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Arial,sans-serif;font-size:11px;color:#222}
+  .ph{display:flex;align-items:center;gap:12px;border-bottom:2px solid #1976D2;padding-bottom:8px;margin-bottom:12px}
+  .ph img{width:44px;height:44px;border-radius:50%}
+  .ph h2{color:#1976D2;font-size:14px;font-weight:700}
+  .ph p{color:#666;font-size:10px;margin-top:2px}
+  .pm{margin-left:auto;text-align:right;font-size:9px;color:#888}
+  /* Esconde botoes e elementos interativos no print */
+  button,input,select,a[onclick]{display:none !important}
+  .empty-state{text-align:center;padding:30px;color:#94a3b8}
+</style></head><body>
+<div class="ph">
+  <img src="logo.png" alt="">
+  <div><h2>${empresa.replace(/</g,'&lt;')}</h2><p>Autorizações de Ponto — Gerado em ${data}</p></div>
+</div>
+${cont}
+</body></html>`;
+  const win = window.open('','_blank');
+  if(!win){ toast('Permita pop-ups para imprimir.','warning'); return; }
+  win.document.write(html + '<scr'+'ipt>window.onload=function(){window.print();window.onafterprint=function(){window.close();}}<\/scr'+'ipt>');
+  win.document.close();
 }
 
 // 1. Financeiro Mensal

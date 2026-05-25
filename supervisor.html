@@ -269,6 +269,7 @@ async function doLogin(){
     // Resolve a permissao: master tem sempre; perfis (role 'p_<id>') tem que
     // ler o doc perfis/<id> e olhar modules.autorizarPonto.
     let podeAutorizar = (currentUser.role === 'master');
+    let perfilDiag = null; // info para diagnostico caso bloqueie
     if(!podeAutorizar){
       try{
         const role = currentUser.role || '';
@@ -277,20 +278,31 @@ async function doLogin(){
           const psnap = await dbCol('perfis').doc(perfilId).get();
           if(psnap.exists){
             const perfil = psnap.data();
+            perfilDiag = { id: perfilId, nome: perfil.nome || perfilId, modules: perfil.modules||{} };
             podeAutorizar = !!(perfil.modules && perfil.modules.autorizarPonto);
+          } else {
+            perfilDiag = { id: perfilId, erro: 'Perfil nao encontrado no banco' };
           }
         } else {
           // role legacy direto (ex: 'operador') — fallback no objeto user
           const mods = currentUser.modules || (currentUser.perfil && currentUser.perfil.modules) || {};
           podeAutorizar = !!mods.autorizarPonto;
+          perfilDiag = { id: role, nome: role, modules: mods };
         }
       }catch(perr){
         console.error('lookup perfil', perr);
+        perfilDiag = { erro: perr.message };
       }
     }
     if(!podeAutorizar){
+      console.error('Sem permissao autorizarPonto. Diagnostico:', { user: currentUser, perfil: perfilDiag });
       try{ await firebase.auth().signOut(); }catch(_){}
-      errEl.textContent = 'Voce nao tem permissao para autorizar batidas. Peca ao administrador para liberar o modulo "Autorizar Batidas Fora do Horario" no seu perfil.';
+      const nomePerfil = perfilDiag && perfilDiag.nome ? perfilDiag.nome
+                       : perfilDiag && perfilDiag.id   ? perfilDiag.id
+                       : (currentUser.role || '?');
+      errEl.innerHTML = `Sem permissao para autorizar batidas.<br><br>
+        <strong>Perfil em uso:</strong> ${nomePerfil}<br>
+        <span style="font-size:11px;color:#666">Peca ao master para abrir o painel da gestao &rarr; Usuarios &amp; Acessos &rarr; Perfis &rarr; editar este perfil &rarr; marcar <strong>"Autorizar Batidas Fora do Horario"</strong> &rarr; Salvar. Em seguida saia e entre de novo neste app.</span>`;
       errEl.style.display='block';
       return;
     }
@@ -569,7 +581,7 @@ setInterval(() => {
 if('serviceWorker' in navigator){
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('supervisor-sw.js?v=2').then(reg => {
+    navigator.serviceWorker.register('supervisor-sw.js?v=3').then(reg => {
       const checar = () => { try{ reg.update(); }catch(_){} };
       document.addEventListener('visibilitychange', () => {
         if(document.visibilityState === 'visible') checar();

@@ -262,17 +262,38 @@ async function doLogin(){
       errEl.style.display='block';
       return;
     }
-    // Verifica permissao autorizarPonto OU role master
-    const mods = (data.user.modules || data.user.perfil?.modules || {});
-    const podeAutorizar = !!mods.autorizarPonto || data.user.role==='master';
+    // Autentica no Firebase Auth com o customToken (precisa ANTES de ler perfis,
+    // porque as Rules exigem usuario autenticado para acessar a colecao).
+    await firebase.auth().signInWithCustomToken(data.customToken);
+    currentUser = data.user;
+    // Resolve a permissao: master tem sempre; perfis (role 'p_<id>') tem que
+    // ler o doc perfis/<id> e olhar modules.autorizarPonto.
+    let podeAutorizar = (currentUser.role === 'master');
     if(!podeAutorizar){
+      try{
+        const role = currentUser.role || '';
+        if(role.startsWith('p_')){
+          const perfilId = role.replace('p_','');
+          const psnap = await dbCol('perfis').doc(perfilId).get();
+          if(psnap.exists){
+            const perfil = psnap.data();
+            podeAutorizar = !!(perfil.modules && perfil.modules.autorizarPonto);
+          }
+        } else {
+          // role legacy direto (ex: 'operador') — fallback no objeto user
+          const mods = currentUser.modules || (currentUser.perfil && currentUser.perfil.modules) || {};
+          podeAutorizar = !!mods.autorizarPonto;
+        }
+      }catch(perr){
+        console.error('lookup perfil', perr);
+      }
+    }
+    if(!podeAutorizar){
+      try{ await firebase.auth().signOut(); }catch(_){}
       errEl.textContent = 'Voce nao tem permissao para autorizar batidas. Peca ao administrador para liberar o modulo "Autorizar Batidas Fora do Horario" no seu perfil.';
       errEl.style.display='block';
       return;
     }
-    // Autentica no Firebase Auth com o customToken
-    await firebase.auth().signInWithCustomToken(data.customToken);
-    currentUser = data.user;
     sessionStorage.setItem('drg_sup_user', JSON.stringify({
       id: currentUser.id, username: currentUser.username, role: currentUser.role
     }));
@@ -548,7 +569,7 @@ setInterval(() => {
 if('serviceWorker' in navigator){
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('supervisor-sw.js?v=1').then(reg => {
+    navigator.serviceWorker.register('supervisor-sw.js?v=2').then(reg => {
       const checar = () => { try{ reg.update(); }catch(_){} };
       document.addEventListener('visibilitychange', () => {
         if(document.visibilityState === 'visible') checar();

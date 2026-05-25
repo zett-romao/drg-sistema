@@ -1343,6 +1343,10 @@ function applyUserSession(user){
   // Comunicação: módulo dedicado (delegável). Master sempre tem.
   const commLi=document.getElementById('nav-comunicacao-li');
   if(commLi) commLi.classList.toggle('hidden', !mods.comunicacao);
+  // Link "Supervisor" na topbar — abre supervisor.html em nova aba.
+  // So' aparece pra quem tem a permissao autorizarPonto.
+  const linkSup=document.getElementById('topbar-link-supervisor');
+  if(linkSup) linkSup.classList.toggle('hidden', !mods.autorizarPonto);
   // Postos de Trabalho: master ou gestor
   const postosLi=document.getElementById('nav-postos-li');
   if(postosLi) postosLi.classList.toggle('hidden', !mods.postos);
@@ -16040,13 +16044,14 @@ const MODULOS_LABELS={
   log:             'Log de Acessos',
   comunicacao:        'Comunicação (Enviar mensagens)',
   comunicacoesApagar: 'Apagar Mensagens (Comunicações)',
-  disciplinaApagar:   'Anular Atos Disciplinares (Disciplina)'
+  disciplinaApagar:   'Anular Atos Disciplinares (Disciplina)',
+  autorizarPonto:     'Autorizar Batidas Fora do Horário (Supervisor)'
 };
 
 // Retorna os módulos permitidos para o usuário
 function getUserModules(user){
   if(!user) return {};
-  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,escalas:true,aprovaHE:true,reports:true,pagamentos:true,pagamentosLancar:true,pagamentosAprovar:true,decimoterceiro:true,ferias:true,rescisao:true,contabilidade:true,postos:true,contratos:true,users:true,log:true,comunicacao:true,comunicacoesApagar:true,disciplinaApagar:true};
+  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,escalas:true,aprovaHE:true,reports:true,pagamentos:true,pagamentosLancar:true,pagamentosAprovar:true,decimoterceiro:true,ferias:true,rescisao:true,contabilidade:true,postos:true,contratos:true,users:true,log:true,comunicacao:true,comunicacoesApagar:true,disciplinaApagar:true,autorizarPonto:true};
   if(user.role==='operador') return {dashboard:true,employees:false,payroll:true,escalas:true,aprovaHE:false,reports:true,pagamentos:true,pagamentosLancar:false,pagamentosAprovar:false,decimoterceiro:true,ferias:true,rescisao:false,contabilidade:true,postos:false,contratos:false,users:false,log:!!user.showLog};
   if(user.role&&user.role.startsWith('p_')){
     const perfilId=user.role.replace('p_','');

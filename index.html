@@ -299,6 +299,11 @@
       <h1 class="topbar-title" id="topbar-title">Dashboard</h1>
       <div class="topbar-right">
         <span class="topbar-date" id="topbar-date"></span>
+        <a id="topbar-link-supervisor" href="supervisor.html" target="_blank" rel="noopener" class="hidden" title="Abrir app de Supervisor (autorizar batidas fora do horário) em nova aba"
+           style="display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid #BBDEFB;color:#1976D2;font-weight:600;font-size:13px;padding:8px 12px;border-radius:8px;text-decoration:none;white-space:nowrap">
+          <i class="fa-solid fa-user-shield"></i>
+          <span>Supervisor</span>
+        </a>
         <div class="topbar-user" onclick="openMinhaConta()" style="cursor:pointer" title="Minha conta — segurança e verificação em 2 etapas">
           <img id="topbar-user-foto" alt="" style="width:24px;height:24px;border-radius:50%;object-fit:cover;display:none">
           <i class="fa-solid fa-user-tie" id="topbar-user-icon"></i>
@@ -4961,6 +4966,7 @@
           <label class="checkbox-label"><input type="checkbox" name="mod" value="comunicacao"> <span><i class="fa-solid fa-comments" style="width:14px;color:#1976D2"></i> Comunicação (Enviar mensagens)</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="comunicacoesApagar"> <span><i class="fa-solid fa-trash" style="width:14px;color:#c62828"></i> Apagar Mensagens (Comunicações)</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="disciplinaApagar"> <span><i class="fa-solid fa-gavel" style="width:14px;color:#7e22ce"></i> Anular Atos Disciplinares</span></label>
+          <label class="checkbox-label"><input type="checkbox" name="mod" value="autorizarPonto"> <span><i class="fa-solid fa-user-shield" style="width:14px;color:#1976D2"></i> Autorizar Batidas Fora do Horário (Supervisor)</span></label>
         </div>
       </div>
     </div>
@@ -5414,6 +5420,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260522w"></script>
+<script src="app.js?v=20260523a"></script>
 </body>
 </html>

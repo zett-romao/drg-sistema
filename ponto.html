@@ -416,7 +416,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=17').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=18').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -742,8 +742,17 @@ function linkMaps(geo) {
   return `https://maps.google.com/?q=${geo.lat},${geo.lng}`;
 }
 
-// ─── DISCIPLINA DE HORÁRIO ────────────────────────────────────────────────────
-const TOLERANCIA_MIN = 5; // tolerância em minutos (CLT Art. 58)
+// ─── DISCIPLINA DE HORÁRIO (trava real, nao mais aviso) ──────────────────────
+// Regras:
+// - Entrada / Saida: horario cadastrado +/- 5 min (CLT Art. 58)
+// - Ida ao intervalo: de 5min antes ate 60min depois do horario cadastrado
+// - Volta do intervalo: 60 a 65 min apos a saida REAL pro intervalo
+//   (regra trabalhista de descanso minimo de 1h — CLT Art. 71)
+// - Dia de folga: bloqueia, exige autorizacao
+const TOLERANCIA_MIN     = 5;   // entrada/saida e ida ao intervalo (lim inf)
+const IDA_INTERVALO_MAX  = 60;  // ida ao intervalo pode ate 60min depois
+const DESCANSO_MIN       = 60;  // tempo minimo de intervalo (CLT)
+const DESCANSO_MAX       = 65;  // tolerancia de 5min sobre o minimo
 
 function timeToMin(t){
   const p=(t||'').split(':'); const h=parseInt(p[0])||0, m=parseInt(p[1])||0;
@@ -760,51 +769,153 @@ function _horarioEsperado(prox){
   return '';
 }
 
-// Analisa se a batida está fora da tolerância. he=true quando gera hora extra.
-function analisarHorario(prox, now){
-  const out={aviso:false, he:false, esperado:'', diff:0};
-  const esp=_horarioEsperado(prox);
-  if(!esp) return out;
-  out.esperado=esp;
-  const atual=now.getHours()*60+now.getMinutes();
-  const diff=atual-timeToMin(esp);
-  out.diff=diff;
-  if(prox==='saida'){
-    if(diff>TOLERANCIA_MIN){ out.aviso=true; out.he=true; }   // saiu depois → hora extra
-    else if(diff<-TOLERANCIA_MIN){ out.aviso=true; }          // saiu antes do horário
-  } else if(prox==='entrada'){
-    if(Math.abs(diff)>TOLERANCIA_MIN) out.aviso=true;         // chegou cedo ou atrasado
-  } else {
-    if(Math.abs(diff)>TOLERANCIA_MIN) out.aviso=true;         // intervalo fora do horário
-  }
-  return out;
+// Pega a hora real (HH:MM) que o colaborador bateu a saida pro intervalo HOJE.
+// Usada para travar a volta — 60-65 min APOS essa hora real, nao o previsto.
+function _horaIntIniRegistrada(){
+  try{
+    const j = _diaJornada();
+    const dias = (currentPayroll && currentPayroll.pontoManualDias) || [];
+    const dayEntry = dias.find(d => d.dia===j.dia);
+    return (dayEntry && dayEntry.intIni) || '';
+  }catch(_){ return ''; }
 }
 
-// Mostra o aviso e devolve {motivo} se confirmado, ou null se cancelado
-function mostrarAvisoHorario(prox, hora, analise){
+// Detecta dia de folga conforme a escala do colaborador.
+// 5x2: sab e dom. 6x1A/B/C: dom. 6x1ALT/12x36: nao detecta aqui (deixa passar).
+function _ehDiaDeFolga(emp, dataObj){
+  const escala = (emp && emp.escala ? emp.escala.toString().toUpperCase() : '');
+  const ds = dataObj.getDay(); // 0=dom, 6=sab
+  if(escala.indexOf('5X2')===0) return ds===0 || ds===6;
+  if(escala==='6X1A' || escala==='6X1B' || escala==='6X1C') return ds===0;
+  // 6X1ALT, 12X36 → fica para versao futura (Bloco B/D); por ora nao detecta
+  return false;
+}
+
+// Analisa se a batida pode ser feita. Retorna um objeto:
+//  tipo: 'ok' | 'foraJanela' | 'descansoInsuficiente' | 'folga'
+//  Quando NAO e' 'ok', a batida deve ser bloqueada.
+//  'descansoInsuficiente' = CLT, supervisor nao pode autorizar.
+//  'foraJanela' / 'folga' = pode pedir autorizacao ao supervisor (Bloco B).
+function analisarHorario(prox, now){
+  const e = currentEmp || {};
+  const atualMin = now.getHours()*60 + now.getMinutes();
+
+  // 1. Dia de folga — bloqueia (qualquer batida exige autorizacao)
+  if(_ehDiaDeFolga(e, now)){
+    return {
+      tipo: 'folga',
+      msg: 'Você está de folga hoje conforme sua escala. Para registrar batida em dia de folga, solicite autorização ao supervisor.'
+    };
+  }
+
+  const esp = _horarioEsperado(prox);
+  // Sem horario cadastrado → trava desligada para essa batida
+  if(!esp) return { tipo:'ok' };
+
+  // 2. Volta do intervalo — usa hora REAL de saida ao intervalo
+  if(prox === 'intFim'){
+    const horaIda = _horaIntIniRegistrada();
+    if(!horaIda){
+      // Sem registro da saida pro intervalo — nao da' pra calcular descanso.
+      // Aplica regra de tolerancia padrao em relacao ao previsto.
+      const diff = atualMin - timeToMin(esp);
+      if(Math.abs(diff) <= TOLERANCIA_MIN) return { tipo:'ok', esperado:esp, diff };
+      return {
+        tipo:'foraJanela',
+        esperado:esp, diff,
+        msg:`Fora do horário previsto (${esp}). Solicite autorização ao supervisor.`
+      };
+    }
+    const idaMin = timeToMin(horaIda);
+    const decorrido = atualMin - idaMin;
+    if(decorrido < DESCANSO_MIN){
+      return {
+        tipo: 'descansoInsuficiente',
+        esperado: horaIda,
+        diff: decorrido,
+        faltaMin: DESCANSO_MIN - decorrido,
+        msg: `Você precisa descansar mais ${DESCANSO_MIN - decorrido} min. O intervalo mínimo é de 1 hora (você saiu às ${horaIda}). CLT Art. 71.`
+      };
+    }
+    if(decorrido > DESCANSO_MAX){
+      return {
+        tipo: 'foraJanela',
+        esperado: horaIda,
+        diff: decorrido,
+        msg: `O intervalo passou de 1h05 (você saiu às ${horaIda}, já faz ${decorrido} min). Solicite autorização ao supervisor.`
+      };
+    }
+    return { tipo:'ok', esperado:horaIda, diff:decorrido };
+  }
+
+  // 3. Ida ao intervalo — pode -5min ate +60min do horario previsto
+  if(prox === 'intIni'){
+    const diff = atualMin - timeToMin(esp);
+    if(diff >= -TOLERANCIA_MIN && diff <= IDA_INTERVALO_MAX){
+      return { tipo:'ok', esperado:esp, diff };
+    }
+    const msg = (diff < 0)
+      ? `Muito cedo. O horário previsto é ${esp} (faltam ${-diff} min). Solicite autorização ao supervisor para sair mais cedo.`
+      : `Você ultrapassou o limite de tolerância. Horário previsto: ${esp} — já passou ${diff} min (limite: ${IDA_INTERVALO_MAX} min). Solicite autorização ao supervisor.`;
+    return { tipo:'foraJanela', esperado:esp, diff, msg };
+  }
+
+  // 4. Entrada e Saida — +/- 5 min do horario previsto
+  const diff = atualMin - timeToMin(esp);
+  if(Math.abs(diff) <= TOLERANCIA_MIN){
+    return { tipo:'ok', esperado:esp, diff };
+  }
+  const nome = (prox==='entrada') ? 'entrada' : 'saída';
+  const msg = (diff < 0)
+    ? `Muito cedo. Sua ${nome} é prevista para ${esp} (faltam ${-diff} min). Solicite autorização ao supervisor.`
+    : `Você está atrasado. Sua ${nome} era prevista para ${esp} (atrasou ${diff} min). Solicite autorização ao supervisor.`;
+  return { tipo:'foraJanela', esperado:esp, diff, msg };
+}
+
+// Mostra a mensagem de bloqueio. No Bloco A, a batida sempre e' cancelada
+// — o colaborador clica "Entendi" e nao consegue bater. No Bloco B,
+// vamos acrescentar o botao "Solicitar autorização ao supervisor".
+function mostrarBloqueio(prox, hora, analise){
   return new Promise(resolve=>{
-    const ov=document.getElementById('aviso-overlay');
-    const nomes={entrada:'a ENTRADA',intIni:'o INÍCIO DO INTERVALO',intFim:'o FIM DO INTERVALO',saida:'a SAÍDA'};
-    document.getElementById('aviso-icone').textContent = analise.he?'⏰':'⚠️';
-    document.getElementById('aviso-titulo').textContent = analise.he?'Isto vai gerar hora extra':'Fora do horário previsto';
-    document.getElementById('aviso-msg').textContent = analise.he
-      ? `Você está batendo ${nomes[prox]} às ${hora}, além do horário previsto (${analise.esperado}). Isto vai gerar HORA EXTRA. Você está autorizado a fazer hora extra?`
-      : `Você está batendo ${nomes[prox]} às ${hora}, fora do horário previsto (${analise.esperado}). Você está autorizado a registrar fora do horário?`;
-    const motSel=document.getElementById('aviso-motivo');
-    motSel.value='';
-    ov.style.display='flex';
-    const btnOk=document.getElementById('aviso-confirmar');
-    const btnCancel=document.getElementById('aviso-cancelar');
-    const fechar=resultado=>{
-      ov.style.display='none';
-      btnOk.onclick=null; btnCancel.onclick=null;
-      resolve(resultado);
+    const ov = document.getElementById('aviso-overlay');
+    const nomes = {entrada:'a ENTRADA', intIni:'o INÍCIO DO INTERVALO', intFim:'o FIM DO INTERVALO', saida:'a SAÍDA'};
+    // Define icone + titulo conforme o tipo de bloqueio
+    let icone='⚠️', titulo='Fora do horário previsto';
+    if(analise.tipo==='descansoInsuficiente'){ icone='⏳'; titulo='Aguarde mais um pouco'; }
+    else if(analise.tipo==='folga')          { icone='🛌'; titulo='Você está de folga hoje'; }
+    document.getElementById('aviso-icone').textContent  = icone;
+    document.getElementById('aviso-titulo').textContent = titulo;
+    document.getElementById('aviso-msg').textContent    = analise.msg;
+    // Esconde o select de motivo (nao usamos mais — trava de verdade agora)
+    const motSel = document.getElementById('aviso-motivo');
+    if(motSel){
+      const label = motSel.previousElementSibling;
+      if(label) label.style.display='none';
+      motSel.style.display='none';
+    }
+    // No Bloco A: so' "Entendi" (estilo vermelho, e' bloqueio mesmo).
+    // Bloco B vai trocar texto/cor pra "Solicitar autorizacao" quando aplicavel.
+    const btnOk = document.getElementById('aviso-confirmar');
+    btnOk.textContent = 'Entendi';
+    btnOk.style.background = '#475569';
+    const btnCancel = document.getElementById('aviso-cancelar');
+    btnCancel.style.display = 'none';
+    ov.style.display = 'flex';
+    const fechar = () => {
+      ov.style.display = 'none';
+      btnOk.onclick = null;
+      // restaura para proxima abertura
+      if(motSel){
+        const label = motSel.previousElementSibling;
+        if(label) label.style.display='';
+        motSel.style.display='';
+      }
+      btnOk.style.background = '#16a34a';
+      btnOk.textContent = 'Confirmar registro';
+      btnCancel.style.display = '';
+      resolve(null);
     };
-    btnOk.onclick=()=>{
-      if(!motSel.value){ toast('Selecione o motivo para continuar.','error'); return; }
-      fechar({motivo:motSel.value});
-    };
-    btnCancel.onclick=()=>fechar(null);
+    btnOk.onclick = fechar;
   });
 }
 
@@ -827,13 +938,15 @@ async function baterPonto() {
   const dia  = j.dia;
   const dsem = new Date(j.ano, j.mes-1, j.dia).getDay();
 
-  // Disciplina de horário — avisa se a batida estiver fora do horário previsto
+  // Disciplina de horário — TRAVA: bloqueia a batida fora da janela permitida.
+  // No Bloco A nao oferecemos autorizacao ainda; o colaborador apenas ve
+  // a mensagem e nao consegue bater. No Bloco B a opcao de solicitar
+  // autorizacao ao supervisor sera adicionada aqui.
   const analise = analisarHorario(prox, now);
-  let avisoMotivo = '';
-  if(analise.aviso){
-    const decisao = await mostrarAvisoHorario(prox, hora, analise);
-    if(!decisao){ renderBotao(); return; }   // colaborador cancelou — não registra
-    avisoMotivo = decisao.motivo;
+  if(analise.tipo && analise.tipo !== 'ok'){
+    await mostrarBloqueio(prox, hora, analise);
+    renderBotao();
+    return; // NAO registra — bloqueio total
   }
 
   const btn = document.getElementById('punch-btn');
@@ -856,11 +969,6 @@ async function baterPonto() {
     dayEntry[prox] = hora;
     // Marca origem da batida (app vs manual pelo operador no gestor)
     dayEntry[prox + '_origem'] = 'app';
-    // Disciplina de horário — registra quando o colaborador bateu fora do horário
-    if(analise.aviso){
-      dayEntry[prox + '_foraHorario'] = true;
-      dayEntry[prox + '_motivo'] = avisoMotivo;
-    }
     // Salva coordenadas junto com o registro
     if (geo) dayEntry[prox + '_geo'] = geo;
 

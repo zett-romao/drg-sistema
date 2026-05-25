@@ -3695,6 +3695,7 @@ function openEmployeeModal(id=null){
   renderEmpPagamentos(id);
   renderComunicacoesTab(id);
   renderDisciplinaTab(id);
+  renderHorariosTab(id);
 }
 
 // Exame médico: mostra/oculta o campo de prazo customizado e calcula o
@@ -4039,6 +4040,9 @@ async function saveEmployee(){
       data.expDecisao2Por=existing.expDecisao2Por||''; data.expDecisao2Motivo=existing.expDecisao2Motivo||'';
       data.efetivadoEm=existing.efetivadoEm||''; data.efetivadoPorDecurso=!!existing.efetivadoPorDecurso;
       data.expDecisao1PorDecurso=!!existing.expDecisao1PorDecurso;
+      // preserva periodos/overrides de escala (gerenciados em aba propria)
+      data.historicoEscalas = existing.historicoEscalas || [];
+      data.overridesHorario = existing.overridesHorario || [];
     }
   }
   const btn=document.querySelector('#modal-employee .modal-footer .btn-primary');
@@ -8173,6 +8177,338 @@ function _verHashesDisciplina(discId){
       </div>`;
     _showFloatingModal('Hashes de auditoria', html);
   }).catch(e => toast('Erro: '+(e.message||e),'error'));
+}
+
+// ===========================================================================
+// HORARIOS / ESCALAS — periodos de mudanca + overrides por dia
+// ===========================================================================
+// Modelo de dados (no doc do colaborador):
+//   historicoEscalas: [
+//     { id, de, ate, escala, horarioEntrada, horarioRefIni, horarioRefFim,
+//       horarioSaida, observacao, criadoEm, criadoPorNome }
+//   ]
+//   overridesHorario: [
+//     { id, data, tipo, escala, horarioEntrada, horarioRefIni, horarioRefFim,
+//       horarioSaida, observacao, criadoEm, criadoPorNome }
+//   ]
+// tipo do override: 'diferente' (horario diferente) ou 'folga' (dia livre).
+
+// Resolve a escala/horarios validos numa data (YYYY-MM-DD ou Date).
+// Prioridade: override do dia → periodo ativo → cadastro principal.
+function escalaVigenteEm(emp, dataYMD){
+  if(!emp) return null;
+  let ymd;
+  if(typeof dataYMD === 'string'){
+    ymd = dataYMD;
+  } else if(dataYMD instanceof Date){
+    const y=dataYMD.getFullYear(), m=String(dataYMD.getMonth()+1).padStart(2,'0'), d=String(dataYMD.getDate()).padStart(2,'0');
+    ymd = `${y}-${m}-${d}`;
+  } else return null;
+  // 1) Override do dia (mais especifico)
+  const ov = (emp.overridesHorario||[]).find(o => o.data === ymd);
+  if(ov) return { ...ov, origem: 'override' };
+  // 2) Periodo ativo (mais recente primeiro)
+  const periodos = (emp.historicoEscalas||[]).slice().sort((a,b) => (b.de||'').localeCompare(a.de||''));
+  for(const p of periodos){
+    const ini = p.de || '';
+    const fim = p.ate || '9999-12-31';
+    if(ini && ini <= ymd && ymd <= fim){
+      return { ...p, origem: 'periodo' };
+    }
+  }
+  // 3) Fallback: cadastro principal
+  return {
+    escala:         emp.escala || '5x2A',
+    horarioEntrada: emp.horarioEntrada || '',
+    horarioRefIni:  emp.horarioRefIni  || '',
+    horarioRefFim:  emp.horarioRefFim  || '',
+    horarioSaida:   emp.horarioSaida   || '',
+    origem: 'cadastro'
+  };
+}
+
+function _fmtDtBr(ymd){
+  if(!ymd) return '—';
+  const p = ymd.split('-');
+  return p.length===3 ? `${p[2]}/${p[1]}/${p[0]}` : ymd;
+}
+
+// Render principal da aba "Horários/Escalas" — chamada pelo loadEmployee
+function renderHorariosTab(empId){
+  // Preview do horario padrao do cadastro
+  const prev = document.getElementById('hor-padrao-preview');
+  if(prev){
+    const ent = val('emp-horario-entrada')||'—';
+    const sai = val('emp-horario-saida')||'—';
+    const rIni = val('emp-horario-ref-ini')||'—';
+    const rFim = val('emp-horario-ref-fim')||'—';
+    const esc = val('emp-escala')||'5x2A';
+    prev.innerHTML = `
+      <div style="font-size:12px;color:#475569;margin-bottom:6px"><strong>Horário padrão do cadastro:</strong></div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:13px">
+        <span><strong>Escala:</strong> ${escalaLabel(esc)}</span>
+        <span><strong>Entrada:</strong> ${ent}</span>
+        <span><strong>Almoço:</strong> ${rIni} – ${rFim}</span>
+        <span><strong>Saída:</strong> ${sai}</span>
+      </div>`;
+  }
+  const emp = empId ? State.employees.find(e=>e.id===empId) : null;
+  const boxPer = document.getElementById('hor-periodos-list');
+  const boxOvr = document.getElementById('hor-overrides-list');
+  if(!emp){
+    if(boxPer) boxPer.innerHTML = '<div class="empty-state small"><i class="fa-solid fa-calendar"></i><p>Salve o colaborador para cadastrar períodos</p></div>';
+    if(boxOvr) boxOvr.innerHTML = '<div class="empty-state small"><i class="fa-solid fa-calendar"></i><p>Salve o colaborador para cadastrar dias avulsos</p></div>';
+    return;
+  }
+  // Periodos
+  const periodos = (emp.historicoEscalas||[]).slice().sort((a,b) => (b.de||'').localeCompare(a.de||''));
+  if(!periodos.length){
+    boxPer.innerHTML = '<div class="empty-state small"><i class="fa-solid fa-calendar-range"></i><p>Nenhum período de mudança cadastrado.</p></div>';
+  } else {
+    const hoje = new Date().toISOString().split('T')[0];
+    boxPer.innerHTML = periodos.map(p => {
+      const ativo = (p.de||'') <= hoje && (!p.ate || p.ate >= hoje);
+      const fim = p.ate ? _fmtDtBr(p.ate) : '<em>indefinido</em>';
+      const escTxt = p.escala ? escalaLabel(p.escala) : '<em>(mantém cadastro)</em>';
+      return `<div style="background:${ativo?'#dcfce7':'#fff'};border:1px solid ${ativo?'#86efac':'var(--border)'};border-left:4px solid ${ativo?'#16a34a':'#94a3b8'};border-radius:7px;padding:10px 12px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:600;color:var(--text)">
+              ${_fmtDtBr(p.de)} → ${fim}
+              ${ativo?'<span style="background:#16a34a;color:#fff;padding:1px 7px;border-radius:9px;font-size:10px;font-weight:700;margin-left:6px">ATIVO HOJE</span>':''}
+            </div>
+            <div style="font-size:11px;color:#64748b;margin-top:3px"><strong>Escala:</strong> ${escTxt}</div>
+            <div style="font-size:11px;color:#64748b">
+              <strong>Entrada:</strong> ${p.horarioEntrada||'—'} ·
+              <strong>Almoço:</strong> ${p.horarioRefIni||'—'} – ${p.horarioRefFim||'—'} ·
+              <strong>Saída:</strong> ${p.horarioSaida||'—'}
+            </div>
+            ${p.observacao?`<div style="font-size:11px;color:#666;margin-top:4px;font-style:italic">"${p.observacao.replace(/</g,'&lt;')}"</div>`:''}
+            <div style="font-size:10px;color:#94a3b8;margin-top:4px">Criado por ${p.criadoPorNome||'—'}</div>
+          </div>
+          <div style="display:flex;gap:6px;flex-shrink:0">
+            <button type="button" class="btn btn-sm btn-outline" onclick="editarPeriodoEscala('${p.id}')" style="font-size:11px;padding:4px 10px"><i class="fa-solid fa-pen"></i></button>
+            <button type="button" class="btn btn-sm btn-outline" onclick="removerPeriodoEscala('${p.id}')" style="font-size:11px;padding:4px 10px;color:#c62828;border-color:#ef9a9a"><i class="fa-solid fa-trash"></i></button>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+  // Overrides
+  const overrides = (emp.overridesHorario||[]).slice().sort((a,b) => (b.data||'').localeCompare(a.data||''));
+  if(!overrides.length){
+    boxOvr.innerHTML = '<div class="empty-state small"><i class="fa-solid fa-calendar-day"></i><p>Nenhum dia avulso cadastrado.</p></div>';
+  } else {
+    boxOvr.innerHTML = overrides.map(o => {
+      const ehFolga = o.tipo === 'folga';
+      return `<div style="background:#fff;border:1px solid var(--border);border-left:4px solid ${ehFolga?'#7e22ce':'#E65100'};border-radius:7px;padding:10px 12px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:600;color:var(--text)">${_fmtDtBr(o.data)}
+              <span style="background:${ehFolga?'#7e22ce':'#E65100'};color:#fff;padding:1px 8px;border-radius:9px;font-size:10px;font-weight:700;margin-left:6px">${ehFolga?'FOLGA':'HORÁRIO DIFERENTE'}</span>
+            </div>
+            ${!ehFolga ? `<div style="font-size:11px;color:#64748b;margin-top:3px">
+              <strong>Entrada:</strong> ${o.horarioEntrada||'—'} ·
+              <strong>Almoço:</strong> ${o.horarioRefIni||'—'} – ${o.horarioRefFim||'—'} ·
+              <strong>Saída:</strong> ${o.horarioSaida||'—'}
+            </div>` : ''}
+            ${o.observacao?`<div style="font-size:11px;color:#666;margin-top:4px;font-style:italic">"${o.observacao.replace(/</g,'&lt;')}"</div>`:''}
+            <div style="font-size:10px;color:#94a3b8;margin-top:4px">Criado por ${o.criadoPorNome||'—'}</div>
+          </div>
+          <div style="display:flex;gap:6px;flex-shrink:0">
+            <button type="button" class="btn btn-sm btn-outline" onclick="editarOverrideEscala('${o.id}')" style="font-size:11px;padding:4px 10px"><i class="fa-solid fa-pen"></i></button>
+            <button type="button" class="btn btn-sm btn-outline" onclick="removerOverrideEscala('${o.id}')" style="font-size:11px;padding:4px 10px;color:#c62828;border-color:#ef9a9a"><i class="fa-solid fa-trash"></i></button>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+}
+
+// ── Periodo de escala — abrir/editar/salvar/remover ──────────────────────
+function abrirNovoPeriodoEscala(){
+  const empId = val('emp-id');
+  if(!empId){ toast('Salve o colaborador primeiro.','warning'); return; }
+  setVal('per-esc-id','');
+  setVal('per-esc-de','');
+  setVal('per-esc-ate','');
+  setVal('per-esc-escala','');
+  setVal('per-esc-entrada','');
+  setVal('per-esc-saida','');
+  setVal('per-esc-ref-ini','');
+  setVal('per-esc-ref-fim','');
+  setVal('per-esc-obs','');
+  document.getElementById('modal-periodo-escala').classList.remove('hidden');
+}
+
+function editarPeriodoEscala(periodoId){
+  const empId = val('emp-id');
+  const emp = State.employees.find(e=>e.id===empId);
+  if(!emp) return;
+  const p = (emp.historicoEscalas||[]).find(x => x.id===periodoId);
+  if(!p){ toast('Período não encontrado.','error'); return; }
+  setVal('per-esc-id', p.id);
+  setVal('per-esc-de', p.de||'');
+  setVal('per-esc-ate', p.ate||'');
+  setVal('per-esc-escala', p.escala||'');
+  setVal('per-esc-entrada', p.horarioEntrada||'');
+  setVal('per-esc-saida', p.horarioSaida||'');
+  setVal('per-esc-ref-ini', p.horarioRefIni||'');
+  setVal('per-esc-ref-fim', p.horarioRefFim||'');
+  setVal('per-esc-obs', p.observacao||'');
+  document.getElementById('modal-periodo-escala').classList.remove('hidden');
+}
+
+async function salvarPeriodoEscala(){
+  const empId = val('emp-id');
+  const emp = State.employees.find(e=>e.id===empId);
+  if(!emp){ toast('Colaborador não encontrado.','error'); return; }
+  const de = val('per-esc-de');
+  if(!de){ toast('Informe a data de início.','warning'); return; }
+  const ate = val('per-esc-ate') || '';
+  if(ate && ate < de){ toast('Data fim deve ser maior ou igual à de início.','error'); return; }
+  const periodId = val('per-esc-id') || genId();
+  const quem = (Auth.currentUser && (Auth.currentUser.username||Auth.currentUser.id))||'—';
+  const ja = (emp.historicoEscalas||[]).find(p => p.id===periodId);
+  const novo = {
+    id: periodId,
+    de,
+    ate: ate || '',
+    escala:          val('per-esc-escala') || '',
+    horarioEntrada:  val('per-esc-entrada') || '',
+    horarioRefIni:   val('per-esc-ref-ini') || '',
+    horarioRefFim:   val('per-esc-ref-fim') || '',
+    horarioSaida:    val('per-esc-saida') || '',
+    observacao:      val('per-esc-obs') || '',
+    criadoEm:        ja ? ja.criadoEm : new Date().toISOString(),
+    criadoPorNome:   ja ? ja.criadoPorNome : quem,
+    updatedAt:       new Date().toISOString(),
+  };
+  emp.historicoEscalas = (emp.historicoEscalas||[]).filter(p => p.id !== periodId);
+  emp.historicoEscalas.push(novo);
+  try{
+    await DB.merge('employees', emp.id, { historicoEscalas: emp.historicoEscalas, updatedAt: new Date().toISOString() });
+    try{ Auth.log(ja?'ESCALA_PERIODO_EDIT':'ESCALA_PERIODO_NEW', null, `${emp.nome} | ${de} → ${ate||'—'}`); }catch(_){}
+    closeModal('modal-periodo-escala');
+    toast(ja?'Período atualizado.':'Período cadastrado.','success');
+    renderHorariosTab(emp.id);
+  }catch(e){
+    toast('Erro ao salvar: '+(e.message||e),'error');
+  }
+}
+
+async function removerPeriodoEscala(periodoId){
+  const empId = val('emp-id');
+  const emp = State.employees.find(e=>e.id===empId);
+  if(!emp) return;
+  const p = (emp.historicoEscalas||[]).find(x => x.id===periodoId);
+  if(!p) return;
+  if(!confirm(`Remover este período (${_fmtDtBr(p.de)} → ${p.ate?_fmtDtBr(p.ate):'indefinido'})?`)) return;
+  emp.historicoEscalas = (emp.historicoEscalas||[]).filter(x => x.id !== periodoId);
+  try{
+    await DB.merge('employees', emp.id, { historicoEscalas: emp.historicoEscalas, updatedAt: new Date().toISOString() });
+    try{ Auth.log('ESCALA_PERIODO_DEL', null, `${emp.nome} | ${p.de} → ${p.ate||'—'}`); }catch(_){}
+    toast('Período removido.','success');
+    renderHorariosTab(emp.id);
+  }catch(e){ toast('Erro: '+(e.message||e),'error'); }
+}
+
+// ── Override por dia — abrir/editar/salvar/remover ───────────────────────
+function abrirNovoOverrideEscala(){
+  const empId = val('emp-id');
+  if(!empId){ toast('Salve o colaborador primeiro.','warning'); return; }
+  setVal('ovr-esc-id','');
+  setVal('ovr-esc-data','');
+  setVal('ovr-esc-tipo','diferente');
+  setVal('ovr-esc-entrada','');
+  setVal('ovr-esc-saida','');
+  setVal('ovr-esc-ref-ini','');
+  setVal('ovr-esc-ref-fim','');
+  setVal('ovr-esc-obs','');
+  _ovrEscTipoChange();
+  document.getElementById('modal-override-escala').classList.remove('hidden');
+  // Hook do change para mostrar/esconder campos de horario quando vira folga
+  document.getElementById('ovr-esc-tipo').onchange = _ovrEscTipoChange;
+}
+
+function _ovrEscTipoChange(){
+  const tipo = val('ovr-esc-tipo');
+  const campos = document.getElementById('ovr-esc-campos-horario');
+  if(campos) campos.style.display = (tipo==='folga') ? 'none' : '';
+}
+
+function editarOverrideEscala(overrideId){
+  const empId = val('emp-id');
+  const emp = State.employees.find(e=>e.id===empId);
+  if(!emp) return;
+  const o = (emp.overridesHorario||[]).find(x => x.id===overrideId);
+  if(!o){ toast('Dia avulso não encontrado.','error'); return; }
+  setVal('ovr-esc-id', o.id);
+  setVal('ovr-esc-data', o.data||'');
+  setVal('ovr-esc-tipo', o.tipo||'diferente');
+  setVal('ovr-esc-entrada', o.horarioEntrada||'');
+  setVal('ovr-esc-saida', o.horarioSaida||'');
+  setVal('ovr-esc-ref-ini', o.horarioRefIni||'');
+  setVal('ovr-esc-ref-fim', o.horarioRefFim||'');
+  setVal('ovr-esc-obs', o.observacao||'');
+  _ovrEscTipoChange();
+  document.getElementById('modal-override-escala').classList.remove('hidden');
+  document.getElementById('ovr-esc-tipo').onchange = _ovrEscTipoChange;
+}
+
+async function salvarOverrideEscala(){
+  const empId = val('emp-id');
+  const emp = State.employees.find(e=>e.id===empId);
+  if(!emp){ toast('Colaborador não encontrado.','error'); return; }
+  const data = val('ovr-esc-data');
+  if(!data){ toast('Informe a data.','warning'); return; }
+  const ovrId = val('ovr-esc-id') || genId();
+  const ja = (emp.overridesHorario||[]).find(o => o.id===ovrId);
+  // Tambem checa duplicidade de data (uma so' override por dia)
+  const conflito = (emp.overridesHorario||[]).find(o => o.data===data && o.id !== ovrId);
+  if(conflito){ toast('Já existe um override para esta data — edite o existente.','error'); return; }
+  const quem = (Auth.currentUser && (Auth.currentUser.username||Auth.currentUser.id))||'—';
+  const tipo = val('ovr-esc-tipo')||'diferente';
+  const novo = {
+    id: ovrId,
+    data,
+    tipo, // 'diferente' | 'folga'
+    horarioEntrada:  tipo==='folga' ? '' : (val('ovr-esc-entrada')||''),
+    horarioRefIni:   tipo==='folga' ? '' : (val('ovr-esc-ref-ini')||''),
+    horarioRefFim:   tipo==='folga' ? '' : (val('ovr-esc-ref-fim')||''),
+    horarioSaida:    tipo==='folga' ? '' : (val('ovr-esc-saida')||''),
+    observacao:      val('ovr-esc-obs')||'',
+    criadoEm:        ja ? ja.criadoEm : new Date().toISOString(),
+    criadoPorNome:   ja ? ja.criadoPorNome : quem,
+    updatedAt:       new Date().toISOString(),
+  };
+  emp.overridesHorario = (emp.overridesHorario||[]).filter(o => o.id !== ovrId);
+  emp.overridesHorario.push(novo);
+  try{
+    await DB.merge('employees', emp.id, { overridesHorario: emp.overridesHorario, updatedAt: new Date().toISOString() });
+    try{ Auth.log(ja?'ESCALA_OVR_EDIT':'ESCALA_OVR_NEW', null, `${emp.nome} | ${data} | ${tipo}`); }catch(_){}
+    closeModal('modal-override-escala');
+    toast(ja?'Dia avulso atualizado.':'Dia avulso cadastrado.','success');
+    renderHorariosTab(emp.id);
+  }catch(e){
+    toast('Erro ao salvar: '+(e.message||e),'error');
+  }
+}
+
+async function removerOverrideEscala(overrideId){
+  const empId = val('emp-id');
+  const emp = State.employees.find(e=>e.id===empId);
+  if(!emp) return;
+  const o = (emp.overridesHorario||[]).find(x => x.id===overrideId);
+  if(!o) return;
+  if(!confirm(`Remover override do dia ${_fmtDtBr(o.data)}?`)) return;
+  emp.overridesHorario = (emp.overridesHorario||[]).filter(x => x.id !== overrideId);
+  try{
+    await DB.merge('employees', emp.id, { overridesHorario: emp.overridesHorario, updatedAt: new Date().toISOString() });
+    try{ Auth.log('ESCALA_OVR_DEL', null, `${emp.nome} | ${o.data}`); }catch(_){}
+    toast('Dia avulso removido.','success');
+    renderHorariosTab(emp.id);
+  }catch(e){ toast('Erro: '+(e.message||e),'error'); }
 }
 
 // Mini-modal flutuante reutilizavel (igual ao de stats)

@@ -2263,6 +2263,9 @@
         <button class="modal-tab" data-tab-id="tab-contrato" onclick="switchTab('tab-contrato')">
           <i class="fa-solid fa-briefcase"></i> Contrato & Trabalho
         </button>
+        <button class="modal-tab" data-tab-id="tab-horarios" onclick="switchTab('tab-horarios')">
+          <i class="fa-solid fa-clock"></i> Horários/Escalas
+        </button>
         <button class="modal-tab" data-tab-id="tab-beneficios" onclick="switchTab('tab-beneficios')">
           <i class="fa-solid fa-hand-holding-dollar"></i> Benefícios & PIX
         </button>
@@ -2834,6 +2837,45 @@
           <div class="empty-state small" style="padding:12px">
             <i class="fa-solid fa-building"></i>
             <p style="font-size:13px">Nenhuma transferência registrada</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Horários/Escalas (com mudancas dentro do mes — periodos + overrides) -->
+      <div class="tab-pane" id="tab-horarios">
+        <div class="info-banner">
+          <i class="fa-solid fa-circle-info"></i>
+          <strong>Horários atuais</strong> (vindos da aba Contrato): entrada / refeição / saída. Aqui você cadastra <strong>mudanças temporárias</strong> de escala/horário — útil quando troca de turno por uma semana, ou em dias específicos (ex.: das 19h às 7h num plantão extra).
+        </div>
+
+        <!-- Quadro com horario padrao (somente leitura, vem do contrato) -->
+        <div id="hor-padrao-preview" style="background:#f0f4f8;border:1px solid #cbd5e1;border-radius:8px;padding:12px;margin-bottom:14px"></div>
+
+        <!-- Periodos -->
+        <div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+            <div>
+              <strong style="font-size:14px;color:var(--text)"><i class="fa-solid fa-calendar-range" style="color:#1976D2"></i> Períodos de mudança</strong>
+              <div style="font-size:11px;color:#888;margin-top:2px">Para mudanças que duram dias seguidos (ex: trocou de turno por 1 semana).</div>
+            </div>
+            <button type="button" class="btn btn-sm btn-primary" onclick="abrirNovoPeriodoEscala()" style="font-size:12px"><i class="fa-solid fa-plus"></i> Novo período</button>
+          </div>
+          <div id="hor-periodos-list">
+            <div class="empty-state small"><i class="fa-solid fa-calendar"></i><p>Salve o colaborador para cadastrar períodos</p></div>
+          </div>
+        </div>
+
+        <!-- Overrides por dia -->
+        <div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+            <div>
+              <strong style="font-size:14px;color:var(--text)"><i class="fa-solid fa-calendar-day" style="color:#E65100"></i> Dias avulsos (overrides)</strong>
+              <div style="font-size:11px;color:#888;margin-top:2px">Para um único dia (ex.: plantão noturno excepcional). Tem prioridade sobre o período.</div>
+            </div>
+            <button type="button" class="btn btn-sm" style="font-size:12px;background:#E65100;color:#fff;border-color:#E65100" onclick="abrirNovoOverrideEscala()"><i class="fa-solid fa-plus"></i> Novo dia avulso</button>
+          </div>
+          <div id="hor-overrides-list">
+            <div class="empty-state small"><i class="fa-solid fa-calendar"></i><p>Salve o colaborador para cadastrar dias avulsos</p></div>
           </div>
         </div>
       </div>
@@ -5376,6 +5418,140 @@
   </div>
 </div>
 
+<!-- ===== MODAL: Periodo de mudanca de escala ===== -->
+<div class="modal-overlay hidden" id="modal-periodo-escala" onclick="closeModal('modal-periodo-escala', event)">
+  <div class="modal-dialog">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-calendar-range" style="color:#1976D2"></i> Período de mudança de escala</h3>
+      <button class="modal-close" onclick="closeModal('modal-periodo-escala')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="info-banner" style="margin-bottom:12px">
+        <i class="fa-solid fa-circle-info"></i>
+        Vale de <strong>dia inicial</strong> ao <strong>dia final</strong> (inclusive). Use horários no formato 24h. Deixe a data final em branco para "até nova ordem".
+      </div>
+      <input type="hidden" id="per-esc-id">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Data início <span class="required">*</span></label>
+          <input type="date" id="per-esc-de">
+        </div>
+        <div class="form-group">
+          <label>Data fim (opcional)</label>
+          <input type="date" id="per-esc-ate">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="grid-column:1 / -1">
+          <label>Escala</label>
+          <select id="per-esc-escala">
+            <option value="">(mesma do cadastro)</option>
+            <option value="5x2A">5x2 — Variante A</option>
+            <option value="5x2B">5x2 — Variante B</option>
+            <option value="6x1A">6x1 — Variante A</option>
+            <option value="6x1B">6x1 — Variante B</option>
+            <option value="6x1C">6x1 — Variante C</option>
+            <option value="6x1ALT">6x1 — Alternado</option>
+            <option value="12x36">12x36</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Entrada</label>
+          <input type="time" id="per-esc-entrada">
+        </div>
+        <div class="form-group">
+          <label>Saída</label>
+          <input type="time" id="per-esc-saida">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Início refeição</label>
+          <input type="time" id="per-esc-ref-ini">
+        </div>
+        <div class="form-group">
+          <label>Retorno refeição</label>
+          <input type="time" id="per-esc-ref-fim">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="grid-column:1 / -1">
+          <label>Observação (motivo da mudança)</label>
+          <input type="text" id="per-esc-obs" maxlength="200" placeholder="Ex.: Cobertura de férias, plantão extra, etc.">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-periodo-escala')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarPeriodoEscala()"><i class="fa-solid fa-floppy-disk"></i> Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: Override por dia (avulso) ===== -->
+<div class="modal-overlay hidden" id="modal-override-escala" onclick="closeModal('modal-override-escala', event)">
+  <div class="modal-dialog">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-calendar-day" style="color:#E65100"></i> Dia avulso (override)</h3>
+      <button class="modal-close" onclick="closeModal('modal-override-escala')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="info-banner" style="background:#fff7ed;border-color:#fed7aa;color:#92400e;margin-bottom:12px">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        Override de UM dia. Tem prioridade sobre o período e o cadastro. Use para plantões pontuais ou ajustes excepcionais.
+      </div>
+      <input type="hidden" id="ovr-esc-id">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Data <span class="required">*</span></label>
+          <input type="date" id="ovr-esc-data">
+        </div>
+        <div class="form-group">
+          <label>Tipo</label>
+          <select id="ovr-esc-tipo">
+            <option value="diferente">Horário diferente do padrão</option>
+            <option value="folga">Folga adicional (dia livre)</option>
+          </select>
+        </div>
+      </div>
+      <div id="ovr-esc-campos-horario">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Entrada</label>
+            <input type="time" id="ovr-esc-entrada">
+          </div>
+          <div class="form-group">
+            <label>Saída</label>
+            <input type="time" id="ovr-esc-saida">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Início refeição</label>
+            <input type="time" id="ovr-esc-ref-ini">
+          </div>
+          <div class="form-group">
+            <label>Retorno refeição</label>
+            <input type="time" id="ovr-esc-ref-fim">
+          </div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="grid-column:1 / -1">
+          <label>Motivo / observação</label>
+          <input type="text" id="ovr-esc-obs" maxlength="200" placeholder="Ex.: Plantão por afastamento de colega">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-override-escala')">Cancelar</button>
+      <button class="btn btn-primary" style="background:#E65100;border-color:#E65100" onclick="salvarOverrideEscala()"><i class="fa-solid fa-floppy-disk"></i> Salvar</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
@@ -5434,6 +5610,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260523c"></script>
+<script src="app.js?v=20260525a"></script>
 </body>
 </html>

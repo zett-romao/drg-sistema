@@ -432,7 +432,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=20').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=21').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -775,13 +775,36 @@ function timeToMin(t){
   return h*60+m;
 }
 
-// Horário previsto (do cadastro do colaborador) para cada batida
+// Resolve a escala/horarios validos numa data — espelha escalaVigenteEm
+// do painel da gestao. Prioridade: override do dia → periodo ativo → cadastro.
+function _vigenciaEscalaHoje(emp){
+  if(!emp) return null;
+  const hj = new Date();
+  const ymd = `${hj.getFullYear()}-${String(hj.getMonth()+1).padStart(2,'0')}-${String(hj.getDate()).padStart(2,'0')}`;
+  // 1) Override do dia
+  const ov = (emp.overridesHorario||[]).find(o => o.data === ymd);
+  if(ov) return { ...ov, origem:'override' };
+  // 2) Periodo ativo (mais recente primeiro)
+  const periodos = (emp.historicoEscalas||[]).slice().sort((a,b)=>(b.de||'').localeCompare(a.de||''));
+  for(const p of periodos){
+    const ini = p.de || '';
+    const fim = p.ate || '9999-12-31';
+    if(ini && ini <= ymd && ymd <= fim) return { ...p, origem:'periodo' };
+  }
+  return null;
+}
+
+// Horário previsto (do cadastro do colaborador OU do periodo/override ativo).
 function _horarioEsperado(prox){
-  const e=currentEmp||{};
-  if(prox==='entrada') return e.horarioEntrada||'';
-  if(prox==='saida')   return e.horarioSaida||'';
-  if(prox==='intIni')  return e.semRefeicao?'':(e.horarioRefIni||'');
-  if(prox==='intFim')  return e.semRefeicao?'':(e.horarioRefFim||'');
+  const e = currentEmp || {};
+  const vig = _vigenciaEscalaHoje(e);
+  // Override do tipo "folga" — sem horario esperado (e' tratado em _ehDiaDeFolga)
+  if(vig && vig.tipo === 'folga') return '';
+  const fonte = vig || e;
+  if(prox==='entrada') return fonte.horarioEntrada || e.horarioEntrada || '';
+  if(prox==='saida')   return fonte.horarioSaida   || e.horarioSaida   || '';
+  if(prox==='intIni')  return e.semRefeicao ? '' : (fonte.horarioRefIni || e.horarioRefIni || '');
+  if(prox==='intFim')  return e.semRefeicao ? '' : (fonte.horarioRefFim || e.horarioRefFim || '');
   return '';
 }
 
@@ -806,7 +829,12 @@ function _horaIntIniRegistrada(){
 //   alternando. Ancorada em dataAdmissao + alternadaPrimeiraFolga.
 // - 12x36: ciclo 24h trabalho / 24h folga, ancorado em ciclo12x36Inicio.
 function _ehDiaDeFolga(emp, dataObj){
-  const escala = (emp && emp.escala ? emp.escala.toString().toUpperCase() : '');
+  // Considera override do dia primeiro: pode declarar dia FOLGA ou
+  // forcar uma escala diferente (que tem prioridade sobre a do cadastro).
+  const vig = _vigenciaEscalaHoje(emp);
+  if(vig && vig.tipo === 'folga') return true;
+  const escalaEfetiva = (vig && vig.escala) ? vig.escala : (emp && emp.escala);
+  const escala = (escalaEfetiva || '').toString().toUpperCase();
   const ds = dataObj.getDay(); // 0=dom .. 6=sab
   if(!escala) return false;
   if(escala.indexOf('5X2')===0)               return ds===0 || ds===6;

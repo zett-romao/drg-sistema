@@ -328,6 +328,22 @@
   </div>
 </div>
 
+<!-- Aguardando autorizacao do supervisor (overlay com listener realtime) -->
+<div id="espera-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;align-items:center;justify-content:center;padding:20px">
+  <div style="background:#fff;border-radius:16px;max-width:380px;width:100%;padding:24px;box-shadow:0 12px 48px rgba(0,0,0,.35);text-align:center">
+    <div style="width:64px;height:64px;border:5px solid #dbeafe;border-top-color:#1976D2;border-radius:50%;margin:0 auto 14px;animation:spin 1s linear infinite"></div>
+    <div style="font-size:18px;font-weight:700;color:#1e293b;margin-bottom:6px">Aguardando autorização</div>
+    <div style="font-size:13px;color:#64748b;line-height:1.5;margin-bottom:14px">Seu supervisor recebeu o pedido. Avise-o para liberar a batida no app de supervisor.</div>
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px;margin-bottom:14px;text-align:left;font-size:12px">
+      <div style="color:#64748b;margin-bottom:3px">Batida solicitada:</div>
+      <div style="font-weight:700;color:#1e293b"><span id="espera-tipo">—</span> às <span id="espera-hora">—</span></div>
+      <div style="color:#64748b;margin-top:6px">Tempo restante:</div>
+      <div style="font-weight:700;color:#E65100;font-family:Consolas,monospace;font-size:18px"><span id="espera-timer">15:00</span></div>
+    </div>
+    <button id="espera-cancelar" style="width:100%;padding:11px;background:#fee2e2;color:#c62828;border:1px solid #fca5a5;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer">Cancelar pedido</button>
+  </div>
+</div>
+
 <!-- Enviar atestado -->
 <div id="atestado-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:999;align-items:center;justify-content:center;padding:20px;overflow-y:auto">
   <div style="background:#fff;border-radius:16px;max-width:400px;width:100%;padding:22px;box-shadow:0 10px 40px rgba(0,0,0,.3);margin:auto">
@@ -416,7 +432,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=18').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=19').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -872,39 +888,46 @@ function analisarHorario(prox, now){
   return { tipo:'foraJanela', esperado:esp, diff, msg };
 }
 
-// Mostra a mensagem de bloqueio. No Bloco A, a batida sempre e' cancelada
-// — o colaborador clica "Entendi" e nao consegue bater. No Bloco B,
-// vamos acrescentar o botao "Solicitar autorização ao supervisor".
+// Mostra a mensagem de bloqueio. Retorna:
+//  null                  = colaborador cancelou / nao quer pedir autorizacao
+//  {acao:'solicitar'}    = quer pedir autorizacao ao supervisor
+// Para 'descansoInsuficiente' (CLT), so' tem botao "Entendi" — supervisor
+// nao pode autorizar batida que registra menos de 1h de intervalo.
 function mostrarBloqueio(prox, hora, analise){
   return new Promise(resolve=>{
     const ov = document.getElementById('aviso-overlay');
-    const nomes = {entrada:'a ENTRADA', intIni:'o INÍCIO DO INTERVALO', intFim:'o FIM DO INTERVALO', saida:'a SAÍDA'};
-    // Define icone + titulo conforme o tipo de bloqueio
     let icone='⚠️', titulo='Fora do horário previsto';
     if(analise.tipo==='descansoInsuficiente'){ icone='⏳'; titulo='Aguarde mais um pouco'; }
     else if(analise.tipo==='folga')          { icone='🛌'; titulo='Você está de folga hoje'; }
     document.getElementById('aviso-icone').textContent  = icone;
     document.getElementById('aviso-titulo').textContent = titulo;
     document.getElementById('aviso-msg').textContent    = analise.msg;
-    // Esconde o select de motivo (nao usamos mais — trava de verdade agora)
+    // Esconde o select de motivo (nao usamos mais aqui)
     const motSel = document.getElementById('aviso-motivo');
     if(motSel){
       const label = motSel.previousElementSibling;
       if(label) label.style.display='none';
       motSel.style.display='none';
     }
-    // No Bloco A: so' "Entendi" (estilo vermelho, e' bloqueio mesmo).
-    // Bloco B vai trocar texto/cor pra "Solicitar autorizacao" quando aplicavel.
     const btnOk = document.getElementById('aviso-confirmar');
-    btnOk.textContent = 'Entendi';
-    btnOk.style.background = '#475569';
     const btnCancel = document.getElementById('aviso-cancelar');
-    btnCancel.style.display = 'none';
+    const podeAutorizar = (analise.tipo === 'foraJanela' || analise.tipo === 'folga');
+    if(podeAutorizar){
+      // Caso autorizavel pelo supervisor: oferece solicitar
+      btnOk.innerHTML = '📨 Solicitar autorização ao supervisor';
+      btnOk.style.background = '#1976D2';
+      btnCancel.style.display = '';
+      btnCancel.textContent = 'Cancelar';
+    } else {
+      // Caso descansoInsuficiente: bloqueio total, so' Entendi
+      btnOk.textContent = 'Entendi';
+      btnOk.style.background = '#475569';
+      btnCancel.style.display = 'none';
+    }
     ov.style.display = 'flex';
-    const fechar = () => {
-      ov.style.display = 'none';
+    const restaurar = () => {
       btnOk.onclick = null;
-      // restaura para proxima abertura
+      btnCancel.onclick = null;
       if(motSel){
         const label = motSel.previousElementSibling;
         if(label) label.style.display='';
@@ -913,9 +936,129 @@ function mostrarBloqueio(prox, hora, analise){
       btnOk.style.background = '#16a34a';
       btnOk.textContent = 'Confirmar registro';
       btnCancel.style.display = '';
+      btnCancel.textContent = 'Cancelar';
+    };
+    btnOk.onclick = () => {
+      ov.style.display = 'none';
+      restaurar();
+      resolve(podeAutorizar ? { acao:'solicitar' } : null);
+    };
+    btnCancel.onclick = () => {
+      ov.style.display = 'none';
+      restaurar();
       resolve(null);
     };
-    btnOk.onclick = fechar;
+  });
+}
+
+// Cria a solicitacao de autorizacao no Firestore.
+// Retorna o id do doc criado ou null em erro.
+async function solicitarAutorizacao(prox, hora, analise){
+  const motivoUsuario = (prompt('(Opcional) Motivo do pedido (ex.: trânsito, consulta médica, hora extra):') || '').trim();
+  const agora = new Date();
+  const agoraISO = agora.toISOString();
+  const validade = new Date(agora.getTime() + 15*60*1000).toISOString();
+  const docId = Date.now().toString(36) + Math.random().toString(36).slice(2,8);
+  const sol = {
+    id: docId,
+    employeeId: currentEmp.id,
+    employeeNome: currentEmp.nome || '',
+    employeeRegistro: currentEmp.registro || '',
+    employeeCpf: currentEmp.cpf || '',
+    tentativaEm: agoraISO,
+    tipoBatida: prox,                         // 'entrada'|'intIni'|'intFim'|'saida'
+    horarioPrevisto: analise.esperado || '',
+    horarioReal: hora,
+    diferencaMinutos: analise.diff || 0,
+    tipoBloqueio: analise.tipo,               // 'foraJanela' | 'folga'
+    ehFolga: analise.tipo === 'folga',
+    motivo: motivoUsuario,
+    status: 'pendente',                       // 'pendente'|'autorizada'|'recusada'|'expirada'|'cancelada'
+    validadeAteEm: validade,
+    criadoEm: agoraISO,
+  };
+  try{
+    await dbCol('autorizacoesPonto').doc(docId).set(sol);
+    return docId;
+  }catch(e){
+    console.error('solicitarAutorizacao', e);
+    toast('Erro ao criar pedido: '+(e.message||e), 'error');
+    return null;
+  }
+}
+
+// Mostra a tela de espera com listener realtime. Resolve com:
+//  data (objeto autorizacao) → autorizada → o app continua e bate o ponto
+//  null                       → recusada, cancelada ou expirada
+function mostrarTelaEspera(docId, prox, hora){
+  return new Promise((resolve) => {
+    const ov = document.getElementById('espera-overlay');
+    const nomes = {entrada:'ENTRADA', intIni:'INÍCIO DO INTERVALO', intFim:'FIM DO INTERVALO', saida:'SAÍDA'};
+    document.getElementById('espera-tipo').textContent = nomes[prox] || prox;
+    document.getElementById('espera-hora').textContent = hora;
+    const timerEl = document.getElementById('espera-timer');
+    timerEl.textContent = '15:00';
+    ov.style.display = 'flex';
+
+    // Validade (15 min a partir de agora)
+    const validadeAte = Date.now() + 15*60*1000;
+    let timerInterval = null;
+    let unsub = null;
+    const fechar = (resultado) => {
+      if(timerInterval) clearInterval(timerInterval);
+      if(unsub) try{ unsub(); }catch(_){}
+      ov.style.display = 'none';
+      document.getElementById('espera-cancelar').onclick = null;
+      resolve(resultado);
+    };
+
+    // Timer regressivo
+    timerInterval = setInterval(() => {
+      const restante = Math.max(0, Math.floor((validadeAte - Date.now())/1000));
+      const min = Math.floor(restante/60);
+      const seg = restante % 60;
+      timerEl.textContent = `${String(min).padStart(2,'0')}:${String(seg).padStart(2,'0')}`;
+      if(restante === 0){
+        // tenta marcar como expirada no banco (silencioso)
+        dbCol('autorizacoesPonto').doc(docId).update({
+          status: 'expirada',
+          expiradoEm: new Date().toISOString()
+        }).catch(()=>{});
+        toast('⏱ Tempo esgotado. Solicite novamente se necessário.','warning');
+        fechar(null);
+      }
+    }, 1000);
+
+    // Listener realtime — reage assim que supervisor autoriza/recusa
+    unsub = dbCol('autorizacoesPonto').doc(docId).onSnapshot(snap => {
+      if(!snap.exists) return;
+      const data = snap.data();
+      if(data.status === 'autorizada'){
+        toast(`✅ Autorizado por ${data.autorizadoPorNome||'supervisor'}!`, 'success');
+        fechar(data);
+      } else if(data.status === 'recusada'){
+        const m = data.motivoRecusa || '(sem motivo)';
+        alert(`❌ Solicitação recusada por ${data.autorizadoPorNome||'supervisor'}.\n\nMotivo: ${m}`);
+        fechar(null);
+      } else if(data.status === 'expirada' || data.status === 'cancelada'){
+        fechar(null);
+      }
+    }, err => {
+      console.error('listener autorizacao', err);
+      toast('Erro ao receber resposta: '+err.message,'error');
+      fechar(null);
+    });
+
+    // Botão Cancelar pedido
+    document.getElementById('espera-cancelar').onclick = async () => {
+      try{
+        await dbCol('autorizacoesPonto').doc(docId).update({
+          status: 'cancelada',
+          canceladoEm: new Date().toISOString()
+        });
+      }catch(_){}
+      // o listener vai fechar a tela
+    };
   });
 }
 
@@ -926,7 +1069,7 @@ async function baterPonto() {
 
   const now  = new Date();
   const pad  = n => String(n).padStart(2,'0');
-  const hora = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  let   hora = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
   // Confirmação — evita batida acidental. Pede OK em TODAS as batidas.
   const _nomesPonto = {entrada:'ENTRADA', intIni:'INÍCIO DO INTERVALO', intFim:'FIM DO INTERVALO', saida:'SAÍDA'};
   if(!confirm(`Confirma o registro?\n\n${_nomesPonto[prox]||String(prox).toUpperCase()} às ${hora}`)){
@@ -939,14 +1082,37 @@ async function baterPonto() {
   const dsem = new Date(j.ano, j.mes-1, j.dia).getDay();
 
   // Disciplina de horário — TRAVA: bloqueia a batida fora da janela permitida.
-  // No Bloco A nao oferecemos autorizacao ainda; o colaborador apenas ve
-  // a mensagem e nao consegue bater. No Bloco B a opcao de solicitar
-  // autorizacao ao supervisor sera adicionada aqui.
+  // Quando aplicavel, oferece "Solicitar autorizacao" ao supervisor; ao receber
+  // o ok, marca a batida com info da autorizacao para auditoria.
   const analise = analisarHorario(prox, now);
+  let autorizacao = null; // preenchido se a batida foi liberada pelo supervisor
   if(analise.tipo && analise.tipo !== 'ok'){
-    await mostrarBloqueio(prox, hora, analise);
-    renderBotao();
-    return; // NAO registra — bloqueio total
+    const acao = await mostrarBloqueio(prox, hora, analise);
+    if(!acao){ renderBotao(); return; }                  // colaborador cancelou
+    if(acao.acao === 'solicitar'){
+      const docId = await solicitarAutorizacao(prox, hora, analise);
+      if(!docId){ renderBotao(); return; }
+      autorizacao = await mostrarTelaEspera(docId, prox, hora);
+      if(!autorizacao){ renderBotao(); return; }         // recusado/cancelado/expirado
+      // Recalcula a hora do registro com o momento atual (pode ter passado tempo
+      // entre o pedido e a autorizacao).
+      const agora2 = new Date();
+      hora = `${pad(agora2.getHours())}:${pad(agora2.getMinutes())}`;
+      // Verifica regra de descanso minimo APOS autorizacao (CLT — irrevogavel,
+      // mesmo com autorizacao do supervisor nao pode burlar o minimo de 1h)
+      if(prox === 'intFim'){
+        const horaIda = _horaIntIniRegistrada();
+        if(horaIda){
+          const idaMin = timeToMin(horaIda);
+          const atualMin2 = agora2.getHours()*60 + agora2.getMinutes();
+          const dec = atualMin2 - idaMin;
+          if(dec < DESCANSO_MIN){
+            toast(`⏳ Aguarde mais ${DESCANSO_MIN-dec} min — intervalo mínimo de 1h (CLT).`,'error');
+            renderBotao(); return;
+          }
+        }
+      }
+    }
   }
 
   const btn = document.getElementById('punch-btn');
@@ -971,6 +1137,15 @@ async function baterPonto() {
     dayEntry[prox + '_origem'] = 'app';
     // Salva coordenadas junto com o registro
     if (geo) dayEntry[prox + '_geo'] = geo;
+    // Se a batida foi liberada pelo supervisor, marca para auditoria
+    if(autorizacao){
+      dayEntry[prox + '_foraHorario'] = true;
+      dayEntry[prox + '_autorizadoPorId']   = autorizacao.autorizadoPorId   || '';
+      dayEntry[prox + '_autorizadoPorNome'] = autorizacao.autorizadoPorNome || '';
+      dayEntry[prox + '_autorizadoEm']      = autorizacao.autorizadoEm      || '';
+      dayEntry[prox + '_autorizacaoId']     = autorizacao.id                || '';
+      dayEntry[prox + '_motivoPedido']      = autorizacao.motivo            || '';
+    }
 
     // Prepara record — grava APENAS os campos do app de ponto.
     // Campos da folha (salário, faltas, VT, etc.) são do sistema do gestor e não devem ser tocados.

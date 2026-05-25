@@ -10970,6 +10970,8 @@ function selectReportType(type){
   document.getElementById('report-output').classList.add('hidden');
   document.getElementById('btn-print').style.display='none';
   document.getElementById('btn-export-csv').style.display='none';
+  const btnFC = document.getElementById('btn-ficha-completa');
+  if(btnFC) btnFC.style.display='none';
 }
 
 function _reportHeader(titulo, subtitulo){
@@ -10983,12 +10985,19 @@ function _reportHeader(titulo, subtitulo){
   document.getElementById('btn-export-csv').style.display='';
   const btnSel = document.getElementById('btn-print-selected');
   if (btnSel) btnSel.style.display='none';
+  // Botao "Ficha Completa" so' faz sentido em cadastral / contatos / individual
+  const btnFC = document.getElementById('btn-ficha-completa');
+  if(btnFC){
+    btnFC.style.display = ['cadastral','contatos','individual'].includes(_currentReportType) ? '' : 'none';
+  }
   document.getElementById('report-output').scrollIntoView({behavior:'smooth'});
 }
 
 function _empTable(cols, rows, tfoot=''){
-  const rowsWithCheck = rows.replace(/<tr>/g,
-    `<tr><td style="width:28px;text-align:center;padding:2px"><input type="checkbox" class="report-row-check" onchange="_updatePrintSelectedBtn()"></td>`);
+  // Adiciona checkbox ANTES da primeira <td>, preservando atributos da <tr>
+  // (ex.: data-emp-id usado pela "Ficha Completa").
+  const rowsWithCheck = rows.replace(/<tr(\s[^>]*)?>/g,
+    `<tr$1><td style="width:28px;text-align:center;padding:2px"><input type="checkbox" class="report-row-check" onchange="_updatePrintSelectedBtn()"></td>`);
   return `<div class="table-responsive"><table class="report-table" id="report-main-table">
     <thead><tr>
       <th style="width:28px;text-align:center"><input type="checkbox" title="Marcar todos" onchange="toggleAllReportChecks(this)"></th>
@@ -11062,6 +11071,259 @@ function printSelectedReport() {
   if (!win) { toast('Permita pop-ups para imprimir.','warning'); return; }
   win.document.write(html+'<scr'+'ipt>window.onload=function(){window.print();window.onafterprint=function(){window.close();}}<\/scr'+'ipt>');
   win.document.close();
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// FICHA COMPLETA DO COLABORADOR (imprimir 1 ou mais selecionados)
+// ───────────────────────────────────────────────────────────────────────────
+// Gera 1 pagina A4 retrato POR colaborador com TODOS os dados do cadastro
+// agrupados em secoes (Dados Pessoais, Documentacao, Contato, Bancarios,
+// Contrato, Horarios, Exame, Filiacao, Dependentes). Para auditoria e
+// pasta funcional impressa.
+function imprimirFichaCompleta(){
+  const table = document.getElementById('report-main-table');
+  if(!table){ toast('Gere o relatorio primeiro.','warning'); return; }
+  const trs = [...table.querySelectorAll('tbody tr')];
+  const checked = trs.filter(tr => tr.querySelector('.report-row-check')?.checked);
+  const rowsAlvo = checked.length ? checked : trs; // se nenhum marcado, imprime todos da tabela
+  const ids = rowsAlvo.map(tr => tr.dataset.empId).filter(Boolean);
+  if(!ids.length){ toast('Nenhum colaborador encontrado para imprimir.','warning'); return; }
+  const emps = ids.map(id => State.employees.find(e=>e.id===id)).filter(Boolean);
+  if(!emps.length){ toast('Colaboradores nao encontrados.','error'); return; }
+  const empresa = _e('nomeEmpresa');
+  const dataGer = new Date().toLocaleString('pt-BR');
+  const paginas = emps.map((e,idx) => _fichaCompletaHTML(e, idx)).join('');
+  const html = `<!DOCTYPE html><html lang="pt-BR"><head>
+<meta charset="UTF-8"><title>Ficha do Colaborador</title>
+<style>
+  @page{size:A4 portrait;margin:12mm 11mm}
+  *{box-sizing:border-box;margin:0;padding:0;font-family:Arial,sans-serif;color:#222}
+  body{font-size:10px}
+  .pagina{page-break-after:always}
+  .pagina:last-child{page-break-after:auto}
+  .ph{display:flex;align-items:center;gap:10px;border-bottom:2px solid #1a3a6b;padding-bottom:6px;margin-bottom:10px}
+  .ph img{width:42px;height:42px;border-radius:50%;object-fit:cover}
+  .ph h2{color:#1a3a6b;font-size:13px;font-weight:700}
+  .ph p{color:#666;font-size:9px;margin-top:1px}
+  .ph .pm{margin-left:auto;text-align:right;font-size:8px;color:#888}
+  .ficha-head{background:#f0f4f8;border-radius:6px;padding:9px 11px;margin-bottom:9px;display:flex;align-items:center;gap:11px}
+  .ficha-head .foto{width:50px;height:50px;border-radius:50%;background:#cbd5e1;display:flex;align-items:center;justify-content:center;font-weight:700;color:#1a3a6b;font-size:15px;flex-shrink:0;overflow:hidden;border:2px solid #1a3a6b}
+  .ficha-head .foto img{width:100%;height:100%;object-fit:cover}
+  .ficha-head .nome{font-size:14px;font-weight:700;color:#1a3a6b}
+  .ficha-head .sub{font-size:10px;color:#475569;margin-top:1px}
+  .ficha-head .badges{margin-top:3px;display:flex;gap:4px;flex-wrap:wrap}
+  .badge{display:inline-block;padding:1px 6px;border-radius:9px;font-size:8.5px;font-weight:700}
+  .secao{margin-bottom:7px;page-break-inside:avoid}
+  .secao h3{background:#1a3a6b;color:#fff;padding:3px 7px;font-size:9px;letter-spacing:.3px;text-transform:uppercase;border-radius:3px;margin-bottom:3px}
+  table.fields{width:100%;border-collapse:collapse}
+  table.fields td{padding:2px 5px;border-bottom:1px solid #f1f5f9;font-size:9.5px;vertical-align:top;line-height:1.3}
+  table.fields td.lbl{font-weight:600;color:#475569;width:36%;background:#fafbfc}
+  .col2{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+  ul.deps{padding-left:14px;font-size:9px;color:#334155;line-height:1.4}
+  .obs{background:#fffbeb;border-left:3px solid #fbbf24;padding:5px 7px;font-size:9px;color:#713f12;margin-top:4px;line-height:1.4}
+  .rodape{margin-top:10px;padding-top:6px;border-top:1px solid #e2e8f0;display:grid;grid-template-columns:1fr 1fr;gap:30px;text-align:center;font-size:9px;color:#475569}
+  .rodape > div{border-top:1px solid #475569;padding-top:4px;margin-top:30px}
+</style></head><body>
+  ${paginas}
+</body></html>`;
+  const win = window.open('', '_blank');
+  if(!win){ toast('Permita pop-ups para imprimir.','warning'); return; }
+  win.document.write(html + '<scr'+'ipt>window.onload=function(){window.print();window.onafterprint=function(){window.close();}}<\/scr'+'ipt>');
+  win.document.close();
+}
+
+function _fichaCompletaHTML(e, idx){
+  const empresa = _e('nomeEmpresa');
+  const dataGer = new Date().toLocaleString('pt-BR');
+  const esc = s => (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const reg = e.registro ? String(e.registro).padStart(4,'0') : '—';
+  const status = (e.status||'ativo');
+  const statusLbl = status==='ativo'?'Ativo'
+                  : status==='inativo'?'Inativo'
+                  : status==='afastado'?'Afastado INSS'
+                  : status==='licenca-maternidade'?'Licença Maternidade'
+                  : status;
+  const corStatus = status==='ativo' ? 'background:#dcfce7;color:#166534'
+                  : status==='inativo' ? 'background:#fee2e2;color:#7f1d1d'
+                  : status==='afastado' ? 'background:#fef3c7;color:#92400e'
+                  : 'background:#fce7f3;color:#9d174d';
+  const ini = (e.nome||'?').split(' ').filter(Boolean).slice(0,2).map(s=>s[0]).join('').toUpperCase();
+  const fotoHtml = e.fotoUrl
+    ? `<img src="${e.fotoUrl}" alt="">`
+    : esc(ini);
+  const enderecoLinha = [e.endereco, e.numero, e.complemento].filter(Boolean).join(' ');
+  const cidadeUf = [e.cidade, e.estado].filter(Boolean).join('/');
+  const depsList = (e.dependentes||[]).filter(d=>d && d.nome);
+  return `<div class="pagina">
+    <div class="ph">
+      <img src="logo.png" alt="">
+      <div><h2>${esc(empresa)}</h2><p>Ficha do Colaborador — Gerada em ${esc(dataGer)}</p></div>
+      <div class="pm">Página ${idx+1}</div>
+    </div>
+    <div class="ficha-head">
+      <div class="foto">${fotoHtml}</div>
+      <div style="flex:1">
+        <div class="nome">${esc(e.nome||'—')}</div>
+        <div class="sub">Matrícula <strong>${esc(reg)}</strong> · ${esc(e.cargo||'—')} · CPF ${esc(e.cpf||'—')}</div>
+        <div class="badges">
+          <span class="badge" style="${corStatus}">${esc(statusLbl)}</span>
+          <span class="badge" style="background:#e0e7ff;color:#3730a3">${esc(escalaLabel(e.escala||'5x2A'))}</span>
+          ${e.tipoContrato ? `<span class="badge" style="background:#f1f5f9;color:#475569">${esc(e.tipoContrato||'Indeterminado')}</span>` : ''}
+          ${e.turnoNoturno ? `<span class="badge" style="background:#312e81;color:#fff">Adic. Noturno</span>` : ''}
+        </div>
+      </div>
+    </div>
+    <div class="col2">
+      <div class="secao">
+        <h3>📋 Dados Pessoais</h3>
+        <table class="fields">
+          <tr><td class="lbl">Nome</td><td>${esc(e.nome||'—')}</td></tr>
+          <tr><td class="lbl">CPF</td><td>${esc(e.cpf||'—')}</td></tr>
+          <tr><td class="lbl">RG</td><td>${esc(e.rg||'—')}${e.rgOrgao?' / '+esc(e.rgOrgao):''}${e.rgExpedicao?' · '+esc(formatDateBr(e.rgExpedicao)||e.rgExpedicao):''}</td></tr>
+          <tr><td class="lbl">Nascimento</td><td>${esc(formatDateBr(e.dataNascimento)||'—')}${e.localNascimento?' · '+esc(e.localNascimento):''}${e.ufNascimento?'/'+esc(e.ufNascimento):''}</td></tr>
+          <tr><td class="lbl">Sexo</td><td>${esc(e.sexo||'—')}</td></tr>
+          <tr><td class="lbl">Estado civil</td><td>${esc(e.estadoCivil||'—')}</td></tr>
+          <tr><td class="lbl">Raça/cor</td><td>${esc(e.raca||'—')}</td></tr>
+          <tr><td class="lbl">Escolaridade</td><td>${esc(e.grauInstrucao||'—')}${e.instrucaoConcluido?' · '+esc(e.instrucaoConcluido):''}</td></tr>
+        </table>
+      </div>
+      <div class="secao">
+        <h3>📄 Documentação</h3>
+        <table class="fields">
+          <tr><td class="lbl">CTPS Nº</td><td>${esc(e.ctpsNumero||'—')} / ${esc(e.ctpsSerie||'—')}${e.ctpsEmissao?' · em '+esc(formatDateBr(e.ctpsEmissao)||e.ctpsEmissao):''}</td></tr>
+          <tr><td class="lbl">PIS / NIT</td><td>${esc(e.pisNit||'—')}${e.pisData?' · '+esc(formatDateBr(e.pisData)||e.pisData):''}</td></tr>
+          <tr><td class="lbl">Tít. eleitor</td><td>${esc(e.tituloEleitor||'—')}${e.tituloZona?' · zona '+esc(e.tituloZona):''}${e.tituloSecao?' · seção '+esc(e.tituloSecao):''}</td></tr>
+          <tr><td class="lbl">CNH</td><td>${esc(e.cnh||'—')}${e.cnhCategoria?' · cat. '+esc(e.cnhCategoria):''}</td></tr>
+        </table>
+      </div>
+      <div class="secao">
+        <h3>📞 Contato</h3>
+        <table class="fields">
+          <tr><td class="lbl">Celular</td><td>${esc(e.celular||'—')}</td></tr>
+          <tr><td class="lbl">E-mail</td><td>${esc(e.email||'—')}</td></tr>
+          <tr><td class="lbl">CEP</td><td>${esc(e.cep||'—')}</td></tr>
+          <tr><td class="lbl">Endereço</td><td>${esc(enderecoLinha||'—')}</td></tr>
+          <tr><td class="lbl">Bairro</td><td>${esc(e.bairro||'—')}</td></tr>
+          <tr><td class="lbl">Cidade/UF</td><td>${esc(cidadeUf||'—')}</td></tr>
+        </table>
+      </div>
+      <div class="secao">
+        <h3>👪 Filiação</h3>
+        <table class="fields">
+          <tr><td class="lbl">Mãe</td><td>${esc(e.nomeMae||'—')}</td></tr>
+          <tr><td class="lbl">Pai</td><td>${esc(e.nomePai||'—')}</td></tr>
+        </table>
+      </div>
+      <div class="secao">
+        <h3>🏦 Dados Bancários (PIX)</h3>
+        <table class="fields">
+          <tr><td class="lbl">Tipo de chave</td><td>${esc(e.chavePixTipo||'—')}</td></tr>
+          <tr><td class="lbl">Chave PIX</td><td style="word-break:break-all">${esc(e.chavePix||'—')}</td></tr>
+        </table>
+      </div>
+      <div class="secao">
+        <h3>💼 Contrato de Trabalho</h3>
+        <table class="fields">
+          <tr><td class="lbl">Matrícula</td><td>${esc(reg)}</td></tr>
+          <tr><td class="lbl">Cargo</td><td>${esc(e.cargo||'—')}</td></tr>
+          <tr><td class="lbl">Setor</td><td>${esc(e.setor||'—')}</td></tr>
+          <tr><td class="lbl">Posto</td><td>${esc(e.posto||'—')}</td></tr>
+          <tr><td class="lbl">Admissão</td><td>${esc(formatDateBr(e.dataAdmissao)||'—')}</td></tr>
+          ${e.dataDemissao?`<tr><td class="lbl">Demissão</td><td>${esc(formatDateBr(e.dataDemissao))}</td></tr>`:''}
+          <tr><td class="lbl">Status</td><td>${esc(statusLbl)}</td></tr>
+          <tr><td class="lbl">Tipo</td><td>${esc(e.tipoContrato||'Indeterminado')}</td></tr>
+          <tr><td class="lbl">Escala</td><td>${esc(escalaLabel(e.escala||'5x2A'))}</td></tr>
+          <tr><td class="lbl">Salário base</td><td><strong>${e.salarioBase?esc(fmtMoney(e.salarioBase)):'—'}</strong></td></tr>
+          ${e.insalubridade?`<tr><td class="lbl">Insalubridade</td><td>${esc(fmtMoney(e.insalubridade))}</td></tr>`:''}
+        </table>
+      </div>
+      <div class="secao">
+        <h3>⏰ Horários de Trabalho</h3>
+        <table class="fields">
+          <tr><td class="lbl">Entrada</td><td>${esc(e.horarioEntrada||'—')}</td></tr>
+          <tr><td class="lbl">Início refeição</td><td>${esc(e.horarioRefIni||'—')}</td></tr>
+          <tr><td class="lbl">Retorno refeição</td><td>${esc(e.horarioRefFim||'—')}</td></tr>
+          <tr><td class="lbl">Saída</td><td>${esc(e.horarioSaida||'—')}</td></tr>
+          ${e.semRefeicao?'<tr><td class="lbl">Refeição</td><td>Sem horário (trabalha sozinho)</td></tr>':''}
+        </table>
+      </div>
+      <div class="secao">
+        <h3>🩺 Exame Médico</h3>
+        <table class="fields">
+          <tr><td class="lbl">Admissional</td><td>${esc(formatDateBr(e.exameAdmissionalData)||'—')}</td></tr>
+          <tr><td class="lbl">Próximo venc.</td><td>${esc(formatDateBr(e.exameVencimento)||'—')}</td></tr>
+        </table>
+      </div>
+      <div class="secao">
+        <h3>💵 Benefícios</h3>
+        <table class="fields">
+          <tr><td class="lbl">VT</td><td>${esc(e.tipoTransporte||'vt').toUpperCase()} · ${esc(e.vtFreq||'diario')} · ${e.valorDiarioVt?esc(fmtMoney(e.valorDiarioVt))+'/dia':'—'}</td></tr>
+          <tr><td class="lbl">VR</td><td>${esc(e.vrFreq||'diario')} · ${e.valorDiarioVr?esc(fmtMoney(e.valorDiarioVr))+'/dia':'—'}</td></tr>
+          <tr><td class="lbl">VA</td><td>${e.valorMensalVa?esc(fmtMoney(e.valorMensalVa))+'/mês':'—'}</td></tr>
+        </table>
+      </div>
+      <div class="secao">
+        <h3>📊 IRRF / Encargos</h3>
+        <table class="fields">
+          <tr><td class="lbl">Dependentes IRRF</td><td>${esc(e.dependentesIRRF||0)}</td></tr>
+          ${e.pensaoAlimenticia?`<tr><td class="lbl">Pensão aliment.</td><td>${esc(fmtMoney(e.pensaoAlimenticia))}</td></tr>`:''}
+          ${e.planoSaude?`<tr><td class="lbl">Plano saúde</td><td>${esc(fmtMoney(e.planoSaude))}</td></tr>`:''}
+        </table>
+      </div>
+    </div>
+    ${depsList.length ? `
+    <div class="secao">
+      <h3>👨‍👩‍👧 Dependentes (${depsList.length})</h3>
+      <ul class="deps">
+        ${depsList.map(d => `<li><strong>${esc(d.nome||'—')}</strong>${d.parentesco?' · '+esc(d.parentesco):''}${d.dataNascimento?' · nasc. '+esc(formatDateBr(d.dataNascimento)):''}${d.cpf?' · CPF '+esc(d.cpf):''}</li>`).join('')}
+      </ul>
+    </div>` : ''}
+    <div class="rodape">
+      <div>Pelo empregador</div>
+      <div>Colaborador<br><small style="font-size:8px;color:#888">${esc(e.nome||'')}</small></div>
+    </div>
+  </div>`;
+}
+
+// Lupa de busca na tabela do relatorio — filtra linhas client-side.
+// Insere um campo de busca no topo da tabela e oculta linhas que nao casam.
+function _ativarBuscaRelatorio(){
+  const area = document.getElementById('report-body-area');
+  if(!area) return;
+  const table = area.querySelector('#report-main-table');
+  if(!table) return;
+  // Remove busca anterior (se existir) para nao duplicar
+  const old = area.querySelector('.report-busca-wrap');
+  if(old) old.remove();
+  const wrap = document.createElement('div');
+  wrap.className = 'report-busca-wrap';
+  wrap.style.cssText = 'margin-bottom:10px;display:flex;gap:8px;align-items:center';
+  wrap.innerHTML = `
+    <div style="position:relative;flex:1;max-width:380px">
+      <i class="fa-solid fa-magnifying-glass" style="position:absolute;left:11px;top:50%;transform:translateY(-50%);color:#94a3b8;font-size:13px"></i>
+      <input type="text" id="report-busca-input" placeholder="Buscar por nome, matrícula, CPF, posto..." style="width:100%;padding:9px 9px 9px 32px;border:1px solid var(--border);border-radius:8px;font-size:13px">
+    </div>
+    <span id="report-busca-cnt" style="font-size:12px;color:#666"></span>
+  `;
+  area.insertBefore(wrap, table.closest('.table-responsive') || table);
+  const input = document.getElementById('report-busca-input');
+  const cnt   = document.getElementById('report-busca-cnt');
+  const totalLinhas = table.querySelectorAll('tbody tr').length;
+  const atualizar = () => {
+    const q = (input.value||'').trim().toLowerCase();
+    let vis = 0;
+    table.querySelectorAll('tbody tr').forEach(tr => {
+      const txt = tr.textContent.toLowerCase();
+      const mostra = !q || txt.includes(q);
+      tr.style.display = mostra ? '' : 'none';
+      if(mostra) vis++;
+    });
+    cnt.textContent = q
+      ? `${vis} de ${totalLinhas} encontrado(s)`
+      : `${totalLinhas} colaborador(es)`;
+  };
+  input.addEventListener('input', atualizar);
+  atualizar();
 }
 
 function generateReportNew(){
@@ -11927,7 +12189,7 @@ function _reportCadastral(){
   _reportHeader('Relatório Cadastral Completo', `${list.length} colaborador(es)`);
   const cols=['#','Reg.','Nome','Setor','Posto','Escala','Admissão','Status','CPF','RG','CTPS Nº','PIS/NIT','Nascimento','Salário Base'];
   const rows=list.length===0?`<tr><td colspan="14" style="text-align:center;padding:24px;color:var(--text-muted)">Nenhum colaborador encontrado</td></tr>`:
-    list.map((e,i)=>`<tr>
+    list.map((e,i)=>`<tr data-emp-id="${e.id}">
       <td>${i+1}</td>
       <td>${e.registro?String(e.registro).padStart(4,'0'):'—'}</td>
       <td><strong>${e.nome}</strong></td>
@@ -11944,6 +12206,7 @@ function _reportCadastral(){
       <td>${e.salarioBase?fmtMoney(e.salarioBase):'—'}</td>
     </tr>`).join('');
   document.getElementById('report-body-area').innerHTML=_empTable(cols,rows);
+  _ativarBuscaRelatorio();
 }
 
 // 3. Contatos
@@ -11952,7 +12215,7 @@ function _reportContatos(){
   _reportHeader('Relatório de Contatos', `${list.length} colaborador(es)`);
   const cols=['#','Nome','Setor','Posto','Celular','E-mail','CEP','Endereço','Bairro','Cidade/UF','Chave PIX'];
   const rows=list.length===0?`<tr><td colspan="11" style="text-align:center;padding:24px;color:var(--text-muted)">Nenhum colaborador encontrado</td></tr>`:
-    list.map((e,i)=>`<tr>
+    list.map((e,i)=>`<tr data-emp-id="${e.id}">
       <td>${i+1}</td>
       <td><strong>${e.nome}</strong></td>
       <td>${e.setor||'—'}</td>
@@ -11966,6 +12229,7 @@ function _reportContatos(){
       <td>${e.chavePix||'—'}</td>
     </tr>`).join('');
   document.getElementById('report-body-area').innerHTML=_empTable(cols,rows);
+  _ativarBuscaRelatorio();
 }
 
 function _filtrarCadastral(){

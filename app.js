@@ -2032,16 +2032,18 @@ function showPayrollStatDetail(fieldKey, label, color){
   const bodyRows = items.length===0
     ? `<div style="text-align:center;padding:40px;color:#aaa"><i class="fa-solid fa-inbox" style="font-size:36px;margin-bottom:12px;display:block"></i><div style="font-size:14px">Nenhum registro neste mês</div></div>`
     : items.map(it=>`
-      <div onclick="document.getElementById('modal-stat-detail').remove();openPayrollForEmployee('${it.empId}')"
-           style="display:flex;align-items:center;gap:14px;padding:12px 20px;cursor:pointer;border-bottom:1px solid #f0f0f0;transition:background .12s"
-           onmouseover="this.style.background='${color}10'" onmouseout="this.style.background=''">
+      <div data-emp-row="${it.empId}" data-emp-nome="${(it.nome||'').replace(/"/g,'&quot;')}"
+           style="display:flex;align-items:center;gap:14px;padding:14px 20px;cursor:pointer;border-bottom:1px solid #f0f0f0;transition:background .12s;-webkit-tap-highlight-color:${color}25"
+           onmouseover="this.style.background='${color}10'" onmouseout="this.style.background=''"
+           onmousedown="this.style.background='${color}22'" onmouseup="this.style.background='${color}10'"
+           ontouchstart="this.style.background='${color}22'" ontouchend="this.style.background=''">
         <div style="width:40px;height:40px;border-radius:50%;background:${color}22;color:${color};display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex-shrink:0;letter-spacing:-.5px">${initials(it.nome)}</div>
         <div style="flex:1;min-width:0">
           <div style="font-weight:600;color:#1a1a2e;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${it.nome}</div>
           <div style="font-size:12px;color:#9e9e9e;margin-top:1px">${it.setor}</div>
         </div>
         <div style="font-weight:700;color:${color};font-size:15px;white-space:nowrap;margin-right:4px">${it.valueLabel}</div>
-        <i class="fa-solid fa-arrow-right" style="color:#d0d0d0;font-size:12px"></i>
+        <i class="fa-solid fa-arrow-right" style="color:${color};font-size:13px"></i>
       </div>`).join('');
   modal.innerHTML=`
     <div style="background:#fff;border-radius:16px;width:100%;max-width:480px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.25);overflow:hidden">
@@ -2055,6 +2057,56 @@ function showPayrollStatDetail(fieldKey, label, color){
       <div style="overflow-y:auto;flex:1">${bodyRows}</div>
     </div>`;
   document.body.appendChild(modal);
+  // Listeners via JS — mais robusto que inline onclick. Cada linha leva
+  // o usuario para a Folha de Ponto do colaborador no mes correspondente,
+  // com scroll + destaque visual no campo do indicador clicado.
+  modal.querySelectorAll('[data-emp-row]').forEach(row => {
+    row.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const empId = row.dataset.empRow;
+      const empNome = row.dataset.empNome || '';
+      _closeStatDetail();
+      toast(`Abrindo folha de ${empNome}...`, 'success');
+      openPayrollForEmployee(empId, { mes, ano, fieldKey, label, color });
+    });
+  });
+}
+
+// Helpers globais para o openPayrollForEmployee com destaque
+// (definidos no escopo do app — usados depois que showSection renderiza)
+function _highlightPayrollField(fieldKey, color){
+  // Mapeia o campo do payroll para o id do input/elemento na tela da folha.
+  // IDs conferidos no index.html (linha de cada input).
+  const map = {
+    horasExtrasValor:        'payroll-he-valor',
+    remuneracao:             'payroll-remuneracao',
+    valeTransporte:          'payroll-vt-total',
+    valeRefeicao:            'payroll-vr-total',
+    valeAlimentacaoLiquido:  'payroll-va-total',
+    adNoturno:               'payroll-noturno',
+    bonificacao:             'payroll-bonus',
+  };
+  const targetId = map[fieldKey];
+  if(!targetId) return;
+  const el = document.getElementById(targetId);
+  if(!el) return;
+  // Procura o container/card pai para o scroll/destaque ficar melhor visualmente
+  const card = el.closest('.benefit-card') || el.closest('.form-group') || el;
+  try{ card.scrollIntoView({behavior:'smooth', block:'center'}); }catch(_){ card.scrollIntoView(); }
+  // Destaque pulsante por 3.5s: aplica via classe CSS injetada uma vez.
+  if(!document.getElementById('_hl-pulse-style')){
+    const st = document.createElement('style');
+    st.id = '_hl-pulse-style';
+    st.textContent = `
+      @keyframes hlPulse { 0%,100%{box-shadow:0 0 0 0 var(--hl-color)} 50%{box-shadow:0 0 0 8px var(--hl-shadow)} }
+      ._hl-active { animation: hlPulse 1s ease-in-out 3; outline:3px solid var(--hl-color) !important; outline-offset:3px; border-radius:6px; }
+    `;
+    document.head.appendChild(st);
+  }
+  card.style.setProperty('--hl-color', color);
+  card.style.setProperty('--hl-shadow', color + '40');
+  card.classList.add('_hl-active');
+  setTimeout(() => card.classList.remove('_hl-active'), 3500);
 }
 
 // ============================================
@@ -6281,9 +6333,21 @@ function clearPayrollForm(){
   clearPdf(null,true); recalculate();
 }
 
-function openPayrollForEmployee(empId){
+function openPayrollForEmployee(empId, ctx){
+  // ctx (opcional) = { mes, ano, fieldKey, label, color }
+  // Quando vem de um drill-down de stat, ajusta o mes/ano da Folha e
+  // depois faz scroll + destaca o campo correspondente do indicador clicado.
   showSection('payroll');
-  setTimeout(()=>{ setVal('payroll-employee',empId); onPayrollEmployeeChange(); },80);
+  setTimeout(() => {
+    if(ctx && ctx.mes) setVal('payroll-mes', String(ctx.mes));
+    if(ctx && ctx.ano) setVal('payroll-ano', String(ctx.ano));
+    setVal('payroll-employee', empId);
+    onPayrollEmployeeChange();
+    if(ctx && ctx.fieldKey){
+      // espera o render da folha terminar para destacar
+      setTimeout(() => _highlightPayrollField(ctx.fieldKey, ctx.color || '#5C6BC0'), 250);
+    }
+  }, 100);
 }
 
 // ============================================

@@ -432,7 +432,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=21').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=22').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -879,8 +879,22 @@ function analisarHorario(prox, now){
   const e = currentEmp || {};
   const atualMin = now.getHours()*60 + now.getMinutes();
 
-  // 1. Dia de folga — bloqueia (qualquer batida exige autorizacao)
-  if(_ehDiaDeFolga(e, now)){
+  // 1. Dia de folga — bloqueia (qualquer batida exige autorizacao).
+  // IMPORTANTE: para turnos noturnos que cruzam a meia-noite (ex.: 12x36
+  // entrando 19h ontem, saindo 7h hoje), a batida da manha pertence a'
+  // jornada de ONTEM — _diaJornada() ja calcula isso. Se ja existe
+  // batida de entrada/intervalo registrada na jornada corrente,
+  // a pessoa esta dentro de um turno em andamento — folga nao se aplica.
+  const j = _diaJornada();
+  const dataJornada = new Date(j.ano, j.mes-1, j.dia);
+  const diaEntry = (currentPayroll && currentPayroll.pontoManualDias || [])
+    .find(d => d.dia === j.dia);
+  const turnoEmAndamento = !!(diaEntry && (diaEntry.entrada || diaEntry.intIni));
+  // So' verifica folga se NAO esta em turno em andamento e a batida e' de
+  // ENTRADA. Saida/intervalos de um turno ja' iniciado nao sao bloqueados
+  // por folga — quem iniciou o turno precisa fechar a jornada.
+  const checarFolga = !turnoEmAndamento && (prox === 'entrada');
+  if(checarFolga && _ehDiaDeFolga(e, dataJornada)){
     return {
       tipo: 'folga',
       msg: 'Você está de folga hoje conforme sua escala. Para registrar batida em dia de folga, solicite autorização ao supervisor.'

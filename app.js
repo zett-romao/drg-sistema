@@ -8824,6 +8824,158 @@ function _comuAddPorEscala(){
   });
 }
 
+// Classifica o turno do colaborador conforme o horario de entrada cadastrado:
+//   Madrugada: entrada 00:00-05:59
+//   Manha:     entrada 06:00-11:59
+//   Tarde:     entrada 12:00-17:59
+//   Noite:     entrada 18:00-23:59 ou turnoNoturno=true
+//   Indefinido: sem horario cadastrado
+function _classificarTurno(emp){
+  if(!emp) return 'Indefinido';
+  if(emp.turnoNoturno) return 'Noite';
+  const ent = (emp.horarioEntrada||'').toString().trim();
+  if(!ent || !ent.includes(':')) return 'Indefinido';
+  const h = parseInt(ent.split(':')[0], 10);
+  if(isNaN(h)) return 'Indefinido';
+  if(h >= 0  && h <  6) return 'Madrugada';
+  if(h >= 6  && h < 12) return 'Manhã';
+  if(h >= 12 && h < 18) return 'Tarde';
+  return 'Noite';
+}
+const _TURNO_ICON = { 'Madrugada':'🌙', 'Manhã':'🌅', 'Tarde':'☀️', 'Noite':'🌃', 'Indefinido':'❓' };
+
+function _comuAddPorTurno(){
+  const ativos = (State.employees||[]).filter(e=>(e.status||'ativo')==='ativo');
+  // Conta quantos cada turno tem (so' mostra turnos que ja existem)
+  const map = {};
+  ativos.forEach(e => {
+    const t = _classificarTurno(e);
+    map[t] = (map[t]||0) + 1;
+  });
+  const ordem = ['Madrugada','Manhã','Tarde','Noite','Indefinido'];
+  const opcoes = ordem.filter(t => map[t]).map(t => ({
+    value: t,
+    label: `${_TURNO_ICON[t]||''} ${t}  (${map[t]} colaborador${map[t]!==1?'es':''})`
+  }));
+  if(!opcoes.length){ toast('Nenhum colaborador ativo encontrado.','warning'); return; }
+  _abrirSelecaoMultipla('Selecionar por Turno', opcoes, (escolhidos) => {
+    let n = 0;
+    ativos.forEach(e=>{
+      if(escolhidos.includes(_classificarTurno(e))){
+        if(!_comuDestinatarios.includes(e.id)){ _comuDestinatarios.push(e.id); n++; }
+      }
+    });
+    _comuRenderDest();
+    toast(`${n} colaborador(es) adicionado(s) (turno: ${escolhidos.join(', ')}).`,'success');
+  });
+}
+
+// ── FILTRO AVANCADO — combina varias dimensoes em UM unico envio ─────────
+// AND entre dimensoes, OR dentro de cada dimensao. Exemplo:
+//   Turno: [Noite] + Escala: [12x36, 6x1A] + Posto: [todos]
+//   = quem trabalha a noite E (esta em 12x36 OU 6x1A) E em qualquer posto.
+// Dimensao sem nada marcado = "qualquer" (nao restringe).
+function _comuAddFiltroAvancado(){
+  const ativos = (State.employees||[]).filter(e=>(e.status||'ativo')==='ativo');
+  if(!ativos.length){ toast('Sem colaboradores ativos.','warning'); return; }
+  // Calcula opcoes para cada dimensao
+  const turnos = [...new Set(ativos.map(e=>_classificarTurno(e)))]
+    .sort((a,b)=>['Madrugada','Manhã','Tarde','Noite','Indefinido'].indexOf(a) - ['Madrugada','Manhã','Tarde','Noite','Indefinido'].indexOf(b));
+  const escalas = [...new Set(ativos.map(e=>(e.escala||'').trim()).filter(Boolean))].sort();
+  const postos = [...new Set(ativos.map(e=>(e.posto||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  const setores= [...new Set(ativos.map(e=>(e.setor||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  const old = document.getElementById('modal-filtro-av');
+  if(old) old.remove();
+  const m = document.createElement('div');
+  m.id = 'modal-filtro-av';
+  m.className = 'modal-overlay';
+  m.style.zIndex = '10500';
+  m.onclick = ev => { if(ev.target===m) m.remove(); };
+  const secao = (titulo, icone, key, opts) => `
+    <div style="margin-bottom:12px">
+      <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:6px;text-transform:uppercase;letter-spacing:.4px">${icone} ${titulo}</div>
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;max-height:160px;overflow-y:auto">
+        ${opts.length === 0
+          ? `<div style="padding:10px;font-size:12px;color:#94a3b8;text-align:center">Nenhum valor</div>`
+          : opts.map(o => `
+            <label style="display:flex;align-items:center;gap:8px;padding:7px 10px;cursor:pointer;border-bottom:1px solid #f1f5f9;font-size:13px"
+                   onmouseover="this.style.background='#fff'" onmouseout="this.style.background=''">
+              <input type="checkbox" class="fav-${key}" value="${o.replace(/"/g,'&quot;')}" style="width:16px;height:16px;cursor:pointer">
+              <span>${o.replace(/</g,'&lt;')}${key==='escala' ? ` <span style="color:#94a3b8;font-size:11px">(${escalaLabel(o)})</span>`:''}</span>
+            </label>`).join('')}
+      </div>
+    </div>`;
+  m.innerHTML = `
+    <div class="modal-dialog" style="max-width:640px;width:95%;display:flex;flex-direction:column;max-height:90vh">
+      <div class="modal-header">
+        <h3 style="font-size:16px;color:#1e293b"><i class="fa-solid fa-filter" style="color:#7c3aed"></i> Filtro avançado — combinar critérios</h3>
+        <button class="modal-close" onclick="document.getElementById('modal-filtro-av').remove()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div style="padding:12px 16px;background:#faf5ff;border-bottom:1px solid #e9d5ff;font-size:12px;color:#6b21a8;line-height:1.5">
+        <strong>Como funciona:</strong> dentro de uma seção, marca o que quer incluir (OR).
+        Entre seções, o sistema cruza tudo (AND). Seção sem nada marcado = qualquer valor (não restringe).
+      </div>
+      <div style="padding:14px 16px;overflow-y:auto;flex:1">
+        ${secao('Turno (baseado no horário de entrada)', '⏰', 'turno',  turnos.map(t=>`${_TURNO_ICON[t]||''} ${t}`))}
+        ${secao('Escala', '📅', 'escala', escalas)}
+        ${secao('Posto de trabalho', '🏢', 'posto',  postos)}
+        ${secao('Setor', '🌐', 'setor',  setores)}
+      </div>
+      <div class="modal-footer" style="border-top:1px solid #e2e8f0;padding:12px 16px;display:flex;gap:8px;justify-content:space-between;align-items:center;flex-wrap:wrap">
+        <div id="fav-preview" style="font-size:12px;color:#666;flex:1;min-width:160px">Selecione critérios para ver a prévia</div>
+        <div style="display:flex;gap:8px">
+          <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-filtro-av').remove()">Cancelar</button>
+          <button type="button" class="btn btn-primary" id="fav-aplicar"><i class="fa-solid fa-check"></i> Aplicar filtro</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+  // Calcula prevista de quem cai no filtro a cada mudanca
+  const calcular = () => {
+    const sel = {
+      turno:  [...m.querySelectorAll('.fav-turno:checked')].map(cb => cb.value.replace(/^[^a-zA-ZÀ-ÿ]+/, '').trim()),
+      escala: [...m.querySelectorAll('.fav-escala:checked')].map(cb => cb.value),
+      posto:  [...m.querySelectorAll('.fav-posto:checked')].map(cb => cb.value),
+      setor:  [...m.querySelectorAll('.fav-setor:checked')].map(cb => cb.value),
+    };
+    const algumMarcado = sel.turno.length+sel.escala.length+sel.posto.length+sel.setor.length > 0;
+    const matches = ativos.filter(e => {
+      if(sel.turno.length  && !sel.turno.includes(_classificarTurno(e))) return false;
+      if(sel.escala.length && !sel.escala.includes((e.escala||'').trim())) return false;
+      if(sel.posto.length  && !sel.posto.includes((e.posto||'').trim())) return false;
+      if(sel.setor.length  && !sel.setor.includes((e.setor||'').trim())) return false;
+      return true;
+    });
+    const prevEl = document.getElementById('fav-preview');
+    if(!algumMarcado){
+      prevEl.innerHTML = `<span style="color:#94a3b8">Selecione critérios para ver a prévia</span>`;
+    } else {
+      prevEl.innerHTML = `<i class="fa-solid fa-users" style="color:#7c3aed"></i> <strong>${matches.length}</strong> colaborador${matches.length!==1?'es':''} atende${matches.length===1?'':'m'} o filtro`;
+    }
+    return matches;
+  };
+  m.querySelectorAll('input[type=checkbox]').forEach(cb => cb.addEventListener('change', calcular));
+  document.getElementById('fav-aplicar').addEventListener('click', () => {
+    const matches = calcular();
+    const sel = {
+      turno:  [...m.querySelectorAll('.fav-turno:checked')].length,
+      escala: [...m.querySelectorAll('.fav-escala:checked')].length,
+      posto:  [...m.querySelectorAll('.fav-posto:checked')].length,
+      setor:  [...m.querySelectorAll('.fav-setor:checked')].length,
+    };
+    const algumMarcado = sel.turno+sel.escala+sel.posto+sel.setor > 0;
+    if(!algumMarcado){ toast('Marque ao menos um critério.','warning'); return; }
+    if(!matches.length){ toast('Nenhum colaborador atende a esse filtro.','warning'); return; }
+    let n = 0;
+    matches.forEach(e => {
+      if(!_comuDestinatarios.includes(e.id)){ _comuDestinatarios.push(e.id); n++; }
+    });
+    m.remove();
+    _comuRenderDest();
+    toast(`${n} colaborador(es) adicionado(s) pelo filtro avançado.`,'success');
+  });
+}
+
 async function enviarComunicacao(){
   const ids=[..._comuDestinatarios];
   if(!ids.length){ toast('Adicione ao menos um destinatário.','warning'); return; }

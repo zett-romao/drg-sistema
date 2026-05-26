@@ -8721,6 +8721,69 @@ function _comuLimparDest(){ _comuDestinatarios=[]; _comuRenderDest(); }
 // ── Selecao em massa por filtro (posto, setor, escala) ─────────────────────
 // Pega valores unicos do campo escolhido entre os ativos, abre um prompt
 // para escolher (lista numerada) e adiciona todos do(s) selecionado(s).
+// Modal visual de selecao multipla — substitui o prompt() horroroso.
+// Recebe titulo, lista de {value, label} e callback com os values escolhidos.
+function _abrirSelecaoMultipla(titulo, opcoes, onConfirm){
+  const old = document.getElementById('modal-sel-mult');
+  if(old) old.remove();
+  if(!opcoes || !opcoes.length){
+    toast('Nenhuma opção disponível.','warning');
+    return;
+  }
+  const m = document.createElement('div');
+  m.id = 'modal-sel-mult';
+  m.className = 'modal-overlay';
+  m.style.zIndex = '10500';
+  m.onclick = ev => { if(ev.target===m) m.remove(); };
+  const linhas = opcoes.map((o,i) => `
+    <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;border-bottom:1px solid #f1f5f9;transition:background .12s"
+           onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
+      <input type="checkbox" class="sel-mult-opt" value="${o.value.replace(/"/g,'&quot;')}" data-idx="${i}" style="width:18px;height:18px;cursor:pointer;flex-shrink:0">
+      <span style="font-size:14px;color:#1e293b;flex:1">${o.label.replace(/</g,'&lt;')}</span>
+    </label>`).join('');
+  m.innerHTML = `
+    <div class="modal-dialog" style="max-width:520px;width:95%;display:flex;flex-direction:column;max-height:85vh">
+      <div class="modal-header">
+        <h3 style="font-size:16px;color:#1e293b"><i class="fa-solid fa-list-check" style="color:#1976D2"></i> ${titulo}</h3>
+        <button class="modal-close" onclick="document.getElementById('modal-sel-mult').remove()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div style="padding:10px 14px;border-bottom:1px solid #e2e8f0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button type="button" class="btn btn-sm btn-outline" onclick="_selMultMarcarTodos(true)" style="font-size:12px">
+          <i class="fa-regular fa-square-check"></i> Marcar todos
+        </button>
+        <button type="button" class="btn btn-sm btn-outline" onclick="_selMultMarcarTodos(false)" style="font-size:12px">
+          <i class="fa-regular fa-square"></i> Desmarcar todos
+        </button>
+        <span id="sel-mult-cnt" style="margin-left:auto;font-size:12px;color:#666">0 / ${opcoes.length} selecionado(s)</span>
+      </div>
+      <div id="sel-mult-list" style="overflow-y:auto;flex:1;min-height:120px">${linhas}</div>
+      <div class="modal-footer" style="border-top:1px solid #e2e8f0;padding:12px 14px;display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-sel-mult').remove()">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="sel-mult-ok"><i class="fa-solid fa-check"></i> Confirmar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+  // Atualiza contador conforme marca/desmarca
+  const atualizarCnt = () => {
+    const n = m.querySelectorAll('.sel-mult-opt:checked').length;
+    document.getElementById('sel-mult-cnt').textContent = `${n} / ${opcoes.length} selecionado(s)`;
+  };
+  m.querySelectorAll('.sel-mult-opt').forEach(cb => cb.addEventListener('change', atualizarCnt));
+  document.getElementById('sel-mult-ok').addEventListener('click', () => {
+    const escolhidos = [...m.querySelectorAll('.sel-mult-opt:checked')].map(cb => cb.value);
+    if(!escolhidos.length){ toast('Marque pelo menos uma opção.','warning'); return; }
+    m.remove();
+    onConfirm(escolhidos);
+  });
+}
+function _selMultMarcarTodos(marcar){
+  document.querySelectorAll('#modal-sel-mult .sel-mult-opt').forEach(cb => cb.checked = !!marcar);
+  const n = document.querySelectorAll('#modal-sel-mult .sel-mult-opt:checked').length;
+  const tot = document.querySelectorAll('#modal-sel-mult .sel-mult-opt').length;
+  document.getElementById('sel-mult-cnt').textContent = `${n} / ${tot} selecionado(s)`;
+}
+
+// Adicionar destinatarios filtrando por um campo do cadastro (posto, setor).
 function _comuAddPorCampo(campo, rotulo){
   const ativos = (State.employees||[]).filter(e=>(e.status||'ativo')==='ativo');
   const valores = [...new Set(ativos.map(e => (e[campo]||'').toString().trim()).filter(Boolean))]
@@ -8729,55 +8792,36 @@ function _comuAddPorCampo(campo, rotulo){
     toast(`Nenhum colaborador ativo com ${rotulo} informado.`,'warning');
     return;
   }
-  const lista = valores.map((v,i)=>`${i+1}. ${v}`).join('\n');
-  const resp  = prompt(`Selecionar por ${rotulo}\n\n${lista}\n\nDigite o(s) numero(s) separado(s) por virgula (ex: 1,3) ou "todos":`);
-  if(resp===null) return;
-  const txt = resp.trim().toLowerCase();
-  let escolhidos = [];
-  if(txt==='todos'){
-    escolhidos = valores.slice();
-  } else {
-    const idxs = txt.split(',').map(s=>parseInt(s.trim(),10)).filter(n=>n>=1 && n<=valores.length);
-    escolhidos = idxs.map(i=>valores[i-1]);
-  }
-  if(!escolhidos.length){ toast('Nada selecionado.','warning'); return; }
-  let n = 0;
-  ativos.forEach(e=>{
-    if(escolhidos.includes((e[campo]||'').toString().trim())){
-      if(!_comuDestinatarios.includes(e.id)){ _comuDestinatarios.push(e.id); n++; }
-    }
+  const opcoes = valores.map(v => ({ value:v, label:v }));
+  _abrirSelecaoMultipla(`Selecionar por ${rotulo}`, opcoes, (escolhidos) => {
+    let n = 0;
+    ativos.forEach(e=>{
+      if(escolhidos.includes((e[campo]||'').toString().trim())){
+        if(!_comuDestinatarios.includes(e.id)){ _comuDestinatarios.push(e.id); n++; }
+      }
+    });
+    _comuRenderDest();
+    toast(`${n} colaborador(es) adicionado(s) (${rotulo}: ${escolhidos.join(', ')}).`,'success');
   });
-  _comuRenderDest();
-  toast(`${n} colaborador(es) adicionado(s) (${rotulo}: ${escolhidos.join(', ')}).`,'success');
 }
 function _comuAddPorPosto() { _comuAddPorCampo('posto', 'Posto de trabalho'); }
 function _comuAddPorSetor() { _comuAddPorCampo('setor', 'Setor'); }
 function _comuAddPorEscala(){
-  // Escala tem labels — usar rotulo amigavel
   const ativos = (State.employees||[]).filter(e=>(e.status||'ativo')==='ativo');
   const codigos = [...new Set(ativos.map(e => (e.escala||'').toString().trim()).filter(Boolean))]
     .sort((a,b)=>a.localeCompare(b));
   if(!codigos.length){ toast('Nenhum colaborador ativo com escala informada.','warning'); return; }
-  const lista = codigos.map((c,i)=>`${i+1}. ${escalaLabel(c)} (${c})`).join('\n');
-  const resp  = prompt(`Selecionar por Escala\n\n${lista}\n\nDigite o(s) numero(s) separado(s) por virgula (ex: 1,3) ou "todos":`);
-  if(resp===null) return;
-  const txt = resp.trim().toLowerCase();
-  let escolhidos = [];
-  if(txt==='todos'){
-    escolhidos = codigos.slice();
-  } else {
-    const idxs = txt.split(',').map(s=>parseInt(s.trim(),10)).filter(n=>n>=1 && n<=codigos.length);
-    escolhidos = idxs.map(i=>codigos[i-1]);
-  }
-  if(!escolhidos.length){ toast('Nada selecionado.','warning'); return; }
-  let n = 0;
-  ativos.forEach(e=>{
-    if(escolhidos.includes((e.escala||'').toString().trim())){
-      if(!_comuDestinatarios.includes(e.id)){ _comuDestinatarios.push(e.id); n++; }
-    }
+  const opcoes = codigos.map(c => ({ value:c, label: `${escalaLabel(c)} (${c})` }));
+  _abrirSelecaoMultipla('Selecionar por Escala', opcoes, (escolhidos) => {
+    let n = 0;
+    ativos.forEach(e=>{
+      if(escolhidos.includes((e.escala||'').toString().trim())){
+        if(!_comuDestinatarios.includes(e.id)){ _comuDestinatarios.push(e.id); n++; }
+      }
+    });
+    _comuRenderDest();
+    toast(`${n} colaborador(es) adicionado(s).`,'success');
   });
-  _comuRenderDest();
-  toast(`${n} colaborador(es) adicionado(s) (${escolhidos.map(escalaLabel).join(', ')}).`,'success');
 }
 
 async function enviarComunicacao(){

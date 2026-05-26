@@ -379,7 +379,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-<script src="firebase-config.js?v=20260515a"></script>
+<script src="firebase-config.js?v=20260526a"></script>
 
 <script>
 'use strict';
@@ -410,16 +410,16 @@ const PUNCH_CFG = {
   completo: { label:'Ponto Completo',      icon:'✅', cls:'completo'},
 };
 
-// ─── AUTH ANÔNIMO (aguarda auth estar pronto antes de qualquer query) ─────────
+// ─── AUTH (espera o estado inicial — pode ser null se ainda não logou) ───────
+// S3-B: não usa mais signInAnonymously. Login real entra via custom token
+// emitido pelo Worker /ponto-login (com claim role: 'colaborador').
 const _authReady = new Promise(resolve => {
-  const unsub = firebase.auth().onAuthStateChanged(async user => {
+  const unsub = firebase.auth().onAuthStateChanged(user => {
     unsub();
-    if (!user) {
-      try { await firebase.auth().signInAnonymously(); } catch(e) {}
-    }
-    resolve();
+    resolve(user || null);
   });
 });
+const PONTO_LOGIN_URL = 'https://drg-aprovacao.zett-romao.workers.dev/ponto-login';
 
 // ─── ESTADO ───────────────────────────────────────────────────────────────────
 let currentEmp     = null;
@@ -432,7 +432,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=22').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=23').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -499,62 +499,53 @@ async function doLogin() {
   btn.disabled    = true;
 
   try {
-    // Garante auth anônimo antes de consultar o Firestore
-    await _authReady;
-
-    // Busca por matrícula como número (sem filtro de status — verificamos em JS depois)
-    let snap = await dbCol('employees')
-      .where('registro', '==', parseInt(mat))
-      .limit(1).get();
-
-    // Fallback: busca como string (caso registro tenha sido salvo como texto)
-    if (snap.empty) {
-      snap = await dbCol('employees')
-        .where('registro', '==', mat)
-        .limit(1).get();
-    }
-
-    if (snap.empty) {
-      erro.textContent   = 'Matrícula não encontrada.';
+    // S3-B: matrícula + PIN são validados NO SERVIDOR (Worker /ponto-login),
+    // que devolve um custom token Firebase com claim role: 'colaborador'.
+    let resp;
+    try {
+      resp = await fetch(PONTO_LOGIN_URL, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ matricula: mat, pin })
+      });
+    } catch (netErr) {
+      erro.textContent   = !navigator.onLine
+        ? 'Sem conexão com a internet.'
+        : 'Não conseguiu conectar ao servidor. Tente novamente.';
       erro.style.display = 'block';
       return;
     }
 
-    const emp = { id: snap.docs[0].id, ...snap.docs[0].data() };
-
-    // Verifica se o colaborador está ativo
-    if ((emp.status || 'ativo') === 'inativo') {
-      erro.textContent   = 'Colaborador inativo. Procure o gestor.';
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok || !data.ok) {
+      erro.textContent   = data.erro || ('Erro ao entrar (' + resp.status + '). Tente novamente.');
       erro.style.display = 'block';
       return;
     }
 
-    // Valida PIN: campo pin customizado ou 4 últimos dígitos do CPF
-    const cpfClean    = (emp.cpf || '').replace(/\D/g, '');
-    const pinEsperado = emp.pin || (cpfClean.length >= 4 ? cpfClean.slice(-4) : '0000');
+    // Entra no Firebase Auth com o token devolvido pelo servidor (sessão real).
+    await firebase.auth().signInWithCustomToken(data.customToken);
 
-    if (pin !== pinEsperado) {
-      erro.textContent   = 'PIN incorreto. Use os 4 últimos dígitos do seu CPF.';
-      erro.style.display = 'block';
-      return;
-    }
-
-    // Salva sessão leve
-    currentEmp = emp;
+    // Salva sessão leve com os dados que o servidor devolveu (sem PIN, sem hash)
+    currentEmp = data.emp;
     sessionStorage.setItem('drg_ponto_emp', JSON.stringify({
-      id: emp.id, nome: emp.nome, registro: emp.registro,
-      cpf: emp.cpf, cargo: emp.cargo, posto: emp.posto, foto: emp.foto || ''
+      id:       data.emp.id,
+      nome:     data.emp.nome,
+      registro: data.emp.registro,
+      cpf:      data.emp.cpf,
+      cargo:    data.emp.cargo,
+      posto:    data.emp.posto,
+      foto:     data.emp.foto || ''
     }));
 
     await carregarHome();
 
   } catch (e) {
     console.error('Erro no login:', e);
-    // Mensagem mais específica conforme o tipo de erro
-    if (e && e.code === 'failed-precondition') {
-      erro.textContent = 'Configuração do banco precisa de ajuste. Avise o gestor.';
-    } else if (e && e.code === 'permission-denied') {
-      erro.textContent = 'Sem permissão para acessar. Avise o gestor.';
+    if (e && e.code === 'auth/invalid-custom-token') {
+      erro.textContent = 'Token inválido. Atualize o app (feche e reabra) e tente de novo.';
+    } else if (e && e.code === 'auth/network-request-failed') {
+      erro.textContent = 'Sem conexão estável com o servidor de autenticação.';
     } else if (!navigator.onLine) {
       erro.textContent = 'Sem conexão com a internet.';
     } else {
@@ -577,7 +568,14 @@ window.addEventListener('load', async () => {
   if (saved) {
     try {
       currentEmp = JSON.parse(saved);
-      await _authReady;
+      const fbUser = await _authReady;
+      // Se a sessão Firebase morreu mas a sessionStorage continua, força re-login
+      // (sem auth nenhuma, as queries ao Firestore vão falhar).
+      if (!fbUser) {
+        sessionStorage.removeItem('drg_ponto_emp');
+        currentEmp = null;
+        return;
+      }
       carregarHome();
     } catch (e) { sessionStorage.removeItem('drg_ponto_emp'); }
   }
@@ -1618,6 +1616,8 @@ function doLogout() {
   currentPayroll = null;
   _avisosDataCache = null;
   clearInterval(clockInterval);
+  // S3-B: encerra também a sessão Firebase Auth (não basta limpar sessionStorage)
+  try { firebase.auth().signOut(); } catch(_) {}
   mostrarTela('login');
   document.getElementById('login-mat').value = '';
   document.getElementById('login-pin').value = '';

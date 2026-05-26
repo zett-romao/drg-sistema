@@ -21,6 +21,7 @@
  *   /aprovar-pagamento { idToken, code, solicitacaoId } → valida 2FA + permissão e dispara o PIX
  *   /recuperar-acesso  { code }                         → [PÚBLICA] reseta o master se o código bater
  *   /login             { username, password }           → [PÚBLICA] verifica a senha e devolve custom token
+ *   /ponto-login       { matricula, pin }               → [PÚBLICA] valida colaborador e devolve custom token (role: colaborador)
  *   /usuarios/listar       { idToken }                          → [master] lista usuários (sem hash)
  *   /usuarios/salvar       { idToken, user, novaSenha? }        → [master] cria/edita usuário
  *   /usuarios/excluir      { idToken, id }                      → [master] exclui usuário
@@ -383,6 +384,71 @@ async function handleRecuperarAcesso(body, env, token){
   return { ok:true, username:'admin', senha };
 }
 
+// ── Login do app de ponto (rota pública) ─────────────────────
+// Recebe { matricula, pin }, confere contra `employees` e devolve um
+// custom token com claim `role: 'colaborador'`. Substitui o
+// signInAnonymously() que o ponto.html usava — S3-B da blindagem.
+async function fsFindEmployeeByRegistro(fsValue, token){
+  const res = await fetch(FS_BASE + ':runQuery', {
+    method:  'POST',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ structuredQuery: {
+      from:  [{ collectionId: 'employees' }],
+      where: { fieldFilter: { field: { fieldPath: 'registro' },
+               op: 'EQUAL', value: fsValue } },
+      limit: 1,
+    } }),
+  });
+  if (!res.ok) throw new Error('Firestore query ' + res.status);
+  const rows = await res.json();
+  for (const row of (rows || [])) if (row.document) {
+    const o = fromFsFields(row.document.fields || {});
+    if (!o.id) { const p = row.document.name.split('/'); o.id = p[p.length - 1]; }
+    return o;
+  }
+  return null;
+}
+async function handlePontoLogin(body, token, env){
+  const matInput = String(body.matricula || '').trim();
+  const pinInput = String(body.pin || '').trim();
+  if (!matInput || !pinInput) return { ok:false, erro:'informe matrícula e PIN' };
+
+  // registro pode estar salvo como int OU string — tenta os dois (mesma lógica do app)
+  let emp = null;
+  const matNum = parseInt(matInput, 10);
+  if (!Number.isNaN(matNum)) {
+    emp = await fsFindEmployeeByRegistro({ integerValue: String(matNum) }, token);
+  }
+  if (!emp) {
+    emp = await fsFindEmployeeByRegistro({ stringValue: matInput }, token);
+  }
+  if (!emp) return { ok:false, erro:'matrícula não encontrada' };
+
+  if ((emp.status || 'ativo') === 'inativo')
+    return { ok:false, erro:'colaborador inativo — procure o gestor' };
+
+  // PIN aceito: campo emp.pin se houver, senão 4 últimos dígitos do CPF
+  const cpfClean    = String(emp.cpf || '').replace(/\D/g, '');
+  const pinEsperado = emp.pin || (cpfClean.length >= 4 ? cpfClean.slice(-4) : '0000');
+  if (pinInput !== String(pinEsperado))
+    return { ok:false, erro:'PIN incorreto. Use os 4 últimos dígitos do seu CPF.' };
+
+  // uid estável = id do doc do employee. Claim empId pra S3-C usar nas regras.
+  const customToken = await mintCustomToken(emp.id, {
+    role: 'colaborador', empId: emp.id, drg: true,
+  }, env);
+
+  return { ok:true, customToken, emp: {
+    id:       emp.id,
+    nome:     emp.nome || '',
+    registro: emp.registro,
+    cpf:      emp.cpf || '',
+    cargo:    emp.cargo || '',
+    posto:    emp.posto || '',
+    foto:     emp.foto || '',
+  } };
+}
+
 // ── Login (rota pública) ─────────────────────────────────────
 // Verifica a senha NO SERVIDOR e devolve um custom token + o usuário.
 async function handleLogin(body, token, env){
@@ -621,6 +687,10 @@ export default {
       if (url.pathname === '/login') {
         const t = await getAccessToken(env);
         return json(await handleLogin(body, t, env), 200, origin);
+      }
+      if (url.pathname === '/ponto-login') {
+        const t = await getAccessToken(env);
+        return json(await handlePontoLogin(body, t, env), 200, origin);
       }
 
       const auth  = await verifyIdToken(body.idToken);   // 401 se o token for inválido

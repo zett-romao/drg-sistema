@@ -1085,12 +1085,22 @@ async function doLogin(event){
 
     await firebase.auth().signInWithCustomToken(r.customToken);
     const user=r.user;
+    Auth.currentUser=user;
     Auth.saveSession(user);
     Auth.log('LOGIN_SUCCESS',username,`Perfil: ${roleLabel(user.role)} · servidor`);
+    // Carrega os dados AGORA — depois do login, com sessão real.
+    // Antes da S3-A, isso rodava no init() com sessão anônima.
+    const ok=await _carregarDadosPosLogin();
+    if(!ok){
+      // Licença bloqueou ou erro de conexão — `_carregarDadosPosLogin` já
+      // mostrou a mensagem; mantém a tela de login visível pra retry.
+      return;
+    }
     document.getElementById('login-screen').classList.add('hidden');
     setVal('login-username',''); setVal('login-password','');
     errorEl.classList.add('hidden');
     applyUserSession(user);
+    AutoBackup.tryRestore();
     if(user.forceChange) setTimeout(()=>openChangePasswordModal(true),600);
   } finally {
     btn.disabled=false;
@@ -1102,8 +1112,12 @@ function doLogout(){
   Auth.log('LOGOUT', Auth.currentUser?Auth.currentUser.username:'');
   Auth.clearSession();
   firebase.auth().signOut().catch(()=>{});
-  document.getElementById('login-screen').classList.remove('hidden');
   AutoBackup.stop();
+  // Recarrega a página pra garantir estado limpo — sem listeners DB
+  // acumulados nem State contaminado caso o usuário logue de novo.
+  // (Os listeners do Firestore SDK não têm `unsubscribe` exposto pelo nosso
+  // DB.listen — refresh é a forma mais simples e segura.)
+  setTimeout(() => window.location.reload(), 100);
 }
 
 // Logout com confirmação — usado pelo botão "Sair" da barra superior.
@@ -17508,54 +17522,30 @@ function showLicencaLock(msg){
 // ============================================
 // INICIALIZAÇÃO
 // ============================================
-async function init(){
-  // Injeta versão nos elementos HTML
-  ['login-version','sidebar-version'].forEach(id => {
-    const el = document.getElementById(id);
-    if(el) el.textContent = APP_VERSION;
-  });
-
-  showLoading('Verificando configuração...');
-
-  // 1. Verificar se Firebase está configurado
-  if(!DB.isConfigured()){ showSetup(); return; }
-
-  // 1b. Resolver tenantId: URL ?tenant= → localStorage → null (modo legado)
-  const _urlParams = new URLSearchParams(window.location.search);
-  const _tenantFromUrl = _urlParams.get('tenant');
-  if(_tenantFromUrl){
-    DB.tenantId = _tenantFromUrl;
-    localStorage.setItem('drg_tenant', _tenantFromUrl);
-  } else {
-    DB.tenantId = localStorage.getItem('drg_tenant') || null;
-  }
-  // Expõe o tenantId atual no título para debug
-  if(DB.tenantId) console.info(`[DRG] Tenant ativo: ${DB.tenantId}`);
-
-  showLoading('Conectando ao Firebase...');
-
-  // 2. Inicializar Firebase
-  if(!DB.init()){ showSetup(); return; }
-
-  // 2a. Autenticação anônima — espera auth estar completamente pronta antes do Firestore
-  await new Promise((resolve, reject) => {
-    const unsub = firebase.auth().onAuthStateChanged(async user => {
-      unsub();
-      if (user) { resolve(user); }
-      else {
-        try { resolve(await firebase.auth().signInAnonymously()); }
-        catch(e) { console.warn('Auth anon falhou:', e.message); resolve(null); }
-      }
-    }, reject);
-  });
+// ── Carregamento de dados PÓS-LOGIN ──────────────────────────
+// Esta função reúne tudo que precisa de acesso autenticado ao Firestore:
+// verifica licença, baixa coleções iniciais, migra localStorage legado,
+// anexa todos os listeners em tempo real e prepara a UI. É chamada por:
+//   - `init()`        quando a sessão do usuário é restaurada de uma execução anterior
+//   - `doLogin()`     logo após o `signInWithCustomToken` ter sucesso
+// É idempotente: a flag `_dadosCarregados` impede recarga e duplicação dos
+// listeners caso a função seja chamada mais de uma vez no mesmo ciclo de página.
+let _dadosCarregados = false;
+async function _carregarDadosPosLogin(){
+  if (_dadosCarregados) return true;
 
   showLoading('Carregando dados...');
 
-  // 2b. Carregar config da empresa (em paralelo — não bloqueia)
+  // Verifica licença ANTES de qualquer carga (pode bloquear o app inteiro)
+  const licencaOk = await checkLicenca();
+  if(!licencaOk){ hideLoading(); return false; }
+  showTrialBanner(); // assíncrono, não bloqueia
+
+  // Config da empresa + parâmetros legais — paralelo, não bloqueia
   loadEmpresaConfig().catch(()=>{});
   loadParametrosLegais().catch(()=>{});
 
-  // 3. Carregar dados iniciais em paralelo
+  // Carregar dados iniciais em paralelo
   try {
     const [employees, payrolls, logs, cctDocs, perfisDocs] = await Promise.all([
       DB.getAll('employees'),
@@ -17577,14 +17567,13 @@ async function init(){
       '<span style="color:#ef9a9a">⚠ Erro ao conectar ao Firebase</span><br>'
       + '<span style="font-size:13px;opacity:.85">' + msg + '</span><br>'
       + '<span style="font-size:11px;opacity:.65;margin-top:6px;display:block">Verifique firebase-config.js e as regras do Firestore.</span>';
-    return;
+    return false;
   }
 
-  // 4. Verificar migração de localStorage
+  // Migração de localStorage (legado, raramente dispara)
   const hasMigrationData =
     (localStorage.getItem('drg_employees') && JSON.parse(localStorage.getItem('drg_employees')||'[]').length > 0) ||
     (localStorage.getItem('drg_payrolls')  && JSON.parse(localStorage.getItem('drg_payrolls') ||'[]').length > 0);
-
   if(hasMigrationData && State.employees.length === 0){
     showLoading('Migrando dados locais para o Firebase...');
     const ok = await DB.migrateFromLocalStorage();
@@ -17595,7 +17584,7 @@ async function init(){
     }
   }
 
-  // 6. Iniciar listeners em tempo real
+  // Iniciar listeners em tempo real (anexa uma única vez via _dadosCarregados)
   DB.listen('employees', data => {
     State.employees = data;
     if(State.currentSection==='employees') renderEmployeeTable();
@@ -17682,7 +17671,7 @@ async function init(){
     if(State.currentSection==='dashboard') renderDashboard();
   });
 
-  // 7. Configurar datas na UI
+  // Configurar datas na UI
   document.getElementById('topbar-date').textContent =
     new Date().toLocaleDateString('pt-BR',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
   document.getElementById('payroll-mes').value            = currentMes();
@@ -17698,36 +17687,50 @@ async function init(){
   const ferModAno=document.getElementById('fer-mod-ano');
   if(ferModAno) ferModAno.value=currentAno();
 
-  // 8. Verificar licença
-  const licencaOk = await checkLicenca();
-  if(!licencaOk) return;
-  showTrialBanner(); // assíncrono, não bloqueia
-
-  // 8b. Verificar sessão existente
   hideLoading();
-  const sessionUser = Auth.loadSession();
-  if(sessionUser){
-    Auth.currentUser = sessionUser;
-    // Só entra anônimo se NÃO houver sessão Firebase. A sessão segura do
-    // login (custom token) já foi restaurada no passo 2a e PRECISA ser
-    // preservada — é ela que autoriza aprovar pagamentos (2FA no Worker).
-    // Antes, este signInAnonymously incondicional destruía a sessão segura
-    // a cada recarga da página (Ctrl+F5) → erro "Sessão segura indisponível".
-    if(!firebase.auth().currentUser){
-      firebase.auth().signInAnonymously().catch(()=>{});
-    }
-    document.getElementById('login-screen').classList.add('hidden');
-    applyUserSession(sessionUser);
+  _dadosCarregados = true;
+  return true;
+}
+
+async function init(){
+  // Injeta versão nos elementos HTML
+  ['login-version','sidebar-version'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.textContent = APP_VERSION;
+  });
+
+  showLoading('Verificando configuração...');
+
+  // 1. Verificar se Firebase está configurado
+  if(!DB.isConfigured()){ showSetup(); return; }
+
+  // 1b. Resolver tenantId: URL ?tenant= → localStorage → null (modo legado)
+  const _urlParams = new URLSearchParams(window.location.search);
+  const _tenantFromUrl = _urlParams.get('tenant');
+  if(_tenantFromUrl){
+    DB.tenantId = _tenantFromUrl;
+    localStorage.setItem('drg_tenant', _tenantFromUrl);
+  } else {
+    DB.tenantId = localStorage.getItem('drg_tenant') || null;
   }
+  if(DB.tenantId) console.info(`[DRG] Tenant ativo: ${DB.tenantId}`);
 
-  // 8c. Restaurar auto-backup automaticamente (sem clique do usuário)
-  AutoBackup.tryRestore();
+  showLoading('Conectando ao Firebase...');
 
-  // 9. Listeners de férias (cálculo automático de dias)
+  // 2. Inicializar Firebase
+  if(!DB.init()){ showSetup(); return; }
+
+  // 2a. Espera o Firebase Auth estabilizar SEM forçar sessão anônima.
+  // A sessão real do gestor (Custom Token via Worker) é criada em `doLogin`.
+  // Em recargas da página o Firebase Auth restaura a sessão automaticamente
+  // (persistência local) — não precisamos forçar nada aqui.
+  await new Promise(resolve => {
+    const unsub = firebase.auth().onAuthStateChanged(u => { unsub(); resolve(u); });
+  });
+
+  // 3. Listeners de UI permanentes (não dependem de login)
   document.getElementById('ferias-inicio')?.addEventListener('change', calcFeriasDias);
   document.getElementById('ferias-fim')?.addEventListener('change', calcFeriasDias);
-
-  // 10. Tecla Escape fecha modais
   document.addEventListener('keydown', e => {
     if(e.key==='Escape'){
       ['modal-employee','modal-pdf','modal-confirm','modal-user','modal-change-pass','modal-cct',
@@ -17735,6 +17738,26 @@ async function init(){
         .forEach(id => document.getElementById(id)?.classList.add('hidden'));
     }
   });
+
+  // 4. Tenta restaurar uma sessão deixada por execução anterior.
+  // Só entra direto se TUDO bater: sessão local salva (sessionStorage) +
+  // sessão Firebase Auth real (não-anônima). Qualquer cenário "meia sessão"
+  // → limpa o sessionStorage e mostra a tela de login.
+  const sessionUser = Auth.loadSession();
+  const fbUser = firebase.auth().currentUser;
+
+  if(sessionUser && fbUser && !fbUser.isAnonymous){
+    Auth.currentUser = sessionUser;
+    document.getElementById('login-screen').classList.add('hidden');
+    const ok = await _carregarDadosPosLogin();
+    if(!ok) return; // licença bloqueou ou erro de Firestore — mensagem já exibida
+    applyUserSession(sessionUser);
+    AutoBackup.tryRestore();
+  } else {
+    if(sessionUser) Auth.clearSession();
+    hideLoading();
+    // Tela de login já está visível por padrão; nada de dados ainda.
+  }
 }
 
 document.addEventListener('DOMContentLoaded', init);

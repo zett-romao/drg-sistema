@@ -874,6 +874,9 @@ ul { list-style: none; }
   width: 120px; height: 120px; object-fit: contain;
   margin-bottom: 24px;
   filter: drop-shadow(0 4px 20px rgba(0,0,0,.4));
+  background: #fff;
+  padding: 12px;
+  border-radius: 24px;
 }
 .loading-spinner {
   width: 44px; height: 44px;

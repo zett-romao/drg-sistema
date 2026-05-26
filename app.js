@@ -1427,6 +1427,10 @@ function openUserModal(id=null){
     opt.value='p_'+p.id; opt.textContent='Perfil: '+p.nome;
     roleSelect.appendChild(opt);
   });
+  // Listener — toggla a visibilidade do bloco "Postos" conforme o perfil
+  roleSelect.onchange=()=>_toggleUsrPostosGroup();
+  // Popular checkboxes de postos
+  _renderUsrPostosCheckboxes([]);
   document.getElementById('modal-user').classList.remove('hidden');
   const editNote=document.getElementById('usr-edit-note');
   const titleEl=document.getElementById('modal-user-title');
@@ -1437,6 +1441,7 @@ function openUserModal(id=null){
     setVal('usr-email',u.email||'');
     setVal('usr-role',u.role||'operador'); setVal('usr-active',String(u.active));
     setVal('usr-password',''); setVal('usr-password-confirm','');
+    _renderUsrPostosCheckboxes(Array.isArray(u.postosResponsavel)?u.postosResponsavel:[]);
     editNote.style.display='';
   } else {
     titleEl.innerHTML='<i class="fa-solid fa-user-plus"></i> Novo Usuário';
@@ -1444,6 +1449,35 @@ function openUserModal(id=null){
     setVal('usr-role','operador'); setVal('usr-active','true');
     editNote.style.display='none';
   }
+  _toggleUsrPostosGroup();
+}
+
+// Mostra o bloco de "Postos sob responsabilidade" só quando o perfil não é Master.
+function _toggleUsrPostosGroup(){
+  const role=val('usr-role');
+  const grp=document.getElementById('usr-postos-group');
+  if(!grp) return;
+  grp.style.display = (role==='master') ? 'none' : '';
+}
+
+// Popula a grade de checkboxes de postos. `selecionados` é um array de razaoSocial.
+function _renderUsrPostosCheckboxes(selecionados){
+  const box=document.getElementById('usr-postos-list');
+  if(!box) return;
+  const postos=(State.postos||[]).slice().sort((a,b)=>(a.razaoSocial||'').localeCompare(b.razaoSocial||''));
+  if(postos.length===0){
+    box.innerHTML='<div style="color:var(--text-muted);font-size:12px;grid-column:1/-1;padding:4px">Nenhum posto cadastrado. Cadastre os postos primeiro em "Postos de Trabalho".</div>';
+    return;
+  }
+  const sel=new Set(selecionados||[]);
+  box.innerHTML=postos.map(p=>{
+    const rs=(p.razaoSocial||'').replace(/"/g,'&quot;');
+    const checked=sel.has(p.razaoSocial)?'checked':'';
+    return `<label class="checkbox-label" style="font-size:13px;display:flex;align-items:center;gap:6px;padding:4px 6px;cursor:pointer">
+      <input type="checkbox" name="usr-posto" value="${rs}" ${checked}>
+      <span>${rs||'(sem nome)'}</span>
+    </label>`;
+  }).join('');
 }
 
 // Carrega a lista de usuários do Worker (a coleção users é só-servidor).
@@ -1469,11 +1503,15 @@ async function saveUser(){
   } else if(!id){
     toast('Informe uma senha.','error'); return;
   }
+  // Coleta os postos selecionados (vazio = sem restrição). Master ignora.
+  const postosResponsavel = role==='master'
+    ? []
+    : Array.from(document.querySelectorAll('#usr-postos-list input[name="usr-posto"]:checked')).map(c=>c.value);
   const btn=document.querySelector('#modal-user .btn-primary');
   setBtnLoading(btn,true,'');
   try {
     const r=await _aprovacaoReq('/usuarios/salvar',{
-      user:{ id:id||undefined, username, email, role, active },
+      user:{ id:id||undefined, username, email, role, active, postosResponsavel },
       novaSenha: password||undefined,
     });
     if(!r || r.ok!==true){ toast((r&&r.erro)||'Não foi possível salvar o usuário.','error'); return; }
@@ -2120,7 +2158,7 @@ function renderPagamentos(){
   const ano=parseInt(val('pag-ano')||currentAno());
   const statusFilt=val('pag-status-filter')||'ativo';
 
-  let emps=[...State.employees];
+  let emps=_filtrarEmpsPorEscopo(State.employees).slice();
   if(statusFilt!=='all') emps=emps.filter(e=>(e.status||'ativo')===statusFilt);
   emps.sort((a,b)=>a.nome.localeCompare(b.nome));
   if(emps.length===0){ toast('Nenhum colaborador encontrado.','warning'); return; }
@@ -2235,7 +2273,7 @@ function exportPagamentosCsv(){
   const ano=parseInt(val('pag-ano')||currentAno());
   const statusFilt=val('pag-status-filter')||'ativo';
   const mesLabel=MESES[mes]||'';
-  let emps=[...State.employees];
+  let emps=_filtrarEmpsPorEscopo(State.employees).slice();
   if(statusFilt!=='all') emps=emps.filter(e=>(e.status||'ativo')===statusFilt);
   emps.sort((a,b)=>a.nome.localeCompare(b.nome));
   const folhaMap={};
@@ -2280,7 +2318,7 @@ function printPagamentos(){
 function renderDecimoTerceiro(){
   const ano=parseInt(val('dec-ano')||currentAno());
   const statusFilt=val('dec-status-filter')||'ativo';
-  let emps=[...State.employees];
+  let emps=_filtrarEmpsPorEscopo(State.employees).slice();
   if(statusFilt!=='all') emps=emps.filter(e=>(e.status||'ativo')===statusFilt);
   emps.sort((a,b)=>a.nome.localeCompare(b.nome));
 
@@ -2491,7 +2529,7 @@ function printDecimoTerceiroLista(){
 function renderFeriasModulo(){
   const ano=parseInt(val('fer-mod-ano')||currentAno());
   const statusFilt=val('fer-mod-status-filter')||'ativo';
-  let emps=[...State.employees];
+  let emps=_filtrarEmpsPorEscopo(State.employees).slice();
   if(statusFilt!=='all') emps=emps.filter(e=>(e.status||'ativo')===statusFilt);
   emps.sort((a,b)=>a.nome.localeCompare(b.nome));
 
@@ -2669,7 +2707,7 @@ function renderContabilidade(){
   const ano=parseInt(val('cont-ano')||currentAno());
   const statusFilt=val('cont-status-filter')||'ativo';
 
-  let emps=[...State.employees];
+  let emps=_filtrarEmpsPorEscopo(State.employees).slice();
   if(statusFilt!=='all') emps=emps.filter(e=>(e.status||'ativo')===statusFilt);
   emps.sort((a,b)=>a.nome.localeCompare(b.nome));
 
@@ -2805,7 +2843,7 @@ function exportContabilidadeCsv(){
   const mes=parseInt(val('cont-mes')||currentMes());
   const ano=parseInt(val('cont-ano')||currentAno());
   const statusFilt=val('cont-status-filter')||'ativo';
-  let emps=[...State.employees];
+  let emps=_filtrarEmpsPorEscopo(State.employees).slice();
   if(statusFilt!=='all') emps=emps.filter(e=>(e.status||'ativo')===statusFilt);
   emps.sort((a,b)=>a.nome.localeCompare(b.nome));
   const folhasMes=State.payrolls.filter(p=>p.mes===mes&&p.ano===ano);
@@ -3310,7 +3348,7 @@ function _exportBeneficiosCsv(){
   if(!mes||!ano){ toast('Gere o relatório primeiro.','warning'); return; }
   const folha=val('report-benef-folha')||'consolidado';
   const statusFilter=val('report-benef-status')||'ativo';
-  let emps=[...State.employees];
+  let emps=_filtrarEmpsPorEscopo(State.employees).slice();
   if(statusFilter!=='all') emps=emps.filter(e=>(e.status||'ativo')===statusFilter);
   emps.sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR'));
   const linhas=emps.map(e=>{
@@ -3445,7 +3483,10 @@ function statusBadge(status){
 
 function renderEmployeeTable(){
   const query=(document.getElementById('employee-search')?.value||'').toLowerCase();
-  let list=State.employees;
+  // Aplica o escopo de postos do usuário (supervisor responsável por N postos)
+  // ANTES de qualquer outro filtro — assim a contagem e os filtros visíveis já
+  // refletem só o universo do usuário.
+  let list=_filtrarEmpsPorEscopo(State.employees);
   if(query) list=list.filter(e=>
     (e.nome||'').toLowerCase().includes(query)||
     (e.cpf||'').toLowerCase().includes(query)||
@@ -3464,7 +3505,9 @@ function renderEmployeeTable(){
   const tbody=document.getElementById('employee-tbody');
   const empty=document.getElementById('employee-empty');
   const countEl=document.getElementById('employee-count');
-  countEl.textContent=`${list.length} de ${State.employees.length} colaborador${State.employees.length!==1?'es':''}`;
+  // Total visível = total dentro do escopo do usuário (não o State.employees inteiro)
+  const totalNoEscopo=_filtrarEmpsPorEscopo(State.employees).length;
+  countEl.textContent=`${list.length} de ${totalNoEscopo} colaborador${totalNoEscopo!==1?'es':''}`;
   if(list.length===0){
     tbody.innerHTML=''; document.getElementById('employee-table').style.display='none';
     empty.style.display=''; return;
@@ -4160,7 +4203,7 @@ function _populatePayrollEmployees(){
   const fPosto=val('payroll-filter-posto')||'';
   const incluirDemitidos=!!(document.getElementById('payroll-incluir-demitidos')||{}).checked;
   sel.innerHTML='<option value="">— Selecione o colaborador —</option>';
-  State.employees
+  _filtrarEmpsPorEscopo(State.employees)
     .filter(e=>{
       const st=(e.status||'ativo');
       return st==='ativo' || (incluirDemitidos && st==='inativo');
@@ -4213,12 +4256,15 @@ function _ensurePayrollEmployeeOption(empId){
 
 function initPayrollSection(){
   const currentId=(document.getElementById('payroll-employee')||{}).value||'';
-  // Filtro por posto
+  // Filtro por posto — só mostra os postos no escopo do supervisor
   const fSel=document.getElementById('payroll-filter-posto');
   if(fSel){
     const cur=fSel.value;
     fSel.innerHTML='<option value="">Todos os postos</option>';
-    (State.postos||[]).slice().sort((a,b)=>(a.razaoSocial||'').localeCompare(b.razaoSocial||''))
+    const escopo=_postosDoUsuario(Auth.currentUser);
+    (State.postos||[]).slice()
+      .filter(p=>!escopo || escopo.includes(p.razaoSocial))
+      .sort((a,b)=>(a.razaoSocial||'').localeCompare(b.razaoSocial||''))
       .forEach(p=>{
         const o=document.createElement('option');
         o.value=p.razaoSocial; // emp.posto guarda o nome do posto (razaoSocial), não o id
@@ -12441,7 +12487,14 @@ function _renderAutzUI(){
   const agora = Date.now();
   const dias  = parseInt(_autzFiltros.periodo||'30',10);
   const busca = (_autzFiltros.busca||'').trim().toLowerCase();
+  // Escopo: supervisor com postosResponsavel só vê pedidos de colaboradores dos
+  // postos dele. Master / sem restrição vê tudo.
+  const escopo = _postosDoUsuario(Auth.currentUser);
+  const empIdsNoEscopo = escopo
+    ? new Set(_filtrarEmpsPorEscopo(State.employees).map(e=>e.id))
+    : null;
   const filtradas = todos.filter(p => {
+    if(empIdsNoEscopo && !empIdsNoEscopo.has(p.employeeId)) return false;
     if(dias > 0 && p.tentativaEm){
       const dt = new Date(p.tentativaEm).getTime();
       if(isFinite(dt) && (agora-dt) > dias*D) return false;
@@ -12625,7 +12678,9 @@ function _reportFinanceiro(){
   const mes=parseInt(val('report-mes')), ano=parseInt(val('report-ano'));
   if(!mes||!ano){ toast('Selecione mês e ano.','error'); return; }
   const statusFilter=val('report-status-filter')||'all';
-  let records=State.payrolls.filter(p=>p.mes===mes&&p.ano===ano);
+  // Escopo de postos (supervisor): mantém só payrolls dos colaboradores no escopo
+  const empIdsNoEscopo=new Set(_filtrarEmpsPorEscopo(State.employees).map(e=>e.id));
+  let records=State.payrolls.filter(p=>p.mes===mes&&p.ano===ano && empIdsNoEscopo.has(p.employeeId));
   if(statusFilter!=='all') records=records.filter(p=>{
     const emp=State.employees.find(e=>e.id===p.employeeId);
     return emp&&(emp.status||'ativo')===statusFilter;
@@ -12670,7 +12725,7 @@ function _reportBeneficios(){
   const folha=val('report-benef-folha')||'consolidado';
   const statusFilter=val('report-benef-status')||'ativo';
 
-  let emps=[...State.employees];
+  let emps=_filtrarEmpsPorEscopo(State.employees).slice();
   if(statusFilter!=='all') emps=emps.filter(e=>(e.status||'ativo')===statusFilter);
   emps.sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR'));
 
@@ -12831,7 +12886,7 @@ function _reportContatos(){
 function _filtrarCadastral(){
   const status=val('report-cad-status')||'all';
   const setor=val('report-cad-setor')||'all';
-  let list=[...State.employees].sort((a,b)=>a.nome.localeCompare(b.nome));
+  let list=_filtrarEmpsPorEscopo(State.employees).slice().sort((a,b)=>a.nome.localeCompare(b.nome));
   if(status!=='all') list=list.filter(e=>(e.status||'ativo')===status);
   if(setor!=='all')  list=list.filter(e=>(e.setor||'')=== setor);
   return list;
@@ -12840,7 +12895,7 @@ function _filtrarCadastral(){
 // 4. Férias Marcadas
 function _reportFeriasMarcadas(){
   const hoje=new Date(); hoje.setHours(0,0,0,0);
-  const ativos=State.employees.filter(e=>(e.status||'ativo')==='ativo');
+  const ativos=_filtrarEmpsPorEscopo(State.employees).filter(e=>(e.status||'ativo')==='ativo');
   const list=ativos.filter(e=>(e.ferias||[]).some(f=>new Date(f.fim+'T00:00:00')>=hoje))
     .sort((a,b)=>a.nome.localeCompare(b.nome));
   _reportHeader('Relatório de Férias Marcadas', `${list.length} colaborador(es)`);
@@ -12866,7 +12921,7 @@ function _reportFeriasMarcadas(){
 // 5. Férias Pendentes
 function _reportFeriasPendentes(){
   const hoje=new Date(); hoje.setHours(0,0,0,0);
-  const list=State.employees.filter(e=>{
+  const list=_filtrarEmpsPorEscopo(State.employees).filter(e=>{
     if((e.status||'ativo')==='inativo') return false;
     if(!e.dataAdmissao) return false;
     const admissao=new Date(e.dataAdmissao+'T00:00:00');
@@ -12893,7 +12948,7 @@ function _reportFeriasPendentes(){
 
 // 6. Afastados INSS
 function _reportAfastados(){
-  const list=State.employees.filter(e=>(e.status||'ativo')==='afastado')
+  const list=_filtrarEmpsPorEscopo(State.employees).filter(e=>(e.status||'ativo')==='afastado')
     .sort((a,b)=>a.nome.localeCompare(b.nome));
   _reportHeader('Relatório de Afastados INSS', `${list.length} colaborador(es)`);
   const cols=['#','Reg.','Nome','Setor','Posto','Admissão','CPF','Celular'];
@@ -12909,7 +12964,7 @@ function _reportAfastados(){
 
 // Licença Maternidade
 function _reportLicencaMaternidade(){
-  const list=State.employees.filter(e=>(e.status||'ativo')==='licenca-maternidade')
+  const list=_filtrarEmpsPorEscopo(State.employees).filter(e=>(e.status||'ativo')==='licenca-maternidade')
     .sort((a,b)=>a.nome.localeCompare(b.nome));
   _reportHeader('Relatório de Licença Maternidade', `${list.length} colaboradora(s)`);
   const cols=['#','Reg.','Nome','Setor','Posto','Admissão','Início Licença','Prev. Retorno','CPF','Celular'];
@@ -12933,7 +12988,7 @@ function _reportSetor(){
   const setor=val('report-setor-val');
   const statusFilt=val('report-setor-status')||'all';
   if(!setor){ toast('Selecione um setor.','error'); return; }
-  let list=State.employees.filter(e=>(e.setor||'')=== setor);
+  let list=_filtrarEmpsPorEscopo(State.employees).filter(e=>(e.setor||'')=== setor);
   if(statusFilt!=='all') list=list.filter(e=>(e.status||'ativo')===statusFilt);
   list.sort((a,b)=>a.nome.localeCompare(b.nome));
   _reportHeader(`Relatório por Setor — ${setor}`, `${list.length} colaborador(es)`);
@@ -12955,7 +13010,7 @@ function _reportSetor(){
 function _reportPosto(){
   const posto=(val('report-posto-val')||'').toLowerCase().trim();
   if(!posto){ toast('Digite o nome ou parte do nome do posto.','error'); return; }
-  const list=State.employees.filter(e=>(e.posto||'').toLowerCase().includes(posto))
+  const list=_filtrarEmpsPorEscopo(State.employees).filter(e=>(e.posto||'').toLowerCase().includes(posto))
     .sort((a,b)=>a.nome.localeCompare(b.nome));
   _reportHeader(`Relatório por Posto — "${val('report-posto-val')}"`, `${list.length} colaborador(es)`);
   const cols=['#','Reg.','Nome','Setor','Posto','Escala','Admissão','Status','Celular'];
@@ -14122,6 +14177,7 @@ function _getPendentesHEList(mes, ano){
   (State.payrolls||[]).filter(p => p.mes==mes && p.ano==ano).forEach(p => {
     const emp = State.employees.find(e=>e.id===p.employeeId);
     if(!emp || !p.pontoManualDias) return;
+    if(!_empNoEscopo(emp)) return; // respeita o escopo de postos do supervisor
     let nDias = 0, totalMin = 0;
     const detalhes = [];
     p.pontoManualDias.forEach(d => {
@@ -17192,6 +17248,31 @@ function canManagePerfis(){
   const u=Auth.currentUser; if(!u) return false;
   if(u.role==='master') return true;
   return !!(getUserModules(u).users && canEditModule('users'));
+}
+
+// ── Escopo por postos (supervisor responsável por N postos) ──
+// Retorna a lista de postos (razaoSocial) que o usuário enxerga, OU null se ele
+// não tem restrição (master, ou usuário sem `postosResponsavel` definido).
+// `emp.posto` guarda a razaoSocial do posto (ver entrada do CLAUDE.md de
+// 2026-05-17 sobre padronização do campo `posto`).
+function _postosDoUsuario(user){
+  if(!user) return null;
+  if(user.role==='master') return null;
+  const lista=user.postosResponsavel;
+  if(!Array.isArray(lista) || lista.length===0) return null;
+  return lista;
+}
+// true se o colaborador está no escopo do usuário atual. Sem restrição → tudo true.
+function _empNoEscopo(emp){
+  const escopo=_postosDoUsuario(Auth.currentUser);
+  if(!escopo) return true;
+  return escopo.includes(emp&&emp.posto);
+}
+// Filtra um array de colaboradores pelo escopo do usuário atual.
+function _filtrarEmpsPorEscopo(emps){
+  const escopo=_postosDoUsuario(Auth.currentUser);
+  if(!escopo) return emps;
+  return (emps||[]).filter(e=>escopo.includes(e&&e.posto));
 }
 
 // ── Bloqueio central de gravação para perfis "somente visualizar" ──

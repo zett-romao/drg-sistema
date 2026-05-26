@@ -423,6 +423,20 @@ async function handleUsuariosListar(auth, token){
   lista.forEach(u => { delete u.passwordHash; });
   return { ok:true, usuarios:lista };
 }
+// Sanitiza a lista de postos sob responsabilidade — só strings não-vazias, sem
+// duplicar. Master nunca tem restrição (a coleção fica vazia mesmo se vier algo).
+function _sanitizePostosResponsavel(v, role){
+  if (role === 'master') return [];
+  if (!Array.isArray(v)) return [];
+  const seen = new Set(); const out = [];
+  for (const it of v) {
+    if (typeof it !== 'string') continue;
+    const t = it.trim();
+    if (!t || seen.has(t)) continue;
+    seen.add(t); out.push(t);
+  }
+  return out;
+}
 async function handleUsuariosSalvar(auth, body, token){
   const m = await exigirMaster(auth, token);
   if (m.erro) return { ok:false, erro:m.erro };
@@ -440,9 +454,12 @@ async function handleUsuariosSalvar(auth, body, token){
   if (dados.id) {
     const ex = todos.find(u => u.id === dados.id);
     if (!ex) return { ok:false, erro:'usuário não encontrado' };
+    const role = dados.role || ex.role;
     const merged = { ...ex, username, email,
-      role: dados.role || ex.role, active: dados.active !== false };
+      role, active: dados.active !== false };
     if ('showLog' in dados) merged.showLog = !!dados.showLog;
+    if ('postosResponsavel' in dados)
+      merged.postosResponsavel = _sanitizePostosResponsavel(dados.postosResponsavel, role);
     if (novaSenha) {
       if (novaSenha.length < 6) return { ok:false, erro:'a senha precisa de ao menos 6 caracteres' };
       merged.passwordHash = await sha256hex(novaSenha);
@@ -454,9 +471,11 @@ async function handleUsuariosSalvar(auth, body, token){
   if (!novaSenha || novaSenha.length < 6)
     return { ok:false, erro:'informe uma senha de ao menos 6 caracteres' };
   const id = genIdW();
+  const role = dados.role || 'operador';
   await fsSetDoc('users/' + id, {
-    id, username, email, role: dados.role || 'operador',
+    id, username, email, role,
     active: dados.active !== false, passwordHash: await sha256hex(novaSenha),
+    postosResponsavel: _sanitizePostosResponsavel(dados.postosResponsavel, role),
     createdAt: new Date().toISOString(), lastLogin: null, forceChange: false,
   }, token);
   return { ok:true, id };

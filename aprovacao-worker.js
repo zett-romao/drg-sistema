@@ -439,13 +439,15 @@ async function handlePontoLogin(body, token, env){
   }, env);
 
   return { ok:true, customToken, emp: {
-    id:       emp.id,
-    nome:     emp.nome || '',
-    registro: emp.registro,
-    cpf:      emp.cpf || '',
-    cargo:    emp.cargo || '',
-    posto:    emp.posto || '',
-    foto:     emp.foto || '',
+    id:          emp.id,
+    nome:        emp.nome || '',
+    registro:    emp.registro,
+    cpf:         emp.cpf || '',
+    cargo:       emp.cargo || '',
+    posto:       emp.posto || '',
+    foto:        emp.foto || '',
+    // Flag "trabalha sozinho" — usada pela UI do ponto pra pular intervalos
+    semRefeicao: !!emp.semRefeicao,
   } };
 }
 

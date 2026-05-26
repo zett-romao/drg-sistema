@@ -379,7 +379,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-<script src="firebase-config.js?v=20260526a"></script>
+<script src="firebase-config.js?v=20260526b"></script>
 
 <script>
 'use strict';
@@ -432,7 +432,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=23').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=24').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -529,13 +529,14 @@ async function doLogin() {
     // Salva sessão leve com os dados que o servidor devolveu (sem PIN, sem hash)
     currentEmp = data.emp;
     sessionStorage.setItem('drg_ponto_emp', JSON.stringify({
-      id:       data.emp.id,
-      nome:     data.emp.nome,
-      registro: data.emp.registro,
-      cpf:      data.emp.cpf,
-      cargo:    data.emp.cargo,
-      posto:    data.emp.posto,
-      foto:     data.emp.foto || ''
+      id:          data.emp.id,
+      nome:        data.emp.nome,
+      registro:    data.emp.registro,
+      cpf:         data.emp.cpf,
+      cargo:       data.emp.cargo,
+      posto:       data.emp.posto,
+      foto:        data.emp.foto || '',
+      semRefeicao: !!data.emp.semRefeicao
     }));
 
     await carregarHome();
@@ -705,6 +706,12 @@ function getDiaHoje() {
 
 function renderHoje() {
   const p = getDiaHoje();
+  const semRef = !!(currentEmp && currentEmp.semRefeicao);
+  // Esconde os cards de intervalo pra colaborador que "trabalha sozinho"
+  ['intIni','intFim'].forEach(k => {
+    const wrap = document.getElementById('pi-' + k);
+    if (wrap) wrap.style.display = semRef ? 'none' : '';
+  });
   ['entrada','intIni','intFim','saida'].forEach(k => {
     const el   = document.getElementById('pt-' + k);
     const wrap = document.getElementById('pi-' + k);
@@ -719,9 +726,12 @@ function renderHoje() {
 function getProxima() {
   const p = getDiaHoje();
   if (!p.entrada) return 'entrada';
-  if (!p.intIni)  return 'intIni';
-  if (!p.intFim)  return 'intFim';
-  if (!p.saida)   return 'saida';
+  // Colaborador "trabalha sozinho" pula os intervalos — vai direto pra saída
+  if (!(currentEmp && currentEmp.semRefeicao)) {
+    if (!p.intIni) return 'intIni';
+    if (!p.intFim) return 'intFim';
+  }
+  if (!p.saida)    return 'saida';
   return 'completo';
 }
 

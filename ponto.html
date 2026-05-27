@@ -137,6 +137,13 @@
     .spinner-wrap{text-align:center;padding:40px;color:#94a3b8;font-size:13px}
     .spinner{width:32px;height:32px;border:3px solid #e2e8f0;border-top-color:#2563eb;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px}
     @keyframes spin{to{transform:rotate(360deg)}}
+
+    /* SELETOR DE TIPO DE DOCUMENTO (overlay #doc-overlay etapa 1) */
+    .doc-tipo-btn{width:100%;display:flex;align-items:center;gap:14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;cursor:pointer;text-align:left;margin-bottom:8px;font-family:inherit;transition:background .15s,border-color .15s}
+    .doc-tipo-btn:active{background:#eef2ff;border-color:#2563eb}
+    .doc-tipo-ico{font-size:28px;flex-shrink:0;line-height:1}
+    .doc-tipo-lbl{flex:1;font-size:14px;color:#1e293b;line-height:1.35}
+    .doc-tipo-lbl small{display:block;font-size:11px;color:#64748b;font-weight:500;margin-top:2px}
   </style>
 </head>
 <body>
@@ -270,8 +277,8 @@
         </div>
 
         <div style="text-align:center;margin-top:6px">
-          <button onclick="abrirAtestadoApp()" style="background:none;border:1px solid #cbd5e1;color:#475569;padding:7px 16px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer">
-            📋 Enviar atestado
+          <button onclick="abrirEnvioDoc()" style="background:none;border:1px solid #cbd5e1;color:#475569;padding:7px 16px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer">
+            📎 Enviar documento
           </button>
         </div>
 
@@ -303,6 +310,10 @@
 
   </div>
 
+  <!-- Rodapé com versão do app (alinhado com CACHE do Service Worker) -->
+  <div id="app-version-footer" style="text-align:center;padding:8px 12px 12px;color:#94a3b8;font-size:11px;font-weight:500;letter-spacing:.2px">
+    DRG-Kronos Ponto <span id="app-version-tag">v—</span>
+  </div>
 
 </div>
 
@@ -344,33 +355,91 @@
   </div>
 </div>
 
-<!-- Enviar atestado -->
-<div id="atestado-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:999;align-items:center;justify-content:center;padding:20px;overflow-y:auto">
-  <div style="background:#fff;border-radius:16px;max-width:400px;width:100%;padding:22px;box-shadow:0 10px 40px rgba(0,0,0,.3);margin:auto">
-    <div style="font-size:34px;text-align:center">📋</div>
-    <div style="font-size:18px;font-weight:700;text-align:center;margin:4px 0 2px;color:#1e293b">Enviar atestado</div>
-    <div style="font-size:13px;color:#64748b;text-align:center;margin-bottom:14px">O gestor vai conferir e aprovar.</div>
-    <label style="font-size:13px;font-weight:600;color:#334155">Tipo</label>
-    <select id="at-app-tipo" onchange="_atestAppTipoChange()" style="width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px;margin:5px 0 12px;background:#fff">
-      <option value="dia">Dia(s) inteiro(s)</option>
-      <option value="horas">Horas</option>
-    </select>
-    <label style="font-size:13px;font-weight:600;color:#334155">Data de início</label>
-    <input type="date" id="at-app-inicio" style="width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px;margin:5px 0 12px">
-    <div id="at-app-fim-wrap">
-      <label style="font-size:13px;font-weight:600;color:#334155">Data de fim</label>
-      <input type="date" id="at-app-fim" style="width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px;margin:5px 0 12px">
+<!-- Enviar documento (overlay com 2 etapas: escolha do tipo + formulário) -->
+<div id="doc-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:999;align-items:center;justify-content:center;padding:20px;overflow-y:auto">
+  <div style="background:#fff;border-radius:16px;max-width:420px;width:100%;padding:22px;box-shadow:0 10px 40px rgba(0,0,0,.3);margin:auto">
+
+    <!-- ETAPA 1: Escolha do tipo de documento -->
+    <div id="doc-step-tipo">
+      <div style="font-size:34px;text-align:center">📎</div>
+      <div style="font-size:18px;font-weight:700;text-align:center;margin:4px 0 2px;color:#1e293b">Enviar documento</div>
+      <div style="font-size:13px;color:#64748b;text-align:center;margin-bottom:18px">Selecione o tipo abaixo. O gestor vai conferir e aprovar.</div>
+
+      <button class="doc-tipo-btn" onclick="selecionarTipoDoc('atestado')">
+        <span class="doc-tipo-ico">🏥</span>
+        <span class="doc-tipo-lbl"><strong>Atestado médico</strong><br><small>Atestado, comprovante de saúde, declaração de comparecimento médico</small></span>
+      </button>
+      <button class="doc-tipo-btn" onclick="selecionarTipoDoc('declaracao')">
+        <span class="doc-tipo-ico">📜</span>
+        <span class="doc-tipo-lbl"><strong>Declaração</strong><br><small>Declaração escolar, de comparecimento, eleitoral, etc.</small></span>
+      </button>
+      <button class="doc-tipo-btn" onclick="selecionarTipoDoc('comprovante')">
+        <span class="doc-tipo-ico">📄</span>
+        <span class="doc-tipo-lbl"><strong>Comprovante</strong><br><small>Residência, vacina, banco, outros comprovantes</small></span>
+      </button>
+      <button class="doc-tipo-btn" onclick="selecionarTipoDoc('documento_pessoal')">
+        <span class="doc-tipo-ico">🪪</span>
+        <span class="doc-tipo-lbl"><strong>Documento pessoal</strong><br><small>RG, CPF, CTPS, CNH, título de eleitor</small></span>
+      </button>
+      <button class="doc-tipo-btn" onclick="selecionarTipoDoc('outros')">
+        <span class="doc-tipo-ico">📁</span>
+        <span class="doc-tipo-lbl"><strong>Outro documento</strong><br><small>Qualquer outro arquivo que precise ser arquivado</small></span>
+      </button>
+
+      <button onclick="fecharEnvioDoc()" style="width:100%;padding:11px;background:none;color:#64748b;border:none;font-size:14px;cursor:pointer;margin-top:10px">Cancelar</button>
     </div>
-    <div id="at-app-horas-wrap" style="display:none">
-      <label style="font-size:13px;font-weight:600;color:#334155">Quantas horas</label>
-      <input type="number" id="at-app-horas" min="0" step="0.5" placeholder="0" style="width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px;margin:5px 0 12px">
+
+    <!-- ETAPA 2A: Formulário de atestado (mantém lógica original — afeta folha) -->
+    <div id="doc-step-atestado" style="display:none">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <button onclick="_docVoltarTipo()" style="background:#f1f5f9;border:none;color:#475569;width:34px;height:34px;border-radius:50%;font-size:18px;cursor:pointer">←</button>
+        <div style="font-size:30px">🏥</div>
+        <div style="font-size:17px;font-weight:700;color:#1e293b">Atestado médico</div>
+      </div>
+      <div style="font-size:13px;color:#64748b;margin-bottom:12px">Atestado aprovado abate dias/horas das faltas/atrasos.</div>
+
+      <label style="font-size:13px;font-weight:600;color:#334155">Tipo</label>
+      <select id="at-app-tipo" onchange="_atestAppTipoChange()" style="width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px;margin:5px 0 12px;background:#fff">
+        <option value="dia">Dia(s) inteiro(s)</option>
+        <option value="horas">Horas</option>
+      </select>
+      <label style="font-size:13px;font-weight:600;color:#334155">Data de início</label>
+      <input type="date" id="at-app-inicio" style="width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px;margin:5px 0 12px">
+      <div id="at-app-fim-wrap">
+        <label style="font-size:13px;font-weight:600;color:#334155">Data de fim</label>
+        <input type="date" id="at-app-fim" style="width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px;margin:5px 0 12px">
+      </div>
+      <div id="at-app-horas-wrap" style="display:none">
+        <label style="font-size:13px;font-weight:600;color:#334155">Quantas horas</label>
+        <input type="number" id="at-app-horas" min="0" step="0.5" placeholder="0" style="width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px;margin:5px 0 12px">
+      </div>
+      <label style="font-size:13px;font-weight:600;color:#334155">Observação (opcional)</label>
+      <input type="text" id="at-app-obs" placeholder="Ex.: consulta médica" style="width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px;margin:5px 0 12px">
+      <label style="font-size:13px;font-weight:600;color:#334155">Foto do atestado</label>
+      <input type="file" id="at-app-arquivo" accept="image/*,.pdf" capture="environment" style="width:100%;font-size:13px;margin:6px 0 14px">
+      <button id="at-app-enviar" onclick="enviarAtestadoApp()" style="width:100%;padding:13px;background:#16a34a;color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer">Enviar atestado</button>
+      <button onclick="fecharEnvioDoc()" style="width:100%;padding:11px;background:none;color:#64748b;border:none;font-size:14px;cursor:pointer;margin-top:6px">Cancelar</button>
     </div>
-    <label style="font-size:13px;font-weight:600;color:#334155">Observação (opcional)</label>
-    <input type="text" id="at-app-obs" placeholder="Ex.: consulta médica" style="width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px;margin:5px 0 12px">
-    <label style="font-size:13px;font-weight:600;color:#334155">Foto do atestado</label>
-    <input type="file" id="at-app-arquivo" accept="image/*,.pdf" capture="environment" style="width:100%;font-size:13px;margin:6px 0 14px">
-    <button id="at-app-enviar" onclick="enviarAtestadoApp()" style="width:100%;padding:13px;background:#16a34a;color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer">Enviar atestado</button>
-    <button onclick="fecharAtestadoApp()" style="width:100%;padding:11px;background:none;color:#64748b;border:none;font-size:14px;cursor:pointer;margin-top:6px">Cancelar</button>
+
+    <!-- ETAPA 2B: Formulário genérico (declaração / comprovante / pessoal / outros) -->
+    <div id="doc-step-generico" style="display:none">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <button onclick="_docVoltarTipo()" style="background:#f1f5f9;border:none;color:#475569;width:34px;height:34px;border-radius:50%;font-size:18px;cursor:pointer">←</button>
+        <div id="doc-gen-ico" style="font-size:30px">📄</div>
+        <div id="doc-gen-titulo" style="font-size:17px;font-weight:700;color:#1e293b">Documento</div>
+      </div>
+      <div style="font-size:13px;color:#64748b;margin-bottom:12px">O documento ficará arquivado na sua ficha após aprovação do gestor.</div>
+
+      <label style="font-size:13px;font-weight:600;color:#334155">Descrição (curta)</label>
+      <input type="text" id="doc-gen-desc" placeholder="Ex.: Comprovante de residência - Maio/2026" style="width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px;margin:5px 0 12px">
+
+      <label style="font-size:13px;font-weight:600;color:#334155">Arquivo</label>
+      <input type="file" id="doc-gen-arquivo" accept="image/*,.pdf,.doc,.docx" style="width:100%;font-size:13px;margin:6px 0 14px">
+
+      <button id="doc-gen-enviar" onclick="enviarDocumento()" style="width:100%;padding:13px;background:#16a34a;color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer">Enviar documento</button>
+      <button onclick="fecharEnvioDoc()" style="width:100%;padding:11px;background:none;color:#64748b;border:none;font-size:14px;cursor:pointer;margin-top:6px">Cancelar</button>
+    </div>
+
   </div>
 </div>
 
@@ -379,10 +448,20 @@
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-<script src="firebase-config.js?v=20260526c"></script>
+<script src="firebase-config.js?v=20260527a"></script>
 
 <script>
 'use strict';
+
+// ─── VERSÃO DO APP DO COLABORADOR ─────────────────────────────────────────────
+// Bumpe SEMPRE em conjunto com o CACHE do ponto-sw.js e o ?v= do firebase-config.
+// Formato: AA.MM.DD + letra (a, b, c...) — alinhado com o nome do cache.
+const PONTO_VERSION = '25.05.27a';
+// Exibe a versão no rodapé (script roda após o DOM, então o elemento já existe)
+(function _setVersionTag(){
+  const t = document.getElementById('app-version-tag');
+  if (t) t.textContent = 'v' + PONTO_VERSION;
+})();
 
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
 const _fs     = firebase.firestore();
@@ -432,7 +511,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=25').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=26').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -1262,8 +1341,25 @@ async function baterPonto() {
   }
 }
 
-// ─── ENVIAR ATESTADO ──────────────────────────────────────────────────────────
-function abrirAtestadoApp(){
+// ─── ENVIAR DOCUMENTO ─────────────────────────────────────────────────────────
+// Overlay em 2 etapas:
+//   Etapa 1: escolha do tipo (atestado / declaração / comprovante / pessoal / outros)
+//   Etapa 2A: formulário de atestado (mantém lógica original — grava em `atestados`)
+//   Etapa 2B: formulário genérico (grava em `documentos`)
+
+const DOC_TIPOS_LABEL = {
+  declaracao:        { ico:'📜', nome:'Declaração' },
+  comprovante:       { ico:'📄', nome:'Comprovante' },
+  documento_pessoal: { ico:'🪪', nome:'Documento pessoal' },
+  outros:            { ico:'📁', nome:'Outro documento' }
+};
+
+function abrirEnvioDoc(){
+  // Etapa 1 visível, demais escondidas
+  document.getElementById('doc-step-tipo').style.display='';
+  document.getElementById('doc-step-atestado').style.display='none';
+  document.getElementById('doc-step-generico').style.display='none';
+  // Limpa formulários
   document.getElementById('at-app-tipo').value='dia';
   document.getElementById('at-app-inicio').value='';
   document.getElementById('at-app-fim').value='';
@@ -1271,10 +1367,31 @@ function abrirAtestadoApp(){
   document.getElementById('at-app-obs').value='';
   document.getElementById('at-app-arquivo').value='';
   _atestAppTipoChange();
-  document.getElementById('atestado-overlay').style.display='flex';
+  document.getElementById('doc-gen-desc').value='';
+  document.getElementById('doc-gen-arquivo').value='';
+  document.getElementById('doc-overlay').style.display='flex';
 }
-function fecharAtestadoApp(){
-  document.getElementById('atestado-overlay').style.display='none';
+function fecharEnvioDoc(){
+  document.getElementById('doc-overlay').style.display='none';
+}
+function _docVoltarTipo(){
+  document.getElementById('doc-step-tipo').style.display='';
+  document.getElementById('doc-step-atestado').style.display='none';
+  document.getElementById('doc-step-generico').style.display='none';
+}
+// Guarda o tipo escolhido pra usar em enviarDocumento()
+let _docTipoSelecionado = null;
+function selecionarTipoDoc(tipo){
+  _docTipoSelecionado = tipo;
+  document.getElementById('doc-step-tipo').style.display='none';
+  if(tipo === 'atestado'){
+    document.getElementById('doc-step-atestado').style.display='';
+  } else {
+    const info = DOC_TIPOS_LABEL[tipo] || { ico:'📄', nome:'Documento' };
+    document.getElementById('doc-gen-ico').textContent = info.ico;
+    document.getElementById('doc-gen-titulo').textContent = info.nome;
+    document.getElementById('doc-step-generico').style.display='';
+  }
 }
 function _atestAppTipoChange(){
   const h=document.getElementById('at-app-tipo').value==='horas';
@@ -1316,13 +1433,60 @@ async function enviarAtestadoApp(){
       createdAt:new Date().toISOString(), updatedAt:new Date().toISOString()
     };
     await dbCol('atestados').doc(id).set(doc);
-    fecharAtestadoApp();
+    fecharEnvioDoc();
     toast('Atestado enviado! Aguarde a aprovação do gestor. ✅','success');
   }catch(e){
     console.error(e);
     toast('Erro ao enviar. Verifique a conexão e tente de novo.','error');
   }finally{
     btn.disabled=false; btn.textContent='Enviar atestado';
+  }
+}
+
+// Envia documento NÃO-atestado (declaração, comprovante, pessoal, outros)
+// → grava na coleção `documentos`. Não afeta folha de ponto.
+async function enviarDocumento(){
+  if(!currentEmp){ toast('Sessão expirada. Entre novamente.','error'); return; }
+  const tipo = _docTipoSelecionado;
+  if(!tipo || tipo === 'atestado'){ toast('Tipo inválido.','error'); return; }
+  const file = document.getElementById('doc-gen-arquivo').files[0];
+  if(!file){ toast('Anexe o arquivo do documento.','error'); return; }
+  const descricao = (document.getElementById('doc-gen-desc').value || '').trim();
+
+  const btn = document.getElementById('doc-gen-enviar');
+  btn.disabled = true; btn.textContent = 'Enviando...';
+  try{
+    const id  = Date.now().toString(36) + Math.random().toString(36).substr(2);
+    const ext = ((file.name||'doc').split('.').pop()||'bin').toLowerCase();
+    const ref = firebase.storage().ref(`documentos/${currentEmp.id}/${tipo}/${id}.${ext}`);
+    await ref.put(file);
+    const arquivoUrl = await ref.getDownloadURL();
+
+    const info = DOC_TIPOS_LABEL[tipo] || { nome:'Documento' };
+    const now = new Date();
+    const doc = {
+      id,
+      employeeId: currentEmp.id,
+      tipo,                          // 'declaracao' | 'comprovante' | 'documento_pessoal' | 'outros'
+      tipoLabel: info.nome,
+      descricao,
+      arquivoUrl,
+      arquivoNome: file.name || 'documento',
+      origem: 'app',
+      status: 'pendente',
+      mes: now.getMonth()+1,
+      ano: now.getFullYear(),
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString()
+    };
+    await dbCol('documentos').doc(id).set(doc);
+    fecharEnvioDoc();
+    toast('Documento enviado! Aguarde a aprovação do gestor. ✅','success');
+  } catch(e){
+    console.error(e);
+    toast('Erro ao enviar. Verifique a conexão e tente de novo.','error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Enviar documento';
   }
 }
 

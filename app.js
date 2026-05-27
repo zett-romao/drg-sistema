@@ -234,6 +234,7 @@ const State = {
   escalasModelos: [],
   bancoHoras: [],
   atestados:  [],
+  documentos: [],
   rescisoes: [],
   parametrosLegais: null,
   cct: null,
@@ -516,7 +517,7 @@ async function renderPainelRecursos(){
   const ativos=emps.filter(e=>(e.status||'ativo')==='ativo').length;
   // Arquivos enviados — contagem aproximada (não há acesso aos bytes)
   let arquivos=emps.filter(e=>e.fotoUrl).length;
-  ['atestados','atrasos','saidas'].forEach(c=>{
+  ['atestados','atrasos','saidas','documentos'].forEach(c=>{
     (State[c]||[]).forEach(x=>{ if(x&&x.arquivoUrl) arquivos++; });
   });
   // Uso de IA — busca a coleção usoIA sob demanda
@@ -912,6 +913,7 @@ function showSection(name){
   if(name==='contratos'      && !mods.contratos)    return;
   if(name==='comunicacao'    && !mods.comunicacao)  return;
   if(name==='autorizacoes'   && !mods.autorizarPonto) return;
+  if(name==='documentos'     && !mods.employees) return;
   if(name==='configuracoes'  && Auth.currentUser?.role!=='master') return;
   // Empilha seção atual antes de trocar (exceto se estiver voltando ou já está na mesma seção)
   if(!_navigatingBack && State.currentSection && State.currentSection!==name){
@@ -930,7 +932,7 @@ function showSection(name){
   if(navBtn)  navBtn.classList.add('active');
   const titles={dashboard:'Dashboard',employees:'Colaboradores',payroll:'Folha de Ponto',escalas:'Escalas',
                 pagamentos:'Pagamentos',adiantamentos:'Adiantamentos',aprovacoes:'Aprovações de Pagamentos',decimoterceiro:'13º Salário',ferias:'Férias',rescisao:'Rescisões',
-                contabilidade:'Contabilidade',users:'Usuários & Acessos',postos:'Postos de Trabalho',contratos:'Contratos',comunicacao:'Comunicação',autorizacoes:'Autorizações de Ponto',configuracoes:'Configurações'};
+                contabilidade:'Contabilidade',users:'Usuários & Acessos',postos:'Postos de Trabalho',contratos:'Contratos',comunicacao:'Comunicação',autorizacoes:'Autorizações de Ponto',documentos:'Documentos do Colaborador',configuracoes:'Configurações'};
   document.getElementById('topbar-title').textContent=titles[name]||name;
   State.currentSection=name;
   if(name==='employees') renderEmployeeTable();
@@ -946,6 +948,7 @@ function showSection(name){
   if(name==='contabilidade')   { _applyModoBanners(State.empresa?.modoContabilidade||'ambas'); renderContabilidade(); }
   if(name==='comunicacao')     renderComunicacaoSection();
   if(name==='autorizacoes')    renderAutorizacoesSection();
+  if(name==='documentos')      renderDocumentosPendentes();
   if(name==='configuracoes')  renderConfiguracoes();
   if(name==='postos')    renderPostosTable();
   if(name==='contratos') {
@@ -1356,6 +1359,9 @@ function applyUserSession(user){
   // Colaboradores: quem tem acesso ao módulo employees
   const empLi=document.getElementById('nav-employees-li');
   if(empLi) empLi.classList.toggle('hidden', !mods.employees);
+  // Documentos do colaborador (envio pelo app): mesma permissão de employees
+  const docLi=document.getElementById('nav-documentos-li');
+  if(docLi) docLi.classList.toggle('hidden', !mods.employees);
   // Comunicação: módulo dedicado (delegável). Master sempre tem.
   const commLi=document.getElementById('nav-comunicacao-li');
   if(commLi) commLi.classList.toggle('hidden', !mods.comunicacao);
@@ -1914,6 +1920,15 @@ function renderDashboard(){
         accent:'#E65100', iconBg:'#FFF3E0', iconColor:'#E65100', valueColor:'#E65100',
         sub:`${fmtMoney(totalP)} — clique para revisar`, subColor:'#E65100',
         onclick:"showSection('aprovacoes')", title:'Solicitações de pagamento pendentes de aprovação'})});
+    }
+
+    // Documentos enviados pelo colaborador via app, aguardando aprovação
+    const pendDocs=(State.documentos||[]).filter(d=>d.status==='pendente');
+    if(pendDocs.length>0 && md.employees){
+      catalogo.push({key:'docsPend', html:_statCard({label:'Documentos aguardando aprovação', value:pendDocs.length, icon:'fa-folder-tree',
+        accent:'#6A1B9A', iconBg:'#F3E5F5', iconColor:'#6A1B9A', valueColor:'#6A1B9A',
+        sub:'Enviados pelos colaboradores pelo app — clique para revisar', subColor:'#6A1B9A',
+        onclick:"showSection('documentos')", title:'Documentos enviados pelo app aguardando aprovação'})});
     }
 
     // Adiantamentos vencidos no mês corrente — passou do dia limite e o
@@ -3754,6 +3769,8 @@ function openEmployeeModal(id=null){
     renderFeriasList(emp.ferias||[]);
     // Documentos
     loadDocumentList(emp.id);
+    // Documentos enviados pelo colaborador via app (já aprovados)
+    renderDocumentosAprovadosNaFicha(emp.id);
   } else {
     const nextNum = getNextRegistro();
     titleEl.innerHTML='<i class="fa-solid fa-user-plus"></i> Novo Colaborador';
@@ -9578,6 +9595,154 @@ async function recusarSolicitacao(id){
     Auth.log('PAGAMENTO_RECUSADO',null,`${s.employeeNome} | R$ ${(s.valor||0).toFixed(2)} | ${motivo.trim()}`);
     toast('Solicitação recusada.','success');
   }catch(e){ toast('Erro ao recusar: '+e.message,'error'); }
+}
+
+// ============================================
+// DOCUMENTOS ENVIADOS PELO COLABORADOR (via app de ponto)
+// ============================================
+// Espelho gestor da feature do ponto.html: o colaborador envia documento
+// pelo app -> coleção `documentos` com status 'pendente' -> aqui o gestor
+// aprova ou reprova. Atestados NÃO entram aqui (continuam na Folha de Ponto).
+const DOC_TIPOS_META = {
+  declaracao:        { ico:'📜', nome:'Declaração' },
+  comprovante:       { ico:'📄', nome:'Comprovante' },
+  documento_pessoal: { ico:'🪪', nome:'Documento pessoal' },
+  outros:            { ico:'📁', nome:'Outro documento' }
+};
+
+function _docStatusBadge(status){
+  if(status==='aprovado')  return '<span style="background:#E8F5E9;color:#1B5E20;padding:3px 9px;border-radius:9px;font-size:11px;font-weight:600">aprovado</span>';
+  if(status==='reprovado') return '<span style="background:#FFEBEE;color:#c62828;padding:3px 9px;border-radius:9px;font-size:11px;font-weight:600">reprovado</span>';
+  return '<span style="background:#FFF3E0;color:#E65100;padding:3px 9px;border-radius:9px;font-size:11px;font-weight:600">pendente</span>';
+}
+
+function renderDocumentosPendentes(){
+  const tbody=document.getElementById('documentos-tbody'); if(!tbody) return;
+  const filtro=val('documentos-filtro')||'pendente';
+
+  let lista=[...(State.documentos||[])];
+  if(filtro!=='todos') lista=lista.filter(d=>d.status===filtro);
+  lista.sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0));
+
+  const pend=(State.documentos||[]).filter(d=>d.status==='pendente');
+  const cnt=document.getElementById('documentos-contador');
+  if(cnt){
+    cnt.innerHTML = pend.length
+      ? `<strong style="color:#E65100">${pend.length}</strong> documento(s) aguardando aprovação`
+      : '<span style="color:#2e7d32">Nenhuma pendência</span>';
+  }
+
+  if(lista.length===0){
+    tbody.innerHTML=`<tr><td colspan="7" style="padding:26px;text-align:center;color:#999">Nenhum documento${filtro!=='todos'?' ('+filtro+')':''}.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML=lista.map((d,idx)=>{
+    const bg=idx%2?'#f9fafb':'#fff';
+    const emp=State.employees.find(e=>e.id===d.employeeId);
+    const nomeEmp=emp?emp.nome:(d.employeeId||'—');
+    const nomeCell=emp
+      ? `<strong style="color:var(--primary);cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px" onclick="openEmployeeModal('${d.employeeId}')" title="Abrir cadastro de ${nomeEmp.replace(/"/g,'&quot;')}">${nomeEmp}</strong>`
+      : `<strong>${nomeEmp}</strong>`;
+    const meta=DOC_TIPOS_META[d.tipo]||{ico:'📄',nome:d.tipoLabel||d.tipo||'Documento'};
+    const dt=(d.createdAt||'').substring(0,10).split('-').reverse().join('/');
+    const arquivoCell = d.arquivoUrl
+      ? `<a href="${d.arquivoUrl}" target="_blank" rel="noopener" class="btn btn-sm btn-outline" style="font-size:11px;padding:3px 9px"><i class="fa-solid fa-paperclip"></i> Abrir</a>`
+      : '—';
+
+    let acoes='—';
+    if(d.status==='pendente'){
+      acoes = `<button class="btn btn-sm" style="background:#2e7d32;color:#fff;border-color:#2e7d32;margin-right:4px" onclick="aprovarDocumento('${d.id}')"><i class="fa-solid fa-check"></i> Aprovar</button>`
+            + `<button class="btn btn-sm btn-outline" style="color:#c62828;border-color:#ef9a9a" onclick="reprovarDocumento('${d.id}')"><i class="fa-solid fa-ban"></i> Reprovar</button>`;
+    } else if(d.status==='aprovado'){
+      const quando=(d.aprovadoEm||'').substring(0,10).split('-').reverse().join('/');
+      acoes=`<span style="font-size:11px;color:#1B5E20">por ${d.aprovadoPorNome||'—'}${quando?' · '+quando:''}</span>`;
+    } else if(d.status==='reprovado'){
+      acoes=`<span style="font-size:11px;color:#c62828" title="${(d.motivoReprovacao||'').replace(/"/g,'&quot;')}">${d.motivoReprovacao||'reprovado'}</span>`;
+    }
+
+    return `<tr style="background:${bg}">
+      <td style="padding:9px 10px">${nomeCell}</td>
+      <td style="padding:9px 10px"><span style="font-size:16px">${meta.ico}</span> ${meta.nome}</td>
+      <td style="padding:9px 10px;font-size:12px;color:#475569">${(d.descricao||'').replace(/</g,'&lt;')||'<span style="color:#aaa">—</span>'}</td>
+      <td style="padding:9px 10px;font-size:12px">${dt}</td>
+      <td style="padding:9px 10px;text-align:center">${arquivoCell}</td>
+      <td style="padding:9px 10px;text-align:center">${_docStatusBadge(d.status)}</td>
+      <td style="padding:9px 10px">${acoes}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function aprovarDocumento(id){
+  if(!getUserModules(Auth.currentUser).employees){ toast('Sem permissão para aprovar documentos.','error'); return; }
+  const d=(State.documentos||[]).find(x=>x.id===id);
+  if(!d){ toast('Documento não encontrado.','error'); return; }
+  if(d.status!=='pendente'){ toast('Este documento já foi processado.','warning'); return; }
+  try{
+    const u=Auth.currentUser||{};
+    await DB.merge('documentos',id,{
+      status:'aprovado',
+      aprovadoPor:u.username||u.id||'',
+      aprovadoPorNome:u.username||'',
+      aprovadoEm:new Date().toISOString(),
+      updatedAt:new Date().toISOString()
+    });
+    const emp=State.employees.find(e=>e.id===d.employeeId);
+    Auth.log('DOCUMENTO_APROVADO',null,`${emp?.nome||d.employeeId} | ${d.tipoLabel||d.tipo} | ${(d.descricao||'').substring(0,80)}`);
+    toast('Documento aprovado.','success');
+  }catch(e){ toast('Erro ao aprovar: '+e.message,'error'); }
+}
+
+async function reprovarDocumento(id){
+  if(!getUserModules(Auth.currentUser).employees){ toast('Sem permissão para reprovar documentos.','error'); return; }
+  const d=(State.documentos||[]).find(x=>x.id===id);
+  if(!d){ toast('Documento não encontrado.','error'); return; }
+  if(d.status!=='pendente'){ toast('Este documento já foi processado.','warning'); return; }
+  const emp=State.employees.find(e=>e.id===d.employeeId);
+  const motivo=prompt(`Reprovar o ${(d.tipoLabel||d.tipo||'documento').toLowerCase()} de ${emp?.nome||d.employeeId}?\n\nInforme o motivo (o colaborador não recebe notificação automática — combine pessoalmente):`);
+  if(motivo===null) return;
+  if(!motivo.trim()){ toast('O motivo da reprovação é obrigatório.','warning'); return; }
+  try{
+    const u=Auth.currentUser||{};
+    await DB.merge('documentos',id,{
+      status:'reprovado',
+      motivoReprovacao:motivo.trim(),
+      aprovadoPor:u.username||u.id||'',
+      aprovadoPorNome:u.username||'',
+      aprovadoEm:new Date().toISOString(),
+      updatedAt:new Date().toISOString()
+    });
+    Auth.log('DOCUMENTO_REPROVADO',null,`${emp?.nome||d.employeeId} | ${d.tipoLabel||d.tipo} | ${motivo.trim()}`);
+    toast('Documento reprovado.','success');
+  }catch(e){ toast('Erro ao reprovar: '+e.message,'error'); }
+}
+
+// Renderiza, no topo da aba "Documentos" da ficha, os documentos APROVADOS
+// que vieram do app do colaborador. Pendentes ficam na tela de Aprovação;
+// reprovados ficam ocultos da ficha (auditoria via tela de Documentos).
+function renderDocumentosAprovadosNaFicha(empId){
+  const box=document.getElementById('doc-app-list'); if(!box) return;
+  const docs=(State.documentos||[])
+    .filter(d=>d.employeeId===empId && d.status==='aprovado')
+    .sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0));
+  if(docs.length===0){
+    box.innerHTML='<div style="font-size:12px;color:#94a3b8;padding:8px 2px">Nenhum documento enviado pelo app ainda.</div>';
+    return;
+  }
+  box.innerHTML = docs.map(d=>{
+    const meta=DOC_TIPOS_META[d.tipo]||{ico:'📄',nome:d.tipoLabel||d.tipo||'Documento'};
+    const dt=(d.createdAt||'').substring(0,10).split('-').reverse().join('/');
+    return `<div class="doc-item">
+      <div class="doc-icon" style="font-size:22px">${meta.ico}</div>
+      <div class="doc-info">
+        <div class="doc-name">${meta.nome}${d.descricao?` <span style="color:#64748b;font-weight:400">— ${d.descricao.replace(/</g,'&lt;')}</span>`:''}</div>
+        <div class="doc-meta">Enviado em ${dt} · aprovado por ${d.aprovadoPorNome||'—'}</div>
+      </div>
+      <div class="doc-actions">
+        <a href="${d.arquivoUrl}" target="_blank" rel="noopener" class="btn-icon btn-primary-icon" title="Abrir"><i class="fa-solid fa-download"></i></a>
+      </div>
+    </div>`;
+  }).join('');
 }
 
 function _lockPayrollForm(isLocked){
@@ -17643,6 +17808,23 @@ async function _carregarDadosPosLogin(){
   DB.listen('atestados', data => {
     State.atestados = data;
     if(State.currentSection==='payroll'){ renderAtestadosFolha(); recalculate(); }
+  });
+  DB.listen('documentos', data => {
+    State.documentos = data;
+    // Re-renderiza a sub-secao "Enviados pelo colaborador" se a aba Documentos
+    // da ficha estiver visivel (tab-documentos com classe active).
+    const fichaModal = document.getElementById('modal-employee');
+    if (fichaModal && !fichaModal.classList.contains('hidden')) {
+      const aba = document.getElementById('tab-documentos');
+      if (aba && aba.classList.contains('active')) {
+        const empId = val('emp-id');
+        if (empId) renderDocumentosAprovadosNaFicha(empId);
+      }
+    }
+    // Re-renderiza a tela de aprovacoes se estiver aberta
+    if (State.currentSection === 'documentos') renderDocumentosPendentes();
+    // Atualiza card no dashboard
+    if (State.currentSection === 'dashboard') renderDashboard();
   });
   DB.listen('saidas', data => {
     State.saidas = data;

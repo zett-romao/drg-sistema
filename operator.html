@@ -10,7 +10,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-  <script src="firebase-config.js?v=20260515c"></script>
+  <script src="firebase-config.js?v=20260527c"></script>
   <style>
     :root {
       --primary: #1a3a6b;
@@ -443,9 +443,10 @@
 'use strict';
 
 // ─── CONFIG ─────────────────────────────────────────────────────────────────
-// Senha do operador armazenada em /operator/config/master no Firestore
-// Se não existir, qualquer senha cria o documento (primeiro acesso)
+// Login via Worker drg-aprovacao (custom token). Senha em operator/config.
+// Se a config não existir, o Worker cria com a senha digitada (1º acesso).
 const OPERATOR_COLLECTION = 'operator';
+const APROVACAO_WORKER    = 'https://drg-aprovacao.zett-romao.workers.dev';
 let fs = null;
 let _tenants = [];
 let _operatorAuthed = false;
@@ -471,6 +472,9 @@ function tenantsCol() {
 }
 
 // ─── AUTH DO OPERADOR ─────────────────────────────────────────────────────────
+// Login pelo Worker drg-aprovacao: senha conferida no servidor, devolve custom
+// token; o cliente troca por sessão Firebase real via signInWithCustomToken.
+// S3 da blindagem — não usa mais signInAnonymously.
 async function doLogin() {
   const senha = document.getElementById('op-senha').value.trim();
   const errEl = document.getElementById('login-error');
@@ -479,36 +483,25 @@ async function doLogin() {
   if (!initFirebase()) { errEl.textContent = 'Erro ao conectar ao Firebase.'; return; }
 
   try {
-    await firebase.auth().signInAnonymously();
-    const cfgDoc = await fs.collection(OPERATOR_COLLECTION).doc('config').get();
-    if (!cfgDoc.exists) {
-      // Primeiro acesso: cria a senha master
-      const hash = await sha256(senha);
-      await fs.collection(OPERATOR_COLLECTION).doc('config').set({
-        senhaHash: hash, criadoEm: new Date().toISOString()
-      });
-      enterPanel();
-    } else {
-      const hash = await sha256(senha);
-      if (hash !== cfgDoc.data().senhaHash) {
-        errEl.textContent = 'Senha incorreta.';
-      } else {
-        enterPanel();
-      }
+    const r = await fetch(APROVACAO_WORKER + '/operator-login', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ password: senha }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || !data.ok || !data.customToken) {
+      errEl.textContent = data.erro || data.error || 'Erro ao entrar.';
+      return;
     }
+    await firebase.auth().signInWithCustomToken(data.customToken);
+    enterPanel();
   } catch(e) {
     errEl.textContent = 'Erro de conexão: ' + (e.message || e);
   }
 }
 
-async function sha256(str) {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
-  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
-}
-
 function enterPanel() {
   _operatorAuthed = true;
-  firebase.auth().signInAnonymously().catch(()=>{});
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('operator-panel').style.display = 'block';
   document.getElementById('op-data').textContent =

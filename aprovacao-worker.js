@@ -22,6 +22,8 @@
  *   /recuperar-acesso  { code }                         → [PÚBLICA] reseta o master se o código bater
  *   /login             { username, password }           → [PÚBLICA] verifica a senha e devolve custom token
  *   /ponto-login       { matricula, pin }               → [PÚBLICA] valida colaborador e devolve custom token (role: colaborador)
+ *   /operator-login    { password }                     → [PÚBLICA] valida a senha do Painel do Operador e devolve custom token (role: operator)
+ *   /tenant-cadastrar  { nome, cnpj, tipo, responsavel, usuario, senha } → [PÚBLICA] cria tenant trial 30 dias
  *   /usuarios/listar       { idToken }                          → [master] lista usuários (sem hash)
  *   /usuarios/salvar       { idToken, user, novaSenha? }        → [master] cria/edita usuário
  *   /usuarios/excluir      { idToken, id }                      → [master] exclui usuário
@@ -477,6 +479,87 @@ async function handleLogin(body, token, env){
   return { ok:true, user, customToken };
 }
 
+// ── Login do Painel do Operador (rota pública) ───────────────
+// Substitui o signInAnonymously() do operator.html. Senha master
+// armazenada em `operator/config.senhaHash` (SHA-256). No 1º acesso
+// cria o doc com a senha digitada. uid estável = 'operator-default'.
+async function handleOperatorLogin(body, token, env){
+  const password = String(body.password || '');
+  if (!password) return { ok:false, erro:'digite a senha' };
+
+  const cfg  = await fsGetDoc('operator/config', token);
+  const hash = await sha256hex(password);
+
+  if (!cfg) {
+    // 1º acesso — cria o doc de config com a senha digitada (mesma lógica do operator.html legado)
+    await fsSetDoc('operator/config', {
+      senhaHash: hash, criadoEm: new Date().toISOString(),
+    }, token);
+  } else if (cfg.senhaHash !== hash) {
+    return { ok:false, erro:'senha incorreta' };
+  }
+
+  const customToken = await mintCustomToken('operator-default',
+    { role: 'operator', drg: true }, env);
+  return { ok:true, customToken };
+}
+
+// ── Cadastro de novo tenant (rota pública) ───────────────────
+// Substitui as escritas diretas do cadastro.html (auto-cadastro de
+// novos clientes — trial 30 dias). O Worker faz todas as 3 escritas
+// com a conta de serviço (operator/tenants/lista/{id}, tenants/{id}/
+// users/master_{id}, tenants/{id}/configuracoes/empresa).
+async function handleTenantCadastrar(body, token){
+  const nome        = String(body.nome || '').trim();
+  const cnpjRaw     = String(body.cnpj || '').replace(/\D/g, '');
+  const tipo        = String(body.tipo || '').trim();
+  const responsavel = String(body.responsavel || '').trim();
+  const usuario     = String(body.usuario || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  const senha       = String(body.senha || '');
+  const cnpjFmt     = String(body.cnpjFmt || '').trim() || cnpjRaw;
+
+  if (!nome)                 return { ok:false, erro:'informe o nome da empresa' };
+  if (cnpjRaw.length !== 14) return { ok:false, erro:'CNPJ inválido — verifique os 14 dígitos' };
+  if (!responsavel)          return { ok:false, erro:'informe o nome do responsável' };
+  if (usuario.length < 3)    return { ok:false, erro:'usuário deve ter ao menos 3 caracteres' };
+  if (senha.length < 6)      return { ok:false, erro:'senha deve ter ao menos 6 caracteres' };
+
+  const tenantId = cnpjRaw;
+
+  // Verifica se já existe
+  const existing = await fsGetDoc('operator/tenants/lista/' + tenantId, token);
+  if (existing) return { ok:false, erro:'este CNPJ já possui uma conta', jaExiste:true };
+
+  // Trial 30 dias
+  const validade = new Date(); validade.setDate(validade.getDate() + 30);
+  const validadeStr = validade.toISOString().split('T')[0];
+  const agora       = new Date().toISOString();
+
+  // 1. Metadata do tenant no painel operador
+  await fsSetDoc('operator/tenants/lista/' + tenantId, {
+    id: tenantId, nome, cnpj: cnpjFmt, tipo,
+    plano: 'trial', status: 'trial',
+    mensalidade: 0, validade: validadeStr, responsavel,
+    criadoEm: agora, updatedAt: agora,
+  }, token);
+
+  // 2. Usuário master no tenant
+  const userId = 'master_' + tenantId;
+  await fsSetDoc('tenants/' + tenantId + '/users/' + userId, {
+    id: userId, username: usuario, passwordHash: await sha256hex(senha),
+    role: 'master', active: true, criadoEm: agora,
+  }, token);
+
+  // 3. Config inicial da empresa
+  await fsSetDoc('tenants/' + tenantId + '/configuracoes/empresa', {
+    nomeEmpresa: nome, cnpj: cnpjFmt,
+    descricao: tipo, subdesc: 'Sistema de Gestão de Colaboradores',
+    logoUrl: '', modoContabilidade: 'ambas',
+  }, token);
+
+  return { ok:true, tenantId };
+}
+
 // ── Gestão de usuários (coleção `users` é só-servidor) ───────
 async function exigirMaster(auth, token){
   const u = await fsFindUser(auth.uid, token);
@@ -693,6 +776,14 @@ export default {
       if (url.pathname === '/ponto-login') {
         const t = await getAccessToken(env);
         return json(await handlePontoLogin(body, t, env), 200, origin);
+      }
+      if (url.pathname === '/operator-login') {
+        const t = await getAccessToken(env);
+        return json(await handleOperatorLogin(body, t, env), 200, origin);
+      }
+      if (url.pathname === '/tenant-cadastrar') {
+        const t = await getAccessToken(env);
+        return json(await handleTenantCadastrar(body, t), 200, origin);
       }
 
       const auth  = await verifyIdToken(body.idToken);   // 401 se o token for inválido

@@ -6,9 +6,8 @@
   <title>DRG-Kronos — Cadastro Gratuito</title>
   <link rel="icon" href="logo.png" type="image/png">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-  <script src="firebase-config.js?v=20260508h"></script>
+  <!-- Sem SDK Firebase — todo o cadastro vai pelo Worker drg-aprovacao -->
+
   <style>
     :root {
       --primary: #1a3a6b;
@@ -201,16 +200,10 @@
 <script>
 'use strict';
 
-let fs = null;
-
-function initFirebase() {
-  if (fs) return true;
-  try {
-    if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
-    fs = firebase.firestore();
-    return true;
-  } catch(e) { return false; }
-}
+// Cadastro de novo tenant via Worker drg-aprovacao. O Worker faz todas as
+// escritas no Firestore com a conta de serviço — o cliente só envia os
+// dados e recebe { ok, tenantId }. S3 da blindagem.
+const APROVACAO_WORKER = 'https://drg-aprovacao.zett-romao.workers.dev';
 
 function mascaraCNPJ(el) {
   let v = el.value.replace(/\D/g,'').slice(0,14);
@@ -230,11 +223,6 @@ function hideError() {
   document.getElementById('alert-error').style.display = 'none';
 }
 
-async function sha256(str) {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
-  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
-}
-
 async function doCadastro() {
   hideError();
   const nome       = document.getElementById('c-nome').value.trim();
@@ -244,72 +232,41 @@ async function doCadastro() {
   const usuario    = document.getElementById('c-usuario').value.trim().toLowerCase().replace(/[^a-z0-9]/g,'');
   const senha      = document.getElementById('c-senha').value;
 
-  // Validações
+  // Validações (mantidas no cliente pra UX — o Worker valida de novo)
   if (!nome)                          { showError('Informe o nome da empresa.'); return; }
   if (cnpjRaw.length !== 14)          { showError('CNPJ inválido — verifique os 14 dígitos.'); return; }
   if (!responsavel)                   { showError('Informe o nome do responsável.'); return; }
   if (!usuario || usuario.length < 3) { showError('Usuário deve ter ao menos 3 caracteres (letras e números).'); return; }
   if (senha.length < 6)               { showError('Senha deve ter ao menos 6 caracteres.'); return; }
 
-  if (!initFirebase()) { showError('Erro ao conectar ao Firebase. Verifique firebase-config.js.'); return; }
-
   const btn = document.getElementById('btn-cadastrar');
   btn.disabled = true;
   btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Criando conta...';
 
-  const tenantId = cnpjRaw; // ID = CNPJ puro (14 dígitos)
-
   try {
-    // Verifica se tenant já existe
-    const existing = await fs.collection('operator').doc('tenants')
-                              .collection('lista').doc(tenantId).get();
-    if (existing.exists) {
-      showError('Este CNPJ já possui uma conta. Acesse o sistema ou entre em contato com o suporte.');
+    const r = await fetch(APROVACAO_WORKER + '/tenant-cadastrar', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        nome, cnpj: cnpjRaw,
+        cnpjFmt: document.getElementById('c-cnpj').value.trim(),
+        tipo, responsavel, usuario, senha,
+      }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || !data.ok || !data.tenantId) {
+      showError(data.erro || data.error || 'Erro ao criar conta.');
       btn.disabled = false;
       btn.innerHTML = '<i class="fa-solid fa-rocket"></i> Criar minha conta grátis';
       return;
     }
 
-    // Calcula validade trial (30 dias)
-    const validade = new Date();
-    validade.setDate(validade.getDate() + 30);
-    const validadeStr = validade.toISOString().split('T')[0];
-
-    // 1. Cria metadata do tenant no painel operador
-    const tenantMeta = {
-      id: tenantId, nome, cnpj: document.getElementById('c-cnpj').value.trim(),
-      tipo, plano: 'trial', status: 'trial',
-      mensalidade: 0, validade: validadeStr,
-      responsavel, criadoEm: new Date().toISOString(), updatedAt: new Date().toISOString()
-    };
-    await fs.collection('operator').doc('tenants')
-            .collection('lista').doc(tenantId).set(tenantMeta);
-
-    // 2. Cria usuário master no tenant
-    const senhaHash = await sha256(senha);
-    const userId = 'master_' + tenantId;
-    const userDoc = {
-      id: userId, username: usuario, passwordHash: senhaHash,
-      role: 'master', active: true, criadoEm: new Date().toISOString()
-    };
-    await fs.collection('tenants').doc(tenantId)
-            .collection('users').doc(userId).set(userDoc);
-
-    // 3. Cria config inicial da empresa no tenant
-    const empresaDoc = {
-      nomeEmpresa: nome, cnpj: document.getElementById('c-cnpj').value.trim(),
-      descricao: tipo, subdesc: 'Sistema de Gestão de Colaboradores',
-      logoUrl: '', modoContabilidade: 'ambas'
-    };
-    await fs.collection('tenants').doc(tenantId)
-            .collection('configuracoes').doc('empresa').set(empresaDoc);
-
     // Sucesso — mostra tela de acesso
-    localStorage.setItem('drg_tenant', tenantId);
+    localStorage.setItem('drg_tenant', data.tenantId);
     document.getElementById('tela-form').style.display = 'none';
     document.getElementById('tela-sucesso').style.display = 'block';
-    document.getElementById('sucesso-tenant-id').textContent = tenantId;
-    document.getElementById('btn-acessar').href = `index.html?tenant=${tenantId}`;
+    document.getElementById('sucesso-tenant-id').textContent = data.tenantId;
+    document.getElementById('btn-acessar').href = `index.html?tenant=${data.tenantId}`;
 
   } catch(e) {
     showError('Erro ao criar conta: ' + (e.message || String(e)));

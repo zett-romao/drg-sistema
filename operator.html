@@ -10,7 +10,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-  <script src="firebase-config.js?v=20260527c"></script>
+  <script src="firebase-config.js?v=20260527d"></script>
   <style>
     :root {
       --primary: #1a3a6b;
@@ -644,6 +644,9 @@ function renderTenants() {
           ${!isArquiv ? `<button class="btn btn-sm" onclick="gerarCobrancaTenant('${t.id}')" style="background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7" title="Gerar cobrança via Asaas">
             <i class="fa-solid fa-bolt"></i> Cobrar
           </button>` : ''}
+          ${isArquiv && !isMeu ? `<button class="btn btn-danger btn-sm" onclick="confirmarExcluirTenant('${t.id}')" title="Excluir permanentemente — apaga todos os dados do cliente">
+            <i class="fa-solid fa-trash"></i> Excluir
+          </button>` : ''}
         </div>
       </td>
     </tr>`;
@@ -683,6 +686,48 @@ async function confirmarArquivar(id) {
     renderStats(); renderTenants();
   };
   document.getElementById('modal-confirm').classList.add('open');
+}
+
+// Exclusão IRREVERSÍVEL — apaga tenant + todos os dados em tenants/{id}/*.
+// Dupla confirmação: 1) digitar o nome exato; 2) confirm final.
+async function confirmarExcluirTenant(id) {
+  const t = _tenants.find(x=>x.id===id); if (!t) return;
+  if (t.status !== 'arquivado') { alert('Arquive o tenant antes de excluir.'); return; }
+
+  const typed = prompt(
+    `⚠️ EXCLUSÃO IRREVERSÍVEL\n\n` +
+    `Isso vai apagar TODOS os dados do tenant "${t.nome}":\n` +
+    `• Colaboradores, folhas, escalas, atestados, banco de horas, etc.\n` +
+    `• Arquivos no Storage (fotos, PDFs) NÃO são removidos automaticamente.\n\n` +
+    `Para confirmar, digite o nome EXATO do tenant abaixo:\n\n${t.nome}`
+  );
+  if (typed === null) return;
+  if (typed.trim() !== (t.nome || '').trim()) {
+    alert('Nome digitado não bate. Exclusão cancelada.');
+    return;
+  }
+  if (!confirm(`Última confirmação: APAGAR PERMANENTEMENTE o tenant "${t.nome}"?`)) return;
+
+  try {
+    const user = firebase.auth().currentUser;
+    if (!user) { alert('Sessão expirada — faça login novamente.'); return; }
+    const idToken = await user.getIdToken();
+    const r = await fetch(APROVACAO_WORKER + '/tenant-excluir', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ idToken, tenantId: id }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || !data.ok) {
+      alert('Erro ao excluir: ' + (data.erro || data.error || 'desconhecido'));
+      return;
+    }
+    alert(`Tenant excluído. ${data.deletedDocs || 0} documento(s) removido(s).`);
+    _tenants = _tenants.filter(x => x.id !== id);
+    renderStats(); renderTenants();
+  } catch(e) {
+    alert('Erro de rede: ' + (e.message || e));
+  }
 }
 
 // ─── MODAL GERENCIAR / NOVO TENANT ───────────────────────────────────────────

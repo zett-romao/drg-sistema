@@ -24,6 +24,7 @@
  *   /ponto-login       { matricula, pin }               → [PÚBLICA] valida colaborador e devolve custom token (role: colaborador)
  *   /operator-login    { password }                     → [PÚBLICA] valida a senha do Painel do Operador e devolve custom token (role: operator)
  *   /tenant-cadastrar  { nome, cnpj, tipo, responsavel, usuario, senha } → [PÚBLICA] cria tenant trial 30 dias
+ *   /tenant-excluir    { idToken, tenantId }            → [operator] apaga tenant ARQUIVADO + todos os dados
  *   /usuarios/listar       { idToken }                          → [master] lista usuários (sem hash)
  *   /usuarios/salvar       { idToken, user, novaSenha? }        → [master] cria/edita usuário
  *   /usuarios/excluir      { idToken, id }                      → [master] exclui usuário
@@ -560,6 +561,84 @@ async function handleTenantCadastrar(body, token){
   return { ok:true, tenantId };
 }
 
+// ── Excluir tenant (Painel do Operador) ──────────────────────
+// Apaga a metadata em operator/tenants/lista/{id} + todos os dados
+// em tenants/{id}/* (recursivo, paginado). Duas travas server-side:
+//   1. Só sessão do operador (uid === 'operator-default', minted por
+//      /operator-login) pode chamar.
+//   2. O tenant TEM que estar status === 'arquivado'. Quem tenta
+//      excluir um ativo precisa arquivar antes.
+// Storage NÃO é tocado — fica para o usuário limpar no Console
+// (Firebase REST não tem delete recursivo de Storage barato).
+async function listSubcollections(parentPath, token){
+  const url = FS_BASE + (parentPath ? '/' + parentPath : '') + ':listCollectionIds';
+  const ids = [];
+  let pageToken = null;
+  do {
+    const body = { pageSize: 100 };
+    if (pageToken) body.pageToken = pageToken;
+    const res = await fetch(url, {
+      method:  'POST',
+      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body:    JSON.stringify(body),
+    });
+    if (!res.ok) break;
+    const data = await res.json();
+    (data.collectionIds || []).forEach(id => ids.push(id));
+    pageToken = data.nextPageToken || null;
+  } while (pageToken);
+  return ids;
+}
+async function deleteCollection(collPath, token){
+  let total = 0;
+  let pageToken = null;
+  do {
+    const url = FS_BASE + '/' + collPath + '?pageSize=300'
+              + (pageToken ? '&pageToken=' + encodeURIComponent(pageToken) : '');
+    const res = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+    if (!res.ok) break;
+    const data = await res.json();
+    const docs = data.documents || [];
+    // Deleta em paralelo, em chunks de 10, pra acelerar sem estourar o Worker
+    for (let i = 0; i < docs.length; i += 10) {
+      const chunk = docs.slice(i, i + 10);
+      await Promise.all(chunk.map(d => {
+        const path = d.name.replace(FS_BASE + '/', '');
+        return fsDeleteDoc(path, token);
+      }));
+    }
+    total += docs.length;
+    pageToken = data.nextPageToken || null;
+  } while (pageToken);
+  return total;
+}
+async function handleTenantExcluir(auth, body, token){
+  if (auth.uid !== 'operator-default')
+    return { ok:false, erro:'apenas o Painel do Operador pode excluir tenants' };
+
+  const tenantId = String(body.tenantId || '').trim();
+  if (!tenantId) return { ok:false, erro:'tenantId não informado' };
+
+  const meta = await fsGetDoc('operator/tenants/lista/' + tenantId, token);
+  if (!meta) return { ok:false, erro:'tenant não encontrado' };
+  if (meta.status !== 'arquivado')
+    return { ok:false, erro:'só dá pra excluir tenants ARQUIVADOS — arquive primeiro' };
+
+  let deleted = 0;
+
+  // Apaga todas as subcoleções de tenants/{id}/
+  const subcols = await listSubcollections('tenants/' + tenantId, token);
+  for (const col of subcols) {
+    deleted += await deleteCollection('tenants/' + tenantId + '/' + col, token);
+  }
+
+  // Apaga o doc parent (se existir como doc autônomo) e a metadata
+  try { await fsDeleteDoc('tenants/' + tenantId, token); } catch (_) { /* não existia */ }
+  await fsDeleteDoc('operator/tenants/lista/' + tenantId, token);
+
+  return { ok:true, deletedDocs: deleted };
+}
+
 // ── Gestão de usuários (coleção `users` é só-servidor) ───────
 async function exigirMaster(auth, token){
   const u = await fsFindUser(auth.uid, token);
@@ -793,6 +872,7 @@ export default {
       if (url.pathname === '/mfa/confirm') return json(await handleConfirm(auth, body.code, token), 200, origin);
       if (url.pathname === '/mfa/status')  return json(await handleStatus(auth, token), 200, origin);
       if (url.pathname === '/aprovar-pagamento') return json(await handleAprovarPagamento(auth, body, token, env), 200, origin);
+      if (url.pathname === '/tenant-excluir')    return json(await handleTenantExcluir(auth, body, token), 200, origin);
       if (url.pathname === '/usuarios/listar')       return json(await handleUsuariosListar(auth, token), 200, origin);
       if (url.pathname === '/usuarios/salvar')       return json(await handleUsuariosSalvar(auth, body, token), 200, origin);
       if (url.pathname === '/usuarios/excluir')      return json(await handleUsuariosExcluir(auth, body, token), 200, origin);

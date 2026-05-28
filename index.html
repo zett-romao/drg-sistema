@@ -551,6 +551,12 @@
           </div>
           <div style="display:flex;align-items:center;gap:8px">
             <span id="fechamento-status-badge"></span>
+            <button id="btn-migrar-competencia" class="btn btn-sm" onclick="migrarParaCompetencia()" style="background:#6D4C41;color:#fff;border:none;font-size:12px;white-space:nowrap" title="AÇÃO ÚNICA na virada para o modelo de competência (fecha dia 25): move os dias 26-31 já gravados para a folha da competência do mês seguinte. Faça backup antes. Roda só uma vez.">
+              <i class="fa-solid fa-arrows-turn-right"></i> Migrar p/ competência (1x)
+            </button>
+            <button id="btn-backfill-periodo" class="btn btn-sm" onclick="backfillFolhasPeriodo()" style="background:#00897B;color:#fff;border:none;font-size:12px;white-space:nowrap" title="Preenche os dias sem ponto real com as horas previstas pela escala/cadastro, por colaborador, até a 1ª batida real. Use só na virada para o novo modelo.">
+              <i class="fa-solid fa-wand-magic-sparkles"></i> Preencher folhas do período
+            </button>
             <button id="btn-fechar-periodo" class="btn btn-sm" onclick="fecharPeriodo()" style="background:#5C6BC0;color:#fff;border:none;font-size:12px;white-space:nowrap;display:none">
               <i class="fa-solid fa-lock"></i> Fechar Todas as Folhas
             </button>
@@ -5705,6 +5711,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260528g"></script>
+<script src="app.js?v=20260528i"></script>
 </body>
 </html>

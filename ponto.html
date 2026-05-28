@@ -456,7 +456,7 @@
 // ─── VERSÃO DO APP DO COLABORADOR ─────────────────────────────────────────────
 // Bumpe SEMPRE em conjunto com o CACHE do ponto-sw.js e o ?v= do firebase-config.
 // Formato: AA.MM.DD + letra (a, b, c...) — alinhado com o nome do cache.
-const PONTO_VERSION = '25.05.27a';
+const PONTO_VERSION = '25.05.28a';
 // Exibe a versão no rodapé (script roda após o DOM, então o elemento já existe)
 (function _setVersionTag(){
   const t = document.getElementById('app-version-tag');
@@ -511,7 +511,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=28').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=29').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -758,10 +758,34 @@ function renderEmp() {
   }
 }
 
+// ─── COMPETÊNCIA — fechamento no dia 25 ─────────────────────────────────────
+// Espelha a lógica do gestor (app.js): a competência "mês M" cobre 26/(M-1)→25/M.
+// Os dias 26..31 pertencem ao mês anterior; 1..25 ao mês da competência.
+function _compPeriodo(mes, ano){
+  let pm=mes-1, pa=ano; if(pm<1){ pm=12; pa=ano-1; }
+  const z=n=>String(n).padStart(2,'0');
+  return { deISO:`${pa}-${z(pm)}-26`, ateISO:`${ano}-${z(mes)}-25`, deMes:pm, deAno:pa };
+}
+function _compDias(mes, ano){
+  const out=[]; const p=_compPeriodo(mes,ano);
+  const lastPrev=new Date(p.deAno, p.deMes, 0).getDate();
+  for(let d=26; d<=lastPrev; d++) out.push({dia:d, mes:p.deMes, ano:p.deAno, diaSem:new Date(p.deAno, p.deMes-1, d).getDay()});
+  for(let d=1; d<=25; d++)        out.push({dia:d, mes, ano, diaSem:new Date(ano, mes-1, d).getDay()});
+  return out;
+}
+// Competência (mes/ano) a que uma data real (dia/mes/ano) pertence.
+function _competenciaDe(dia, mes, ano){
+  if(dia>=26){ let cm=mes+1, cy=ano; if(cm>12){ cm=1; cy=ano+1; } return {mes:cm, ano:cy}; }
+  return {mes, ano};
+}
+
 async function carregarPayroll() {
-  const now = new Date();
-  const mes = now.getMonth() + 1;
-  const ano = now.getFullYear();
+  // Usa a competência da jornada atual (turno noturno cruza meia-noite) — o ponto
+  // do dia 26+ cai na competência do mês seguinte (fechamento no dia 25).
+  const j = _diaJornada();
+  const comp = _competenciaDe(j.dia, j.mes, j.ano);
+  const mes = comp.mes;
+  const ano = comp.ano;
   try {
     const snap = await dbCol('payrolls')
       .where('employeeId', '==', currentEmp.id)
@@ -1251,8 +1275,11 @@ async function baterPonto() {
     renderBotao(); return;
   }
   const j    = _diaJornada();
-  const mes  = j.mes;
-  const ano  = j.ano;
+  // A batida vai para a folha da COMPETÊNCIA (fecha dia 25); o dia gravado é o
+  // dia real do calendário (26..31 do mês anterior ou 1..25 do mês atual).
+  const _comp= _competenciaDe(j.dia, j.mes, j.ano);
+  const mes  = _comp.mes;
+  const ano  = _comp.ano;
   const dia  = j.dia;
   const dsem = new Date(j.ano, j.mes-1, j.dia).getDay();
 
@@ -1503,21 +1530,29 @@ async function enviarDocumento(){
 
 // ─── HISTÓRICO ────────────────────────────────────────────────────────────────
 function renderHistorico() {
-  const now     = new Date();
-  const mes     = now.getMonth() + 1;
-  const ano     = now.getFullYear();
-  const nDias   = new Date(ano, mes, 0).getDate();
-  const hoje    = now.getDate();
+  // Histórico da competência atual (26/mês-anterior → 25/mês; fecha dia 25).
+  const j       = _diaJornada();
+  const comp    = _competenciaDe(j.dia, j.mes, j.ano);
+  const mes     = comp.mes;
+  const ano     = comp.ano;
   const lista   = document.getElementById('hist-lista');
-  document.getElementById('hist-titulo').textContent = `${MESES[mes]} / ${ano}`;
+  const per     = _compPeriodo(mes, ano);
+  const _lbl    = `26/${String(per.deMes).padStart(2,'0')} → 25/${String(mes).padStart(2,'0')}`;
+  document.getElementById('hist-titulo').textContent = `${MESES[mes]} / ${ano} · ${_lbl}`;
 
   const dias = currentPayroll?.pontoManualDias || [];
+  const todayMid = new Date(); todayMid.setHours(0,0,0,0);
   let html   = '';
 
-  for (let d = nDias; d >= 1; d--) {
-    const dow   = new Date(ano, mes-1, d).getDay();
+  // Mais recente primeiro: inverte a ordem cronológica da competência.
+  const ordem = _compDias(mes, ano).slice().reverse();
+  for (const cd of ordem) {
+    const d     = cd.dia;
+    const dow   = cd.diaSem;
     const isWk  = dow === 0 || dow === 6;
-    const ehHj  = d === hoje;
+    const realDate = new Date(cd.ano, cd.mes-1, cd.dia); realDate.setHours(0,0,0,0);
+    const ehHj  = realDate.getTime() === todayMid.getTime();
+    const ehPassado = realDate < todayMid;
     const p     = dias.find(x => x.dia === d) || {};
     let itens   = '';
 
@@ -1532,13 +1567,13 @@ function renderHistorico() {
 
     if (!p.entrada && !p.saida) {
       if (isWk) itens = `<span class="hp folga">Folga</span>`;
-      else if (d < hoje) itens = `<span class="hp falta">Sem registro</span>`;
+      else if (ehPassado) itens = `<span class="hp falta">Sem registro</span>`;
       else itens = `<span class="hp vazio">—</span>`;
     }
 
     html += `<div class="hist-day${ehHj?' hoje':''}">
       <div class="hist-day-header">
-        <div class="hist-dia-num">${String(d).padStart(2,'0')}${ehHj?'<span class="hist-hoje-badge">HOJE</span>':''}</div>
+        <div class="hist-dia-num">${String(d).padStart(2,'0')}/${String(cd.mes).padStart(2,'0')}${ehHj?'<span class="hist-hoje-badge">HOJE</span>':''}</div>
         <div class="hist-dia-sem">${DIAS[dow]}</div>
       </div>
       <div class="hist-punches">${itens}</div>

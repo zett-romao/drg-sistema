@@ -202,6 +202,37 @@ O app do colaborador é instalável como PWA (tem `manifest.json` + service work
 
 ## Pendências conhecidas
 
+### EM ANDAMENTO — Folha de ponto fecha no dia 25 (competência 26→25) — HANDOFF 2026-05-28
+**Status: código VALIDADO (sintaxe + revisão completa do diff em 2026-05-28), NÃO commitado, NÃO publicado.** Continuar daqui.
+
+**⚠️ BLOCKER encontrado na revisão (2026-05-28) — resolvido com migração:** virar a chave em cima dos dados antigos REINTERPRETA o que já está salvo. No modelo antigo a batida de 26/05 era gravada como `{mes:5, dia:26}` (= 26 de maio). O código novo lê `{mes:5, dia:26}` como **26/04** (dias 26-31 = mês anterior). Logo, batidas já gravadas nos dias 26-31 seriam lidas como o mês anterior, corrompendo a competência maio e deixando junho sem elas. **Fix:** função nova `migrarParaCompetencia()` (1x) que move os dias 26-31 de cada folha para a competência do mês seguinte, ANTES de publicar/backfill. Usuário confirmou que há batidas nos dias 26-31, então a migração é obrigatória.
+
+**Decisão do usuário (2026-05-28):** a folha de ponto deixa de ser mês de calendário e passa a **fechar no dia 25**. Competência "mês M" = **26/(M-1) → 25/M**. Motivo: apurar benefícios (VT/VR/VA) e pagar até o último dia do mês (lei). Bonificação (Boa Permanência) é exceção: apura faltas no mesmo período 26→25, mas é creditada junto do salário (no VR), não no pagamento adiantado.
+- **1º ciclo (decisão do usuário 2026-05-28):** competência maio paga o ciclo CHEIO **26/04→25/05** (usuário entende que abril deveria ter fechado 25/04, então 26-30/abril pertence a maio). ⚠️ Abril foi pago "cheio" (mês de calendário, incl. 26-30/abril) por fora do sistema — atenção pra não pagar 26-30/abril em dobro; a regra do sistema segue a decisão (maio cheia).
+- Sistema é NOVO: abril não estava nele (logo, abril 26-30 vem do backfill projetado, não de dado real). Maio aberta; deveria ter fechado 25/05.
+- Período = **26→25**. Alvo imediato = **competência maio (26/04→25/05)** — migrar + backfill + fechar pra pagar benefícios até 31/05.
+- Backfill = projetar horas esperadas (escala/cadastro, sem faltas) nos dias SEM ponto real, por colaborador, de `max(início período, admissão)` até a 1ª batida real; depois da 1ª batida vale o ponto real (dia útil sem batida = falta); sem batidas = período todo projetado.
+
+**Estratégia:** folha continua identificada por `{employeeId, mes, ano}` (mes/ano = rótulo da competência) e `pontoManualDias` por número do dia (26–31 não colidem com 1–25). Mudou só: loops de dias → iteram a competência; ao consultar escala/horário, passa a **data real** (abril p/ 26–30, maio p/ 1–25). Escalas seguem por mês de calendário (só a leitura cruza dois docs).
+
+**Feito (working tree, sem commit):**
+- `app.js`: helpers novos (`_compPeriodo`, `_compRealDate`, `_compDias`, `_competenciaDe`, `_compLabel`, `_compDiaOrd`, `_getExpectedDayComp`) logo após `currentAno()`; `_autoFillPeriodoDates` e painel de fechamento (label mostra "26/04 → 25/05"); `_diasPrevistosEscala`/`_diasPrevistosComVR` iteram `_compDias`; grid do Ponto Manual (`openPontoManual`) renderiza por `_compDias` e grava `data-realmes`/`data-realano` no card (dia exibido DD/MM); `calcResumoManual`/`applyPontoManual`/`printPreviewParcial` usam a data real por card; impressões `printFolhaPonto`/`_buildFolhaHtmlFromRecord`/`_heRecusadasHtml` iteram competência; `_heMinFromDias`/`_payrollTemPendente`/`_getPendentesHEList`/dashboard HE/`openHEReview`/`saveHEReview` usam `_getExpectedDayComp`; `_avisoFolhaImpressa` = "competência em andamento"; Benefícios "Este Mês" = `_compPeriodo` do mês de calendário atual; cross-check da bonificação usa `_competenciaDe`; banco de horas validade = fim da competência; prompt da IA descreve o período; listas de atraso/saída ordenam por `_compDiaOrd`. **Bug crítico corrigido:** `_pontoDiaReal` e `_colabTrabalhaNoDia` buscavam a batida no mês errado — agora resolvem a competência da data (batida de 26/04 está na folha de maio). Função nova **`backfillFolhasPeriodo()`** (só master) após `reabrirFolha`. Função nova **`migrarParaCompetencia()`** (só master, roda 1x via marcador `configuracoes/migracao_competencia`, aborta se folha afetada estiver FECHADA, calcula a partir de snapshot) logo após `backfillFolhasPeriodo` — move dias 26-31 de cada folha p/ a competência do mês seguinte.
+- `index.html`: botão "Preencher folhas do período" (`backfillFolhasPeriodo()`) + botão "Migrar p/ competência (1x)" (`migrarParaCompetencia()`) no painel de fechamento; cache-buster `app.js?v=20260528i`.
+- `ponto.html`: helpers de competência; `carregarPayroll` e a gravação da batida usam a competência da jornada (dia ≥26 cai no mês seguinte); `renderHistorico` itera a competência; `PONTO_VERSION` 25.05.28a; SW `?v=29`.
+- `ponto-sw.js`: `CACHE` → `drg-ponto-v29-20260528b`.
+
+**FALTA fazer:**
+1. ✅ `node --check` (app.js/ponto-sw.js/aprovacao-worker.js) — OK em 2026-05-28. Revisão completa do diff — OK (helpers, backfill, ponto.html consistentes; sem bug de lógica; sem regressão). Único achado = o BLOCKER acima, resolvido pela migração.
+2. **Backup** de `payrolls` antes de qualquer migração/backfill (botão Backup no painel do banco, na sidebar — exporta employees+payrolls+users+accessLog).
+3. **MIGRAÇÃO (1x, ANTES do backfill):** Folha de Ponto → competência maio → botão **"Migrar p/ competência (1x)"**. Move maio 26-31 → junho e traz abril 26-30 → maio (abril vazio no sistema, então fica vazio até o backfill). Confirmar toast de conclusão. (Roda só uma vez; o marcador impede repetição.)
+4. Rodar o **backfill** (botão "Preencher folhas do período"). Conferir 3 colaboradores-amostra (um com batidas o período todo, um admitido no meio, um sem batida): dias trabalhados, faltas, VT/VR/VA, líquido. Conferir tb que junho começou com maio 26-31.
+5. Benefícios a Pagar → "Este Mês" deve refletir 26/04→25/05.
+6. App do ponto: bater em data ≥26 cai na competência seguinte; histórico mostra o período.
+7. **Fechar** a competência maio e conferir a bonificação (faltas no período 26→25).
+8. Só então `git commit` + `git push` (deploy GitHub Pages). Bumpar cache-busters de novo se mexer nos arquivos.
+
+Plano detalhado original ficou em `C:\Users\doniz\.claude\plans\shimmying-tumbling-sunset.md` (NÃO sincroniza pelo Drive — este bloco é o resumo canônico).
+
 ### EM ANDAMENTO — Migração de Segurança (Firebase Auth + regras + aprovação)
 Decisão do usuário em 2026-05-17: implementar o modelo de segurança em 3 camadas do sistema irmão DRG-Garantidora (perfis + back-end autenticado + fluxo lançar→aprovar com 2FA TOTP). Pré-requisito: o DRG-Kronos usa Auth caseiro (SHA-256/sessionStorage) e Firestore `if true` — precisa migrar para Firebase Auth e endurecer as regras antes de qualquer "aprovação" ser real.
 Plano em 4 etapas: **(1)** preparação (Firebase Console: habilitar E-mail/senha, gerar service account JSON; adicionar campo e-mail ao cadastro de usuários). **(2)** login via Firebase Auth com **migração transparente** (no 1º login o sistema cria a conta Firebase com a senha que o usuário digitou; fallback total para o SHA-256 antigo — ninguém é travado). **(3)** endurecer regras do Firestore (sair do `if true`). **(4)** Worker de aprovação + TOTP + fluxo lançar→aprovar.

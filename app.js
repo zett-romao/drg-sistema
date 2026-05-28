@@ -784,6 +784,48 @@ function initials(name){
 function currentMes(){ return new Date().getMonth()+1; }
 function currentAno(){ return new Date().getFullYear(); }
 
+// ─── COMPETÊNCIA — fechamento no dia 25 ─────────────────────────────────────
+// A folha de ponto fecha no dia 25. A competência "mês M" cobre o período
+// 26/(M-1) → 25/M (cruza dois meses de calendário). Os dias 26..31 pertencem
+// ao mês anterior; os dias 1..25 ao mês da competência. Como 26..31 não colidem
+// com 1..25, o número do dia continua único dentro do período.
+function _zp(n){ return String(n).padStart(2,'0'); }
+// Período da competência {mes,ano} → datas ISO + mês/ano de início (mês anterior).
+function _compPeriodo(mes, ano){
+  mes=parseInt(mes); ano=parseInt(ano);
+  let pm=mes-1, pa=ano; if(pm<1){ pm=12; pa=ano-1; }
+  return { deISO:`${pa}-${_zp(pm)}-26`, ateISO:`${ano}-${_zp(mes)}-25`, deMes:pm, deAno:pa };
+}
+// Converte um "dia" da competência na sua data real de calendário.
+function _compRealDate(mes, ano, dia){
+  mes=parseInt(mes); ano=parseInt(ano); dia=parseInt(dia);
+  if(dia>=26){ let pm=mes-1, pa=ano; if(pm<1){ pm=12; pa=ano-1; } return {dia, mes:pm, ano:pa}; }
+  return {dia, mes, ano};
+}
+// Lista ordenada dos dias da competência: {dia, mes, ano(reais), diaSem}.
+function _compDias(mes, ano){
+  mes=parseInt(mes); ano=parseInt(ano);
+  const out=[]; const p=_compPeriodo(mes,ano);
+  const lastPrev=new Date(p.deAno, p.deMes, 0).getDate();
+  for(let d=26; d<=lastPrev; d++) out.push({dia:d, mes:p.deMes, ano:p.deAno, diaSem:new Date(p.deAno, p.deMes-1, d).getDay()});
+  for(let d=1; d<=25; d++)        out.push({dia:d, mes, ano, diaSem:new Date(ano, mes-1, d).getDay()});
+  return out;
+}
+// A competência {mes,ano} a que uma data real pertence.
+function _competenciaDe(date){
+  const d=date.getDate(), m=date.getMonth()+1, y=date.getFullYear();
+  if(d>=26){ let cm=m+1, cy=y; if(cm>12){ cm=1; cy=y+1; } return {mes:cm, ano:cy}; }
+  return {mes:m, ano:y};
+}
+// Label legível do período (ex.: "26/04 → 25/05").
+function _compLabel(mes, ano){
+  const p=_compPeriodo(mes, ano);
+  return `${_zp(26)}/${_zp(p.deMes)} → 25/${_zp(parseInt(mes))}`;
+}
+// Ordem cronológica de um "dia" dentro da competência (26..31 do mês anterior
+// vêm ANTES de 1..25 do mês atual).
+function _compDiaOrd(dia){ dia=parseInt(dia)||0; return dia>=26 ? dia-100 : dia; }
+
 function toast(msg, type='success'){
   const icons={success:'fa-circle-check',error:'fa-circle-xmark',warning:'fa-triangle-exclamation',info:'fa-circle-info'};
   const el=document.createElement('div');
@@ -1882,7 +1924,7 @@ function renderDashboard(){
     let hasPendente = false;
     p.pontoManualDias.forEach(d => {
       if(!d.entrada || !d.saida) return;
-      const exp = _getExpectedDay(emp, p.mes, p.ano, d.dia);
+      const exp = _getExpectedDayComp(emp, p.mes, p.ano, d.dia);
       if(!exp || !exp.entrada) return;
       const detec = _detectHEDivergencia(d, exp);
       if(detec.precisaRevisao && (d.heReview?.status||'pendente')==='pendente'){
@@ -4726,12 +4768,14 @@ function renderBeneficiosLista(){
     escopo = 'dia';
     periodoLabel = `<strong>Hoje (${new Date().toLocaleDateString('pt-BR')})</strong>`;
   } else if(tab === 'mes'){
+    // Competência paga no fim deste mês = a rotulada pelo mês de calendário atual
+    // (fecha no dia 25). Período 26/(mês-1) → 25/mês.
     const d = new Date();
-    const ano = d.getFullYear(), m = d.getMonth();
-    ini = new Date(ano, m, 1).toISOString().substring(0,10);
-    fim = new Date(ano, m+1, 0).toISOString().substring(0,10);
+    const cMes = d.getMonth()+1, cAno = d.getFullYear();
+    const per = _compPeriodo(cMes, cAno);
+    ini = per.deISO; fim = per.ateISO;
     escopo = 'mes';
-    periodoLabel = `<strong>Este mês — ${MESES[m+1]}/${ano}</strong>`;
+    periodoLabel = `<strong>Competência ${MESES[cMes]}/${cAno} — ${_compLabel(cMes,cAno)}</strong>`;
   } else {
     const s = _semanaDe(hojeISO);
     ini = s.inicio; fim = s.fim;
@@ -5179,8 +5223,9 @@ function _colabTrabalhaNoDia(emp, dataISO){
     const sav = esc.dias.find(x => x.dia===dia);
     if(sav) return sav.tipo === 'trabalho' || sav.tipo === 'corrido';
   }
-  // 2) Ponto manual / batido?
-  const pay = (State.payrolls||[]).find(p => p.employeeId===emp.id && p.mes==mes && p.ano==ano);
+  // 2) Ponto manual / batido? (a batida fica na folha da competência da data)
+  const comp = _competenciaDe(d);
+  const pay = (State.payrolls||[]).find(p => p.employeeId===emp.id && p.mes==comp.mes && p.ano==comp.ano);
   if(pay?.pontoManualDias?.length){
     const d2 = pay.pontoManualDias.find(x => x.dia===dia);
     if(d2 && d2.entrada && d2.saida) return true;
@@ -5222,8 +5267,11 @@ function _diasTrabalhadosNoIntervalo(emp, dataInicioISO, dataFimISO){
 }
 
 // Retorna o registro de ponto REAL (pontoManualDias) de um dia, ou null.
+// A batida fica na folha da COMPETÊNCIA da data real (fecha dia 25): o dia 26/04
+// está na folha de maio, não na de abril. Resolve a competência antes de buscar.
 function _pontoDiaReal(emp, ano, mes, dia){
-  const pay = (State.payrolls||[]).find(p => p.employeeId===emp.id && p.mes==mes && p.ano==ano);
+  const comp = _competenciaDe(new Date(ano, mes-1, dia));
+  const pay = (State.payrolls||[]).find(p => p.employeeId===emp.id && p.mes==comp.mes && p.ano==comp.ano);
   if(!pay || !Array.isArray(pay.pontoManualDias)) return null;
   return pay.pontoManualDias.find(d => d.dia===dia) || null;
 }
@@ -5314,7 +5362,8 @@ function _calcBeneficiosColab(emp, dataInicioISO, dataFimISO, escopo){
   // só quando a folha daquele mês está FECHADA (bonificação já apurada).
   if(escopo === 'mes'){
     const _d = new Date(dataInicioISO + 'T12:00:00');
-    const payMes = (State.payrolls||[]).find(p=>p.employeeId===empE.id && p.mes==(_d.getMonth()+1) && p.ano==_d.getFullYear());
+    const _comp = _competenciaDe(_d);
+    const payMes = (State.payrolls||[]).find(p=>p.employeeId===empE.id && p.mes==_comp.mes && p.ano==_comp.ano);
     if(payMes && payMes.status==='fechada' && (payMes.bonificacao||0) > 0){
       out.bonusVr = payMes.bonificacao;
       out.vrValor += out.bonusVr;
@@ -5620,7 +5669,7 @@ function renderSaidasFolha(){
   if(!empId){ resumo.textContent='Selecione um colaborador para ver as saídas.'; lista.innerHTML=''; return; }
   const emp=State.employees.find(e=>e.id===empId);
   const arr=(State.saidas||[]).filter(s=>s.employeeId===empId&&s.mes==mes&&s.ano==ano)
-    .sort((a,b)=>(parseInt(a.dia)||0)-(parseInt(b.dia)||0));
+    .sort((a,b)=>_compDiaOrd(a.dia)-_compDiaOrd(b.dia));
   const tot=_saidaTotais(empId,mes,ano);
   resumo.innerHTML = tot.count
     ? `<i class="fa-solid fa-circle-info"></i> <strong>${tot.count} saída(s) · ${minutesToStr(tot.minutos)}</strong> — ${tot.minutosDesc>0?minutesToStr(tot.minutosDesc)+' com desconto':'todas abonadas'}.`
@@ -5770,7 +5819,7 @@ function renderAtrasosFolha(){
   const ano=parseInt(val('payroll-ano')||currentAno());
   if(!empId){ resumo.textContent='Selecione um colaborador para ver os atrasos.'; lista.innerHTML=''; return; }
   const arr=(State.atrasos||[]).filter(a=>a.employeeId===empId&&a.mes==mes&&a.ano==ano)
-    .sort((a,b)=>(parseInt(a.dia)||0)-(parseInt(b.dia)||0));
+    .sort((a,b)=>_compDiaOrd(a.dia)-_compDiaOrd(b.dia));
   const tot=_atrasoTotais(empId,mes,ano);
   resumo.innerHTML = tot.count
     ? `<i class="fa-solid fa-circle-info"></i> <strong>${tot.count} atraso(s) · ${minutesToStr(tot.minutos)}</strong> — ${tot.minutosDesc>0?minutesToStr(tot.minutosDesc)+' com desconto':'todos abonados'}.`
@@ -5944,10 +5993,9 @@ async function _sincronizarAtrasosDoPonto(empId, mes, ano, detectados){
 // escala (escala salva > âncora 12x36 > contratual). Base do proporcional.
 function _diasPrevistosEscala(emp, mes, ano){
   if(!emp) return 0;
-  const dpm = new Date(ano, mes, 0).getDate();
   let n = 0;
-  for(let d=1; d<=dpm; d++){
-    const exp = _getExpectedDay(emp, mes, ano, d);
+  for(const d of _compDias(mes, ano)){
+    const exp = _getExpectedDay(emp, d.mes, d.ano, d.dia);
     if(exp && exp.tipo!=='folga' && exp.entrada) n++;
   }
   return n;
@@ -5958,10 +6006,9 @@ function _diasPrevistosEscala(emp, mes, ano){
 // mas NÃO pro VR. Usado pra calcular a proporção de VR na folha.
 function _diasPrevistosComVR(emp, mes, ano){
   if(!emp) return 0;
-  const dpm = new Date(ano, mes, 0).getDate();
   let n = 0;
-  for(let d=1; d<=dpm; d++){
-    const exp = _getExpectedDay(emp, mes, ano, d);
+  for(const d of _compDias(mes, ano)){
+    const exp = _getExpectedDay(emp, d.mes, d.ano, d.dia);
     if(exp && exp.tipo!=='folga' && exp.entrada && _liqMin(exp) > 360) n++;
   }
   return n;
@@ -6672,7 +6719,8 @@ async function _syncBancoFromPayroll(record){
   const existing=(State.bancoHoras||[]).find(b=>b.id===docId);
   if(record.heDestino==='banco' && (record.horasExtrasTotal||0)>0){
     const validadeMeses=State.cct?.bancoValidadeMeses||12;
-    const dataLanc=_ultimoDiaMesISO(record.mes, record.ano);
+    // Data do lançamento = fim da competência (dia 25), não o último dia do mês.
+    const dataLanc=_compPeriodo(record.mes, record.ano).ateISO;
     const doc={
       id:docId, employeeId:record.employeeId, tipo:'credito',
       horas:record.horasExtrasTotal, data:dataLanc,
@@ -6821,17 +6869,14 @@ function _periodoKey(mes,ano){ return `${ano}_${mes}`; }
 function _autoFillPeriodoDates(mes,ano){
   mes=parseInt(mes); ano=parseInt(ano);
   if(!mes||!ano) return;
-  const pad=n=>String(n).padStart(2,'0');
-  const ultimoDia=new Date(ano,mes,0).getDate();
-  const de=`${ano}-${pad(mes)}-01`;
-  const ate=`${ano}-${pad(mes)}-${pad(ultimoDia)}`;
+  // Competência fecha no dia 25: período 26/(mês-1) → 25/mês.
+  const p=_compPeriodo(mes,ano);
+  const de=p.deISO, ate=p.ateISO;
   const deEl=document.getElementById('payroll-periodo-de');
   const ateEl=document.getElementById('payroll-periodo-ate');
-  if(deEl&&!deEl.value) deEl.value=de;
-  if(ateEl&&!ateEl.value) ateEl.value=ate;
-  // Força preenchimento se campo estiver no mês anterior
-  if(deEl&&deEl.value.substring(0,7)!==`${ano}-${pad(mes)}`) deEl.value=de;
-  if(ateEl&&ateEl.value.substring(0,7)!==`${ano}-${pad(mes)}`) ateEl.value=ate;
+  // Sempre força o período correto da competência (campos são informativos/derivados).
+  if(deEl) deEl.value=de;
+  if(ateEl) ateEl.value=ate;
 }
 
 function onPayrollPeriodoChange(){
@@ -6852,7 +6897,7 @@ async function _updatePainelFechamento(mes,ano){
   const btnFechar=document.getElementById('btn-fechar-periodo');
   const infoFechado=document.getElementById('fechamento-periodo-fechado-info');
   const dataInput=document.getElementById('fechamento-data-input');
-  if(label) label.textContent=`${MESES[mes]} / ${ano}`;
+  if(label) label.textContent=`${MESES[mes]} / ${ano}  ·  ${_compLabel(mes,ano)}`;
 
   // Carregar config do Firestore
   let conf={};
@@ -7000,6 +7045,201 @@ async function reabrirFolha(){
     toast(`Folha de ${emp.nome} reaberta para edição.`);
     _updateFolhaStatusBadge();
   }catch(e){ toast('Erro ao reabrir folha.','error'); }
+}
+
+// ============================================
+// BACKFILL — preenche folhas do período com as horas previstas
+// ============================================
+// Ação ÚNICA usada na virada para o modelo de competência (fecha dia 25).
+// Para cada colaborador ativo (não isento), projeta as horas esperadas
+// (escala/cadastro, sem faltas) nos dias SEM ponto real, do início do período
+// (ou da admissão) até a 1ª batida real. Depois da 1ª batida, vale o ponto real
+// (dia útil sem batida = falta, como já é). Dias com batida real não são tocados.
+// Marca os dias preenchidos com origem 'backfill' (auditável e reversível).
+async function backfillFolhasPeriodo(){
+  if(Auth.currentUser?.role!=='master'){ toast('Apenas o usuário master pode rodar o preenchimento do período.','error'); return; }
+  const mes=parseInt(val('payroll-mes')||currentMes());
+  const ano=parseInt(val('payroll-ano')||currentAno());
+  const per=_compPeriodo(mes,ano);
+  const compDias=_compDias(mes,ano);
+  const zp=n=>String(n).padStart(2,'0');
+  const emps=_filtrarEmpsPorEscopo((State.employees||[]).filter(e=>(e.status||'ativo')==='ativo' && !e.isentoPonto));
+  if(!emps.length){ toast('Nenhum colaborador ativo no escopo.','error'); return; }
+  if(!confirm(`Preencher automaticamente as folhas de ${emps.length} colaborador(es) na competência ${MESES[mes]}/${ano} (${_compLabel(mes,ano)})?\n\n• Projeta as horas previstas (escala/cadastro) nos dias SEM ponto real, até a 1ª batida de cada colaborador.\n• Dias com ponto batido NÃO são tocados.\n• Recomendado: fazer backup antes.\n\nContinuar?`)) return;
+
+  let nFolhas=0, nDias=0, nPulados=0;
+  for(const emp of emps){
+    if(_cadastroPendencias(emp).length){ nPulados++; continue; }
+    const admISO=(emp.dataAdmissao||'').substring(0,10);
+    if(admISO && admISO>per.ateISO){ nPulados++; continue; }          // admitido depois do período
+    const effStartISO=(admISO && admISO>per.deISO) ? admISO : per.deISO;
+
+    const reg=State.payrolls.find(p=>p.employeeId===emp.id&&p.mes==mes&&p.ano==ano);
+    const dias=reg?.pontoManualDias ? [...reg.pontoManualDias] : [];
+
+    // 1ª batida REAL (app/manual) — entradas de backfill anteriores não contam.
+    let firstPunchISO=null;
+    dias.forEach(d=>{
+      if(!d||!d.entrada || (d.entrada_origem||'')==='backfill') return;
+      const rd=_compRealDate(mes,ano,d.dia);
+      const iso=`${rd.ano}-${zp(rd.mes)}-${zp(rd.dia)}`;
+      if(!firstPunchISO || iso<firstPunchISO) firstPunchISO=iso;
+    });
+
+    let mudou=false;
+    for(const cd of compDias){
+      const iso=`${cd.ano}-${zp(cd.mes)}-${zp(cd.dia)}`;
+      if(iso<effStartISO) continue;                       // antes da admissão / início do período
+      if(firstPunchISO && iso>=firstPunchISO) continue;   // a partir da 1ª batida, vale o ponto real
+      const ex=dias.find(x=>x.dia===cd.dia);
+      if(ex && ex.entrada && (ex.entrada_origem||'')!=='backfill') continue; // não toca batida real
+      const exp=_getExpectedDay(emp,cd.mes,cd.ano,cd.dia);
+      if(!exp || exp.tipo==='folga' || !exp.entrada) continue;              // folga / sem expediente
+      const novo={
+        dia:cd.dia, diaSem:cd.diaSem,
+        entrada:exp.entrada||'', saida:exp.saida||'',
+        intIni:exp.intIni||'', intFim:exp.intFim||'',
+        entrada_origem:'backfill', saida_origem:'backfill',
+        intIni_origem:'backfill', intFim_origem:'backfill'
+      };
+      const ix=dias.findIndex(x=>x.dia===cd.dia);
+      if(ix>=0) dias[ix]={...dias[ix], ...novo}; else dias.push(novo);
+      mudou=true; nDias++;
+    }
+    if(!mudou) continue;
+
+    // Recalcula totais básicos (dias/faltas/HE). Salário/benefícios são apurados
+    // ao abrir/fechar a folha (recalculate) e pela tela de Benefícios a Pagar.
+    const diasTrab=dias.filter(d=>d.entrada&&d.saida).length;
+    const fam=escalaFamilia(emp.escala||'5x2A'); const is12=fam==='12x36';
+    let faltas=0;
+    for(const cd of compDias){
+      const has=dias.find(x=>x.dia===cd.dia);
+      if(has && has.entrada && has.saida) continue;
+      const isWk=cd.diaSem===0||cd.diaSem===6;
+      if(_diaEmBrancoEhFalta(emp,cd.mes,cd.ano,cd.dia,isWk,is12)) faltas++;
+    }
+    const heMin=_heMinFromDias(emp,mes,ano,dias);
+    const base={ pontoManualDias:dias, diasTrabalhados:diasTrab,
+      faltasInjustificadas:faltas, faltasJustificadas:(reg?.faltasJustificadas||0),
+      horasExtrasTotal:(heMin>0?+(heMin/60).toFixed(2):0), updatedAt:new Date().toISOString() };
+    const record = reg ? {...reg, ...base}
+      : { id:genId(), employeeId:emp.id, mes, ano, createdAt:new Date().toISOString(), ...base };
+    try{
+      await DB.save('payrolls', _sanitizeForFirestore(record));
+      const ix=State.payrolls.findIndex(p=>p.id===record.id);
+      if(ix>=0) State.payrolls[ix]=record; else State.payrolls.push(record);
+      nFolhas++;
+    }catch(e){ console.error('backfill save', emp.nome, e); }
+  }
+  try{ Auth.log('BACKFILL_PERIODO', null, `${MESES[mes]}/${ano} — ${nFolhas} folha(s), ${nDias} dia(s)`); }catch(_){}
+  toast(`Backfill concluído: ${nFolhas} folha(s), ${nDias} dia(s) projetado(s)${nPulados?` · ${nPulados} pulado(s) (cadastro incompleto ou admissão fora do período)`:''}.`, 'success');
+  if(val('payroll-employee')) onPayrollEmployeeChange();
+  try{ renderDashboard(); }catch(_){}
+}
+
+// ============================================
+// MIGRAÇÃO ÚNICA — calendário → competência (fecha dia 25)
+// ============================================
+// Antes do modelo de competência as batidas eram gravadas por MÊS DE CALENDÁRIO
+// ({mes,ano}=mês do calendário, dia=dia do mês). No novo modelo {mes,ano} é o
+// RÓTULO da competência e os dias 26-31 pertencem ao mês ANTERIOR. Logo os dias
+// 26-31 já gravados precisam migrar para a folha da competência do mês SEGUINTE
+// (ex.: maio 26-31, hoje em {mes:5}, vão para a competência junho {mes:6}).
+// Roda UMA vez (marcador em configuracoes/migracao_competencia). Reversível via
+// backup. NÃO altera folhas FECHADAS — aborta e pede reabertura.
+async function migrarParaCompetencia(){
+  if(Auth.currentUser?.role!=='master'){ toast('Apenas o usuário master pode rodar a migração.','error'); return; }
+  const GKEY='migracao_competencia';
+  try{
+    const g=await DB.getDoc('configuracoes', GKEY);
+    if(g && g.feitoEm){ toast(`Migração já realizada em ${new Date(g.feitoEm).toLocaleDateString('pt-BR')}. Não rode de novo — bagunçaria os dados.`,'warning'); return; }
+  }catch(e){ console.warn('guard migração', e); }
+
+  const zp=n=>String(n).padStart(2,'0');
+  const hojeISO=new Date().toISOString().substring(0,10);
+  // Snapshot imutável: clona os dias de cada folha ANTES de qualquer escrita.
+  const snap=(State.payrolls||[]).filter(p=>Array.isArray(p.pontoManualDias))
+    .map(p=>({employeeId:p.employeeId, mes:parseInt(p.mes), ano:parseInt(p.ano),
+              dias:p.pontoManualDias.map(d=>({...d}))}));
+  const snapDe=(eId,m,a)=>snap.find(s=>s.employeeId===eId&&s.mes===m&&s.ano===a);
+
+  const comDias2631=snap.filter(s=>s.dias.some(d=>d && parseInt(d.dia)>=26));
+  if(!comDias2631.length){ toast('Nenhuma folha com dias 26-31. Nada a migrar.','info'); return; }
+
+  // Folhas que serão recompostas: as próprias fontes (perdem 26-31) + a
+  // competência do mês seguinte de cada uma (recebe 26-31).
+  const alvos=new Map();
+  const addAlvo=(eId,m,a)=>alvos.set(`${eId}|${m}|${a}`, {employeeId:eId, mes:m, ano:a});
+  for(const s of comDias2631){
+    addAlvo(s.employeeId, s.mes, s.ano);
+    let dm=s.mes+1, da=s.ano; if(dm>12){ dm=1; da=s.ano+1; }
+    addAlvo(s.employeeId, dm, da);
+  }
+
+  // Segurança: nenhuma folha afetada pode estar FECHADA.
+  const fechadas=[];
+  for(const {employeeId,mes,ano} of alvos.values()){
+    const d=(State.payrolls||[]).find(p=>p.employeeId===employeeId&&p.mes==mes&&p.ano==ano);
+    if(d && d.status==='fechada') fechadas.push(d);
+  }
+  if(fechadas.length){
+    const lista=fechadas.map(p=>{const e=State.employees.find(x=>x.id===p.employeeId);return `${e?e.nome:p.employeeId} ${MESES[p.mes]}/${p.ano}`;}).slice(0,8).join(', ');
+    toast(`Migração abortada: ${fechadas.length} folha(s) FECHADA(s) precisariam mudar (${lista}${fechadas.length>8?'…':''}). Reabra-as antes.`,'error');
+    return;
+  }
+
+  if(!confirm(`Migrar para o modelo de competência (fecha dia 25)?\n\n• ${comDias2631.length} folha(s) têm dias 26-31, que irão para a competência do mês SEGUINTE.\n• Os dias 1-25 permanecem onde estão.\n• Esta ação roda UMA única vez. Faça backup antes.\n\nContinuar?`)) return;
+
+  let nFolhas=0, nMovidos=0;
+  for(const {employeeId,mes,ano} of alvos.values()){
+    const emp=State.employees.find(e=>e.id===employeeId);
+    // Novos dias = (1-25 da própria competência) + (26-31 do mês anterior).
+    let pm=mes-1, pa=ano; if(pm<1){ pm=12; pa=ano-1; }
+    const own=snapDe(employeeId,mes,ano);
+    const prev=snapDe(employeeId,pm,pa);
+    const dias1_25=(own?.dias||[]).filter(d=>d && parseInt(d.dia)<=25);
+    const dias26_31=(prev?.dias||[]).filter(d=>d && parseInt(d.dia)>=26);
+    nMovidos+=dias26_31.length;
+    const novosDias=[...dias1_25, ...dias26_31];
+
+    const reg=(State.payrolls||[]).find(p=>p.employeeId===employeeId&&p.mes==mes&&p.ano==ano);
+
+    // Recalcula totais básicos sobre a competência (faltas só até hoje, pra não
+    // inflar competências ainda em andamento). Salário/benefícios são apurados
+    // ao abrir/fechar a folha.
+    const diasTrab=novosDias.filter(d=>d.entrada&&d.saida).length;
+    let faltas=0;
+    if(emp){
+      const fam=escalaFamilia(emp.escala||'5x2A'); const is12=fam==='12x36';
+      for(const cd of _compDias(mes,ano)){
+        const isoCd=`${cd.ano}-${zp(cd.mes)}-${zp(cd.dia)}`;
+        if(isoCd>hojeISO) continue;
+        const has=novosDias.find(x=>x.dia===cd.dia);
+        if(has && has.entrada && has.saida) continue;
+        const isWk=cd.diaSem===0||cd.diaSem===6;
+        if(_diaEmBrancoEhFalta(emp,cd.mes,cd.ano,cd.dia,isWk,is12)) faltas++;
+      }
+    }
+    const heMin=emp?_heMinFromDias(emp,mes,ano,novosDias):0;
+    const base={ pontoManualDias:novosDias, diasTrabalhados:diasTrab,
+      faltasInjustificadas:faltas, faltasJustificadas:(reg?.faltasJustificadas||0),
+      horasExtrasTotal:(heMin>0?+(heMin/60).toFixed(2):0), updatedAt:new Date().toISOString() };
+    const record = reg ? {...reg, ...base}
+      : { id:genId(), employeeId, mes, ano, status:'aberta', createdAt:new Date().toISOString(), ...base };
+    try{
+      await DB.save('payrolls', _sanitizeForFirestore(record));
+      const ix=State.payrolls.findIndex(p=>p.id===record.id);
+      if(ix>=0) State.payrolls[ix]=record; else State.payrolls.push(record);
+      nFolhas++;
+    }catch(e){ console.error('migração save', emp?.nome, e); }
+  }
+
+  try{ await DB.saveDoc('configuracoes', GKEY, {feitoEm:new Date().toISOString(), nFolhas, nMovidos, por:Auth.currentUser?.username||'master'}, true); }catch(e){ console.warn('marcar migração', e); }
+  try{ Auth.log('MIGRACAO_COMPETENCIA', null, `${nFolhas} folha(s), ${nMovidos} dia(s) 26-31 movidos`); }catch(_){}
+  toast(`Migração concluída: ${nFolhas} folha(s) recompostas, ${nMovidos} dia(s) (26-31) movidos para a competência seguinte.`, 'success');
+  if(val('payroll-employee')) onPayrollEmployeeChange();
+  try{ renderDashboard(); }catch(_){}
 }
 
 // ============================================
@@ -10161,8 +10401,7 @@ function _parseDiasIA(diasStr){
 
 async function callGemini(base64Data, mimeType, escala, mes, ano){
   const escalaRule=ESCALA_RULES[escala]||ESCALA_RULES['5x2A'];
-  const diasNoMes=(mes&&ano)?new Date(ano,mes,0).getDate():31;
-  const refTxt=(mes&&ano)?`Esta folha é do mês ${mes}/${ano}, que tem ${diasNoMes} dias.`:'';
+  const refTxt=(mes&&ano)?`Esta folha é da competência ${MESES[mes]}/${ano}, que vai do dia ${_compLabel(mes,ano)} (fecha no dia 25). Os dias 26 a 31 pertencem ao mês anterior; os dias 1 a 25 ao mês ${mes}.`:'';
   const prompt=`Você é um sistema de leitura de folha de ponto brasileira. Analise a imagem/PDF desta folha de ponto e extraia os horários de CADA DIA com PRECISÃO MÁXIMA. A folha pode ser digitada ou preenchida à mão.
 
 ${refTxt}
@@ -10176,7 +10415,7 @@ Retorne SOMENTE um JSON válido, COMPACTO, em UMA linha, com este formato exato:
 {"nome":"...","cargo":"...","ctps":"...","dias":"...","diasTrabalhados":0,"faltas":0,"horasExtras":0,"observacoes":"..."}
 
 O CAMPO "dias" É UMA ÚNICA STRING DE TEXTO (não é lista nem array). Dentro dessa string:
-- Coloque um dia por vez, do dia 1 até o dia ${diasNoMes}, separados por ponto-e-vírgula ";".
+- Coloque um dia por vez, na ordem em que aparecem na folha (a competência começa no dia 26 do mês anterior e termina no dia 25), separados por ponto-e-vírgula ";".
 - Cada dia tem 6 campos separados por barra vertical "|", nesta ordem EXATA: dia|tipo|entrada|intervaloInicio|intervaloFim|saida
 - "tipo": um de trabalho, folga, falta, atestado, ferias, feriado, dsr.
 - Horários no formato 24 horas HH:MM (ex.: 07:00, 13:30, 22:00). Campo vazio = "-".
@@ -14119,6 +14358,14 @@ function _getExpectedDay(emp, mes, ano, dia){
   };
 }
 
+// Versão consciente da competência: recebe o mês/ano da competência (rótulo) e
+// um "dia" (1..25 do mês ou 26..31 do mês anterior) e resolve a DATA REAL antes
+// de consultar a escala/horário. Use ao iterar pontoManualDias de uma folha.
+function _getExpectedDayComp(emp, compMes, compAno, dia){
+  const r=_compRealDate(compMes, compAno, dia);
+  return _getExpectedDay(emp, r.mes, r.ano, r.dia);
+}
+
 // Detecta divergência de um dia real vs esperado. Retorna motivos + total minutos de excesso.
 function _detectHEDivergencia(realDay, expectedDay){
   const out = { totalMin:0, motivos:[], precisaRevisao:false };
@@ -14202,7 +14449,7 @@ function _heMinFromDias(emp, mes, ano, dias){
   let total = 0;
   dias.forEach(d => {
     if(!d || !d.entrada || !d.saida) return;
-    const expectedDay = _getExpectedDay(emp, mes, ano, d.dia);
+    const expectedDay = _getExpectedDayComp(emp, mes, ano, d.dia);
     const effLiq = _effectiveMinLiq(d, expectedDay, minContratados);
     // Baseline da HE = a jornada esperada DO PRÓPRIO colaborador naquele dia
     // (horário contratual / escala). HE é o que excede a jornada dele — não
@@ -14244,29 +14491,30 @@ function _intervaloCrossesMidnight(intIni, intFim, entrada, saida){
 async function openPontoManual(){
   const mes=parseInt(val('payroll-mes')||currentMes());
   const ano=parseInt(val('payroll-ano')||currentAno());
-  const diasNoMes=new Date(ano,mes,0).getDate();
   const nomesDia=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
   const empId=val('payroll-employee');
   const emp=State.employees.find(e=>e.id===empId);
   // Título
   const tituloEl=document.getElementById('ponto-manual-titulo');
-  if(tituloEl) tituloEl.innerHTML=`<i class="fa-solid fa-keyboard"></i> Ponto Manual — ${MESES[mes]}/${ano}${emp?` <span style="font-size:13px;font-weight:400;opacity:.8">· ${emp.nome}</span>`:''}`;
+  if(tituloEl) tituloEl.innerHTML=`<i class="fa-solid fa-keyboard"></i> Ponto Manual — ${MESES[mes]}/${ano} <span style="font-size:12px;font-weight:400;opacity:.8">(${_compLabel(mes,ano)})</span>${emp?` <span style="font-size:13px;font-weight:400;opacity:.8">· ${emp.nome}</span>`:''}`;
   const grid=document.getElementById('ponto-manual-grid'); if(!grid) return;
   let cards='';
-  for(let d=1;d<=diasNoMes;d++){
-    const date=new Date(ano,mes-1,d);
-    const diaSem=date.getDay();
+  // Itera os dias da competência (26/mês-anterior → 25/mês). Cada card guarda a
+  // data real (data-realmes/data-realano) para os cálculos resolverem escala/dia.
+  for(const cd of _compDias(mes,ano)){
+    const d=cd.dia;
+    const diaSem=cd.diaSem;
     const isWeekend=diaSem===0||diaSem===6;
     const isSun=diaSem===0;
     const bgCard=isSun?'#FFF3E0':isWeekend?'#F9FBE7':'#fff';
     const borderCard=isSun?'#FFB74D':isWeekend?'#C5E1A5':'var(--border)';
     const diasLabel=nomesDia[diaSem];
-    const diaFormatado=String(d).padStart(2,'0');
+    const diaFormatado=`${String(d).padStart(2,'0')}/${String(cd.mes).padStart(2,'0')}`;
     const opStyle=isWeekend?'opacity:.45':'';
-    cards+=`<div style="border:1px solid ${borderCard};border-radius:8px;padding:8px 12px;background:${bgCard};display:flex;flex-direction:column;gap:6px" data-dia="${d}" data-semana="${diaSem}">
+    cards+=`<div style="border:1px solid ${borderCard};border-radius:8px;padding:8px 12px;background:${bgCard};display:flex;flex-direction:column;gap:6px" data-dia="${d}" data-semana="${diaSem}" data-realmes="${cd.mes}" data-realano="${cd.ano}">
       <div style="display:flex;align-items:center;gap:10px">
-        <div style="min-width:42px;text-align:center">
-          <div style="font-size:18px;font-weight:700;color:var(--primary);line-height:1">${diaFormatado}</div>
+        <div style="min-width:52px;text-align:center">
+          <div style="font-size:15px;font-weight:700;color:var(--primary);line-height:1">${diaFormatado}</div>
           <div style="font-size:10px;color:${isWeekend?'#FB8C00':'var(--text-muted)'};font-weight:600;text-transform:uppercase">${diasLabel}</div>
         </div>
         <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:4px 6px">
@@ -14496,6 +14744,8 @@ function calcResumoManual(){
   cards.forEach(card=>{
     const dia=parseInt(card.dataset.dia);
     const diaSem=parseInt(card.dataset.semana);
+    const rmes=parseInt(card.dataset.realmes)||mes;
+    const rano=parseInt(card.dataset.realano)||ano;
     const entrada=card.querySelector('.pm-entrada')?.value;
     const saida=card.querySelector('.pm-saida')?.value;
     const intIni=card.querySelector('.pm-int-ini')?.value;
@@ -14511,7 +14761,7 @@ function calcResumoManual(){
       const realDay={dia,diaSem,entrada,saida,intIni,intFim};
       const existingDay=existingPayroll?.pontoManualDias?.find(d=>d.dia===dia);
       if(existingDay?.heReview) realDay.heReview=existingDay.heReview;
-      const expectedDay=emp?_getExpectedDay(emp,mes,ano,dia):null;
+      const expectedDay=emp?_getExpectedDay(emp,rmes,rano,dia):null;
       const effLiq=_effectiveMinLiq(realDay,expectedDay,minContratados);
       // Baseline da HE = jornada esperada do próprio colaborador no dia.
       const _temEsp=expectedDay && expectedDay.entrada && expectedDay.saida && expectedDay.tipo!=='folga';
@@ -14525,7 +14775,7 @@ function calcResumoManual(){
       const reviewStatus=realDay.heReview?.status||'pendente';
       if(detec.precisaRevisao && reviewStatus==='pendente') pendentes++;
       _updateHEReviewBadge(card,detec,realDay.heReview);
-    } else if(!entrada&&!saida && _diaEmBrancoEhFalta(emp,mes,ano,dia,isWeekend,is12x36)) faltas++;
+    } else if(!entrada&&!saida && _diaEmBrancoEhFalta(emp,rmes,rano,dia,isWeekend,is12x36)) faltas++;
   });
   const diasEl=document.getElementById('ponto-resumo-dias');
   const faltasEl=document.getElementById('ponto-resumo-faltas');
@@ -14557,7 +14807,7 @@ function _payrollTemPendente(payroll){
   if(!emp) return false;
   return payroll.pontoManualDias.some(d => {
     if(!d.entrada || !d.saida) return false;
-    const exp = _getExpectedDay(emp, payroll.mes, payroll.ano, d.dia);
+    const exp = _getExpectedDayComp(emp, payroll.mes, payroll.ano, d.dia);
     if(!exp || !exp.entrada) return false;
     const detec = _detectHEDivergencia(d, exp);
     return detec.precisaRevisao && (d.heReview?.status||'pendente')==='pendente';
@@ -14594,7 +14844,7 @@ function _getPendentesHEList(mes, ano){
     const detalhes = [];
     p.pontoManualDias.forEach(d => {
       if(!d.entrada || !d.saida) return;
-      const exp = _getExpectedDay(emp, p.mes, p.ano, d.dia);
+      const exp = _getExpectedDayComp(emp, p.mes, p.ano, d.dia);
       if(!exp || !exp.entrada) return;
       const detec = _detectHEDivergencia(d, exp);
       if(detec.precisaRevisao && (d.heReview?.status||'pendente')==='pendente'){
@@ -14718,7 +14968,7 @@ async function openHEReview(){
   const linhas = [];
   dias.forEach(d => {
     if(!d.entrada || !d.saida) return;
-    const expected = _getExpectedDay(emp, mes, ano, d.dia);
+    const expected = _getExpectedDayComp(emp, mes, ano, d.dia);
     if(!expected || !expected.entrada) return;
     const detec = _detectHEDivergencia(d, expected);
     if(!detec.precisaRevisao) return;
@@ -14954,7 +15204,7 @@ async function saveHEReview(){
       });
       // Após edição, recalcula divergência com os novos valores
       const emp = State.employees.find(e=>e.id===empId);
-      const expected = emp ? _getExpectedDay(emp, mes, ano, d.dia) : null;
+      const expected = emp ? _getExpectedDayComp(emp, mes, ano, d.dia) : null;
       const detec = expected ? _detectHEDivergencia(out, expected) : { precisaRevisao:false };
       // Se não há mais divergência > 10min, limpa heReview (não precisa mais revisar)
       if(!detec.precisaRevisao){
@@ -15107,6 +15357,8 @@ async function applyPontoManual(){
   cards.forEach(card=>{
     const dia=parseInt(card.dataset.dia);
     const diaSem=parseInt(card.dataset.semana);
+    const rmes=parseInt(card.dataset.realmes)||mes;
+    const rano=parseInt(card.dataset.realano)||ano;
     const entrada=card.querySelector('.pm-entrada')?.value;
     const saida=card.querySelector('.pm-saida')?.value;
     const intIni=card.querySelector('.pm-int-ini')?.value;
@@ -15117,7 +15369,7 @@ async function applyPontoManual(){
       const realDay={dia,diaSem,entrada,saida,intIni,intFim};
       const existingDay=existingPayroll?.pontoManualDias?.find(d=>d.dia===dia);
       if(existingDay?.heReview) realDay.heReview=existingDay.heReview;
-      const expectedDay=emp?_getExpectedDay(emp,mes,ano,dia):null;
+      const expectedDay=emp?_getExpectedDay(emp,rmes,rano,dia):null;
       const effLiq=_effectiveMinLiq(realDay,expectedDay,minContratados);
       // Baseline da HE = jornada esperada do próprio colaborador no dia
       // (horário contratual / escala), não um mínimo fixo da família.
@@ -15131,7 +15383,7 @@ async function applyPontoManual(){
           atrasosDoPonto.push({dia, minutos:Math.round(faltaDia)});
         }
       }
-    } else if(!entrada&&!saida && _diaEmBrancoEhFalta(emp,mes,ano,dia,isWeekend,is12x36)) faltas++;
+    } else if(!entrada&&!saida && _diaEmBrancoEhFalta(emp,rmes,rano,dia,isWeekend,is12x36)) faltas++;
   });
   // Salva horários no Firebase antes de aplicar
   const heHorasAplic = totalHEmin>0 ? +(totalHEmin/60).toFixed(2) : 0;
@@ -15196,12 +15448,14 @@ function printPreviewParcial(){
   cards.forEach(card=>{
     const dia=parseInt(card.dataset.dia);
     const diaSem=parseInt(card.dataset.semana);
+    const rmes=parseInt(card.dataset.realmes)||_pvMes;
+    const rano=parseInt(card.dataset.realano)||_pvAno;
     const entrada=card.querySelector('.pm-entrada')?.value;
     const saida=card.querySelector('.pm-saida')?.value;
     const isWeekend=diaSem===0||diaSem===6;
     if(entrada&&saida){
       diasTrabalhados++;
-    } else if(!entrada&&!saida && _diaEmBrancoEhFalta(emp,_pvMes,_pvAno,dia,isWeekend,is12x36)) faltas++;
+    } else if(!entrada&&!saida && _diaEmBrancoEhFalta(emp,rmes,rano,dia,isWeekend,is12x36)) faltas++;
   });
   // HE da prévia: respeita a revisão por dia (só dias aprovados pagam)
   totalHEmin=_heMinFromDias(emp,_pvMes,_pvAno,_collectPontoManualDias());
@@ -15233,10 +15487,11 @@ function _heRecusadasHtml(emp, mes, ano, dias){
   const sem = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
   let rows = '';
   recusados.slice().sort((a,b)=>a.dia-b.dia).forEach(d => {
-    const expectedDay = _getExpectedDay(emp, mes, ano, d.dia);
+    const rd = _compRealDate(mes, ano, d.dia);
+    const expectedDay = _getExpectedDay(emp, rd.mes, rd.ano, rd.dia);
     const detec  = expectedDay ? _detectHEDivergencia(d, expectedDay) : null;
     const exc    = (detec && detec.totalMin) ? minutesToStr(detec.totalMin) : '—';
-    const diaSem = sem[new Date(ano, mes-1, d.dia).getDay()];
+    const diaSem = sem[new Date(rd.ano, rd.mes-1, rd.dia).getDay()];
     const motivo = (d.heReview.observacao||'').trim() || '—';
     const quem   = d.heReview.recusadoPor || '—';
     rows += `<tr>
@@ -15263,10 +15518,12 @@ function _avisoFolhaImpressa(diasTrabalhados, mes, ano){
   if(diasTrabalhados===0){
     return `<div style="margin:8px 0;padding:8px 12px;background:#FFEBEE;border:1.5px solid #E57373;border-radius:4px;color:#B71C1C;font-size:11px;font-weight:700"><i class="fa-solid fa-triangle-exclamation"></i> ATENÇÃO: nenhum dia de ponto registrado nesta folha. Confira o ponto e a escala antes de pagar.</div>`;
   }
-  const hoje=new Date();
-  const emAndamento = (mes===hoje.getMonth()+1 && ano===hoje.getFullYear() && hoje.getDate()<new Date(ano,mes,0).getDate());
+  const hojeISO=new Date().toISOString().substring(0,10);
+  const per=_compPeriodo(mes,ano);
+  // Competência em andamento: hoje ainda dentro do período 26→25 (antes de fechar no dia 25).
+  const emAndamento = (hojeISO>=per.deISO && hojeISO<per.ateISO);
   if(emAndamento){
-    return `<div style="margin:8px 0;padding:8px 12px;background:#FFF8E1;border:1.5px solid #F9A825;border-radius:4px;color:#E65100;font-size:11px;font-weight:700"><i class="fa-solid fa-hourglass-half"></i> MÊS EM ANDAMENTO — os valores são <u>parciais</u>. Plantões ainda não cumpridos viram falta conforme o mês avança; o valor definitivo é apurado só no fechamento, após o último dia do mês.</div>`;
+    return `<div style="margin:8px 0;padding:8px 12px;background:#FFF8E1;border:1.5px solid #F9A825;border-radius:4px;color:#E65100;font-size:11px;font-weight:700"><i class="fa-solid fa-hourglass-half"></i> COMPETÊNCIA EM ANDAMENTO (${_compLabel(mes,ano)}) — os valores são <u>parciais</u>. Plantões ainda não cumpridos viram falta conforme o período avança; o valor definitivo é apurado só no fechamento, no dia 25.</div>`;
   }
   return '';
 }
@@ -15329,12 +15586,12 @@ function printFolhaPonto(isPreview=false){
   const fam=escalaFamilia(emp.escala||'5x2A');
   const is12x36=fam==='12x36';
 
-  // Monta tabela de dias do mês
-  const diasNoMes=new Date(ano,mes,0).getDate();
+  // Monta tabela de dias da competência (26/mês-anterior → 25/mês)
   const diasSemana=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
   let tabelaDias='';
-  for(let d=1;d<=diasNoMes;d++){
-    const dow=new Date(ano,mes-1,d).getDay();
+  for(const cd of _compDias(mes,ano)){
+    const d=cd.dia;
+    const dow=cd.diaSem;
     const nomeDia=diasSemana[dow];
     const isWknd=dow===0||dow===6;
     const pontodia=diasPonto.find(x=>x.dia===d)||{};
@@ -15360,7 +15617,7 @@ function printFolhaPonto(isPreview=false){
     }
     const rowBg=isWknd?'background:#F8F9FA;color:#999':'';
     tabelaDias+=`<tr style="${rowBg}">
-      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${String(d).padStart(2,'0')}</td>
+      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${String(d).padStart(2,'0')}/${String(cd.mes).padStart(2,'0')}</td>
       <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${nomeDia}</td>
       <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${entrada}</td>
       <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${saidaDisplay}</td>
@@ -15581,15 +15838,15 @@ function _buildFolhaHtmlFromRecord(emp, p){
     ? Math.max(0, totalBrutoVal-inssVal-irrfVal-pensaoVal-planoSaudeVal-outrosDescVal-adiantamento-descontoAtraso-descontoSaida)
     : Math.max(0, remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade-adiantamento-descontoAtraso-descontoSaida);
 
-  // Tabela de dias do ponto
+  // Tabela de dias da competência (26/mês-anterior → 25/mês)
   const diasPonto    = p.pontoManualDias||[];
-  const diasNoMes    = new Date(ano,mes,0).getDate();
   const diasSemana   = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
   const fam          = escalaFamilia(emp.escala||'5x2A');
   const is12x36      = fam==='12x36';
   let tabelaDias='';
-  for(let d=1;d<=diasNoMes;d++){
-    const dow      = new Date(ano,mes-1,d).getDay();
+  for(const cd of _compDias(mes,ano)){
+    const d        = cd.dia;
+    const dow      = cd.diaSem;
     const nomeDia  = diasSemana[dow];
     const isWknd   = dow===0||dow===6;
     const pontodia = diasPonto.find(x=>x.dia===d)||{};
@@ -15615,7 +15872,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
     }
     const rowBg=isWknd?'background:#F8F9FA;color:#999':'';
     tabelaDias+=`<tr style="${rowBg}">
-      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${String(d).padStart(2,'0')}</td>
+      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${String(d).padStart(2,'0')}/${String(cd.mes).padStart(2,'0')}</td>
       <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${nomeDia}</td>
       <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${entrada}</td>
       <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${saidaDisplay}</td>

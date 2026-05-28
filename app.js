@@ -7184,6 +7184,63 @@ async function backfillFolhasPeriodo(){
 }
 
 // ============================================
+// LIMPAR DIAS DE BACKFILL — remove só os dias projetados (origem 'backfill')
+// ============================================
+// Desfaz o preenchimento automático: tira das folhas da competência os dias que
+// são PURAMENTE projetados (todos os campos com origem 'backfill') e NÃO têm
+// nenhuma batida real (app/manual). Preserva 100% das batidas reais. Use quando
+// optar por preencher o ponto manualmente. Não toca folhas FECHADAS.
+async function limparBackfillPeriodo(){
+  if(Auth.currentUser?.role!=='master'){ toast('Apenas o usuário master pode rodar a limpeza.','error'); return; }
+  const mes=parseInt(val('payroll-mes')||currentMes());
+  const ano=parseInt(val('payroll-ano')||currentAno());
+  const ehBackfill=d=>{
+    const og=['entrada','saida','intIni','intFim'].map(k=>d[k+'_origem']).filter(Boolean);
+    const temReal=og.some(o=>o==='app'||o==='manual');
+    const temBack=og.some(o=>o==='backfill');
+    return temBack && !temReal;     // só dias 100% projetados, sem batida real
+  };
+  const afetadas=(State.payrolls||[]).filter(p=>p.mes==mes&&p.ano==ano&&Array.isArray(p.pontoManualDias)&&p.pontoManualDias.some(ehBackfill));
+  if(!afetadas.length){ toast('Nenhum dia de backfill encontrado nesta competência. Nada a limpar.','info'); return; }
+  const fechadas=afetadas.filter(p=>p.status==='fechada');
+  if(fechadas.length){ toast(`${fechadas.length} folha(s) FECHADA(s). Reabra antes de limpar o backfill.`,'error'); return; }
+  const totalDias=afetadas.reduce((s,p)=>s+p.pontoManualDias.filter(ehBackfill).length,0);
+  if(!confirm(`Remover ${totalDias} dia(s) projetado(s) pelo backfill de ${afetadas.length} folha(s) — ${MESES[mes]}/${ano}?\n\n• Remove SÓ os dias 100% projetados (origem 'backfill').\n• Batidas reais (app/manual) são preservadas.\n• Depois você preenche o ponto manualmente.\n\nContinuar?`)) return;
+  let nF=0, nD=0;
+  for(const p of afetadas){
+    const emp=State.employees.find(e=>e.id===p.employeeId);
+    if(!emp) continue;
+    const dias=p.pontoManualDias.filter(d=>!ehBackfill(d));
+    nD += (p.pontoManualDias.length - dias.length);
+    // Recalcula totais com os dias restantes
+    const diasTrab=dias.filter(d=>d.entrada&&d.saida).length;
+    const fam=escalaFamilia(emp.escala||'5x2A'); const is12=fam==='12x36';
+    let faltas=0;
+    for(const cd of _compDias(mes,ano)){
+      const has=dias.find(x=>x.dia===cd.dia);
+      if(has && has.entrada && has.saida) continue;
+      const isWk=cd.diaSem===0||cd.diaSem===6;
+      if(_diaEmBrancoEhFalta(emp,cd.mes,cd.ano,cd.dia,isWk,is12)) faltas++;
+    }
+    const heMin=_heMinFromDias(emp,mes,ano,dias);
+    const base={ pontoManualDias:dias, diasTrabalhados:diasTrab,
+      faltasInjustificadas:faltas, faltasJustificadas:(p.faltasJustificadas||0),
+      horasExtrasTotal:(heMin>0?+(heMin/60).toFixed(2):0), updatedAt:new Date().toISOString() };
+    const record={...p, ...base};
+    try{
+      await DB.save('payrolls', _sanitizeForFirestore(record));
+      const ix=State.payrolls.findIndex(r=>r.id===record.id);
+      if(ix>=0) State.payrolls[ix]=record;
+      nF++;
+    }catch(e){ console.error('limpar backfill', emp.nome, e); }
+  }
+  try{ Auth.log('LIMPAR_BACKFILL', null, `${MESES[mes]}/${ano} — ${nF} folha(s), ${nD} dia(s)`); }catch(_){}
+  toast(`Limpeza concluída: ${nD} dia(s) de backfill removido(s) de ${nF} folha(s). Pode preencher o ponto manualmente.`, 'success');
+  if(val('payroll-employee')) onPayrollEmployeeChange();
+  try{ renderDashboard(); }catch(_){}
+}
+
+// ============================================
 // REPROJETAR DIAS MIGRADOS (26-31) — correção em lote da virada
 // ============================================
 // Ação ÚNICA da virada: a migração trouxe os dias 26-31 do mês anterior com o

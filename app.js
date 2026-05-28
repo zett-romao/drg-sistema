@@ -6939,8 +6939,10 @@ async function _updatePainelFechamento(mes,ano){
     } else { infoFechado.style.display='none'; }
   }
 
-  // Auto-fechamento: se hoje >= data de fechamento e não foi fechado ainda
-  if(!periodoFechado && conf.dataFechamento && hoje>=conf.dataFechamento){
+  // Auto-fechamento: se hoje >= data de fechamento e não foi fechado ainda.
+  // Suspenso após reabertura manual (conf.autoFecharSuspenso) — senão "Reabrir
+  // Todas" seria desfeito na hora, já que hoje já passou do dia 25.
+  if(!periodoFechado && conf.dataFechamento && hoje>=conf.dataFechamento && !conf.autoFecharSuspenso){
     await _executarFechamentoPeriodo(mes,ano,key,conf,true);
   }
 }
@@ -6952,7 +6954,7 @@ async function configurarDataFechamento(){
   if(!data){ toast('Informe a data de fechamento.','error'); return; }
   const key=_periodoKey(mes,ano);
   const conf=State.confFolha?.[key]||{};
-  const novaConf={ ...conf, dataFechamento:data, updatedAt:new Date().toISOString() };
+  const novaConf={ ...conf, dataFechamento:data, autoFecharSuspenso:false, updatedAt:new Date().toISOString() };
   try{
     await DB.saveDoc('configuracoes',`fechamento_${key}`,novaConf,true);
     State.confFolha=State.confFolha||{};
@@ -6990,7 +6992,7 @@ async function reabrirPeriodo(){
       })
     ));
     const conf=State.confFolha?.[key]||{};
-    const novaConf={...conf,fechado:false,reabertoEm:agora,updatedAt:agora};
+    const novaConf={...conf,fechado:false,reabertoEm:agora,autoFecharSuspenso:true,updatedAt:agora};
     await DB.saveDoc('configuracoes',`fechamento_${key}`,novaConf,true);
     State.confFolha=State.confFolha||{};
     State.confFolha[key]=novaConf;

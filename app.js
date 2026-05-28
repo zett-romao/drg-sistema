@@ -3661,18 +3661,21 @@ function onDemissaoChange(){
 function onEscalaChange(){
   const escala=val('emp-escala');
   const is12=(escalaFamilia(escala)==='12x36');
-  const isAlt=(escala==='6x1ALT');
+  const isAlt=(typeof escala==='string' && escala.startsWith('6x1ALT'));
   const row=document.getElementById('turno-noturno-row');
   if(row) row.style.display=is12?'':'none';
   const rowCiclo=document.getElementById('row-ciclo-12x36');
   if(rowCiclo) rowCiclo.style.display=is12?'':'none';
   const rowAlt=document.getElementById('row-alternada-folga');
   if(rowAlt) rowAlt.style.display=isAlt?'':'none';
-  // Variante 12x36 com horário fixo: já preenche entrada/saída e o turno noturno.
+  // Escala do sistema com horário fixo: já preenche entrada/saída/refeição e o
+  // turno noturno conforme a variante.
   const def=ESCALA_HORARIOS_DEFAULT[escala];
-  if(def && escala.startsWith('12x36-')){
+  if(def && _escalaFixa(escala)){
     setVal('emp-horario-entrada', def.entrada);
     setVal('emp-horario-saida', def.saida);
+    setVal('emp-horario-ref-ini', def.intIni||'');
+    setVal('emp-horario-ref-fim', def.intFim||'');
     const nt=document.getElementById('emp-turno-noturno');
     if(nt) nt.checked=_escala12x36Noturna(escala);
   }
@@ -4214,7 +4217,7 @@ async function saveEmployee(){
     expPeriodo1:parseInt(val('emp-exp-periodo1'))||45,
     expPeriodo2:parseInt(val('emp-exp-periodo2'))||45,
     ciclo12x36Inicio:val('emp-ciclo-12x36-inicio')||'',
-    alternadaPrimeiraFolga: val('emp-escala')==='6x1ALT' ? (val('emp-alternada-folga')||'dom') : '',
+    alternadaPrimeiraFolga: (val('emp-escala')||'').startsWith('6x1ALT') ? (val('emp-alternada-folga')||'dom') : '',
     horarioEntrada:val('emp-horario-entrada'),
     horarioSaida:val('emp-horario-saida'),
     horarioRefIni:val('emp-horario-ref-ini'),
@@ -4579,6 +4582,15 @@ function _escala12x36Noturna(escala){
   return escala==='12x36-19-07' || escala==='12x36-18-06';
 }
 
+// Escalas do sistema com horário (e refeição) CRAVADOS — ignoram o horário
+// solto do cadastro; os horários vêm de ESCALA_HORARIOS_DEFAULT[escala].
+// Para incluir uma nova escala fixa: adicione o código aqui + em
+// ESCALA_HORARIOS_DEFAULT (entrada/saida e, se tiver, intIni/intFim) + nos
+// <select> de escala (index.html).
+function _escalaFixa(escala){
+  return typeof escala==='string' && (escala.startsWith('12x36-') || escala==='6x1ALT-0900-1720');
+}
+
 // Retorna o modelo de escala customizado (escala no formato m_{id}) ou null
 function _escalaModelo(escala){
   if(!escala || typeof escala!=='string' || !escala.startsWith('m_')) return null;
@@ -4624,6 +4636,7 @@ function escalaLabel(escala){
     '6x1B':'6x1 — Var. B (08h–16h20)',
     '6x1C':'6x1 — Var. C (08h–17h / Sáb 4h)',
     '6x1ALT':'6x1 — Alternado (sáb ↔ dom)',
+    '6x1ALT-0900-1720':'6x1 Alternado (09h–17h20)',
     '12x36':'12x36',
     '12x36-07-19':'12x36 (07h–19h)',
     '12x36-06-18':'12x36 (06h–18h)',
@@ -14353,15 +14366,10 @@ function _getExpectedDay(emp, mes, ano, dia){
     // sem âncora definida → cai no retorno genérico abaixo
   }
   // 6x1 Alternado: folga sáb↔dom alternando — projeta sob demanda
-  if(emp.escala==='6x1ALT'){
+  if(emp.escala && emp.escala.startsWith('6x1ALT')){
     if(_6x1ALTEhFolga(emp, ano, mes, dia)) return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
-    return {
-      tipo:'trabalho',
-      entrada: emp.horarioEntrada || '',
-      saida:   emp.horarioSaida   || '',
-      intIni:  emp.semRefeicao ? '' : (emp.horarioRefIni || '12:00'),
-      intFim:  emp.semRefeicao ? '' : (emp.horarioRefFim || '13:00')
-    };
+    const h = _escalaHorariosDia(emp, diaSem);
+    return { tipo:'trabalho', entrada:h.entrada, saida:h.saida, intIni:h.intIni, intFim:h.intFim };
   }
   // Para 5x2 e fins de semana, sem horário esperado (é folga)
   if(fam==='5x2' && isWknd) return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
@@ -14734,6 +14742,10 @@ function _diaEmBrancoEhFalta(emp, mes, ano, dia, isWeekend, is12x36){
   } else if(is12x36){
     // 12x36 sem escala salva → usa a âncora do ciclo informada no cadastro
     deveriaTrabalhar = (_ciclo12x36EhTrabalho(emp, ano, mes, dia) === true);
+  } else if(emp.escala && emp.escala.startsWith('6x1ALT')){
+    // 6x1 Alternado sem escala salva → seg-sex trabalha; fim de semana segue a
+    // alternância (um dia trabalha, o outro folga).
+    deveriaTrabalhar = !_6x1ALTEhFolga(emp, ano, mes, dia);
   } else {
     deveriaTrabalhar = !isWeekend;
   }
@@ -16680,7 +16692,10 @@ const ESCALA_HORARIOS_DEFAULT = {
   '12x36-07-19': { entrada:'07:00', saida:'19:00' },
   '12x36-06-18': { entrada:'06:00', saida:'18:00' },
   '12x36-19-07': { entrada:'19:00', saida:'07:00' },
-  '12x36-18-06': { entrada:'18:00', saida:'06:00' }
+  '12x36-18-06': { entrada:'18:00', saida:'06:00' },
+  // 6x1 Alternado fixo: seg-sex + 1 dia do fim de semana (revezando sáb/dom),
+  // 09:00-17:20 com almoço 12:00-13:00.
+  '6x1ALT-0900-1720': { entrada:'09:00', saida:'17:20', intIni:'12:00', intFim:'13:00' }
 };
 
 // Retorna horários default para um colaborador num dia da semana específico
@@ -16695,9 +16710,9 @@ function _escalaHorariosDia(emp, diaSem){
   }
   const noturno = !!emp.turnoNoturno || _escala12x36Noturna(escala);
   const def = ESCALA_HORARIOS_DEFAULT[escala] || ESCALA_HORARIOS_DEFAULT['5x2A'];
-  // Variantes 12x36 com horário fixo (12x36-HH-HH) IGNORAM o horário do cadastro
-  // — a escala define a jornada. As demais usam o horário do colaborador.
-  const escalaFixa = escala.startsWith('12x36-');
+  // Escalas do sistema com horário fixo IGNORAM o horário do cadastro — a escala
+  // define a jornada. As demais usam o horário do colaborador.
+  const escalaFixa = _escalaFixa(escala);
   let entrada = escalaFixa ? def.entrada : (emp.horarioEntrada || def.entrada);
   let saida   = escalaFixa ? def.saida   : (emp.horarioSaida   || def.saida);
   // Refeição: respeita flag "semRefeicao" e diferencia noturno/diurno no default
@@ -16709,10 +16724,10 @@ function _escalaHorariosDia(emp, diaSem){
     intIni = emp.horarioRefIni;
     intFim = emp.horarioRefFim;
   } else if(escalaFixa){
-    // Variantes 12x36 do sistema: SEM refeição cravada por padrão (12h sem
-    // intervalo batido, padrão de plantão). Mantém a escala coerente entre os
-    // dias projetados e os dias batidos. Pra ter refeição, defina no cadastro.
-    intIni = ''; intFim = '';
+    // Escala do sistema com horário fixo: a refeição também é cravada pela
+    // escala (def.intIni/intFim). As 12x36 não têm refeição (plantão); a 6x1
+    // alternada tem 12:00-13:00. Mantém coerência entre projetado e batido.
+    intIni = def.intIni || ''; intFim = def.intFim || '';
   } else {
     // Sem cadastro: default sensato — noturno janta após meia-noite, diurno almoça
     if(noturno){
@@ -16783,7 +16798,7 @@ function _projectEscala(emp, mes, ano, prevDias){
   const fam = escalaFamilia(emp.escala || '5x2A');
   if(fam==='5x2')   return _projectEscala5x2(emp, mes, ano);
   if(fam==='6x1'){
-    if(emp.escala==='6x1ALT') return _projectEscala6x1ALT(emp, mes, ano);
+    if(emp.escala && emp.escala.startsWith('6x1ALT')) return _projectEscala6x1ALT(emp, mes, ano);
     if(emp.escala==='6x1B')   return _projectEscala6x1B(emp, mes, ano, prevDias);
     return _projectEscala6x1AC(emp, mes, ano);
   }
@@ -17692,8 +17707,10 @@ async function aplicarAjusteEscala(){
     emp.escala = novaEscala;
     emp.horarioEntrada = def.entrada;
     emp.horarioSaida   = def.saida;
-    emp.horarioRefIni  = '';   // limpa pra `_escalaHorariosDia` usar o default sensato (12-13 / 00-01 noturno)
-    emp.horarioRefFim  = '';
+    // Variante fixa do sistema crava a refeição (def.intIni/intFim); as demais
+    // limpam pra `_escalaHorariosDia` usar o default sensato (12-13 / 00-01 noturno).
+    emp.horarioRefIni  = _escalaFixa(novaEscala) ? (def.intIni||'') : '';
+    emp.horarioRefFim  = _escalaFixa(novaEscala) ? (def.intFim||'') : '';
     if(novaEscala.startsWith('12x36-')) emp.turnoNoturno = _escala12x36Noturna(novaEscala);
     emp.updatedAt      = new Date().toISOString();
     try {

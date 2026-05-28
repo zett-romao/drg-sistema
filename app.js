@@ -5207,10 +5207,19 @@ function _diasTrabalhadosNoIntervalo(emp, dataInicioISO, dataFimISO){
   return count;
 }
 
-// Conta dias de benefício num intervalo, SEPARADO por benefício:
-//   vt = todos os dias trabalhados (VT independe da jornada)
-//   vr = só dias com jornada líquida ACIMA de 6h (CLT Art. 71 — refeição).
-// Isento de ponto recebe VR integral (todos os dias contam).
+// Retorna o registro de ponto REAL (pontoManualDias) de um dia, ou null.
+function _pontoDiaReal(emp, ano, mes, dia){
+  const pay = (State.payrolls||[]).find(p => p.employeeId===emp.id && p.mes==mes && p.ano==ano);
+  if(!pay || !Array.isArray(pay.pontoManualDias)) return null;
+  return pay.pontoManualDias.find(d => d.dia===dia) || null;
+}
+
+// Conta dias de benefício num intervalo, SEPARADO por benefício, com base no
+// PONTO EFETIVAMENTE BATIDO (decisão do usuário 2026-05-28 — não projetar pela
+// escala; quem não tem ponto lançado não acumula benefício):
+//   vt = dias com ponto batido (entrada+saída) — VT independe da jornada
+//   vr = desses, só os com jornada líquida REAL ACIMA de 6h (CLT Art. 71)
+// Isento de ponto (não bate ponto) recebe ambos integrais pela escala.
 function _diasBeneficioNoIntervalo(emp, dataInicioISO, dataFimISO){
   if(!emp) return { vt:0, vr:0 };
   const ini = new Date(dataInicioISO + 'T12:00:00');
@@ -5219,14 +5228,16 @@ function _diasBeneficioNoIntervalo(emp, dataInicioISO, dataFimISO){
   let vt = 0, vr = 0;
   const cur = new Date(ini);
   while(cur <= fim){
-    const iso = cur.toISOString().substring(0,10);
-    if(_colabTrabalhaNoDia(emp, iso)){
-      vt++;
-      if(emp.isentoPonto){
-        vr++;                                  // isento: VR integral, sem regra de 6h
-      } else {
-        const exp = _getExpectedDay(emp, cur.getMonth()+1, cur.getFullYear(), cur.getDate());
-        if(exp && _liqMin(exp) > 360) vr++;    // jornada líquida > 6h
+    const ano = cur.getFullYear(), mes = cur.getMonth()+1, dia = cur.getDate();
+    if(emp.isentoPonto){
+      // Isento: integral pela escala (não bate ponto)
+      if(_colabTrabalhaNoDia(emp, cur.toISOString().substring(0,10))){ vt++; vr++; }
+    } else {
+      // Demais: SÓ dias com ponto efetivamente batido
+      const pd = _pontoDiaReal(emp, ano, mes, dia);
+      if(pd && pd.entrada && pd.saida){
+        vt++;
+        if(_liqMin(pd) > 360) vr++;            // jornada líquida real > 6h
       }
     }
     cur.setDate(cur.getDate()+1);
@@ -5936,29 +5947,30 @@ function _diasUteisMes(mes, ano){
   return n;
 }
 
-// Comissão de Boa Permanência: só é devida no mês vigente se o colaborador
-// NÃO teve faltas no mês ANTERIOR e NÃO foi admitido no mês anterior (ou
-// depois). Qualquer falta conta (justificada ou injustificada).
-// Retorna {ok:boolean, motivo:string}.
-function _boaPermanenciaElegivel(emp, mes, ano){
+// Flag global: true só durante o ato de FECHAR a folha (fecharFolhaIndividual).
+// Libera a apuração da bonificação no `recalculate` no momento do fechamento,
+// pra ela ser computada e persistida antes de a folha virar 'fechada'.
+let _fechandoFolha = false;
+
+// Comissão de Boa Permanência (decisão do usuário 2026-05-28): só é APURADA
+// quando a folha do mês está FECHADA (ou no ato de fechar). Se houver falta
+// (justificada OU injustificada) no mês → perde. Antes do fechamento fica
+// PENDENTE (não aparece). `totalFaltasLive` = faltas do form (no fechamento);
+// se null, lê do registro salvo. Retorna {ok, motivo, pendente?}.
+function _boaPermanenciaElegivel(emp, mes, ano, totalFaltasLive){
   if(!emp) return {ok:false, motivo:''};
-  let pm=mes-1, pa=ano;
-  if(pm<1){ pm=12; pa=ano-1; }
-  // Admitido no mês anterior (ou depois) → sem mês anterior completo
-  if(emp.dataAdmissao){
-    const adm=new Date(emp.dataAdmissao+'T00:00:00');
-    if(!isNaN(adm.getTime()) && adm >= new Date(pa,pm-1,1)){
-      return {ok:false, motivo:'admitido recentemente'};
-    }
+  const pay = (State.payrolls||[]).find(p=>p.employeeId===emp.id && p.mes==mes && p.ano==ano);
+  const fechada = pay?.status === 'fechada';
+  if(!fechada && !_fechandoFolha){
+    return {ok:false, motivo:'será apurada no fechamento do ponto do mês', pendente:true};
   }
-  // Faltas registradas no mês anterior
-  const prev=(State.payrolls||[]).find(p=>p.employeeId===emp.id&&p.mes==pm&&p.ano==pa);
-  if(prev){
-    const fp = ('faltasInjustificadas' in prev)
-      ? ((prev.faltasInjustificadas||0)+(prev.faltasJustificadas||0))
-      : (prev.faltas||0);
-    if(fp>0) return {ok:false, motivo:'faltas no mês anterior'};
+  let faltas = totalFaltasLive;
+  if(faltas == null){
+    faltas = ('faltasInjustificadas' in (pay||{}))
+      ? ((pay.faltasInjustificadas||0)+(pay.faltasJustificadas||0))
+      : ((pay && pay.faltas) || 0);
   }
+  if(faltas > 0) return {ok:false, motivo:'faltas no mês — benefício perdido'};
   return {ok:true, motivo:''};
 }
 
@@ -6042,12 +6054,13 @@ function recalculate(){
   const bonusAlert=document.getElementById('bonus-alert');
   const bonusAlertMsg=document.getElementById('bonus-alert-msg');
   const sempreP=!!(emp&&emp.bonificacaoSemprePagar);
-  const _bp = emp ? _boaPermanenciaElegivel(emp,_mesR,_anoR) : {ok:false,motivo:''};
+  const _bp = emp ? _boaPermanenciaElegivel(emp,_mesR,_anoR,totalFaltas) : {ok:false,motivo:''};
   if(!_bp.ok && !sempreP){
-    // N/C — não cabível neste mês
+    // Pendente (folha ainda aberta) OU perdida (faltas no mês) — não preenche
     bonusCard.classList.add('locked'); bonusInput.disabled=true;
     setVal('payroll-bonus',''); bonusAlert.classList.remove('hidden');
-    if(bonusAlertMsg) bonusAlertMsg.innerHTML=`<strong>Comissão de Boa Permanência: N/C</strong> — ${_bp.motivo||'mês anterior com pendência'}. Não cabível neste mês.`;
+    const titulo = _bp.pendente ? 'Comissão de Boa Permanência: PENDENTE' : 'Comissão de Boa Permanência: não cabível';
+    if(bonusAlertMsg) bonusAlertMsg.innerHTML=`<strong>${titulo}</strong> — ${_bp.motivo||'pendência'}.`;
   } else {
     bonusCard.classList.remove('locked'); bonusInput.disabled=false;
     if(!_bp.ok && sempreP){
@@ -6904,6 +6917,14 @@ async function fecharFolhaIndividual(){
   if(!confirm(`Fechar a folha de ${emp.nome} — ${MESES[mes]}/${ano}?\n\nA folha ficará bloqueada para edição. Você poderá reabrir se necessário.`)) return;
   try{
     const agora=new Date().toISOString();
+    // Apura a Boa Permanência NO FECHAMENTO: com o flag ligado, o recalculate
+    // libera a bonificação (se sem faltas no mês) e o savePayroll persiste o
+    // valor + totais. Só depois a folha é marcada como fechada.
+    if(val('payroll-employee')===empId){
+      _fechandoFolha = true;
+      try { recalculate(); await savePayroll(); }
+      finally { _fechandoFolha = false; }
+    }
     await DB.merge('payrolls',p.id,{status:'fechada',fechadoEm:agora});
     const s=State.payrolls.find(r=>r.id===p.id); if(s){ s.status='fechada'; s.fechadoEm=agora; }
     Auth.log('PAYROLL_FECHADO_INDIVIDUAL',null,`${emp.nome} — ${MESES[mes]}/${ano}`);

@@ -202,8 +202,27 @@ O app do colaborador é instalável como PWA (tem `manifest.json` + service work
 
 ## Pendências conhecidas
 
-### EM ANDAMENTO — Folha de ponto fecha no dia 25 (competência 26→25) — HANDOFF 2026-05-28
-**Status: código VALIDADO (sintaxe + revisão completa do diff em 2026-05-28), NÃO commitado, NÃO publicado.** Continuar daqui.
+### AUDITORIA 2026-05-28 — punch-list de correções (guardado p/ fazer depois)
+Levantamento de inconsistências (foco: fechamento/competência, escalas, HE/faltas, permissões, isento — onde estão as mudanças recentes e os bugs). NÃO auditado a fundo: relatórios, 13º, férias, rescisão, contabilidade e os Workers (aprovação/Asaas) — 2ª passada pendente. Itens marcados [CÓDIGO] = eu corrijo no app; [DADO/OP] = ação do usuário no app.
+
+🔴 **CRÍTICO**
+1. **[DADO/OP] Competência publicada, migração NÃO rodada.** O código 26→25 está no ar; enquanto a migração não rodar, qualquer folha com batidas nos dias 26-31 é lida como mês anterior (maio 26-31 vira "abril") → HE/faltas/valores errados nesses dias. Os bugs já vistos (Juliana/Matheus) eram em dias ≤25, não afetados — mas é bomba latente ao fechar maio. **Correção:** backup → "Migrar p/ competência" → backfill → fechar maio. Até lá, evitar fechar/recalcular maio.
+
+🟠 **IMPORTANTE (gerando bugs visíveis)**
+2. **[DADO/OP + CÓDIGO opcional] "Dias avulsos" (overrides) antigos e invisíveis → HE fantasma** (caso Juliana). Override de horário tem prioridade máxima e não aparece na escala/folha. **Correção dado:** revisar bloco "Dias avulsos" de cada colaborador (noturnos/12x36 primeiro) e remover obsoletos. **Melhoria código:** avisar quando colaborador tem dias avulsos ativos.
+3. **[DADO/OP] Cargo de confiança sem marcar "isento de controle de jornada" → HE/faltas fantasma** (caso Matheus). **Correção:** marcar "Isento (CLT Art. 62)" em todos os de confiança.
+4. **[DADO/OP] Escala ≠ batidas reais → HE fantasma gigante** (padrão Juliana 06-18 vs 19-07). **Correção:** conferir escala correta de cada um (usar as 12x36/6x1 Alternado do sistema) e reprojetar+salvar.
+
+🟡 **CÓDIGO (menores, eu corrijo)**
+5. **`openHEReview` (~app.js:14960) não checa `isentoPonto`.** A LISTA de pendentes pula isento (`_getPendentesHEList`), mas o PAINEL aberto direto p/ um isento ainda mostra divergências. Adicionar o mesmo guard.
+6. **Fallback por mês de calendário:** `_diaEmBrancoEhFalta` (já tratei 6x1ALT) e `_diasUteisMes` (benefício de isento, ~app.js:6048) usam mês de calendário; confirmar se benefício de isento deve seguir competência 26→25.
+7. **Código morto:** `calcDiasEscala` (~app.js:4650) não é chamado em nenhum lugar — remover.
+
+🔵 **SEGURANÇA (pendência conhecida — ver [[drg-kronos-blindagem-s3-status]])**
+8. **S3-C/D pendentes:** regras Firestore/Storage ainda aceitam sessão anônima/autenticada legada lendo/gravando CPF/salário/PIX. Não é regressão; é a etapa que faltou da blindagem.
+
+### Folha de ponto fecha no dia 25 (competência 26→25) — HANDOFF 2026-05-28
+**Status: código PUBLICADO em 2026-05-28 (commits 16e0988 e posteriores). Migração + backfill + fechamento de maio AINDA NÃO RODADOS no app (ação do usuário).**
 
 **⚠️ BLOCKER encontrado na revisão (2026-05-28) — resolvido com migração:** virar a chave em cima dos dados antigos REINTERPRETA o que já está salvo. No modelo antigo a batida de 26/05 era gravada como `{mes:5, dia:26}` (= 26 de maio). O código novo lê `{mes:5, dia:26}` como **26/04** (dias 26-31 = mês anterior). Logo, batidas já gravadas nos dias 26-31 seriam lidas como o mês anterior, corrompendo a competência maio e deixando junho sem elas. **Fix:** função nova `migrarParaCompetencia()` (1x) que move os dias 26-31 de cada folha para a competência do mês seguinte, ANTES de publicar/backfill. Usuário confirmou que há batidas nos dias 26-31, então a migração é obrigatória.
 

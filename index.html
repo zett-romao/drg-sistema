@@ -2977,6 +2977,27 @@
             <input type="number" id="emp-vr-dia" min="0" step="0.01" placeholder="0,00">
           </div>
         </div>
+        <!-- Canal de pagamento de cada benefício (cartão da operadora ou dinheiro/PIX) -->
+        <div class="info-banner" style="background:#EEF2FF;border-color:#C7D2FE;color:#3730A3">
+          <i class="fa-solid fa-credit-card"></i>
+          Defina onde cada benefício é pago: no <strong>cartão da operadora</strong> (carregado em lote) ou em <strong>dinheiro/PIX</strong> (transferido pelo Asaas junto dos demais pagamentos em dinheiro). A Boa Permanência segue o canal do VR.
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label><i class="fa-solid fa-bus" style="color:#4fc3f7"></i> Canal de pagamento do VT/AM</label>
+            <select id="emp-vt-canal">
+              <option value="cartao">Cartão VT (operadora)</option>
+              <option value="dinheiro">Dinheiro / PIX</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label><i class="fa-solid fa-utensils" style="color:#ff8a65"></i> Canal de pagamento do VR</label>
+            <select id="emp-vr-canal">
+              <option value="cartao">Cartão VR (operadora)</option>
+              <option value="dinheiro">Dinheiro / PIX</option>
+            </select>
+          </div>
+        </div>
         <div class="form-row">
           <div class="form-group">
             <label><i class="fa-solid fa-basket-shopping" style="color:#2E7D32"></i> Valor Mensal do VA (R$)</label>
@@ -4775,7 +4796,7 @@
       </div>
       <div id="benef-info" style="background:#E1F5FE;padding:10px 14px;border-radius:6px;margin-bottom:14px;font-size:13px;color:#01579B"></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;justify-content:flex-end;align-items:center">
-        <button class="btn btn-primary" onclick="pagarBeneficiosSelecionados()" style="background:#00897B"><i class="fa-solid fa-qrcode"></i> Pagar via PIX (<span id="benef-sel-count">0</span>)</button>
+        <button class="btn btn-primary" onclick="pagarBeneficiosSelecionados()" style="background:#00897B" title="Paga via PIX (Asaas) só a parte marcada como dinheiro no cadastro"><i class="fa-brands fa-pix"></i> Pagar em Dinheiro (<span id="benef-sel-count">0</span>)</button>
         <button class="btn btn-secondary" onclick="exportBeneficiosLista('print')"><i class="fa-solid fa-print"></i> Imprimir lista</button>
         <button class="btn btn-secondary" onclick="exportBeneficiosLista('pdf')"><i class="fa-solid fa-file-pdf" style="color:#C62828"></i> Exportar PDF</button>
         <button class="btn btn-secondary" onclick="exportBeneficiosLista('excel')"><i class="fa-solid fa-file-excel" style="color:#1B5E20"></i> Exportar Excel</button>
@@ -5684,6 +5705,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260528f"></script>
+<script src="app.js?v=20260528g"></script>
 </body>
 </html>

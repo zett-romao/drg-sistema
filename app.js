@@ -3747,6 +3747,8 @@ function openEmployeeModal(id=null){
     setVal('emp-tipo-transporte',emp.tipoTransporte||'vt');
     setVal('emp-vt-freq', emp.vtFreq||'diario');
     setVal('emp-vr-freq', emp.vrFreq||'diario');
+    setVal('emp-vt-canal', emp.vtCanal||'cartao');
+    setVal('emp-vr-canal', emp.vrCanal||'cartao');
     setVal('emp-vt-dia',emp.valorDiarioVt||''); setVal('emp-vr-dia',emp.valorDiarioVr||'');
     setVal('emp-va-mensal',emp.valorMensalVa||''); setVal('emp-pix',emp.chavePix||'');
     setVal('emp-pix-tipo',emp.chavePixTipo||'');
@@ -3856,6 +3858,7 @@ function openEmployeeModal(id=null){
     setVal('emp-exp-periodo1',45); setVal('emp-exp-periodo2',45);
     setVal('emp-insalubridade',0);
     setVal('emp-vt-freq','diario'); setVal('emp-vr-freq','diario');
+    setVal('emp-vt-canal','cartao'); setVal('emp-vr-canal','cartao');
     onEmpStatusChange();
     onEmpTipoContratoChange();
     onVtFreqChange(); onVrFreqChange();
@@ -4144,6 +4147,8 @@ async function saveEmployee(){
     tipoTransporte:val('emp-tipo-transporte')||'vt',
     vtFreq: val('emp-vt-freq')||'diario',
     vrFreq: val('emp-vr-freq')||'diario',
+    vtCanal: val('emp-vt-canal')||'cartao',
+    vrCanal: val('emp-vr-canal')||'cartao',
     valorDiarioVt:numVal('emp-vt-dia'), valorDiarioVr:numVal('emp-vr-dia'),
     valorMensalVa:numVal('emp-va-mensal'),
     chavePix:val('emp-pix'),
@@ -4745,10 +4750,17 @@ function renderBeneficiosLista(){
   const totalGeral = linhas.reduce((s,l)=>s+l.b.total,0);
   const totalVT    = linhas.reduce((s,l)=>s+l.b.vtValor,0);
   const totalVR    = linhas.reduce((s,l)=>s+l.b.vrValor,0);
+  // Totais por CANAL de pagamento (definido no cadastro de cada colaborador)
+  const totalCartaoVT = linhas.reduce((s,l)=>s+(l.b.valorCartaoVT||0),0);
+  const totalCartaoVR = linhas.reduce((s,l)=>s+(l.b.valorCartaoVR||0),0);
+  const totalDinheiro = linhas.reduce((s,l)=>s+(l.b.valorDinheiro||0),0);
   document.getElementById('benef-info').innerHTML =
-    `${periodoLabel} &middot; <strong>${linhas.length}</strong> colaborador(es) &middot; ` +
-    `VT/AM: <strong>${fmtMoney(totalVT)}</strong> &middot; VR: <strong>${fmtMoney(totalVR)}</strong> &middot; ` +
-    `Total: <strong style="color:#0288D1">${fmtMoney(totalGeral)}</strong>`;
+    `${periodoLabel} &middot; <strong>${linhas.length}</strong> colaborador(es) &middot; Total: <strong style="color:#0288D1">${fmtMoney(totalGeral)}</strong>` +
+    `<div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap">` +
+      `<span style="background:#E3F2FD;color:#1565C0;padding:3px 10px;border-radius:8px;font-weight:700"><i class="fa-solid fa-credit-card"></i> Carregar Cartão VT: ${fmtMoney(totalCartaoVT)}</span>` +
+      `<span style="background:#FFF3E0;color:#E65100;padding:3px 10px;border-radius:8px;font-weight:700"><i class="fa-solid fa-credit-card"></i> Carregar Cartão VR: ${fmtMoney(totalCartaoVR)}</span>` +
+      `<span style="background:#E8F5E9;color:#2E7D32;padding:3px 10px;border-radius:8px;font-weight:700"><i class="fa-brands fa-pix"></i> Pagar em Dinheiro (PIX): ${fmtMoney(totalDinheiro)}</span>` +
+    `</div>`;
   const listEl = document.getElementById('benef-lista');
   if(!linhas.length){
     listEl.innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-check" style="color:#1B5E20"></i><p>Nenhum benefício a pagar neste período.</p></div>';
@@ -4779,14 +4791,18 @@ function renderBeneficiosLista(){
                                      : '<i class="fa-solid fa-bus" style="color:#4fc3f7"></i>';
     const matr = emp.registro ? String(emp.registro).padStart(4,'0') : '—';
     const pix  = emp.chavePix || '—';
+    // Badge do canal de cada benefício (CARTÃO = operadora, PIX = dinheiro)
+    const cBadge = canal => canal==='dinheiro'
+      ? '<span style="background:#E8F5E9;color:#2E7D32;font-size:8px;padding:1px 4px;border-radius:6px;font-weight:700;vertical-align:middle">PIX</span>'
+      : '<span style="background:#E3F2FD;color:#1565C0;font-size:8px;padding:1px 4px;border-radius:6px;font-weight:700;vertical-align:middle">CARTÃO</span>';
     html += `<tr style="background:${bg};cursor:pointer" onclick="openBeneficioDetalhe('${emp.id}','${escopo}','${ini}','${fim}')">
-      <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7" onclick="event.stopPropagation()"><input type="checkbox" class="benef-chk" data-emp-id="${emp.id}" data-valor="${b.total}" onchange="_benefSelCount()"></td>
+      <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7" onclick="event.stopPropagation()"><input type="checkbox" class="benef-chk" data-emp-id="${emp.id}" data-valor="${b.valorDinheiro}" ${b.valorDinheiro>0?'':'disabled title="Sem valor em dinheiro — tudo no cartão"'} onchange="_benefSelCount()"></td>
       <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7;font-weight:700;color:var(--primary)">${matr}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7"><strong style="color:var(--primary)">${emp.nome}</strong><br><small style="color:var(--text-muted)">${emp.setor||'—'}</small></td>
       <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7;font-size:11px">${posto}</td>
       <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7;font-size:11px">${periodoCol}</td>
-      <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap">${vtIcon} ${b.vtValor>0?`<span style="color:var(--text-muted);font-size:11px">${b.diasVt}d ·</span> ${fmtMoney(b.vtValor)}`:'—'}</td>
-      <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap"><i class="fa-solid fa-utensils" style="color:#ff8a65"></i> ${b.vrValor>0?`<span style="color:#ff8a65;font-size:11px">${b.diasVr}d ·</span> ${fmtMoney(b.vrValor)}`:'—'}</td>
+      <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap">${vtIcon} ${b.vtValor>0?`<span style="color:var(--text-muted);font-size:11px">${b.diasVt}d ·</span> ${fmtMoney(b.vtValor)} ${cBadge(b.vtCanal)}`:'—'}</td>
+      <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap"><i class="fa-solid fa-utensils" style="color:#ff8a65"></i> ${b.vrValor>0?`<span style="color:#ff8a65;font-size:11px">${b.diasVr}d ·</span> ${fmtMoney(b.vrValor)} ${cBadge(b.vrCanal)}`:'—'}</td>
       <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;font-weight:700;color:#0288D1">${fmtMoney(b.total)}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7;font-size:11px;font-family:monospace;color:#00695C">${pix}</td>
       <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7"><button class="btn-icon" onclick="event.stopPropagation();openBeneficioDetalhe('${emp.id}','${escopo}','${ini}','${fim}')" title="Ver planilha individual"><i class="fa-solid fa-clipboard-list" style="color:#0288D1"></i></button></td>
@@ -4808,8 +4824,9 @@ function renderBeneficiosLista(){
 }
 
 // ── Seleção de colaboradores para pagamento de benefícios ──────────────
+// Só conta/marca quem tem valor em DINHEIRO (checkbox dos 100%-cartão fica disabled).
 function _benefToggleAll(hc){
-  document.querySelectorAll('.benef-chk').forEach(c=>{ c.checked = hc.checked; });
+  document.querySelectorAll('.benef-chk').forEach(c=>{ if(!c.disabled) c.checked = hc.checked; });
   _benefSelCount();
 }
 function _benefSelCount(){
@@ -4817,72 +4834,66 @@ function _benefSelCount(){
   if(el) el.textContent = document.querySelectorAll('.benef-chk:checked').length;
 }
 
-// ── Pix Copia e Cola (BR Code EMV) ─────────────────────────────────────
-function _pixSanitize(s,max){
-  return (s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^A-Za-z0-9 ]/g,'').trim().substring(0,max).toUpperCase();
-}
-function _crc16ccitt(str){
-  let crc=0xFFFF;
-  for(let i=0;i<str.length;i++){
-    crc^=str.charCodeAt(i)<<8;
-    for(let j=0;j<8;j++) crc=(crc&0x8000)?(((crc<<1)^0x1021)&0xFFFF):((crc<<1)&0xFFFF);
+// Pagamento da parte em DINHEIRO dos benefícios via PIX REAL (Asaas). Cria uma
+// solicitação por colaborador marcado (origem 'beneficio', só o valor marcado
+// como dinheiro no cadastro) que vai para "Aprovações de Pagamentos" → 2FA →
+// o Worker dispara o PIX. VT/VR de cartão são carregados na operadora à parte.
+async function pagarBeneficiosSelecionados(){
+  if(!getUserModules(Auth.currentUser).pagamentosLancar){
+    toast('Você não tem permissão para lançar pagamentos.','error'); return;
   }
-  return crc.toString(16).toUpperCase().padStart(4,'0');
-}
-function _pixCopiaCola(chave,valor,nome,cidade){
-  const f=(id,v)=>id+String(v.length).padStart(2,'0')+v;
-  const gui=f('00','BR.GOV.BCB.PIX')+f('01',String(chave||'').trim());
-  let p='';
-  p+=f('00','01');
-  p+=f('26',gui);
-  p+=f('52','0000');
-  p+=f('53','986');
-  if(valor>0) p+=f('54',Number(valor).toFixed(2));
-  p+=f('58','BR');
-  p+=f('59',_pixSanitize(nome,25)||'RECEBEDOR');
-  p+=f('60',_pixSanitize(cidade,15)||'BRASIL');
-  p+=f('62',f('05','***'));
-  p+='6304';
-  return p+_crc16ccitt(p);
-}
-
-// Gera os Pix Copia e Cola dos colaboradores marcados (1 = individual,
-// vários = em massa) — o operador cola no app do banco para pagar.
-function pagarBeneficiosSelecionados(){
   const chks=[...document.querySelectorAll('.benef-chk:checked')];
-  if(!chks.length){ toast('Marque ao menos um colaborador na lista para pagar.','info'); return; }
-  const itens=chks.map(c=>{
-    const emp=(State.employees||[]).find(e=>e.id===c.dataset.empId)||{};
-    return { nome:emp.nome||'—', pix:(emp.chavePix||'').trim(), cidade:emp.cidade||'', valor:parseFloat(c.dataset.valor)||0 };
-  });
-  const total=itens.reduce((s,i)=>s+i.valor,0);
-  const semPix=itens.filter(i=>!i.pix).length;
-  let rows='';
-  itens.forEach((it,idx)=>{
-    const temPix=!!it.pix;
-    const codigo=temPix?_pixCopiaCola(it.pix,it.valor,it.nome,it.cidade):'';
-    rows+=`<div style="border:1px solid #CFD8DC;border-radius:8px;padding:12px;margin-bottom:10px;background:${temPix?'#fff':'#FFEBEE'}">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-        <div><strong style="font-size:14px">${it.nome}</strong><br><small style="color:#555">Chave: ${temPix?it.pix:'<span style="color:#C62828">SEM CHAVE PIX CADASTRADA</span>'}</small></div>
-        <div style="font-size:16px;font-weight:700;color:#00897B">${fmtMoney(it.valor)}</div>
-      </div>
-      ${temPix?`<div style="display:flex;gap:6px;margin-top:8px">
-        <input type="text" readonly value="${codigo}" id="pixcc-${idx}" style="flex:1;font-family:monospace;font-size:10px;padding:6px;border:1px solid #CFD8DC;border-radius:4px">
-        <button onclick="_copiarPix(${idx},this)" style="padding:6px 12px;font-size:12px;background:#00897B;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600">Copiar</button>
-      </div>`:`<div style="margin-top:6px;font-size:11px;color:#C62828">Cadastre a chave PIX deste colaborador para gerar o pagamento.</div>`}
-    </div>`;
-  });
-  const win=window.open('','_blank','width=640,height=760');
-  if(!win){ toast('Permita pop-ups para abrir a tela de pagamento.','error'); return; }
-  win.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Pagamento PIX — Benefícios</title>
-<style>body{font-family:Arial,sans-serif;padding:18px;background:#F5F7FB;color:#212529}h2{color:#00695C;margin:0 0 6px}</style></head><body>
-<h2>Pagamento de Benefícios via PIX</h2>
-<p style="font-size:13px">${itens.length} colaborador(es) &middot; Total: <strong style="color:#00897B">${fmtMoney(total)}</strong>${semPix?` &middot; <span style="color:#C62828">${semPix} sem chave PIX</span>`:''}</p>
-<p style="font-size:12px;color:#555;background:#FFF8E1;border:1px solid #F9A825;padding:8px;border-radius:6px">Copie o código <strong>Pix Copia e Cola</strong> de cada colaborador e cole no app do seu banco para pagar. Confira o nome e o valor antes de confirmar.</p>
-${rows}
-<script>function _copiarPix(i,btn){var el=document.getElementById('pixcc-'+i);el.select();el.setSelectionRange(0,99999);try{document.execCommand('copy');}catch(e){}var t=btn.innerHTML;btn.innerHTML='Copiado!';setTimeout(function(){btn.innerHTML=t;},1500);}<\/script>
-</body></html>`);
-  win.document.close();
+  if(!chks.length){ toast('Marque ao menos um colaborador com valor em dinheiro.','info'); return; }
+
+  // Período/competência da aba atual (descrição + dedup)
+  const tab = _beneficioTabAtual || 'hoje';
+  const hojeISO = new Date().toISOString().substring(0,10);
+  let ini, fim, periodoLabel;
+  if(tab === 'mes'){
+    const d=new Date(); ini=new Date(d.getFullYear(),d.getMonth(),1).toISOString().substring(0,10);
+    fim=new Date(d.getFullYear(),d.getMonth()+1,0).toISOString().substring(0,10);
+    periodoLabel=`${MESES[d.getMonth()+1]}/${d.getFullYear()}`;
+  } else if(tab === 'hoje'){
+    ini=fim=hojeISO; periodoLabel=`dia ${new Date().toLocaleDateString('pt-BR')}`;
+  } else {
+    const s=_semanaDe(hojeISO); ini=s.inicio; fim=s.fim;
+    periodoLabel=`semana ${new Date(ini+'T12:00:00').toLocaleDateString('pt-BR')}–${new Date(fim+'T12:00:00').toLocaleDateString('pt-BR')}`;
+  }
+  const comp=`BEN_${ini}_${fim}`;
+
+  if(!confirm(`Pagar em dinheiro (PIX) os benefícios de ${chks.length} colaborador(es) — ${periodoLabel}?\n\nCria as solicitações na tela "Aprovações de Pagamentos", onde você confirma com o código 2FA e o Asaas dispara o PIX. (VT/VR de cartão são carregados na operadora à parte.)`)) return;
+
+  let ok=0, semPix=0, jaPend=0, erros=0;
+  for(const c of chks){
+    const emp=(State.employees||[]).find(e=>e.id===c.dataset.empId);
+    const valor=parseFloat(c.dataset.valor)||0;   // só a parte em dinheiro
+    if(!emp || valor<=0){ erros++; continue; }
+    const pixKey=(emp.chavePix||'').trim();
+    if(!pixKey){ semPix++; continue; }
+    const jaExiste=(State.solicitacoes||[]).some(s=>s.origem==='beneficio' && s.employeeId===emp.id && s.competencia===comp && s.status==='pendente');
+    if(jaExiste){ jaPend++; continue; }
+    const pixTipo=emp.chavePixTipo||detectPixKeyType(pixKey);
+    try{
+      const sol=await _criarSolicitacaoPagamento({
+        employeeId:emp.id, employeeNome:emp.nome, payrollId:'',
+        valor, pixKey:_pixKeyParaAsaas(pixKey,pixTipo), keyType:pixTipo,
+        descricao:`Benefícios em dinheiro ${periodoLabel} — ${emp.nome}`,
+        scheduleDate:hojeISO, competencia:comp, origem:'beneficio',
+      });
+      Auth.log('PAGAMENTO_SOLICITADO', null, `Benefícios ${periodoLabel} | ${emp.nome} | R$ ${valor.toFixed(2)} | sol ${sol.id}`);
+      ok++;
+    }catch(e){ erros++; }
+  }
+
+  const partes=[`${ok} solicitação(ões) criada(s)`];
+  if(semPix) partes.push(`${semPix} sem chave PIX`);
+  if(jaPend) partes.push(`${jaPend} já pendente(s)`);
+  if(erros)  partes.push(`${erros} com erro`);
+  toast(partes.join(' · ') + (ok>0?'. Aprove em "Aprovações de Pagamentos" (2FA).':'.'), ok>0?'success':'warning');
+  if(ok>0){
+    closeModal('modal-beneficios-pagar');
+    if(typeof showSection==='function') showSection('aprovacoes');
+  }
 }
 
 // Estado do modal de detalhe (para os botões de export)
@@ -4912,15 +4923,12 @@ function openBeneficioDetalhe(empId, escopo, dataIni, dataFim){
     `<strong style="color:#00695C"><i class="fa-brands fa-pix"></i> Chave PIX:</strong> <span style="font-family:monospace">${pixDet}</span>`;
   const tbody = document.getElementById('benef-det-tbody');
   const linhas = [];
-  // VT/AM
+  // VT/AM — todos os dias trabalhados. 'semana'/'mes' somam o intervalo.
   if(b.vtTipo !== 'nao' && emp.valorDiarioVt){
-    const isPeriodo = (escopo==='dia' && b.vtFreq==='diario') ||
-                      (escopo==='semana' && b.vtFreq==='semanal');
-    const isWeekDailySum = (escopo==='semana' && b.vtFreq==='diario');
     let mult = 1, multLabel = '×1 dia';
-    if(escopo === 'dia' && b.vtFreq === 'diario'){ mult = b.dias>0?1:0; multLabel = `${b.dias>0?'×1 dia':'(não trab.)'}`; }
-    else if(escopo === 'semana' && b.vtFreq === 'semanal'){ mult = b.semanas; multLabel = `×${b.semanas} sem.`; }
-    else if(escopo === 'semana' && b.vtFreq === 'diario'){ mult = b.dias; multLabel = `×${b.dias} dias`; }
+    if(escopo === 'dia' && b.vtFreq === 'diario'){ mult = b.diasVt>0?1:0; multLabel = b.diasVt>0?'×1 dia':'(não trab.)'; }
+    else if(b.vtFreq === 'semanal'){ mult = b.semanas; multLabel = `×${b.semanas} sem.`; }
+    else if(escopo !== 'dia' && b.vtFreq === 'diario'){ mult = b.diasVt; multLabel = `×${b.diasVt} dias`; }
     else if(escopo === 'dia' && b.vtFreq === 'semanal'){ mult = 0; multLabel = '(pago semanal)'; }
     const ben = (b.vtTipo === 'am') ? 'AM — Auxílio Mobilidade' : 'VT — Vale Transporte';
     const freqLabel = (b.vtFreq === 'semanal') ? 'Semanal' : 'Diária';
@@ -5313,6 +5321,13 @@ function _calcBeneficiosColab(emp, dataInicioISO, dataFimISO, escopo){
     }
   }
   out.total = out.vtValor + out.vrValor;
+  // Canal de pagamento (definido no cadastro). VR cobre também a Boa Permanência.
+  out.vtCanal = empE.vtCanal || 'cartao';
+  out.vrCanal = empE.vrCanal || 'cartao';
+  out.valorCartaoVT = (out.vtCanal === 'cartao') ? out.vtValor : 0;
+  out.valorCartaoVR = (out.vrCanal === 'cartao') ? out.vrValor : 0;
+  out.valorDinheiro = (out.vtCanal === 'dinheiro' ? out.vtValor : 0)
+                    + (out.vrCanal === 'dinheiro' ? out.vrValor : 0);
   return out;
 }
 

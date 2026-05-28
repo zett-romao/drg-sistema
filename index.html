@@ -2686,13 +2686,19 @@
           <div class="form-group">
             <label>Escala de Trabalho</label>
             <select id="emp-escala" onchange="onEscalaChange()">
-              <option value="5x2A">5x2 — Variante A (08h–18h / Sex 08h–16h)</option>
-              <option value="5x2B">5x2 — Variante B (07h–17h / Sex 07h–16h)</option>
-              <option value="6x1A">6x1 — Variante A (07h–16h / Sáb 07h–11h)</option>
-              <option value="6x1B">6x1 — Variante B (08h–16h20 / todos os dias)</option>
-              <option value="6x1C">6x1 — Variante C (08h–17h / Sáb 08h–12h)</option>
-              <option value="6x1ALT">6x1 — Alternado (folga sáb ↔ dom)</option>
-              <option value="12x36">12x36 (Doze por Trinta e Seis)</option>
+              <optgroup label="Escalas do sistema">
+                <option value="5x2A">5x2 — Variante A (08h–18h / Sex 08h–16h)</option>
+                <option value="5x2B">5x2 — Variante B (07h–17h / Sex 07h–16h)</option>
+                <option value="6x1A">6x1 — Variante A (07h–16h / Sáb 07h–11h)</option>
+                <option value="6x1B">6x1 — Variante B (08h–16h20 / todos os dias)</option>
+                <option value="6x1C">6x1 — Variante C (08h–17h / Sáb 08h–12h)</option>
+                <option value="6x1ALT">6x1 — Alternado (folga sáb ↔ dom)</option>
+                <option value="12x36-07-19">12x36 — Diurno (07h–19h)</option>
+                <option value="12x36-06-18">12x36 — Diurno (06h–18h)</option>
+                <option value="12x36-19-07">12x36 — Noturno (19h–07h)</option>
+                <option value="12x36-18-06">12x36 — Noturno (18h–06h)</option>
+                <option value="12x36">12x36 — Genérica (horário do cadastro)</option>
+              </optgroup>
             </select>
           </div>
         </div>
@@ -4213,7 +4219,7 @@
           <i class="fa-solid fa-circle-info"></i>
           Crie escalas personalizadas conforme cada cliente pede. Para cada dia da semana você define se é trabalho, folga ou hora corrida, e os horários.
         </div>
-        <button class="btn btn-primary" onclick="novoEscalaModelo()" style="margin-bottom:10px"><i class="fa-solid fa-plus"></i> Novo modelo</button>
+        <button id="btn-novo-escala-modelo" class="btn btn-primary" onclick="novoEscalaModelo()" style="margin-bottom:10px"><i class="fa-solid fa-plus"></i> Novo modelo</button>
         <div id="esc-mod-lista"></div>
       </div>
       <div id="esc-mod-form-panel" style="display:none">
@@ -5049,12 +5055,18 @@
         <div class="form-group" style="grid-column:1 / -1">
           <label><i class="fa-solid fa-calendar-week"></i> Escala a aplicar</label>
           <select id="ajustar-escala-tipo">
-            <option value="5x2A">5x2 — Variante A (08h–18h / Sex 08h–16h)</option>
-            <option value="5x2B">5x2 — Variante B (07h–17h / Sex 07h–16h)</option>
-            <option value="6x1A">6x1 — Variante A (07h–16h / Sáb 07h–11h)</option>
-            <option value="6x1B">6x1 — Variante B (08h–16h20 / todos os dias)</option>
-            <option value="6x1C">6x1 — Variante C (08h–17h / Sáb 08h–12h)</option>
-            <option value="12x36">12x36 (Doze por Trinta e Seis)</option>
+            <optgroup label="Escalas do sistema">
+              <option value="5x2A">5x2 — Variante A (08h–18h / Sex 08h–16h)</option>
+              <option value="5x2B">5x2 — Variante B (07h–17h / Sex 07h–16h)</option>
+              <option value="6x1A">6x1 — Variante A (07h–16h / Sáb 07h–11h)</option>
+              <option value="6x1B">6x1 — Variante B (08h–16h20 / todos os dias)</option>
+              <option value="6x1C">6x1 — Variante C (08h–17h / Sáb 08h–12h)</option>
+              <option value="12x36-07-19">12x36 — Diurno (07h–19h)</option>
+              <option value="12x36-06-18">12x36 — Diurno (06h–18h)</option>
+              <option value="12x36-19-07">12x36 — Noturno (19h–07h)</option>
+              <option value="12x36-18-06">12x36 — Noturno (18h–06h)</option>
+              <option value="12x36">12x36 — Genérica (horário do cadastro)</option>
+            </optgroup>
           </select>
         </div>
       </div>
@@ -5105,6 +5117,7 @@
           <div class="checkbox-label perm-card"><label class="perm-mod"><input type="checkbox" name="mod" value="employees"> <span><i class="fa-solid fa-users" style="width:14px;color:var(--primary)"></i> Colaboradores</span></label><label class="perm-edit"><input type="checkbox" data-edit="employees"> Editar</label></div>
           <div class="checkbox-label perm-card"><label class="perm-mod"><input type="checkbox" name="mod" value="payroll"> <span><i class="fa-solid fa-file-invoice-dollar" style="width:14px;color:var(--primary)"></i> Folha de Ponto</span></label><label class="perm-edit"><input type="checkbox" data-edit="payroll"> Editar</label></div>
           <div class="checkbox-label perm-card"><label class="perm-mod"><input type="checkbox" name="mod" value="escalas"> <span><i class="fa-solid fa-calendar-days" style="width:14px;color:var(--primary)"></i> Escalas</span></label><label class="perm-edit"><input type="checkbox" data-edit="escalas"> Editar</label></div>
+          <label class="checkbox-label"><input type="checkbox" name="mod" value="criarEscalas"> <span><i class="fa-solid fa-calendar-plus" style="width:14px;color:#6D4C41"></i> Criar/Editar Modelos de Escala</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="aprovaHE"> <span><i class="fa-solid fa-magnifying-glass" style="width:14px;color:#E65100"></i> Aprovar Horas Extras</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="reports"> <span><i class="fa-solid fa-chart-bar" style="width:14px;color:var(--primary)"></i> Relatórios</span></label>
           <div class="checkbox-label perm-card"><label class="perm-mod"><input type="checkbox" name="mod" value="pagamentos"> <span><i class="fa-solid fa-money-bill-wave" style="width:14px;color:var(--primary)"></i> Pagamentos</span></label><label class="perm-edit"><input type="checkbox" data-edit="pagamentos"> Editar</label></div>
@@ -5711,6 +5724,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260528i"></script>
+<script src="app.js?v=20260528j"></script>
 </body>
 </html>

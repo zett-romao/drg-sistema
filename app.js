@@ -3668,6 +3668,14 @@ function onEscalaChange(){
   if(rowCiclo) rowCiclo.style.display=is12?'':'none';
   const rowAlt=document.getElementById('row-alternada-folga');
   if(rowAlt) rowAlt.style.display=isAlt?'':'none';
+  // Variante 12x36 com horário fixo: já preenche entrada/saída e o turno noturno.
+  const def=ESCALA_HORARIOS_DEFAULT[escala];
+  if(def && escala.startsWith('12x36-')){
+    setVal('emp-horario-entrada', def.entrada);
+    setVal('emp-horario-saida', def.saida);
+    const nt=document.getElementById('emp-turno-noturno');
+    if(nt) nt.checked=_escala12x36Noturna(escala);
+  }
 }
 
 function onEmpStatusChange(){
@@ -4562,8 +4570,13 @@ function escalaFamilia(escala){
   if(escala.startsWith('m_')) return escala;       // modelo customizado
   if(escala.startsWith('5x2')) return '5x2';
   if(escala.startsWith('6x1')) return '6x1';
-  if(escala==='12x36') return '12x36';
+  if(escala.startsWith('12x36')) return '12x36';   // 12x36 e variantes 12x36-HH-HH
   return escala;
+}
+
+// true se a variante 12x36 é NOTURNA (cruza a meia-noite → adicional noturno).
+function _escala12x36Noturna(escala){
+  return escala==='12x36-19-07' || escala==='12x36-18-06';
 }
 
 // Retorna o modelo de escala customizado (escala no formato m_{id}) ou null
@@ -4611,7 +4624,11 @@ function escalaLabel(escala){
     '6x1B':'6x1 — Var. B (08h–16h20)',
     '6x1C':'6x1 — Var. C (08h–17h / Sáb 4h)',
     '6x1ALT':'6x1 — Alternado (sáb ↔ dom)',
-    '12x36':'12x36'
+    '12x36':'12x36',
+    '12x36-07-19':'12x36 (07h–19h)',
+    '12x36-06-18':'12x36 (06h–18h)',
+    '12x36-19-07':'12x36 Noturno (19h–07h)',
+    '12x36-18-06':'12x36 Noturno (18h–06h)'
   };
   return labels[escala]||escala||'5x2A';
 }
@@ -10400,7 +10417,7 @@ function _parseDiasIA(diasStr){
 }
 
 async function callGemini(base64Data, mimeType, escala, mes, ano){
-  const escalaRule=ESCALA_RULES[escala]||ESCALA_RULES['5x2A'];
+  const escalaRule=ESCALA_RULES[escala]||ESCALA_RULES[escalaFamilia(escala)]||ESCALA_RULES['5x2A'];
   const refTxt=(mes&&ano)?`Esta folha é da competência ${MESES[mes]}/${ano}, que vai do dia ${_compLabel(mes,ano)} (fecha no dia 25). Os dias 26 a 31 pertencem ao mês anterior; os dias 1 a 25 ao mês ${mes}.`:'';
   const prompt=`Você é um sistema de leitura de folha de ponto brasileira. Analise a imagem/PDF desta folha de ponto e extraia os horários de CADA DIA com PRECISÃO MÁXIMA. A folha pode ser digitada ou preenchida à mão.
 
@@ -16657,7 +16674,13 @@ const ESCALA_HORARIOS_DEFAULT = {
   '6x1A':  { entrada:'07:00', saida:'16:00' }, // Sáb 07-11
   '6x1B':  { entrada:'08:00', saida:'16:20' },
   '6x1C':  { entrada:'08:00', saida:'17:00' }, // Sáb 08-12
-  '12x36': { entrada:'07:00', saida:'19:00' }
+  '12x36': { entrada:'07:00', saida:'19:00' },
+  // Variantes 12x36 com horário FIXO (escalas do sistema). As noturnas (19-07,
+  // 18-06) cruzam a meia-noite — _escala12x36Noturna() liga o adicional noturno.
+  '12x36-07-19': { entrada:'07:00', saida:'19:00' },
+  '12x36-06-18': { entrada:'06:00', saida:'18:00' },
+  '12x36-19-07': { entrada:'19:00', saida:'07:00' },
+  '12x36-18-06': { entrada:'18:00', saida:'06:00' }
 };
 
 // Retorna horários default para um colaborador num dia da semana específico
@@ -16670,10 +16693,13 @@ function _escalaHorariosDia(emp, diaSem){
       : (_mod.dias[diaSem]||{});
     return { entrada:md.entrada||'', intIni:md.intIni||'', intFim:md.intFim||'', saida:md.saida||'' };
   }
-  const noturno = !!emp.turnoNoturno;
+  const noturno = !!emp.turnoNoturno || _escala12x36Noturna(escala);
   const def = ESCALA_HORARIOS_DEFAULT[escala] || ESCALA_HORARIOS_DEFAULT['5x2A'];
-  let entrada = emp.horarioEntrada || def.entrada;
-  let saida   = emp.horarioSaida   || def.saida;
+  // Variantes 12x36 com horário fixo (12x36-HH-HH) IGNORAM o horário do cadastro
+  // — a escala define a jornada. As demais usam o horário do colaborador.
+  const escalaFixa = escala.startsWith('12x36-');
+  let entrada = escalaFixa ? def.entrada : (emp.horarioEntrada || def.entrada);
+  let saida   = escalaFixa ? def.saida   : (emp.horarioSaida   || def.saida);
   // Refeição: respeita flag "semRefeicao" e diferencia noturno/diurno no default
   let intIni, intFim;
   if(emp.semRefeicao){
@@ -16682,6 +16708,11 @@ function _escalaHorariosDia(emp, diaSem){
     // Cadastro do colaborador tem refeição definida — usa a dele
     intIni = emp.horarioRefIni;
     intFim = emp.horarioRefFim;
+  } else if(escalaFixa){
+    // Variantes 12x36 do sistema: SEM refeição cravada por padrão (12h sem
+    // intervalo batido, padrão de plantão). Mantém a escala coerente entre os
+    // dias projetados e os dias batidos. Pra ter refeição, defina no cadastro.
+    intIni = ''; intFim = '';
   } else {
     // Sem cadastro: default sensato — noturno janta após meia-noite, diurno almoça
     if(noturno){
@@ -16904,16 +16935,30 @@ function _projectEscala12x36(emp, mes, ano, prevDias, anchorOverride){
 // ============================================
 const _DIAS_SEMANA=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
 
+// Injeta os modelos personalizados num <optgroup> "★ Criadas por você",
+// separado das escalas do sistema. Compartilhado pelo cadastro e pelo Ajustar.
+function _injetarModelosNoSelect(sel){
+  if(!sel) return;
+  const old=sel.querySelector('optgroup[data-custom-group]'); if(old) old.remove();
+  // compat: remove options custom soltas de versões anteriores
+  Array.from(sel.querySelectorAll('option[data-custom]')).forEach(o=>o.remove());
+  const mods=(State.escalasModelos||[]).slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+  if(!mods.length) return;
+  const og=document.createElement('optgroup');
+  og.label='★ Criadas por você';
+  og.setAttribute('data-custom-group','1');
+  mods.forEach(m=>{
+    const o=document.createElement('option');
+    o.value='m_'+m.id; o.textContent=m.nome; o.setAttribute('data-custom','1');
+    og.appendChild(o);
+  });
+  sel.appendChild(og);
+}
+
 function populateEscalaSelect(){
   const sel=document.getElementById('emp-escala'); if(!sel) return;
   const atual=sel.value;
-  Array.from(sel.querySelectorAll('option[data-custom]')).forEach(o=>o.remove());
-  (State.escalasModelos||[]).slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''))
-    .forEach(m=>{
-      const o=document.createElement('option');
-      o.value='m_'+m.id; o.textContent='★ '+m.nome; o.setAttribute('data-custom','1');
-      sel.appendChild(o);
-    });
+  _injetarModelosNoSelect(sel);
   if(atual) sel.value=atual;
 }
 
@@ -16926,6 +16971,8 @@ function _escModMostrarLista(){
   document.getElementById('esc-mod-lista-panel').style.display='';
   document.getElementById('esc-mod-btn-voltar').style.display='none';
   document.getElementById('esc-mod-btn-salvar').style.display='none';
+  const btnNovo=document.getElementById('btn-novo-escala-modelo');
+  if(btnNovo) btnNovo.style.display=_podeCriarEscalas()?'':'none';
   renderEscalaModelosList();
 }
 function _escModMostrarForm(){
@@ -16941,13 +16988,16 @@ function renderEscalaModelosList(){
     c.innerHTML='<div class="empty-state small"><i class="fa-solid fa-calendar-days"></i><p>Nenhum modelo de escala criado</p></div>';
     return;
   }
+  const pode=_podeCriarEscalas();
   c.innerHTML=arr.map(m=>{
     const trab=(m.dias||[]).filter(d=>d.tipo==='trabalho'||d.tipo==='corrido').length;
+    const acoes=pode?`
+      <button class="btn-icon" onclick="editEscalaModelo('${m.id}')" title="Editar"><i class="fa-solid fa-pen" style="color:#1565C0"></i></button>
+      <button class="btn-icon" onclick="confirmDeleteEscalaModelo('${m.id}')" title="Excluir"><i class="fa-solid fa-trash" style="color:#C62828"></i></button>`:'';
     return `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px">
       <i class="fa-solid fa-calendar-days" style="color:var(--primary)"></i>
       <span style="flex:1"><strong>${m.nome||'—'}</strong> <span style="font-size:11px;color:var(--text-muted)">— ${trab} dia(s) de trabalho por semana</span></span>
-      <button class="btn-icon" onclick="editEscalaModelo('${m.id}')" title="Editar"><i class="fa-solid fa-pen" style="color:#1565C0"></i></button>
-      <button class="btn-icon" onclick="confirmDeleteEscalaModelo('${m.id}')" title="Excluir"><i class="fa-solid fa-trash" style="color:#C62828"></i></button>
+      ${acoes}
     </div>`;
   }).join('');
 }
@@ -17033,7 +17083,13 @@ function _escModRegenCiclo(novo){
   for(let i=0;i<n;i++) dias.push(atual[i]||{tipo:'trabalho',entrada:'07:00',intIni:'',intFim:'',saida:'19:00'});
   _renderEscalaModeloDias('ciclo',dias);
 }
+// Permissão para criar/editar/excluir modelos de escala. Master sempre pode;
+// os demais perfis dependem do módulo `criarEscalas` (default bloqueado).
+function _podeCriarEscalas(){
+  return Auth.currentUser?.role==='master' || !!getUserModules(Auth.currentUser).criarEscalas;
+}
 function novoEscalaModelo(){
+  if(!_podeCriarEscalas()){ toast('Seu perfil não tem permissão para criar escalas.','error'); return; }
   setVal('esc-mod-id','');
   setVal('esc-mod-nome','');
   setVal('esc-mod-tipo','semanal');
@@ -17045,6 +17101,7 @@ function novoEscalaModelo(){
   _escModMostrarForm();
 }
 function editEscalaModelo(id){
+  if(!_podeCriarEscalas()){ toast('Seu perfil não tem permissão para editar escalas.','error'); return; }
   const m=(State.escalasModelos||[]).find(x=>x.id===id); if(!m) return;
   const tipo=m.tipo||'semanal';
   setVal('esc-mod-id',m.id);
@@ -17058,6 +17115,7 @@ function editEscalaModelo(id){
   _escModMostrarForm();
 }
 async function saveEscalaModelo(){
+  if(!_podeCriarEscalas()){ toast('Seu perfil não tem permissão para criar escalas.','error'); return; }
   const nome=val('esc-mod-nome').trim();
   if(!nome){ toast('Dê um nome ao modelo de escala.','error'); return; }
   const tipo=val('esc-mod-tipo')||'semanal';
@@ -17088,6 +17146,7 @@ async function saveEscalaModelo(){
   finally { setBtnLoading(btn,false,'<i class="fa-solid fa-floppy-disk"></i> Salvar Modelo'); }
 }
 function confirmDeleteEscalaModelo(id){
+  if(!_podeCriarEscalas()){ toast('Seu perfil não tem permissão para excluir escalas.','error'); return; }
   const m=(State.escalasModelos||[]).find(x=>x.id===id); if(!m) return;
   document.getElementById('confirm-message').innerHTML=`Excluir o modelo de escala <strong>${m.nome}</strong>?<br><br>Colaboradores que usam este modelo ficarão sem escala definida — reatribua a escala deles depois.`;
   const btn=document.getElementById('confirm-ok-btn');
@@ -17566,14 +17625,8 @@ function openAjustarEscala(empId){
   const mes = parseInt(document.getElementById('escala-mes').value);
   const ano = parseInt(document.getElementById('escala-ano').value);
   const sel = document.getElementById('ajustar-escala-tipo');
-  // Re-injeta os modelos de escala customizados no select
-  Array.from(sel.querySelectorAll('option[data-custom]')).forEach(o=>o.remove());
-  (State.escalasModelos||[]).slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''))
-    .forEach(m=>{
-      const o=document.createElement('option');
-      o.value='m_'+m.id; o.textContent='★ '+m.nome; o.setAttribute('data-custom','1');
-      sel.appendChild(o);
-    });
+  // Re-injeta os modelos de escala customizados (optgroup "★ Criadas por você")
+  _injetarModelosNoSelect(sel);
   sel.value = emp.escala || '5x2A';
   const diaEl = document.getElementById('ajustar-escala-dia');
   diaEl.max = new Date(ano, mes, 0).getDate();
@@ -17641,6 +17694,7 @@ async function aplicarAjusteEscala(){
     emp.horarioSaida   = def.saida;
     emp.horarioRefIni  = '';   // limpa pra `_escalaHorariosDia` usar o default sensato (12-13 / 00-01 noturno)
     emp.horarioRefFim  = '';
+    if(novaEscala.startsWith('12x36-')) emp.turnoNoturno = _escala12x36Noturna(novaEscala);
     emp.updatedAt      = new Date().toISOString();
     try {
       await DB.save('employees', emp);
@@ -17899,6 +17953,7 @@ const MODULOS_LABELS={
   employees:       'Colaboradores',
   payroll:         'Folha de Ponto',
   escalas:         'Escalas',
+  criarEscalas:    'Criar/Editar Modelos de Escala',
   aprovaHE:        'Aprovar Horas Extras',
   reports:         'Relatórios',
   pagamentos:      'Pagamentos',
@@ -17921,8 +17976,8 @@ const MODULOS_LABELS={
 // Retorna os módulos permitidos para o usuário
 function getUserModules(user){
   if(!user) return {};
-  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,escalas:true,aprovaHE:true,reports:true,pagamentos:true,pagamentosLancar:true,pagamentosAprovar:true,decimoterceiro:true,ferias:true,rescisao:true,contabilidade:true,postos:true,contratos:true,users:true,log:true,comunicacao:true,comunicacoesApagar:true,disciplinaApagar:true,autorizarPonto:true};
-  if(user.role==='operador') return {dashboard:true,employees:false,payroll:true,escalas:true,aprovaHE:false,reports:true,pagamentos:true,pagamentosLancar:false,pagamentosAprovar:false,decimoterceiro:true,ferias:true,rescisao:false,contabilidade:true,postos:false,contratos:false,users:false,log:!!user.showLog};
+  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,escalas:true,criarEscalas:true,aprovaHE:true,reports:true,pagamentos:true,pagamentosLancar:true,pagamentosAprovar:true,decimoterceiro:true,ferias:true,rescisao:true,contabilidade:true,postos:true,contratos:true,users:true,log:true,comunicacao:true,comunicacoesApagar:true,disciplinaApagar:true,autorizarPonto:true};
+  if(user.role==='operador') return {dashboard:true,employees:false,payroll:true,escalas:true,criarEscalas:false,aprovaHE:false,reports:true,pagamentos:true,pagamentosLancar:false,pagamentosAprovar:false,decimoterceiro:true,ferias:true,rescisao:false,contabilidade:true,postos:false,contratos:false,users:false,log:!!user.showLog};
   if(user.role&&user.role.startsWith('p_')){
     const perfilId=user.role.replace('p_','');
     const perfil=(State.perfis||[]).find(p=>p.id===perfilId);
@@ -18033,7 +18088,7 @@ function openPerfilModal(id=null){
     setVal('perfil-id',''); setVal('perfil-nome','');
     // Novo perfil: acesso de edição a tudo, exceto Usuários & Acessos
     const defModules={}, defPerm={};
-    Object.keys(MODULOS_LABELS).forEach(m=>{ defModules[m]=m!=='users'; defPerm[m]='edit'; });
+    Object.keys(MODULOS_LABELS).forEach(m=>{ defModules[m]=(m!=='users' && m!=='criarEscalas'); defPerm[m]='edit'; });
     Object.keys(MODULOS_LABELS).forEach(mod=>setMod(mod,defModules,defPerm));
   }
 }

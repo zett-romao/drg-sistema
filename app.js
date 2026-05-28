@@ -16516,18 +16516,47 @@ function _renderEscalaModeloDias(tipo, dias){
   let html='';
   for(let i=0;i<n;i++){
     const d=(dias&&dias[i])||{tipo:'folga'};
-    const t=d.tipo||'folga';
+    // Auto-corrige inconsistência: se tem entrada+saída mas tá marcado como folga,
+    // assume trabalho (o usuário preencheu horários, claramente não é folga).
+    let t = d.tipo || 'folga';
+    if (t === 'folga' && (d.entrada || d.saida)) t = 'trabalho';
     const nome = tipo==='ciclo' ? ('Dia '+(i+1)) : _DIAS_SEMANA[i];
+    const disabled = t === 'folga' ? 'disabled' : '';
+    const opacity  = t === 'folga' ? 'opacity:.4' : '';
     html+=`<tr>
       <td style="font-weight:600;font-size:12px">${nome}</td>
-      <td><select class="em-tipo"><option value="folga"${t==='folga'?' selected':''}>Folga</option><option value="trabalho"${t==='trabalho'?' selected':''}>Trabalho</option><option value="corrido"${t==='corrido'?' selected':''}>Hora corrida</option></select></td>
-      <td><input type="time" class="em-entrada" value="${d.entrada||''}"></td>
-      <td><input type="time" class="em-intIni" value="${d.intIni||''}"></td>
-      <td><input type="time" class="em-intFim" value="${d.intFim||''}"></td>
-      <td><input type="time" class="em-saida" value="${d.saida||''}"></td>
+      <td><select class="em-tipo" onchange="_escModOnTipoChange(this)"><option value="folga"${t==='folga'?' selected':''}>Folga</option><option value="trabalho"${t==='trabalho'?' selected':''}>Trabalho</option><option value="corrido"${t==='corrido'?' selected':''}>Hora corrida</option></select></td>
+      <td><input type="time" class="em-entrada" value="${d.entrada||''}" ${disabled} style="${opacity}" oninput="_escModOnHorarioInput(this)"></td>
+      <td><input type="time" class="em-intIni" value="${d.intIni||''}" ${disabled} style="${opacity}" oninput="_escModOnHorarioInput(this)"></td>
+      <td><input type="time" class="em-intFim" value="${d.intFim||''}" ${disabled} style="${opacity}" oninput="_escModOnHorarioInput(this)"></td>
+      <td><input type="time" class="em-saida" value="${d.saida||''}" ${disabled} style="${opacity}" oninput="_escModOnHorarioInput(this)"></td>
     </tr>`;
   }
   tb.innerHTML=html;
+}
+// UX do editor de modelos — coerência entre "Situação" e horários.
+// Folga + horário digitado virou ambiguidade na produção (usuario via
+// Folga e esperava 4h trabalho). Agora o editor força consistência.
+function _escModOnTipoChange(sel){
+  const tr = sel.closest('tr'); if(!tr) return;
+  const folga = sel.value === 'folga';
+  const inputs = tr.querySelectorAll('input[type="time"]');
+  inputs.forEach(inp => {
+    inp.disabled = folga;
+    inp.style.opacity = folga ? '.4' : '';
+    if (folga) inp.value = '';  // muda pra Folga → limpa horários
+  });
+}
+function _escModOnHorarioInput(inp){
+  const tr = inp.closest('tr'); if(!tr) return;
+  const sel = tr.querySelector('.em-tipo');
+  // Digitou um horário numa linha de Folga → assume Trabalho automaticamente
+  if (sel && sel.value === 'folga' && inp.value) {
+    sel.value = 'trabalho';
+    tr.querySelectorAll('input[type="time"]').forEach(i => {
+      i.disabled = false; i.style.opacity = '';
+    });
+  }
 }
 function _escModColetarDias(){
   const arr=[];

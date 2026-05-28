@@ -2117,11 +2117,21 @@ function showPayrollStatDetail(fieldKey, label, color){
       <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 20px 14px;border-bottom:2px solid ${color}30;background:${color}08">
         <div>
           <div style="font-size:17px;font-weight:700;color:#1a1a2e">${label}</div>
-          <div style="font-size:12px;color:#888;margin-top:2px">${MESES[mes]}/${ano} · ${items.length} colaborador${items.length!==1?'es':''}</div>
+          <div data-stat-count style="font-size:12px;color:#888;margin-top:2px">${MESES[mes]}/${ano} · ${items.length} colaborador${items.length!==1?'es':''}</div>
         </div>
         <button onclick="document.getElementById('modal-stat-detail').remove()" style="border:none;background:${color}15;color:${color};width:34px;height:34px;border-radius:50%;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center">✕</button>
       </div>
-      <div style="overflow-y:auto;flex:1">${bodyRows}</div>
+      ${items.length > 0 ? `
+      <div style="padding:10px 16px;border-bottom:1px solid #f0f0f0;background:#fafafa">
+        <div style="position:relative">
+          <i class="fa-solid fa-magnifying-glass" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#9e9e9e;font-size:13px;pointer-events:none"></i>
+          <input data-stat-search type="text" placeholder="Buscar por nome..."
+            style="width:100%;padding:9px 12px 9px 34px;border:1px solid #e0e0e0;border-radius:8px;font-size:14px;outline:none;transition:border-color .15s"
+            onfocus="this.style.borderColor='${color}'" onblur="this.style.borderColor='#e0e0e0'">
+        </div>
+        <div data-stat-empty style="display:none;text-align:center;padding:20px;color:#aaa;font-size:13px"><i class="fa-solid fa-magnifying-glass" style="font-size:24px;margin-bottom:8px;display:block;opacity:.5"></i>Nenhum nome encontrado</div>
+      </div>` : ''}
+      <div data-stat-rows style="overflow-y:auto;flex:1">${bodyRows}</div>
     </div>`;
   document.body.appendChild(modal);
   // Listeners via JS — mais robusto que inline onclick. Cada linha leva
@@ -2137,6 +2147,33 @@ function showPayrollStatDetail(fieldKey, label, color){
       openPayrollForEmployee(empId, { mes, ano, fieldKey, label, color });
     });
   });
+  // Lupa de busca por nome — filtra em tempo real
+  const searchInput = modal.querySelector('[data-stat-search]');
+  if (searchInput) {
+    const rows       = modal.querySelectorAll('[data-emp-row]');
+    const countEl    = modal.querySelector('[data-stat-count]');
+    const emptyEl    = modal.querySelector('[data-stat-empty]');
+    const rowsCont   = modal.querySelector('[data-stat-rows]');
+    const monthLabel = `${MESES[mes]}/${ano}`;
+    // Helper pra "normalizar" — remove acentos e baixa caso, casa busca "joao" com "João"
+    const norm = s => (s || '').toLowerCase()
+      .normalize('NFD').replace(/[̀-ͯ]/g, '');
+    searchInput.addEventListener('input', () => {
+      const q = norm(searchInput.value.trim());
+      let visible = 0;
+      rows.forEach(r => {
+        const match = !q || norm(r.dataset.empNome || '').includes(q);
+        r.style.display = match ? '' : 'none';
+        if (match) visible++;
+      });
+      if (countEl) countEl.textContent = `${monthLabel} · ${visible} colaborador${visible !== 1 ? 'es' : ''}`;
+      if (emptyEl) emptyEl.style.display = visible === 0 ? 'block' : 'none';
+      if (rowsCont) rowsCont.style.display = visible === 0 ? 'none' : '';
+    });
+    // Foca o input automaticamente (desktop). Em mobile o teclado virtual
+    // pode subir junto — aceitavel, o caso de uso e' "abriu pra buscar".
+    setTimeout(() => searchInput.focus(), 50);
+  }
 }
 
 // Helpers globais para o openPayrollForEmployee com destaque

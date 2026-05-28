@@ -221,6 +221,17 @@ Levantamento de inconsistências (foco: fechamento/competência, escalas, HE/fal
 🔵 **SEGURANÇA (pendência conhecida — ver [[drg-kronos-blindagem-s3-status]])**
 8. **S3-C/D pendentes:** regras Firestore/Storage ainda aceitam sessão anônima/autenticada legada lendo/gravando CPF/salário/PIX. Não é regressão; é a etapa que faltou da blindagem.
 
+### AUDITORIA 2026-05-28 — 2ª passada (relatórios, 13º, férias, rescisão, contabilidade, Workers)
+✅ **CORRIGIDO e publicado (2026-05-28):**
+- **CRÍTICO — 13º e Férias calculavam tudo R$ 0,00.** Os módulos liam `emp.salario`/`emp.admissao` (campos inexistentes; os reais são `emp.salarioBase`/`emp.dataAdmissao`). Corrigido nos dois módulos (render/open/preview/print) + parsing ISO da data + 2 telas de folha que mostravam admissão "—".
+- **Avos do 13º unificados com a rescisão:** novo helper `_avosDecimo(emp,ano)` usa `_contaAvos` (regra ≥15 dias/mês), no lugar da fórmula `diaAdm<=15` que divergia 1 avo em admissões dia 16-17.
+
+✅ **OK (sem bugs):** Relatórios e Contabilidade (leem agregados já salvos → competência-safe); Rescisão (`_calcRescisao` usa campos certos); competência/isento não se aplicam a 13º/férias/rescisão (são por data/salário).
+
+⚠️ **Menores:** Férias mostra só o último registro do ano (férias divididas escondidas na lista); `formatDateBr` definido 2× (linhas 778 e 2059) — redundância.
+
+🔴 **PENDENTE — WORKERS (segurança, alinha com S3):** auditoria de `aprovacao-worker.js`/`asaas-worker.js` apontou: (a) `/operator-login` cria a senha do Painel do Operador no 1º acesso sem auth; (b) PIN = 4 últimos dígitos do CPF (10k combos) sem rate-limit/lockout + comparações não constant-time; (c) PIX sem idempotência (risco pagar 2×) e validação fraca de valor/chave; (d) senha/PIN em SHA-256 sem salt/KDF; (e) erros vazam internals; (f) `asaas-worker` expõe `/payments`,`/customers` sem auth; (g) `ASAAS_API_KEY` duplicada em 2 workers. OK: validação de token RS256 correta, `exigirMaster` revalida no servidor, sem segredos hardcoded.
+
 ### Folha de ponto fecha no dia 25 (competência 26→25) — HANDOFF 2026-05-28
 **Status: código PUBLICADO em 2026-05-28 (commits 16e0988 e posteriores). Migração + backfill + fechamento de maio AINDA NÃO RODADOS no app (ação do usuário).**
 

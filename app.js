@@ -2441,15 +2441,8 @@ function renderDecimoTerceiro(){
 
   let totalBruto=0,totalINSS=0,totalIRRF=0,totalFGTS=0,totalLiq=0;
   const rows=emps.map((emp,i)=>{
-    const admissao=emp.admissao||'';
-    let mesesDir=0;
-    if(admissao){
-      const adm=new Date(admissao.split('/').reverse().join('-'));
-      const anoAdm=adm.getFullYear(), mesAdm=adm.getMonth()+1, diaAdm=adm.getDate();
-      if(anoAdm<ano) mesesDir=12;
-      else if(anoAdm===ano) mesesDir=12-mesAdm+(diaAdm<=15?1:0);
-    }
-    const salBase=parseFloat(emp.salario||0);
+    const mesesDir=_avosDecimo(emp,ano);
+    const salBase=parseFloat(emp.salarioBase||0);
     const bruto=Math.round(salBase*mesesDir/12*100)/100;
     const parc1=Math.round(bruto/2*100)/100;
     const inss=calcINSS(bruto);
@@ -2488,21 +2481,14 @@ function openDecimoTerceiro(empId){
   const emp=State.employees.find(e=>e.id===empId); if(!emp) return;
   const ano=parseInt(val('dec-ano')||currentAno());
   const rec=(State.decimoTerceiro||[]).find(r=>r.employeeId===empId&&r.ano===ano)||{};
-  const admissao=emp.admissao||'';
-  let mesesDir=0;
-  if(admissao){
-    const adm=new Date(admissao.split('/').reverse().join('-'));
-    const anoAdm=adm.getFullYear(), mesAdm=adm.getMonth()+1, diaAdm=adm.getDate();
-    if(anoAdm<ano) mesesDir=12;
-    else if(anoAdm===ano) mesesDir=12-mesAdm+(diaAdm<=15?1:0);
-  }
+  const mesesDir=_avosDecimo(emp,ano);
   setVal('dec-modal-emp-id',empId);
   setVal('dec-modal-ano',ano);
   setVal('dec-modal-nome',emp.nome);
   setVal('dec-modal-cargo',emp.cargo||emp.setor||'—');
-  setVal('dec-modal-admissao',emp.admissao||'—');
+  setVal('dec-modal-admissao',emp.dataAdmissao?formatDateBr(emp.dataAdmissao):'—');
   setVal('dec-modal-meses-dir',mesesDir);
-  setVal('dec-modal-sal-base',(parseFloat(emp.salario||0)).toFixed(2));
+  setVal('dec-modal-sal-base',(parseFloat(emp.salarioBase||0)).toFixed(2));
   setVal('dec-modal-status',rec.status||'pendente');
   setVal('dec-modal-obs',rec.obs||'');
   setVal('dec-modal-parc1-data',rec.parc1Data||'');
@@ -2514,7 +2500,7 @@ function openDecimoTerceiro(empId){
 function _calcDecTercPreview(emp,mesesDir){
   if(!emp){ const id=val('dec-modal-emp-id'); emp=State.employees.find(e=>e.id===id); if(!emp) return; }
   if(mesesDir===undefined) mesesDir=parseInt(val('dec-modal-meses-dir')||12);
-  const salBase=parseFloat(emp.salario||0);
+  const salBase=parseFloat(emp.salarioBase||0);
   const bruto=Math.round(salBase*mesesDir/12*100)/100;
   const parc1=Math.round(bruto/2*100)/100;
   const inss=calcINSS(bruto);
@@ -2592,8 +2578,8 @@ function printDecimoTerceiro(){
   <table>
     <tr><th colspan="2">Dados do Colaborador</th></tr>
     <tr><td><strong>Nome:</strong> ${emp.nome}</td><td><strong>Registro:</strong> ${emp.registro||'—'}</td></tr>
-    <tr><td><strong>Cargo:</strong> ${emp.cargo||emp.setor||'—'}</td><td><strong>Admissão:</strong> ${emp.admissao||'—'}</td></tr>
-    <tr><td><strong>Meses Trabalhados:</strong> ${mesesDir}/12</td><td><strong>Sal. Base:</strong> ${fmtMoney(parseFloat(emp.salario||0))}</td></tr>
+    <tr><td><strong>Cargo:</strong> ${emp.cargo||emp.setor||'—'}</td><td><strong>Admissão:</strong> ${emp.dataAdmissao?formatDateBr(emp.dataAdmissao):'—'}</td></tr>
+    <tr><td><strong>Meses Trabalhados:</strong> ${mesesDir}/12</td><td><strong>Sal. Base:</strong> ${fmtMoney(parseFloat(emp.salarioBase||0))}</td></tr>
   </table>
   <table>
     <tr><th>PARCELA</th><th>VALOR</th><th>DATA PGTO</th></tr>
@@ -2655,10 +2641,10 @@ function renderFeriasModulo(){
 
   const rows=emps.map((emp,i)=>{
     const recs=recMap[emp.id]||[];
-    const admissao=emp.admissao||'';
+    const admissao=emp.dataAdmissao||'';
     let periodoAquis='—', direitoAno='—';
     if(admissao){
-      const adm=new Date(admissao.split('/').reverse().join('-'));
+      const adm=new Date(admissao.substring(0,10)+'T00:00:00');
       const anoAdm=adm.getFullYear(), mesAdm=adm.getMonth(), diaAdm=adm.getDate();
       const periodos=ano-anoAdm;
       if(periodos>=1){
@@ -2690,8 +2676,8 @@ function openFeriasModulo(empId){
   setVal('fer-modal-ano',ano);
   setVal('fer-modal-nome',emp.nome);
   setVal('fer-modal-cargo',emp.cargo||emp.setor||'—');
-  setVal('fer-modal-admissao',emp.admissao||'—');
-  setVal('fer-modal-sal-base',(parseFloat(emp.salario||0)).toFixed(2));
+  setVal('fer-modal-admissao',emp.dataAdmissao?formatDateBr(emp.dataAdmissao):'—');
+  setVal('fer-modal-sal-base',(parseFloat(emp.salarioBase||0)).toFixed(2));
   setVal('fer-modal-inicio',rec.inicio||'');
   setVal('fer-modal-fim',rec.fim||'');
   setVal('fer-modal-abono-dias',rec.abonoDias||0);
@@ -2704,7 +2690,7 @@ function openFeriasModulo(empId){
 function calcFeriasModuloPreview(){
   const empId=val('fer-modal-emp-id');
   const emp=State.employees.find(e=>e.id===empId); if(!emp) return;
-  const salBase=parseFloat(emp.salario||0);
+  const salBase=parseFloat(emp.salarioBase||0);
   const abonoDias=Math.min(10,Math.max(0,parseInt(val('fer-modal-abono-dias')||0)));
   const diasGozo=30-abonoDias;
   const abono=Math.round(salBase/30*abonoDias*100)/100;
@@ -2788,9 +2774,9 @@ function printFeriasModulo(){
   <table>
     <tr><th colspan="2">Dados do Colaborador</th></tr>
     <tr><td><strong>Nome:</strong> ${emp.nome}</td><td><strong>Registro:</strong> ${emp.registro||'—'}</td></tr>
-    <tr><td><strong>Cargo:</strong> ${emp.cargo||emp.setor||'—'}</td><td><strong>Admissão:</strong> ${emp.admissao||'—'}</td></tr>
+    <tr><td><strong>Cargo:</strong> ${emp.cargo||emp.setor||'—'}</td><td><strong>Admissão:</strong> ${emp.dataAdmissao?formatDateBr(emp.dataAdmissao):'—'}</td></tr>
     <tr><td><strong>Período de Gozo:</strong> ${inicio} a ${fim}</td><td><strong>Dias de Gozo:</strong> ${diasGozo} dias</td></tr>
-    ${parseInt(abonoDias)>0?`<tr><td><strong>Abono Pecuniário:</strong> ${abonoDias} dias</td><td><strong>Sal. Base:</strong> ${fmtMoney(parseFloat(emp.salario||0))}</td></tr>`:`<tr><td colspan="2"><strong>Sal. Base:</strong> ${fmtMoney(parseFloat(emp.salario||0))}</td></tr>`}
+    ${parseInt(abonoDias)>0?`<tr><td><strong>Abono Pecuniário:</strong> ${abonoDias} dias</td><td><strong>Sal. Base:</strong> ${fmtMoney(parseFloat(emp.salarioBase||0))}</td></tr>`:`<tr><td colspan="2"><strong>Sal. Base:</strong> ${fmtMoney(parseFloat(emp.salarioBase||0))}</td></tr>`}
   </table>
   <table>
     <tr><th>DEMONSTRATIVO FINANCEIRO</th><th>VALOR</th></tr>
@@ -10853,6 +10839,15 @@ function _contaAvos(ini, fim){
   return Math.min(12, avos);
 }
 
+// Avos de 13º do ano de referência: meses com >=15 dias trabalhados, de
+// max(admissão, 1/jan/ano) até 31/dez/ano. Mesma regra (e função) da rescisão.
+function _avosDecimo(emp, ano){
+  const adm = emp && emp.dataAdmissao ? new Date(emp.dataAdmissao.substring(0,10)+'T00:00:00') : null;
+  if(!adm || isNaN(adm.getTime())) return 0;
+  const ini = adm > new Date(ano,0,1) ? adm : new Date(ano,0,1);
+  return _contaAvos(ini, new Date(ano,11,31));
+}
+
 // Tempo de serviço detalhado: "X dias" / "X meses, Y dias" / "X anos, Y meses, Z dias"
 function _formatTempoServico(adm, dem){
   if(!adm || !dem || dem<adm) return '—';
@@ -15721,7 +15716,7 @@ ${isPreview?`<div class="preview-banner">
   <div class="info-item"><div class="info-label">PIS/PASEP</div><div class="info-value">${emp.pis||'—'}</div></div>
   <div class="info-item"><div class="info-label">Cargo / Função</div><div class="info-value">${emp.cargo||emp.setor||'—'}</div></div>
   <div class="info-item"><div class="info-label">Escala</div><div class="info-value">${emp.escala||'—'}</div></div>
-  <div class="info-item"><div class="info-label">Admissão</div><div class="info-value">${emp.admissao?fmtDate(emp.admissao):'—'}</div></div>
+  <div class="info-item"><div class="info-label">Admissão</div><div class="info-value">${emp.dataAdmissao?fmtDate(emp.dataAdmissao):'—'}</div></div>
   <div class="info-item"><div class="info-label">Posto de Trabalho</div><div class="info-value">${posto.razaoSocial||'—'}</div></div>
   <div class="info-item"><div class="info-label">Salário Base</div><div class="info-value">${fmtMoney(salarioBase)}</div></div>
   <div class="info-item"><div class="info-label">Horário Contratual</div><div class="info-value">${emp.horarioEntrada||'—'} – ${emp.horarioSaida||'—'}${emp.semRefeicao?' <span style="font-size:10px;color:#C62828">(Sem refeição)</span>':((emp.horarioRefIni||emp.horarioRefFim)?` <span style="font-size:10px;color:#888">(Ref. ${emp.horarioRefIni||'—'}–${emp.horarioRefFim||'—'})</span>`:'')}</div></div>
@@ -15959,7 +15954,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
   <div class="info-item"><div class="info-label">PIS/PASEP</div><div class="info-value">${emp.pis||'—'}</div></div>
   <div class="info-item"><div class="info-label">Cargo / Função</div><div class="info-value">${emp.cargo||emp.setor||'—'}</div></div>
   <div class="info-item"><div class="info-label">Escala</div><div class="info-value">${emp.escala||'—'}</div></div>
-  <div class="info-item"><div class="info-label">Admissão</div><div class="info-value">${emp.admissao?fmtDate(emp.admissao):'—'}</div></div>
+  <div class="info-item"><div class="info-label">Admissão</div><div class="info-value">${emp.dataAdmissao?fmtDate(emp.dataAdmissao):'—'}</div></div>
   <div class="info-item"><div class="info-label">Posto de Trabalho</div><div class="info-value">${posto.razaoSocial||'—'}</div></div>
   <div class="info-item"><div class="info-label">Salário Base</div><div class="info-value">${fmtMoney(emp.salarioBase||0)}</div></div>
   <div class="info-item"><div class="info-label">Horário Contratual</div><div class="info-value">${emp.horarioEntrada||'—'} – ${emp.horarioSaida||'—'}${emp.semRefeicao?' <span style="font-size:10px;color:#C62828">(Sem refeição)</span>':((emp.horarioRefIni||emp.horarioRefFim)?` <span style="font-size:10px;color:#888">(Ref. ${emp.horarioRefIni||'—'}–${emp.horarioRefFim||'—'})</span>`:'')}</div></div>

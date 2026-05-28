@@ -6152,7 +6152,10 @@ function recalculate(){
     }
   }
 
-  // --- VA proporcional aos dias pagos; perde o VA com 3 ou mais faltas ---
+  // --- VA: integral até 2 faltas INJUSTIFICADAS; a partir da 3ª, desconta
+  //     CADA dia faltado (os 3 + os extras), no valor vaMensal/diasPrevistos por
+  //     dia. Decisão do usuário 2026-05-28. Antes: proporcional aos dias pagos e
+  //     zerava tudo com >=3 faltas — agora só desconta os dias de falta.
   const vaNote=document.getElementById('va-note');
   if(emp&&(emp.valorMensalVa||0)>0){
     const vaMensal=emp.valorMensalVa||0;
@@ -6161,15 +6164,19 @@ function recalculate(){
       setVal('payroll-va-total',vaMensal.toFixed(2));
       setVal('payroll-va-liquido',vaMensal.toFixed(2));
       if(vaNote){ vaNote.classList.remove('hidden'); vaNote.innerHTML=`<i class="fa-solid fa-user-tie" style="color:#4F46E5"></i> VA integral — cargo de confiança (isento de controle de jornada).`; }
-    } else if(totalFaltas>=3){
-      setVal('payroll-va-total','0.00');
-      setVal('payroll-va-liquido','0.00');
-      if(vaNote){ vaNote.classList.remove('hidden'); vaNote.innerHTML=`<i class="fa-solid fa-ban" style="color:#c0392b"></i> VA perdido — ${totalFaltas} faltas no mês (3 ou mais eliminam o VA).`; }
+    } else if(faltasInjust>=3){
+      // Desconta os dias faltados (os 3 + os extras), por dia = vaMensal/diasPrevistos
+      const vaDia  = diasPrevistos>0 ? vaMensal/diasPrevistos : 0;
+      const vaDesc = Math.min(vaMensal, vaDia*faltasInjust);
+      const vaFinal= Math.max(0, vaMensal - vaDesc);
+      setVal('payroll-va-total',vaFinal.toFixed(2));
+      setVal('payroll-va-liquido',vaFinal.toFixed(2));
+      if(vaNote){ vaNote.classList.remove('hidden'); vaNote.innerHTML=`<i class="fa-solid fa-circle-minus" style="color:#c0392b"></i> VA com desconto — ${faltasInjust} falta(s) injustificada(s) × ${fmtMoney(vaDia)}/dia (${diasPrevistos} dias previstos) = −${fmtMoney(vaDesc)} · recebe ${fmtMoney(vaFinal)}.`; }
     } else {
-      const vaProp = diasPrevistos>0 ? vaMensal*(diasPagos/diasPrevistos) : 0;
-      setVal('payroll-va-total',vaProp.toFixed(2));
-      setVal('payroll-va-liquido',vaProp.toFixed(2));
-      if(vaNote){ vaNote.classList.remove('hidden'); vaNote.innerHTML=`<i class="fa-solid fa-circle-check" style="color:var(--success)"></i> VA proporcional — ${diasPagos} de ${diasPrevistos} dia(s) previsto(s) = ${fmtMoney(vaProp)}`; }
+      // 0, 1 ou 2 faltas injustificadas → VA integral (desconto só a partir da 3ª)
+      setVal('payroll-va-total',vaMensal.toFixed(2));
+      setVal('payroll-va-liquido',vaMensal.toFixed(2));
+      if(vaNote){ vaNote.classList.remove('hidden'); vaNote.innerHTML=`<i class="fa-solid fa-circle-check" style="color:var(--success)"></i> VA integral ${fmtMoney(vaMensal)} — ${faltasInjust} falta(s) injustificada(s) (desconto só a partir da 3ª).`; }
     }
   } else {
     if(vaNote) vaNote.classList.add('hidden');
@@ -6187,6 +6194,11 @@ function recalculate(){
       // Cálculo padrão: (salário/220) * 20% * 7h noturnas médias * dias plantão
       const adN=calcAdNoturno(emp.salarioBase,dias);
       setVal('payroll-noturno',adN.toFixed(2));
+    } else {
+      // Não é noturno (ou 0 dias): zera o campo. Sem isso, um adicional antigo —
+      // de quando a escala/turno era noturno — ficava grudado e somava no total
+      // mesmo com o card escondido (adicional noturno fantasma).
+      setVal('payroll-noturno','');
     }
   } else if(isentoPonto){
     // Isento: zera adicional noturno e esconde o card
@@ -14286,6 +14298,15 @@ function _ciclo12x36EhTrabalho(emp, ano, mes, dia){
 
 function _getExpectedDay(emp, mes, ano, dia){
   if(!emp) return null;
+  // Antes da admissão não havia jornada esperada (não era colaborador ainda) —
+  // evita falta / HE / remuneração-proporcional fantasma em quem foi admitido no
+  // meio do período (ex.: admitido 06/05 com competência começando em 26/04).
+  if(emp.dataAdmissao){
+    const _adm = new Date(emp.dataAdmissao+'T00:00:00');
+    if(!isNaN(_adm.getTime()) && new Date(ano, mes-1, dia) < _adm){
+      return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
+    }
+  }
   // 0) Override de dia avulso (emp.overridesHorario) — prioridade máxima.
   //    O usuário disse explicitamente "este dia é diferente" — vence até a
   //    escala salva (que pode ter sido projetada antes do override existir).
@@ -14726,6 +14747,11 @@ function _diaEmBrancoEhFalta(emp, mes, ano, dia, isWeekend, is12x36){
     deveriaTrabalhar = !isWeekend;
   }
   if(!deveriaTrabalhar) return false;
+  // Antes da admissão não há falta (não era colaborador ainda).
+  if(emp.dataAdmissao){
+    const _adm = new Date(emp.dataAdmissao+'T00:00:00');
+    if(!isNaN(_adm.getTime()) && new Date(ano, mes-1, dia) < _adm) return false;
+  }
   const hoje = new Date();
   const hojeMid = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
   return new Date(ano, mes-1, dia) < hojeMid;

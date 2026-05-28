@@ -17193,17 +17193,29 @@ async function aplicarAjusteEscala(){
   }
   card.querySelector('tbody').innerHTML = final.map(d=>_renderEscalaRow(d, fam)).join('');
   card.dataset.fam = fam;
+  let cadastroAtualizado = false;
   if(updateCad){
     emp.escala = novaEscala;
     emp.horarioEntrada = def.entrada;
     emp.horarioSaida   = def.saida;
     emp.horarioRefIni  = '';   // limpa pra `_escalaHorariosDia` usar o default sensato (12-13 / 00-01 noturno)
     emp.horarioRefFim  = '';
-    DB.save('employees', emp).catch(e=>console.error('Erro ao atualizar cadastro:',e));
+    emp.updatedAt      = new Date().toISOString();
+    try {
+      await DB.save('employees', emp);
+      cadastroAtualizado = true;
+    } catch (e) {
+      console.error('Erro ao atualizar cadastro:', e);
+      toast('Escala reprojetada, mas FALHOU ao salvar o cadastro: ' + (e.message || e), 'error');
+    }
   }
   await saveEscala(empId, true); // salva direto — a folha passa a usar a escala nova
   closeModal('modal-ajustar-escala');
-  toast(`Escala reprojetada para ${escalaLabel(novaEscala)}${diaX>1?` a partir do dia ${String(diaX).padStart(2,'0')}`:''} e salva.${preservados?` ${preservados} dia(s) já trabalhado(s) preservado(s).`:''}`, 'success');
+  const partes = [];
+  partes.push(`Escala reprojetada para ${escalaLabel(novaEscala)}${diaX>1?` a partir do dia ${String(diaX).padStart(2,'0')}`:''}`);
+  if (cadastroAtualizado) partes.push(`cadastro atualizado: entrada ${def.entrada} / saída ${def.saida}`);
+  if (preservados)        partes.push(`${preservados} dia(s) já trabalhado(s) preservado(s)`);
+  toast(partes.join(' · ') + '.', 'success');
 }
 
 function _collectEscalaDias(empId){

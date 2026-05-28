@@ -17126,8 +17126,14 @@ async function aplicarAjusteEscala(){
   const dpm  = new Date(ano, mes, 0).getDate();
   const diaX = Math.min(dpm, Math.max(1, parseInt(document.getElementById('ajustar-escala-dia').value)||1));
   const updateCad = document.getElementById('ajustar-escala-update-cadastro').checked;
-  // Projeta o mês inteiro com a escala nova
-  const tempEmp  = { ...emp, escala: novaEscala };
+  // Quando o usuário marca "troca definitiva", força os horários default da
+  // nova escala — senão `_escalaHorariosDia` continua usando `emp.horarioEntrada`
+  // (que sobrou da escala anterior) e a projeção sai com os horários antigos.
+  // Se o gestor quer manter horário customizado, desmarca o checkbox.
+  const def = ESCALA_HORARIOS_DEFAULT[novaEscala] || ESCALA_HORARIOS_DEFAULT['5x2A'];
+  const tempEmp  = updateCad
+    ? { ...emp, escala: novaEscala, horarioEntrada: def.entrada, horarioSaida: def.saida, horarioRefIni: '', horarioRefFim: '' }
+    : { ...emp, escala: novaEscala };
   const fam = escalaFamilia(novaEscala);
   let novoDias;
   if(fam === '12x36'){
@@ -17160,6 +17166,10 @@ async function aplicarAjusteEscala(){
   card.dataset.fam = fam;
   if(updateCad){
     emp.escala = novaEscala;
+    emp.horarioEntrada = def.entrada;
+    emp.horarioSaida   = def.saida;
+    emp.horarioRefIni  = '';   // limpa pra `_escalaHorariosDia` usar o default sensato (12-13 / 00-01 noturno)
+    emp.horarioRefFim  = '';
     DB.save('employees', emp).catch(e=>console.error('Erro ao atualizar cadastro:',e));
   }
   await saveEscala(empId, true); // salva direto — a folha passa a usar a escala nova

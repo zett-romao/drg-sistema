@@ -511,7 +511,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=27').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=28').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -875,10 +875,9 @@ function linkMaps(geo) {
 // - Volta do intervalo: 60 a 65 min apos a saida REAL pro intervalo
 //   (regra trabalhista de descanso minimo de 1h — CLT Art. 71)
 // - Dia de folga: bloqueia, exige autorizacao
-const TOLERANCIA_MIN     = 5;   // entrada/saida e ida ao intervalo (lim inf)
-const IDA_INTERVALO_MAX  = 60;  // ida ao intervalo pode ate 60min depois
-const DESCANSO_MIN       = 60;  // tempo minimo de intervalo (CLT)
-const DESCANSO_MAX       = 65;  // tolerancia de 5min sobre o minimo
+const TOLERANCIA_MIN     = 5;   // entrada/saida — tolerancia de 5min antes/depois
+const DESCANSO_MIN       = 60;  // tempo minimo de intervalo (CLT Art. 71)
+const DESCANSO_MAX       = 65;  // tolerancia de 5min sobre o minimo (refeicao nao passa de 1h05)
 
 function timeToMin(t){
   const p=(t||'').split(':'); const h=parseInt(p[0])||0, m=parseInt(p[1])||0;
@@ -1011,24 +1010,20 @@ function analisarHorario(prox, now){
     };
   }
 
-  const esp = _horarioEsperado(prox);
-  // Sem horario cadastrado → trava desligada para essa batida
-  if(!esp) return { tipo:'ok' };
+  // REFEIÇÃO — sem horário fixo. O colaborador sai pra refeição QUANDO quiser;
+  // o controle é só na DURAÇÃO (verificada na volta). Decisão do usuário:
+  // não fixar horário de almoço, só garantir que não passe de 60min (+5 tol).
 
-  // 2. Volta do intervalo — usa hora REAL de saida ao intervalo
+  // 2. Ida ao intervalo (intIni) — sempre liberada, sem checagem de horário.
+  if(prox === 'intIni'){
+    return { tipo:'ok' };
+  }
+
+  // 3. Volta do intervalo (intFim) — controla só a DURAÇÃO do intervalo.
+  //    Mínimo 1h (CLT Art. 71). Tolerância de 5min. Passou de 1h05 → autorização.
   if(prox === 'intFim'){
     const horaIda = _horaIntIniRegistrada();
-    if(!horaIda){
-      // Sem registro da saida pro intervalo — nao da' pra calcular descanso.
-      // Aplica regra de tolerancia padrao em relacao ao previsto.
-      const diff = atualMin - timeToMin(esp);
-      if(Math.abs(diff) <= TOLERANCIA_MIN) return { tipo:'ok', esperado:esp, diff };
-      return {
-        tipo:'foraJanela',
-        esperado:esp, diff,
-        msg:`Fora do horário previsto (${esp}). Solicite autorização ao supervisor.`
-      };
-    }
+    if(!horaIda) return { tipo:'ok' }; // sem ida registrada — não dá pra medir; libera
     const idaMin = timeToMin(horaIda);
     const decorrido = atualMin - idaMin;
     if(decorrido < DESCANSO_MIN){
@@ -1051,17 +1046,10 @@ function analisarHorario(prox, now){
     return { tipo:'ok', esperado:horaIda, diff:decorrido };
   }
 
-  // 3. Ida ao intervalo — pode -5min ate +60min do horario previsto
-  if(prox === 'intIni'){
-    const diff = atualMin - timeToMin(esp);
-    if(diff >= -TOLERANCIA_MIN && diff <= IDA_INTERVALO_MAX){
-      return { tipo:'ok', esperado:esp, diff };
-    }
-    const msg = (diff < 0)
-      ? `Muito cedo. O horário previsto é ${esp} (faltam ${-diff} min). Solicite autorização ao supervisor para sair mais cedo.`
-      : `Você ultrapassou o limite de tolerância. Horário previsto: ${esp} — já passou ${diff} min (limite: ${IDA_INTERVALO_MAX} min). Solicite autorização ao supervisor.`;
-    return { tipo:'foraJanela', esperado:esp, diff, msg };
-  }
+  // Entrada/Saída — precisam do horário esperado (tolerância ±5min).
+  const esp = _horarioEsperado(prox);
+  // Sem horario cadastrado → trava desligada para essa batida
+  if(!esp) return { tipo:'ok' };
 
   // 4. Entrada e Saida — +/- 5 min do horario previsto
   const diff = atualMin - timeToMin(esp);

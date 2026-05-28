@@ -1856,7 +1856,9 @@ function renderDashboard(){
   const licMaternidade=State.employees.filter(e=>(e.status||'ativo')==='licenca-maternidade').length;
   const totalPostos=(State.postos||[]).length;
   const escalasMes=(State.escalas||[]).filter(es=>es.mes==mes&&es.ano==ano).length;
-  const escalasPend=Math.max(0, ativos-escalasMes);
+  // Isentos de ponto não precisam de escala — não entram na contagem de pendência
+  const ativosComPonto=State.employees.filter(e=>(e.status||'ativo')==='ativo' && !e.isentoPonto).length;
+  const escalasPend=Math.max(0, ativosComPonto-escalasMes);
   // Benefícios a pagar — hoje e esta semana
   const hojeISO = new Date().toISOString().substring(0,10);
   const semana  = _semanaDe(hojeISO);
@@ -1876,7 +1878,7 @@ function renderDashboard(){
   let heRevisaoEmps = 0, heRevisaoDias = 0;
   payThisMonth.forEach(p => {
     const emp = State.employees.find(e=>e.id===p.employeeId);
-    if(!emp || !p.pontoManualDias) return;
+    if(!emp || emp.isentoPonto || !p.pontoManualDias) return;  // isento não tem HE
     let hasPendente = false;
     p.pontoManualDias.forEach(d => {
       if(!d.entrada || !d.saida) return;
@@ -3630,6 +3632,19 @@ function onEmpStatusChange(){
   if(rowLic) rowLic.style.display=(status==='licenca-maternidade')?'':'none';
 }
 
+// Isento de controle de jornada (CLT Art. 62) — mostra a dica e esmaece
+// os campos de escala/horário (ficam irrelevantes: não há controle de ponto).
+function onIsentoPontoChange(){
+  const chk = document.getElementById('emp-isento-ponto');
+  if(!chk) return;
+  const isento = chk.checked;
+  const hint = document.getElementById('emp-isento-ponto-hint');
+  if(hint) hint.style.display = isento ? '' : 'none';
+  // Esmaece (não desabilita — o gestor ainda pode preencher por referência)
+  ['emp-escala','emp-horario-entrada','emp-horario-saida','emp-horario-ref-ini','emp-horario-ref-fim']
+    .forEach(id => { const el=document.getElementById(id); if(el){ el.style.opacity = isento ? '.5' : '1'; } });
+}
+
 // Habilita/desabilita os inputs de horário de refeição conforme flag "semRefeicao"
 function onSemRefeicaoChange(){
   const chk=document.getElementById('emp-sem-refeicao');
@@ -3750,6 +3765,8 @@ function openEmployeeModal(id=null){
     setVal('emp-horario-ref-ini',emp.horarioRefIni||''); setVal('emp-horario-ref-fim',emp.horarioRefFim||'');
     const semRefChk=document.getElementById('emp-sem-refeicao');
     if(semRefChk){ semRefChk.checked=!!(emp.semRefeicao); onSemRefeicaoChange(); }
+    const isentoChk=document.getElementById('emp-isento-ponto');
+    if(isentoChk){ isentoChk.checked=!!(emp.isentoPonto); onIsentoPontoChange(); }
     setVal('emp-salario-base',emp.salarioBase||'');
     setVal('emp-posto',emp.posto||'');
     setVal('emp-setor',emp.setor||'');
@@ -3845,6 +3862,7 @@ function openEmployeeModal(id=null){
     const bonifChk=document.getElementById('emp-bonificacao-sempre-pagar'); if(bonifChk) bonifChk.checked=false;
     const adiantChk=document.getElementById('emp-recebe-adiantamento'); if(adiantChk) adiantChk.checked=false;
     const semRefChk=document.getElementById('emp-sem-refeicao'); if(semRefChk){ semRefChk.checked=false; onSemRefeicaoChange(); }
+    const isentoChk=document.getElementById('emp-isento-ponto'); if(isentoChk){ isentoChk.checked=false; onIsentoPontoChange(); }
     // Encargos & IRRF — limpar para novo colaborador
     setVal('emp-dependentes-irrf',0);
     setVal('emp-pensao-alimenticia','0.00');
@@ -4145,6 +4163,7 @@ async function saveEmployee(){
     horarioRefIni:val('emp-horario-ref-ini'),
     horarioRefFim:val('emp-horario-ref-fim'),
     semRefeicao:!!(document.getElementById('emp-sem-refeicao')?.checked),
+    isentoPonto:!!(document.getElementById('emp-isento-ponto')?.checked),
     turnoNoturno:chk?chk.checked:false,
     // Novos campos pessoais (Dados Pessoais)
     sexo:               val('emp-sexo'),
@@ -4359,6 +4378,9 @@ function _cadastroPendencias(emp){
   if(!(emp.salarioBase>0))                 faltam.push('Salário base');
   if(!emp.dataAdmissao)                    faltam.push('Data de admissão');
   if(!emp.posto)                           faltam.push('Posto de trabalho');
+  // Isento de controle de jornada não precisa de horário/escala — recebe
+  // salário cheio sem ponto. Só exige os dados administrativos básicos.
+  if(emp.isentoPonto) return faltam;
   if(!emp.horarioEntrada || !emp.horarioSaida) faltam.push('Horário contratual');
   if(escalaFamilia(emp.escala||'5x2A')==='12x36' && !emp.ciclo12x36Inicio)
                                            faltam.push('Início do ciclo 12x36');
@@ -5858,6 +5880,17 @@ function _diasPrevistosEscala(emp, mes, ano){
   return n;
 }
 
+// Dias úteis (seg–sex) de um mês — fallback de benefícios pra isento sem escala.
+function _diasUteisMes(mes, ano){
+  const dpm = new Date(ano, mes, 0).getDate();
+  let n = 0;
+  for(let d=1; d<=dpm; d++){
+    const ds = new Date(ano, mes-1, d).getDay();
+    if(ds!==0 && ds!==6) n++;
+  }
+  return n;
+}
+
 // Comissão de Boa Permanência: só é devida no mês vigente se o colaborador
 // NÃO teve faltas no mês ANTERIOR e NÃO foi admitido no mês anterior (ou
 // depois). Qualquer falta conta (justificada ou injustificada).
@@ -5894,6 +5927,10 @@ function recalculate(){
   const empId=val('payroll-employee');
   const emp=State.employees.find(e=>e.id===empId);
   const salBase=emp?(emp.salarioBase||0):numVal('payroll-remuneracao');
+  // Isento de controle de jornada (CLT Art. 62 — cargo de confiança): salário
+  // cheio, sem desconto de falta/atraso, sem HE/adic. noturno, benefícios
+  // integrais. Não bate ponto. As travas abaixo respeitam essa flag.
+  const isentoPonto = !!(emp && emp.isentoPonto);
 
   // --- Descontos CLT ---
   const valorDia   = salBase/30;          // CLT: divisor 30 para faltas
@@ -5909,13 +5946,16 @@ function recalculate(){
   // Dias pagos = trabalhados + dias de atestado (atestado é pago). Limitado
   // aos dias previstos — dias extras viram HE, não inflam a remuneração.
   const diasPagos = Math.min(diasPrevistos || (dias + _atest.dias), dias + _atest.dias);
+  // Multiplicador de benefícios por dia (VT/VR). Isento recebe integral —
+  // todos os dias previstos (ou dias úteis do mês se não tem escala).
+  const diasBeneficio = isentoPonto ? (diasPrevistos || _diasUteisMes(_mesR, _anoR)) : dias;
 
   // Atrasos — lista de ocorrências (coleção `atrasos`). Só as ocorrências
-  // NÃO abonadas descontam. O atestado abate horas de atraso.
+  // NÃO abonadas descontam. O atestado abate horas de atraso. Isento não desconta.
   const _atrasoTot = _atrasoTotais(val('payroll-employee'), _mesR, _anoR);
   const minutosAtraso = _atrasoTot.minutos;
   const minutosAtrasoEf = Math.max(0, _atrasoTot.minutosDesc - _atest.horasMin);
-  const descontoAtraso = minutosAtrasoEf>0 ? minutosAtrasoEf*valorMinuto : 0;
+  const descontoAtraso = (!isentoPonto && minutosAtrasoEf>0) ? minutosAtrasoEf*valorMinuto : 0;
   setVal('payroll-atraso-min', minutosAtraso||'');
   setVal('payroll-desconto-atraso', descontoAtraso>0 ? descontoAtraso.toFixed(2) : '0.00');
 
@@ -5924,7 +5964,7 @@ function recalculate(){
   // parte → recebe a fração correspondente. O desconto de atraso NÃO é
   // abatido aqui — ele é subtraído UMA vez no líquido final (atrasoEnc) e
   // nas impressões. Antes era abatido nos dois lugares (desconto dobrado).
-  const remuneracaoProp = (diasPrevistos>0) ? salBase*(diasPagos/diasPrevistos) : 0;
+  const remuneracaoProp = isentoPonto ? salBase : ((diasPrevistos>0) ? salBase*(diasPagos/diasPrevistos) : 0);
   const remuneracaoBase = Math.max(0, remuneracaoProp);
   if(salBase>0){
     setVal('payroll-remuneracao', remuneracaoBase.toFixed(2));
@@ -5935,8 +5975,8 @@ function recalculate(){
   const vtFreqCalc = emp?.vtFreq || 'diario';
   const vrFreqCalc = emp?.vrFreq || 'diario';
   const semCalc    = _semanasTrabalhadas(dias, emp?.escala);
-  const vtMult = (vtFreqCalc === 'semanal') ? semCalc : dias;
-  const vrMult = (vrFreqCalc === 'semanal') ? semCalc : dias;
+  const vtMult = (vtFreqCalc === 'semanal') ? semCalc : diasBeneficio;
+  const vrMult = (vrFreqCalc === 'semanal') ? semCalc : diasBeneficio;
   setVal('payroll-vt-total',(numVal('payroll-vt-dia')*vtMult).toFixed(2));
   setVal('payroll-vr-total',(numVal('payroll-vr-dia')*vrMult).toFixed(2));
 
@@ -5975,7 +6015,12 @@ function recalculate(){
   const vaNote=document.getElementById('va-note');
   if(emp&&(emp.valorMensalVa||0)>0){
     const vaMensal=emp.valorMensalVa||0;
-    if(totalFaltas>=3){
+    if(isentoPonto){
+      // Isento: VA integral, sem penalidade de faltas
+      setVal('payroll-va-total',vaMensal.toFixed(2));
+      setVal('payroll-va-liquido',vaMensal.toFixed(2));
+      if(vaNote){ vaNote.classList.remove('hidden'); vaNote.innerHTML=`<i class="fa-solid fa-user-tie" style="color:#4F46E5"></i> VA integral — cargo de confiança (isento de controle de jornada).`; }
+    } else if(totalFaltas>=3){
       setVal('payroll-va-total','0.00');
       setVal('payroll-va-liquido','0.00');
       if(vaNote){ vaNote.classList.remove('hidden'); vaNote.innerHTML=`<i class="fa-solid fa-ban" style="color:#c0392b"></i> VA perdido — ${totalFaltas} faltas no mês (3 ou mais eliminam o VA).`; }
@@ -5990,7 +6035,8 @@ function recalculate(){
   }
 
   // --- Adicional Noturno (20% sobre hora, hora noturna = 52min30s) ---
-  if(emp){
+  // Isento (cargo de confiança) não recebe adicional noturno (Art. 62 CLT).
+  if(emp && !isentoPonto){
     const escala=emp.escala||'5x2A';
     const noturno=emp.turnoNoturno&&escalaFamilia(escala)==='12x36';
     const noturnoCard=document.getElementById('noturno-card');
@@ -6001,6 +6047,11 @@ function recalculate(){
       const adN=calcAdNoturno(emp.salarioBase,dias);
       setVal('payroll-noturno',adN.toFixed(2));
     }
+  } else if(isentoPonto){
+    // Isento: zera adicional noturno e esconde o card
+    const noturnoCard=document.getElementById('noturno-card');
+    if(noturnoCard) noturnoCard.classList.add('hidden');
+    setVal('payroll-noturno','');
   }
 
   // --- Acúmulo de Função (+20% sobre salário base) ---
@@ -6039,7 +6090,12 @@ function recalculate(){
   const tIntIni   = timeToMinutes(val('payroll-intervalo-inicio'));
   const tIntFim   = timeToMinutes(val('payroll-intervalo-fim'));
 
-  if(tEntrada!==null && tSaida!==null){
+  if(isentoPonto){
+    // Cargo de confiança não tem hora extra (CLT Art. 62) — zera tudo.
+    setVal('payroll-horas-liquidas','—');
+    setVal('payroll-horas-extras-dia','—');
+    setVal('payroll-he-total','');
+  } else if(tEntrada!==null && tSaida!==null){
     // Jornada bruta (suporta virada de meia-noite)
     let minBrutos = tSaida - tEntrada;
     if(minBrutos <= 0) minBrutos += 24*60;
@@ -14407,7 +14463,7 @@ function _getPendentesHEList(mes, ano){
   const list = [];
   (State.payrolls||[]).filter(p => p.mes==mes && p.ano==ano).forEach(p => {
     const emp = State.employees.find(e=>e.id===p.employeeId);
-    if(!emp || !p.pontoManualDias) return;
+    if(!emp || emp.isentoPonto || !p.pontoManualDias) return;  // isento não tem HE
     if(!_empNoEscopo(emp)) return; // respeita o escopo de postos do supervisor
     let nDias = 0, totalMin = 0;
     const detalhes = [];

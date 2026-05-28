@@ -2690,6 +2690,20 @@
             </select>
           </div>
         </div>
+        <!-- Isento de controle de jornada — CLT Art. 62 (cargo de confiança/gestão) -->
+        <div class="form-row">
+          <div class="form-group" style="grid-column:1 / -1">
+            <div class="checkbox-group" style="background:#EEF2FF;border:1px solid #C7D2FE;border-radius:8px;padding:10px 12px">
+              <input type="checkbox" id="emp-isento-ponto" onchange="onIsentoPontoChange()">
+              <label for="emp-isento-ponto" style="font-size:14px;font-weight:600;color:var(--text)">
+                <i class="fa-solid fa-user-tie" style="color:#4F46E5"></i> Isento de controle de jornada — <strong>cargo de confiança (CLT Art. 62)</strong>
+              </label>
+            </div>
+            <small id="emp-isento-ponto-hint" style="display:none;color:#4F46E5;font-size:12px;margin-top:6px">
+              <i class="fa-solid fa-circle-info"></i> Recebe salário cheio todo mês, sem desconto de falta/atraso e sem hora extra. Não bate ponto (some do app do colaborador) e benefícios são integrais.
+            </small>
+          </div>
+        </div>
         <!-- Campos de Licença Maternidade — visíveis apenas quando status = licenca-maternidade -->
         <div class="form-row" id="row-licenca-maternidade" style="display:none">
           <div class="form-group">
@@ -5669,6 +5683,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260527f"></script>
+<script src="app.js?v=20260528a"></script>
 </body>
 </html>

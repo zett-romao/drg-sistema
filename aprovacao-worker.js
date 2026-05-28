@@ -430,6 +430,10 @@ async function handlePontoLogin(body, token, env){
   if ((emp.status || 'ativo') === 'inativo')
     return { ok:false, erro:'colaborador inativo — procure o gestor' };
 
+  // Isento de controle de jornada (CLT Art. 62) não bate ponto.
+  if (emp.isentoPonto)
+    return { ok:false, erro:'seu cargo é isento de controle de ponto — não precisa registrar batidas' };
+
   // PIN aceito: campo emp.pin se houver, senão 4 últimos dígitos do CPF
   const cpfClean    = String(emp.cpf || '').replace(/\D/g, '');
   const pinEsperado = emp.pin || (cpfClean.length >= 4 ? cpfClean.slice(-4) : '0000');

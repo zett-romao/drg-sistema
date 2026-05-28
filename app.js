@@ -13860,6 +13860,21 @@ function _ciclo12x36EhTrabalho(emp, ano, mes, dia){
 
 function _getExpectedDay(emp, mes, ano, dia){
   if(!emp) return null;
+  // 0) Override de dia avulso (emp.overridesHorario) — prioridade máxima.
+  //    O usuário disse explicitamente "este dia é diferente" — vence até a
+  //    escala salva (que pode ter sido projetada antes do override existir).
+  const ymd = `${ano}-${String(mes).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
+  const ov  = (emp.overridesHorario||[]).find(o => o.data === ymd);
+  if(ov){
+    if(ov.tipo === 'folga') return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
+    return {
+      tipo:    'trabalho',
+      entrada: ov.horarioEntrada || '',
+      saida:   ov.horarioSaida   || '',
+      intIni:  emp.semRefeicao ? '' : (ov.horarioRefIni || ''),
+      intFim:  emp.semRefeicao ? '' : (ov.horarioRefFim || '')
+    };
+  }
   // 1) Tenta escala salva
   const esc = (State.escalas||[]).find(e => e.employeeId===emp.id && e.mes==mes && e.ano==ano);
   if(esc?.dias?.length){

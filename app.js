@@ -4713,15 +4713,22 @@ function renderBeneficiosLista(){
   const tab = _beneficioTabAtual || 'hoje';
   const hojeISO = new Date().toISOString().substring(0,10);
   let ini, fim, escopo, periodoLabel;
+  const fmt = iso => new Date(iso+'T12:00:00').toLocaleDateString('pt-BR');
   if(tab === 'hoje'){
     ini = fim = hojeISO;
     escopo = 'dia';
     periodoLabel = `<strong>Hoje (${new Date().toLocaleDateString('pt-BR')})</strong>`;
+  } else if(tab === 'mes'){
+    const d = new Date();
+    const ano = d.getFullYear(), m = d.getMonth();
+    ini = new Date(ano, m, 1).toISOString().substring(0,10);
+    fim = new Date(ano, m+1, 0).toISOString().substring(0,10);
+    escopo = 'mes';
+    periodoLabel = `<strong>Este mês — ${MESES[m+1]}/${ano}</strong>`;
   } else {
     const s = _semanaDe(hojeISO);
     ini = s.inicio; fim = s.fim;
     escopo = 'semana';
-    const fmt = iso => new Date(iso+'T12:00:00').toLocaleDateString('pt-BR');
     periodoLabel = `<strong>Esta semana — ${fmt(s.inicio)} a ${fmt(s.fim)}</strong>`;
   }
   // Coleta colaboradores ativos com algum dia trabalhado no período
@@ -4889,7 +4896,9 @@ function openBeneficioDetalhe(empId, escopo, dataIni, dataFim){
   const fmt = iso => new Date(iso+'T12:00:00').toLocaleDateString('pt-BR');
   const periodoLabel = (escopo === 'dia')
     ? `Hoje — ${fmt(dataIni)}`
-    : `Semana — ${fmt(dataIni)} a ${fmt(dataFim)}`;
+    : (escopo === 'mes')
+      ? `Mês — ${fmt(dataIni)} a ${fmt(dataFim)}`
+      : `Semana — ${fmt(dataIni)} a ${fmt(dataFim)}`;
   document.getElementById('benef-det-nome').textContent = emp.nome;
   const matr = emp.registro ? String(emp.registro).padStart(4,'0') : '—';
   const pixDet = emp.chavePix || '—';
@@ -5224,18 +5233,18 @@ function _calcBeneficiosColab(emp, dataInicioISO, dataFimISO, escopo){
     vrFreq: empE.vrFreq || 'diario',
     vtValor: 0, vrValor: 0, total: 0
   };
-  // VT/AM
+  // VT/AM. escopo 'dia' = só o benefício do dia; 'semana'/'mes' = soma do intervalo.
   if(out.vtTipo !== 'nao' && empE.valorDiarioVt){
     if(escopo === 'dia'){
-      // No escopo "dia", só conta benefício diário (semanal será mostrado em "semana")
+      // No escopo "dia", só conta benefício diário (semanal/mensal vai nas outras abas)
       if(out.vtFreq === 'diario'){
         out.vtValor = (dias > 0) ? (empE.valorDiarioVt || 0) : 0;
       }
-    } else if(escopo === 'semana'){
+    } else { // 'semana' ou 'mes' — soma sobre o intervalo informado
       if(out.vtFreq === 'semanal'){
         out.vtValor = (sem > 0) ? (empE.valorDiarioVt || 0) * sem : 0;
       } else {
-        // Diário no escopo semana = soma dos dias trabalhados na semana
+        // Diário = soma dos dias trabalhados no intervalo (proporcional)
         out.vtValor = (empE.valorDiarioVt || 0) * dias;
       }
     }
@@ -5246,7 +5255,7 @@ function _calcBeneficiosColab(emp, dataInicioISO, dataFimISO, escopo){
       if(out.vrFreq === 'diario'){
         out.vrValor = (dias > 0) ? (empE.valorDiarioVr || 0) : 0;
       }
-    } else if(escopo === 'semana'){
+    } else { // 'semana' ou 'mes'
       if(out.vrFreq === 'semanal'){
         out.vrValor = (sem > 0) ? (empE.valorDiarioVr || 0) * sem : 0;
       } else {

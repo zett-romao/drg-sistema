@@ -2814,9 +2814,10 @@ function renderContabilidade(){
     const acu=p?p.acumulo||0:0;
     const adiant=p?p.adiantamento||0:0;
     const totalFaltas=p?('faltasJustificadas' in p?(p.faltasJustificadas||0)+(p.faltasInjustificadas||0):(p.faltas||0)):0;
-    const especie=rem+an+ins+acu+he+bon;
+    // Boa Permanência (bon) é benefício pago no VR — NÃO entra na espécie (dinheiro)
+    const especie=rem+an+ins+acu+he;
     tR+=rem; tVT+=vt; tVR+=vr; tVA+=va; tHE+=he; tB+=bon; tAN+=an; tIns+=ins; tAcu+=acu; tAdiant+=adiant;
-    tTotal+=especie+vt+vr+va;
+    tTotal+=especie+vt+vr+va+bon;
     const rowBg=i%2===0?'#ffffff':'#EEF2FF';
     const semFolhaBorder=!p?'border-left:3px solid #EF9A9A':'';
     return `<tr style="background:${rowBg};${semFolhaBorder}">
@@ -2923,7 +2924,8 @@ function exportContabilidadeCsv(){
     const p=folhaMap[e.id];
     const rem=p?p.remuneracao||0:0;
     const totalFaltas=p?('faltasJustificadas' in p?(p.faltasJustificadas||0)+(p.faltasInjustificadas||0):(p.faltas||0)):0;
-    const especie=rem+(p?p.adNoturno||0:0)+(p?p.insalubridade||0:0)+(p?p.acumulo||0:0)+(p?p.horasExtrasValor||0:0)+(p?p.bonificacao||0:0);
+    // Boa Permanência é benefício (VR), não espécie
+    const especie=rem+(p?p.adNoturno||0:0)+(p?p.insalubridade||0:0)+(p?p.acumulo||0:0)+(p?p.horasExtrasValor||0:0);
     return [
       i+1,
       e.registro?String(e.registro).padStart(4,'0'):'',
@@ -4934,7 +4936,12 @@ function openBeneficioDetalhe(empId, escopo, dataIni, dataFim){
     else if(escopo !== 'dia' && b.vrFreq === 'diario'){ mult = b.diasVr; multLabel = `×${b.diasVr} dias (>6h)`; }
     else if(escopo === 'dia' && b.vrFreq === 'semanal'){ mult = 0; multLabel = '(pago semanal)'; }
     const freqLabel = (b.vrFreq === 'semanal') ? 'Semanal' : 'Diária';
-    linhas.push({ rotulo: 'VR — Vale Refeição', freq: freqLabel, base: emp.valorDiarioVr||0, mult, multLabel, valor: b.vrValor, campoId: 'edit-vr' });
+    // VR diário (sem a Boa Permanência, que vai em linha própria abaixo)
+    linhas.push({ rotulo: 'VR — Vale Refeição', freq: freqLabel, base: emp.valorDiarioVr||0, mult, multLabel, valor: (b.vrValor - (b.bonusVr||0)), campoId: 'edit-vr' });
+  }
+  // Boa Permanência paga NO VR (benefício mensal, apurada no fechamento)
+  if((b.bonusVr||0) > 0){
+    linhas.push({ rotulo: 'Boa Permanência (no VR)', freq: 'Mensal', base: b.bonusVr, mult: 1, multLabel: '×1 mês', valor: b.bonusVr, campoId: 'edit-bonusvr' });
   }
   if(!linhas.length){
     tbody.innerHTML = '<tr><td colspan="5" style="padding:14px;text-align:center;color:var(--text-muted)">Nenhum benefício cadastrado para este período.</td></tr>';
@@ -4958,7 +4965,8 @@ function openBeneficioDetalhe(empId, escopo, dataIni, dataFim){
 function recalcBeneficioDetalhe(){
   const vt = numVal('edit-vt');
   const vr = numVal('edit-vr');
-  document.getElementById('benef-det-total').textContent = fmtMoney(vt + vr);
+  const bonusVr = numVal('edit-bonusvr');  // Boa Permanência paga no VR (mensal)
+  document.getElementById('benef-det-total').textContent = fmtMoney(vt + vr + bonusVr);
 }
 
 // ============================================
@@ -5274,7 +5282,7 @@ function _calcBeneficiosColab(emp, dataInicioISO, dataFimISO, escopo){
     vtTipo: empE.tipoTransporte || 'vt',
     vtFreq: empE.vtFreq || 'diario',
     vrFreq: empE.vrFreq || 'diario',
-    vtValor: 0, vrValor: 0, total: 0
+    vtValor: 0, vrValor: 0, bonusVr: 0, total: 0
   };
   // VT/AM — todos os dias trabalhados. escopo 'dia' = só o do dia; senão soma o intervalo.
   if(out.vtTipo !== 'nao' && empE.valorDiarioVt){
@@ -5294,6 +5302,16 @@ function _calcBeneficiosColab(emp, dataInicioISO, dataFimISO, escopo){
       out.vrValor = (out.vrFreq === 'semanal')
         ? (semVr > 0 ? (empE.valorDiarioVr || 0) * semVr : 0)
         : (empE.valorDiarioVr || 0) * diasVr;
+    }
+  }
+  // Boa Permanência é paga NO VR (benefício, mensal). Só entra na visão MÊS e
+  // só quando a folha daquele mês está FECHADA (bonificação já apurada).
+  if(escopo === 'mes'){
+    const _d = new Date(dataInicioISO + 'T12:00:00');
+    const payMes = (State.payrolls||[]).find(p=>p.employeeId===empE.id && p.mes==(_d.getMonth()+1) && p.ano==_d.getFullYear());
+    if(payMes && payMes.status==='fechada' && (payMes.bonificacao||0) > 0){
+      out.bonusVr = payMes.bonificacao;
+      out.vrValor += out.bonusVr;
     }
   }
   out.total = out.vtValor + out.vrValor;
@@ -6311,10 +6329,11 @@ function recalculate(){
     const noturnoEnc = numVal('payroll-noturno')||0;
     const acumuloEnc = numVal('payroll-acumulo')||0;
     const insalubEnc = numVal('payroll-insalubridade')||0;
-    const bonusEnc   = numVal('payroll-bonus')||0;
+    // Boa Permanência NÃO entra no salário — é benefício pago junto com o VR
+    // (não tributada). Fica só no campo `bonificacao` (auditoria) e soma no VR.
     const outProv=(emp.outrosProventos||[]).reduce((s,i)=>s+(parseFloat(i.valor)||0),0);
     const outDesc=(emp.outrosDescontos||[]).reduce((s,i)=>s+(parseFloat(i.valor)||0),0);
-    const totalBruto=remuneracao+heValEnc+heCorridoValor+noturnoEnc+acumuloEnc+insalubEnc+bonusEnc+outProv;
+    const totalBruto=remuneracao+heValEnc+heCorridoValor+noturnoEnc+acumuloEnc+insalubEnc+outProv;
     const pensaoEnc  =emp.pensaoAlimenticia||0;
     const planoEnc   =emp.planoSaude||0;
     const inss=calcINSS(totalBruto);
@@ -6881,19 +6900,38 @@ async function fecharPeriodo(){
   await _executarFechamentoPeriodo(mes,ano,key,State.confFolha?.[key]||{},false);
 }
 
+// Apura a Boa Permanência de uma folha SALVA no fechamento (sem o formulário).
+// Como a bonificação é BENEFÍCIO (pago no VR, fora do salário/impostos), só
+// precisa setar o campo `bonificacao` — não mexe em totalBruto/INSS/IRRF/líquido.
+// Retorna {bonificacao} a atualizar, ou null se não mudou. Usado no LOTE.
+function _apurarBonusFolha(p, emp, cct){
+  if(!p || !emp) return null;
+  const sempreP = !!emp.bonificacaoSemprePagar;
+  const faltas  = (p.faltasInjustificadas||0)+(p.faltasJustificadas||0);
+  const bonusNew = (sempreP || faltas===0) ? ((cct && cct.bonificacao) || 0) : 0;
+  if(Math.abs((p.bonificacao||0) - bonusNew) < 0.005) return null; // sem mudança
+  return { bonificacao: bonusNew };
+}
+
 async function _executarFechamentoPeriodo(mes,ano,key,conf,automatico){
   const folhasAbertas=State.payrolls.filter(p=>p.mes==mes&&p.ano==ano&&p.status!=='fechada');
   const agora=new Date().toISOString();
   try{
-    await Promise.all(folhasAbertas.map(p=>
-      DB.merge('payrolls',p.id,{status:'fechada',fechadoEm:agora})
-    ));
+    // Ao fechar, apura a Boa Permanência de cada folha (recompõe bruto/encargos/
+    // líquido se o bônus mudou) e marca como fechada — tudo no mesmo merge.
+    await Promise.all(folhasAbertas.map(p=>{
+      const emp = State.employees.find(e=>e.id===p.employeeId);
+      const upd = { status:'fechada', fechadoEm:agora };
+      const recalc = (emp && !emp.isentoPonto) ? _apurarBonusFolha(p, emp, State.cct) : null;
+      if(recalc) Object.assign(upd, recalc);
+      return DB.merge('payrolls',p.id,upd).then(()=>{
+        const s=State.payrolls.find(r=>r.id===p.id); if(s) Object.assign(s, upd);
+      });
+    }));
     const novaConf={...conf,fechado:true,fechadoEm:agora,updatedAt:agora};
     await DB.saveDoc('configuracoes',`fechamento_${key}`,novaConf,true);
     State.confFolha=State.confFolha||{};
     State.confFolha[key]=novaConf;
-    // Atualiza State local
-    folhasAbertas.forEach(p=>{ const s=State.payrolls.find(r=>r.id===p.id); if(s) s.status='fechada'; });
     const msg=automatico
       ? `Fechamento automático: ${folhasAbertas.length} folha(s) de ${MESES[mes]}/${ano} fechadas.`
       : `${folhasAbertas.length} folha(s) de ${MESES[mes]}/${ano} fechadas com sucesso.`;
@@ -15265,8 +15303,8 @@ function printFolhaPonto(isPreview=false){
   const minutosAtraso=numVal('payroll-atraso-min')||0;
   const descontoSaida=numVal('payroll-desconto-saida')||0;
   const minutosSaida=numVal('payroll-saida-min')||0;
-  // VT/VR/VA são benefícios pagos à parte (vale/cartão) — não somam no líquido
-  const totalLiquido=remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade+bonificacao-adiantamento-descontoAtraso-descontoSaida;
+  // VT/VR/VA e Boa Permanência são benefícios pagos à parte — não somam no líquido
+  const totalLiquido=remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade-adiantamento-descontoAtraso-descontoSaida;
 
   // Posto do colaborador
   const posto=State.postos.find(p=>p.razaoSocial===emp.posto)||{razaoSocial:emp.posto||'—', endereco:'—'};
@@ -15429,7 +15467,6 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
     ${adNoturno>0?`<tr><td class="fin-label">Adicional Noturno</td><td class="fin-value">${fmtMoney(adNoturno)}</td></tr>`:''}
     ${acumulo>0?`<tr><td class="fin-label">Acúmulo de Função (+20%)</td><td class="fin-value">${fmtMoney(acumulo)}</td></tr>`:''}
     ${insalubridade>0?`<tr><td class="fin-label">Insalubridade</td><td class="fin-value">${fmtMoney(insalubridade)}</td></tr>`:''}
-    <tr><td class="fin-label">Comissão de Boa Permanência</td><td class="fin-value">${bonificacao>0?fmtMoney(bonificacao):'<strong style="color:#999">N/C</strong>'}</td></tr>
     ${minutosAtraso>0?`<tr><td class="fin-label">Desconto Atraso — ${minutosAtraso} min atrasados</td><td class="fin-value" style="color:${descontoAtraso>0?'#c0392b':'#2E7D32'}">${descontoAtraso>0?fmtMoney(descontoAtraso):'R$ 0,00'}</td></tr>`:''}
     ${minutosSaida>0?`<tr><td class="fin-label">Desconto Saídas — ${minutosSaida} min de saída no expediente</td><td class="fin-value" style="color:${descontoSaida>0?'#c0392b':'#2E7D32'}">${descontoSaida>0?fmtMoney(descontoSaida):'R$ 0,00'}</td></tr>`:''}
     ${adiantamento>0?`<tr><td class="fin-label">Adiantamento (${numVal('payroll-adiantamento-perc')||40}%)</td><td class="fin-value" style="color:#c0392b">${fmtMoney(adiantamento)}</td></tr>`:''}
@@ -15441,11 +15478,13 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
       <div style="font-size:20px;font-weight:700;color:#1B5E20">${fmtMoney(totalLiquido)}</div>
       <div style="font-size:9px;color:#555;margin-top:2px">${mesLabel} / ${ano}</div>
     </div>
-    ${(vtTotal>0||vrTotal>0||vaLiquido>0)?`
+    ${(vtTotal>0||vrTotal>0||vaLiquido>0||bonificacao>0)?`
     <div style="margin-top:8px;background:#E3F2FD;border:1px solid #90CAF9;border-radius:4px;padding:8px;font-size:10px">
       <div style="font-weight:700;color:#1565C0;margin-bottom:4px">Benefícios <span style="font-weight:400">— pagos à parte (vale/cartão), não somam no líquido</span></div>
       ${vtTotal>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Vale Transporte</span><span>${fmtMoney(vtTotal)}</span></div>`:''}
       ${vrTotal>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Vale Refeição</span><span>${fmtMoney(vrTotal)}</span></div>`:''}
+      ${bonificacao>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Boa Permanência <small style="color:#1565C0">(no VR)</small></span><span>${fmtMoney(bonificacao)}</span></div>`:''}
+      ${(vrTotal>0||bonificacao>0)?`<div style="display:flex;justify-content:space-between;padding:3px 0;border-top:1px dashed #90CAF9;margin-top:2px;font-weight:700;color:#1565C0"><span>VR Total a creditar</span><span>${fmtMoney(vrTotal+bonificacao)}</span></div>`:''}
       ${vaLiquido>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Vale Alimentação</span><span>${fmtMoney(vaLiquido)}</span></div>`:''}
     </div>`:''}
   </div>
@@ -15524,9 +15563,10 @@ function _buildFolhaHtmlFromRecord(emp, p){
   // Líquido final em dinheiro — recalculado dos componentes (NÃO usa o
   // p.totalLiquidoFinal salvo, que em registros antigos somava VT/VR/VA
   // indevidamente). VT/VR/VA são benefícios pagos à parte.
+  // Boa Permanência (bonificacao) NÃO entra no líquido — é benefício pago no VR.
   const totalLiquido    = totalBrutoVal>0
     ? Math.max(0, totalBrutoVal-inssVal-irrfVal-pensaoVal-planoSaudeVal-outrosDescVal-adiantamento-descontoAtraso-descontoSaida)
-    : Math.max(0, remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade+bonificacao-adiantamento-descontoAtraso-descontoSaida);
+    : Math.max(0, remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade-adiantamento-descontoAtraso-descontoSaida);
 
   // Tabela de dias do ponto
   const diasPonto    = p.pontoManualDias||[];
@@ -15668,7 +15708,6 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
       ${adNoturno>0?`<tr><td class="fin-label">Adicional Noturno</td><td class="fin-value">${fmtMoney(adNoturno)}</td></tr>`:''}
       ${acumulo>0?`<tr><td class="fin-label">Acúmulo de Função (+20%)</td><td class="fin-value">${fmtMoney(acumulo)}</td></tr>`:''}
       ${insalubridade>0?`<tr><td class="fin-label">Insalubridade</td><td class="fin-value">${fmtMoney(insalubridade)}</td></tr>`:''}
-      <tr><td class="fin-label">Comissão de Boa Permanência</td><td class="fin-value">${bonificacao>0?fmtMoney(bonificacao):'<strong style="color:#999">N/C</strong>'}</td></tr>
       ${outrosProvVal>0?`<tr><td class="fin-label">Outros Proventos</td><td class="fin-value">${fmtMoney(outrosProvVal)}</td></tr>`:''}
     </table>
     <div style="font-size:9px;font-weight:700;color:#c0392b;text-transform:uppercase;margin:6px 0 3px">DESCONTOS</div>
@@ -15701,11 +15740,13 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
       ${irrfVal>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>(-) IRRF:</span><span style="color:#c0392b">(${fmtMoney(irrfVal)})</span></div>`:''}
       ${fgtsVal>0?`<div style="display:flex;justify-content:space-between;padding:2px 0;color:#1565C0"><span>FGTS Empregador:</span><span>${fmtMoney(fgtsVal)}</span></div>`:''}
     </div>`:''}
-    ${(vtTotal>0||vrTotal>0||vaLiquido>0)?`
+    ${(vtTotal>0||vrTotal>0||vaLiquido>0||bonificacao>0)?`
     <div style="margin-top:8px;background:#E3F2FD;border:1px solid #90CAF9;border-radius:4px;padding:8px;font-size:10px">
       <div style="font-weight:700;color:#1565C0;margin-bottom:4px">Benefícios <span style="font-weight:400">— pagos à parte (vale/cartão), não somam no líquido</span></div>
       ${vtTotal>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Vale Transporte</span><span>${fmtMoney(vtTotal)}</span></div>`:''}
       ${vrTotal>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Vale Refeição</span><span>${fmtMoney(vrTotal)}</span></div>`:''}
+      ${bonificacao>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Boa Permanência <small style="color:#1565C0">(no VR)</small></span><span>${fmtMoney(bonificacao)}</span></div>`:''}
+      ${(vrTotal>0||bonificacao>0)?`<div style="display:flex;justify-content:space-between;padding:3px 0;border-top:1px dashed #90CAF9;margin-top:2px;font-weight:700;color:#1565C0"><span>VR Total a creditar</span><span>${fmtMoney(vrTotal+bonificacao)}</span></div>`:''}
       ${vaLiquido>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Vale Alimentação</span><span>${fmtMoney(vaLiquido)}</span></div>`:''}
     </div>`:''}
   </div>

@@ -451,6 +451,21 @@ async function handlePontoLogin(body, token, env){
     foto:        emp.foto || '',
     // Flag "trabalha sozinho" — usada pela UI do ponto pra pular intervalos
     semRefeicao: !!emp.semRefeicao,
+    // Horários contratuais — usados pela TRAVA de disciplina (entrada/saída
+    // só com tolerância de 5min; fora disso pede autorização do supervisor).
+    escala:           emp.escala || '',
+    horarioEntrada:   emp.horarioEntrada || '',
+    horarioSaida:     emp.horarioSaida   || '',
+    horarioRefIni:    emp.horarioRefIni  || '',
+    horarioRefFim:    emp.horarioRefFim  || '',
+    turnoNoturno:     !!emp.turnoNoturno,
+    // Períodos de mudança e dias avulsos (override) — prioridade sobre cadastro
+    overridesHorario: emp.overridesHorario || [],
+    historicoEscalas: emp.historicoEscalas || [],
+    // Para detecção de dia de folga (12x36 e 6x1ALT)
+    ciclo12x36Inicio:        emp.ciclo12x36Inicio || '',
+    alternadaPrimeiraFolga:  emp.alternadaPrimeiraFolga || '',
+    dataAdmissao:            emp.dataAdmissao || '',
   } };
 }
 

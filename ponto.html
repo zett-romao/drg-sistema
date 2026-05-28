@@ -448,7 +448,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-<script src="firebase-config.js?v=20260527b"></script>
+<script src="firebase-config.js?v=20260527e"></script>
 
 <script>
 'use strict';
@@ -511,7 +511,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=26').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=27').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -605,7 +605,9 @@ async function doLogin() {
     // Entra no Firebase Auth com o token devolvido pelo servidor (sessão real).
     await firebase.auth().signInWithCustomToken(data.customToken);
 
-    // Salva sessão leve com os dados que o servidor devolveu (sem PIN, sem hash)
+    // Salva sessão com os dados que o servidor devolveu (sem PIN, sem hash).
+    // Inclui horários e info de escala — necessario pra TRAVA de disciplina
+    // de horario (5min tolerancia) e deteccao de dia de folga funcionarem.
     currentEmp = data.emp;
     sessionStorage.setItem('drg_ponto_emp', JSON.stringify({
       id:          data.emp.id,
@@ -615,7 +617,20 @@ async function doLogin() {
       cargo:       data.emp.cargo,
       posto:       data.emp.posto,
       foto:        data.emp.foto || '',
-      semRefeicao: !!data.emp.semRefeicao
+      semRefeicao: !!data.emp.semRefeicao,
+      _v: 2,  // versao da sessao — bump quando adicionar campos novos pra forcar relogin
+      // Horarios + escala (TRAVA)
+      escala:                  data.emp.escala || '',
+      horarioEntrada:          data.emp.horarioEntrada || '',
+      horarioSaida:            data.emp.horarioSaida   || '',
+      horarioRefIni:           data.emp.horarioRefIni  || '',
+      horarioRefFim:           data.emp.horarioRefFim  || '',
+      turnoNoturno:            !!data.emp.turnoNoturno,
+      overridesHorario:        data.emp.overridesHorario || [],
+      historicoEscalas:        data.emp.historicoEscalas || [],
+      ciclo12x36Inicio:        data.emp.ciclo12x36Inicio || '',
+      alternadaPrimeiraFolga:  data.emp.alternadaPrimeiraFolga || '',
+      dataAdmissao:            data.emp.dataAdmissao || ''
     }));
 
     await carregarHome();
@@ -647,7 +662,15 @@ window.addEventListener('load', async () => {
   const saved = sessionStorage.getItem('drg_ponto_emp');
   if (saved) {
     try {
-      currentEmp = JSON.parse(saved);
+      const parsed = JSON.parse(saved);
+      // Sessão de versão antiga (sem horários/escala) → força re-login pra
+      // pegar o payload completo do Worker e a TRAVA de horário funcionar.
+      if (!parsed || (parsed._v||0) < 2) {
+        sessionStorage.removeItem('drg_ponto_emp');
+        currentEmp = null;
+        return;
+      }
+      currentEmp = parsed;
       const fbUser = await _authReady;
       // Se a sessão Firebase morreu mas a sessionStorage continua, força re-login
       // (sem auth nenhuma, as queries ao Firestore vão falhar).

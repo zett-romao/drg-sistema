@@ -7184,6 +7184,69 @@ async function backfillFolhasPeriodo(){
 }
 
 // ============================================
+// REPROJETAR DIAS MIGRADOS (26-31) — correção em lote da virada
+// ============================================
+// Ação ÚNICA da virada: a migração trouxe os dias 26-31 do mês anterior com o
+// horário ANTIGO (ex.: 08-17 de uma projeção antiga). Esta função REESCREVE só os
+// dias 26-31 de todas as folhas da competência usando a escala ATUAL de cada
+// colaborador (5x2→08-17, 12x36→07-19 etc.). Os dias 1-25 (batidas reais do mês)
+// NÃO são tocados. Reversível via backup.
+async function reprojetarDiasMigrados(){
+  if(Auth.currentUser?.role!=='master'){ toast('Apenas o usuário master pode rodar.','error'); return; }
+  const mes=parseInt(val('payroll-mes')||currentMes());
+  const ano=parseInt(val('payroll-ano')||currentAno());
+  const compDias=_compDias(mes,ano);
+  const emps=_filtrarEmpsPorEscopo((State.employees||[]).filter(e=>(e.status||'ativo')==='ativo' && !e.isentoPonto));
+  const afetadas=(State.payrolls||[]).filter(p=>p.mes==mes&&p.ano==ano&&Array.isArray(p.pontoManualDias)&&p.pontoManualDias.some(d=>parseInt(d.dia)>=26)&&emps.some(e=>e.id===p.employeeId));
+  if(!afetadas.length){ toast('Nenhuma folha com dias 26-31 nesta competência. Nada a reprojetar.','info'); return; }
+  const fechadas=afetadas.filter(p=>p.status==='fechada');
+  if(fechadas.length){ toast(`${fechadas.length} folha(s) FECHADA(s). Use "Reabrir Todas as Folhas" antes de reprojetar.`,'error'); return; }
+  if(!confirm(`Reprojetar os dias 26-31 (vindos do mês anterior pela migração) de ${afetadas.length} folha(s) — ${MESES[mes]}/${ano}?\n\n• Esses dias serão REESCRITOS com a escala atual de cada colaborador (5x2 → 08-17, 12x36 → 07-19 etc.).\n• Os dias 1-25 (batidas reais do mês) NÃO são tocados.\n• Ação de virada (use uma vez). Faça backup antes.\n\nContinuar?`)) return;
+  let nF=0, nD=0;
+  for(const p of afetadas){
+    const emp=emps.find(e=>e.id===p.employeeId);
+    if(!emp || _cadastroPendencias(emp).length) continue;
+    // Mantém dias 1-25 (batidas reais); reprojeta os dias 26-31 pela escala atual.
+    const dias=p.pontoManualDias.filter(d=>parseInt(d.dia)<26);
+    for(const cd of compDias){
+      if(cd.dia<26) continue;
+      const exp=_getExpectedDay(emp,cd.mes,cd.ano,cd.dia);
+      if(!exp || exp.tipo==='folga' || !exp.entrada) continue; // folga / sem expediente
+      dias.push({ dia:cd.dia, diaSem:cd.diaSem,
+        entrada:exp.entrada||'', saida:exp.saida||'',
+        intIni:exp.intIni||'', intFim:exp.intFim||'',
+        entrada_origem:'backfill', saida_origem:'backfill',
+        intIni_origem:'backfill', intFim_origem:'backfill' });
+      nD++;
+    }
+    const diasTrab=dias.filter(d=>d.entrada&&d.saida).length;
+    const fam=escalaFamilia(emp.escala||'5x2A'); const is12=fam==='12x36';
+    let faltas=0;
+    for(const cd of compDias){
+      const has=dias.find(x=>x.dia===cd.dia);
+      if(has && has.entrada && has.saida) continue;
+      const isWk=cd.diaSem===0||cd.diaSem===6;
+      if(_diaEmBrancoEhFalta(emp,cd.mes,cd.ano,cd.dia,isWk,is12)) faltas++;
+    }
+    const heMin=_heMinFromDias(emp,mes,ano,dias);
+    const base={ pontoManualDias:dias, diasTrabalhados:diasTrab,
+      faltasInjustificadas:faltas, faltasJustificadas:(p.faltasJustificadas||0),
+      horasExtrasTotal:(heMin>0?+(heMin/60).toFixed(2):0), updatedAt:new Date().toISOString() };
+    const record={...p, ...base};
+    try{
+      await DB.save('payrolls', _sanitizeForFirestore(record));
+      const ix=State.payrolls.findIndex(r=>r.id===record.id);
+      if(ix>=0) State.payrolls[ix]=record;
+      nF++;
+    }catch(e){ console.error('reprojetar migrados', emp.nome, e); }
+  }
+  try{ Auth.log('REPROJETAR_DIAS_MIGRADOS', null, `${MESES[mes]}/${ano} — ${nF} folha(s), ${nD} dia(s)`); }catch(_){}
+  toast(`Reprojeção concluída: ${nF} folha(s), ${nD} dia(s) 26-31 reescritos com a escala correta. Confira alguns 12x36.`, 'success');
+  if(val('payroll-employee')) onPayrollEmployeeChange();
+  try{ renderDashboard(); }catch(_){}
+}
+
+// ============================================
 // MIGRAÇÃO ÚNICA — calendário → competência (fecha dia 25)
 // ============================================
 // Antes do modelo de competência as batidas eram gravadas por MÊS DE CALENDÁRIO

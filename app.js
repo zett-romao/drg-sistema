@@ -4646,25 +4646,6 @@ function escalaLabel(escala){
   return labels[escala]||escala||'5x2A';
 }
 
-// Calcula quantos dias de trabalho ocorrem em um mês conforme escala
-function calcDiasEscala(mes, ano, escala){
-  const diasNoMes=new Date(ano,mes,0).getDate();
-  const _mod=_escalaModelo(escala);
-  if(_mod){
-    let n=0;
-    for(let d=1;d<=diasNoMes;d++){
-      const md=_modeloDiaTemplate(_mod, new Date(ano,mes-1,d));
-      if(md.tipo==='trabalho'||md.tipo==='corrido') n++;
-    }
-    return n;
-  }
-  const fam=escalaFamilia(escala);
-  if(fam==='5x2') return Math.floor(diasNoMes*5/7);
-  if(fam==='6x1') return Math.floor(diasNoMes*6/7);
-  if(fam==='12x36') return Math.floor(diasNoMes/2);
-  return diasNoMes;
-}
-
 // ============================================
 // MOTOR DE CÁLCULO CLT — conforme legislação brasileira
 // Divisores: salário/30 = valor do dia | salário/220 = valor da hora
@@ -6044,13 +6025,13 @@ function _diasPrevistosComVR(emp, mes, ano){
   return n;
 }
 
-// Dias úteis (seg–sex) de um mês — fallback de benefícios pra isento sem escala.
+// Dias úteis (seg–sex) da COMPETÊNCIA (26→25) — fallback de benefícios pra
+// isento sem escala. Conta sobre o período da competência (igual ao não-isento,
+// que usa _diasPrevistosEscala/_compDias), não sobre o mês de calendário.
 function _diasUteisMes(mes, ano){
-  const dpm = new Date(ano, mes, 0).getDate();
   let n = 0;
-  for(let d=1; d<=dpm; d++){
-    const ds = new Date(ano, mes-1, d).getDay();
-    if(ds!==0 && ds!==6) n++;
+  for(const cd of _compDias(mes, ano)){
+    if(cd.diaSem!==0 && cd.diaSem!==6) n++;
   }
   return n;
 }
@@ -14980,6 +14961,11 @@ async function openHEReview(){
   if(!empId){ toast('Selecione um colaborador na Folha de Ponto primeiro.', 'error'); return; }
   const emp = State.employees.find(e=>e.id===empId);
   if(!emp){ toast('Colaborador não encontrado.', 'error'); return; }
+  // Isento de controle de jornada (cargo de confiança) não tem HE a revisar.
+  if(emp.isentoPonto){
+    toast(`${emp.nome} é isento de controle de jornada (cargo de confiança) — não há horas extras a revisar.`, 'info');
+    return;
+  }
   const mes = parseInt(val('payroll-mes')||currentMes());
   const ano = parseInt(val('payroll-ano')||currentAno());
   // Pega payroll diretamente do State (já tem os dias mais recentes do PWA)
@@ -15003,8 +14989,15 @@ async function openHEReview(){
     if(!detec.precisaRevisao) return;
     linhas.push({ d, expected, detec });
   });
+  // Aviso de "dias avulsos" (overrides) no período: têm prioridade sobre a
+  // escala e ficam invisíveis na folha/escala — causa comum de HE fantasma.
+  const _per = _compPeriodo(mes, ano);
+  const _ovr = (emp.overridesHorario||[]).filter(o => o && o.data >= _per.deISO && o.data <= _per.ateISO);
+  const _ovrAviso = _ovr.length
+    ? `<div style="margin-top:6px;padding:6px 10px;background:#FFF8E1;border:1px solid #F9A825;border-radius:4px;color:#E65100;font-size:12px"><i class="fa-solid fa-triangle-exclamation"></i> Este colaborador tem <strong>${_ovr.length} dia(s) avulso(s)</strong> neste período (${_ovr.map(o=>_fmtDtBr(o.data)).join(', ')}). Eles têm <strong>prioridade sobre a escala</strong> — se uma divergência não fizer sentido, confira/remova no cadastro (bloco "Dias avulsos").</div>`
+    : '';
   document.getElementById('he-review-info').innerHTML =
-    `<strong>${emp.nome}</strong> &middot; ${MESES[mes]}/${ano} &middot; <strong>${linhas.length}</strong> dia(s) com divergência acima de 10min/dia`;
+    `<strong>${emp.nome}</strong> &middot; ${MESES[mes]}/${ano} &middot; <strong>${linhas.length}</strong> dia(s) com divergência acima de 10min/dia` + _ovrAviso;
   const listEl = document.getElementById('he-review-list');
   if(!linhas.length){
     listEl.innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-check" style="color:#1B5E20"></i><p>Nenhuma divergência acima da tolerância CLT neste mês.</p></div>';

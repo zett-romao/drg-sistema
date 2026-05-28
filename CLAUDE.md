@@ -209,14 +209,14 @@ Levantamento de inconsistências (foco: fechamento/competência, escalas, HE/fal
 1. **[DADO/OP] Competência publicada, migração NÃO rodada.** O código 26→25 está no ar; enquanto a migração não rodar, qualquer folha com batidas nos dias 26-31 é lida como mês anterior (maio 26-31 vira "abril") → HE/faltas/valores errados nesses dias. Os bugs já vistos (Juliana/Matheus) eram em dias ≤25, não afetados — mas é bomba latente ao fechar maio. **Correção:** backup → "Migrar p/ competência" → backfill → fechar maio. Até lá, evitar fechar/recalcular maio.
 
 🟠 **IMPORTANTE (gerando bugs visíveis)**
-2. **[DADO/OP + CÓDIGO opcional] "Dias avulsos" (overrides) antigos e invisíveis → HE fantasma** (caso Juliana). Override de horário tem prioridade máxima e não aparece na escala/folha. **Correção dado:** revisar bloco "Dias avulsos" de cada colaborador (noturnos/12x36 primeiro) e remover obsoletos. **Melhoria código:** avisar quando colaborador tem dias avulsos ativos.
-3. **[DADO/OP] Cargo de confiança sem marcar "isento de controle de jornada" → HE/faltas fantasma** (caso Matheus). **Correção:** marcar "Isento (CLT Art. 62)" em todos os de confiança.
-4. **[DADO/OP] Escala ≠ batidas reais → HE fantasma gigante** (padrão Juliana 06-18 vs 19-07). **Correção:** conferir escala correta de cada um (usar as 12x36/6x1 Alternado do sistema) e reprojetar+salvar.
+2. **[DADO/OP — pendente] "Dias avulsos" (overrides) antigos e invisíveis → HE fantasma** (caso Juliana). Override tem prioridade máxima e não aparece na escala/folha. **Correção dado (pendente):** revisar bloco "Dias avulsos" de cada colaborador (noturnos/12x36 primeiro) e remover obsoletos. ✅ **Código FEITO (2026-05-28):** o painel de revisão de HE agora avisa quando o colaborador tem dias avulsos no período.
+3. **[DADO/OP — pendente] Cargo de confiança sem marcar "isento" → HE/faltas fantasma** (caso Matheus). **Correção:** marcar "Isento (CLT Art. 62)" em todos os de confiança.
+4. **[DADO/OP — pendente] Escala ≠ batidas reais → HE fantasma gigante** (padrão Juliana 06-18 vs 19-07). **Correção:** conferir escala correta de cada um (usar as 12x36/6x1 Alternado do sistema) e reprojetar+salvar.
 
-🟡 **CÓDIGO (menores, eu corrijo)**
-5. **`openHEReview` (~app.js:14960) não checa `isentoPonto`.** A LISTA de pendentes pula isento (`_getPendentesHEList`), mas o PAINEL aberto direto p/ um isento ainda mostra divergências. Adicionar o mesmo guard.
-6. **Fallback por mês de calendário:** `_diaEmBrancoEhFalta` (já tratei 6x1ALT) e `_diasUteisMes` (benefício de isento, ~app.js:6048) usam mês de calendário; confirmar se benefício de isento deve seguir competência 26→25.
-7. **Código morto:** `calcDiasEscala` (~app.js:4650) não é chamado em nenhum lugar — remover.
+🟡 **CÓDIGO (✅ FEITO em 2026-05-28)**
+5. ✅ **`openHEReview` agora checa `isentoPonto`** — abrir o painel p/ um isento mostra aviso e não lista divergências.
+6. ✅ **`_diasUteisMes` agora conta a competência 26→25** (`_compDias`), consistente com o não-isento. (`_diaEmBrancoEhFalta` já tratava 6x1ALT.)
+7. ✅ **`calcDiasEscala` removido** (era código morto).
 
 🔵 **SEGURANÇA (pendência conhecida — ver [[drg-kronos-blindagem-s3-status]])**
 8. **S3-C/D pendentes:** regras Firestore/Storage ainda aceitam sessão anônima/autenticada legada lendo/gravando CPF/salário/PIX. Não é regressão; é a etapa que faltou da blindagem.

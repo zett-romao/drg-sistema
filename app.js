@@ -4762,7 +4762,7 @@ function renderBeneficiosLista(){
         <th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border)">Colaborador</th>
         <th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border)">Posto</th>
         <th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border)">Período</th>
-        <th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border)">Dias</th>
+        <th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border)" title="Dias de VT / Dias de VR (jornada > 6h)">Dias<br><small style="font-weight:400;color:var(--text-muted)">VT/VR</small></th>
         <th style="padding:6px 8px;text-align:right;border-bottom:1px solid var(--border)">VT/AM</th>
         <th style="padding:6px 8px;text-align:right;border-bottom:1px solid var(--border)">VR</th>
         <th style="padding:6px 8px;text-align:right;border-bottom:1px solid var(--border)">Total</th>
@@ -4784,7 +4784,7 @@ function renderBeneficiosLista(){
       <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7"><strong style="color:var(--primary)">${emp.nome}</strong><br><small style="color:var(--text-muted)">${emp.setor||'—'}</small></td>
       <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7;font-size:11px">${posto}</td>
       <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7;font-size:11px">${periodoCol}</td>
-      <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7">${b.dias}</td>
+      <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7"><span title="dias de VT">${b.diasVt}</span> / <span title="dias de VR (jornada > 6h)" style="color:#ff8a65;font-weight:600">${b.diasVr}</span></td>
       <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7">${vtIcon} ${b.vtValor>0?fmtMoney(b.vtValor):'—'}</td>
       <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7"><i class="fa-solid fa-utensils" style="color:#ff8a65"></i> ${b.vrValor>0?fmtMoney(b.vrValor):'—'}</td>
       <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;font-weight:700;color:#0288D1">${fmtMoney(b.total)}</td>
@@ -4907,7 +4907,7 @@ function openBeneficioDetalhe(empId, escopo, dataIni, dataFim){
     `<strong>Período:</strong> ${periodoLabel}<br>` +
     `<strong>Posto:</strong> ${posto} &nbsp;|&nbsp; <strong>Setor:</strong> ${emp.setor||'—'} &nbsp;|&nbsp; ` +
     `<strong>Escala:</strong> ${escalaLabel(emp.escala||'5x2A')}${emp.turnoNoturno?' (Noturno)':''}<br>` +
-    `<strong>Dias trabalhados no período:</strong> ${b.dias}` +
+    `<strong>Dias — VT:</strong> ${b.diasVt} &nbsp;|&nbsp; <strong>VR (jornada &gt; 6h):</strong> <span style="color:#E65100">${b.diasVr}</span>` +
     `${b.semanas>0?` &nbsp;|&nbsp; <strong>Semanas:</strong> ${b.semanas}`:''}<br>` +
     `<strong style="color:#00695C"><i class="fa-brands fa-pix"></i> Chave PIX:</strong> <span style="font-family:monospace">${pixDet}</span>`;
   const tbody = document.getElementById('benef-det-tbody');
@@ -4926,12 +4926,12 @@ function openBeneficioDetalhe(empId, escopo, dataIni, dataFim){
     const freqLabel = (b.vtFreq === 'semanal') ? 'Semanal' : 'Diária';
     linhas.push({ rotulo: ben, freq: freqLabel, base: emp.valorDiarioVt||0, mult, multLabel, valor: b.vtValor, campoId: 'edit-vt' });
   }
-  // VR
+  // VR — usa a contagem de dias com jornada > 6h (b.diasVr / b.semanasVr)
   if(emp.valorDiarioVr){
     let mult = 1, multLabel = '×1 dia';
-    if(escopo === 'dia' && b.vrFreq === 'diario'){ mult = b.dias>0?1:0; multLabel = `${b.dias>0?'×1 dia':'(não trab.)'}`; }
-    else if(escopo === 'semana' && b.vrFreq === 'semanal'){ mult = b.semanas; multLabel = `×${b.semanas} sem.`; }
-    else if(escopo === 'semana' && b.vrFreq === 'diario'){ mult = b.dias; multLabel = `×${b.dias} dias`; }
+    if(escopo === 'dia' && b.vrFreq === 'diario'){ mult = b.diasVr>0?1:0; multLabel = `${b.diasVr>0?'×1 dia (>6h)':'(jornada ≤ 6h)'}`; }
+    else if(b.vrFreq === 'semanal'){ mult = b.semanasVr; multLabel = `×${b.semanasVr} sem.`; }
+    else if(escopo !== 'dia' && b.vrFreq === 'diario'){ mult = b.diasVr; multLabel = `×${b.diasVr} dias (>6h)`; }
     else if(escopo === 'dia' && b.vrFreq === 'semanal'){ mult = 0; multLabel = '(pago semanal)'; }
     const freqLabel = (b.vrFreq === 'semanal') ? 'Semanal' : 'Diária';
     linhas.push({ rotulo: 'VR — Vale Refeição', freq: freqLabel, base: emp.valorDiarioVr||0, mult, multLabel, valor: b.vrValor, campoId: 'edit-vr' });
@@ -5207,6 +5207,33 @@ function _diasTrabalhadosNoIntervalo(emp, dataInicioISO, dataFimISO){
   return count;
 }
 
+// Conta dias de benefício num intervalo, SEPARADO por benefício:
+//   vt = todos os dias trabalhados (VT independe da jornada)
+//   vr = só dias com jornada líquida ACIMA de 6h (CLT Art. 71 — refeição).
+// Isento de ponto recebe VR integral (todos os dias contam).
+function _diasBeneficioNoIntervalo(emp, dataInicioISO, dataFimISO){
+  if(!emp) return { vt:0, vr:0 };
+  const ini = new Date(dataInicioISO + 'T12:00:00');
+  const fim = new Date(dataFimISO + 'T12:00:00');
+  if(isNaN(ini.getTime()) || isNaN(fim.getTime())) return { vt:0, vr:0 };
+  let vt = 0, vr = 0;
+  const cur = new Date(ini);
+  while(cur <= fim){
+    const iso = cur.toISOString().substring(0,10);
+    if(_colabTrabalhaNoDia(emp, iso)){
+      vt++;
+      if(emp.isentoPonto){
+        vr++;                                  // isento: VR integral, sem regra de 6h
+      } else {
+        const exp = _getExpectedDay(emp, cur.getMonth()+1, cur.getFullYear(), cur.getDate());
+        if(exp && _liqMin(exp) > 360) vr++;    // jornada líquida > 6h
+      }
+    }
+    cur.setDate(cur.getDate()+1);
+  }
+  return { vt, vr };
+}
+
 // Retorna data ISO do início (segunda) e fim (domingo) da semana de uma data
 function _semanaDe(dataISO){
   const d = new Date(dataISO + 'T12:00:00');
@@ -5223,44 +5250,39 @@ function _semanaDe(dataISO){
 // Retorna { vtNome, vtValor, vtFreqLabel, vrValor, vrFreqLabel, vaValor, total, dias }
 function _calcBeneficiosColab(emp, dataInicioISO, dataFimISO, escopo){
   const empE = State.employees.find(e => e.id===emp.id) || emp;
-  const dias = _diasTrabalhadosNoIntervalo(empE, dataInicioISO, dataFimISO);
-  const sem  = _semanasTrabalhadas(dias, empE.escala);
+  // Contagem SEPARADA: VT conta todos os dias; VR só dias com jornada > 6h.
+  const cont   = _diasBeneficioNoIntervalo(empE, dataInicioISO, dataFimISO);
+  const diasVt = cont.vt;
+  const diasVr = cont.vr;
+  const semVt  = _semanasTrabalhadas(diasVt, empE.escala);
+  const semVr  = _semanasTrabalhadas(diasVr, empE.escala);
   const out = {
-    dias,
-    semanas: sem,
+    dias: diasVt,          // compat com código antigo
+    diasVt, diasVr,
+    semanas: semVt, semanasVr: semVr,
     vtTipo: empE.tipoTransporte || 'vt',
     vtFreq: empE.vtFreq || 'diario',
     vrFreq: empE.vrFreq || 'diario',
     vtValor: 0, vrValor: 0, total: 0
   };
-  // VT/AM. escopo 'dia' = só o benefício do dia; 'semana'/'mes' = soma do intervalo.
+  // VT/AM — todos os dias trabalhados. escopo 'dia' = só o do dia; senão soma o intervalo.
   if(out.vtTipo !== 'nao' && empE.valorDiarioVt){
     if(escopo === 'dia'){
-      // No escopo "dia", só conta benefício diário (semanal/mensal vai nas outras abas)
-      if(out.vtFreq === 'diario'){
-        out.vtValor = (dias > 0) ? (empE.valorDiarioVt || 0) : 0;
-      }
-    } else { // 'semana' ou 'mes' — soma sobre o intervalo informado
-      if(out.vtFreq === 'semanal'){
-        out.vtValor = (sem > 0) ? (empE.valorDiarioVt || 0) * sem : 0;
-      } else {
-        // Diário = soma dos dias trabalhados no intervalo (proporcional)
-        out.vtValor = (empE.valorDiarioVt || 0) * dias;
-      }
+      if(out.vtFreq === 'diario') out.vtValor = (diasVt > 0) ? (empE.valorDiarioVt || 0) : 0;
+    } else {
+      out.vtValor = (out.vtFreq === 'semanal')
+        ? (semVt > 0 ? (empE.valorDiarioVt || 0) * semVt : 0)
+        : (empE.valorDiarioVt || 0) * diasVt;
     }
   }
-  // VR
+  // VR — só dias com jornada líquida > 6h (diasVr).
   if(empE.valorDiarioVr){
     if(escopo === 'dia'){
-      if(out.vrFreq === 'diario'){
-        out.vrValor = (dias > 0) ? (empE.valorDiarioVr || 0) : 0;
-      }
-    } else { // 'semana' ou 'mes'
-      if(out.vrFreq === 'semanal'){
-        out.vrValor = (sem > 0) ? (empE.valorDiarioVr || 0) * sem : 0;
-      } else {
-        out.vrValor = (empE.valorDiarioVr || 0) * dias;
-      }
+      if(out.vrFreq === 'diario') out.vrValor = (diasVr > 0) ? (empE.valorDiarioVr || 0) : 0;
+    } else {
+      out.vrValor = (out.vrFreq === 'semanal')
+        ? (semVr > 0 ? (empE.valorDiarioVr || 0) * semVr : 0)
+        : (empE.valorDiarioVr || 0) * diasVr;
     }
   }
   out.total = out.vtValor + out.vrValor;
@@ -5889,6 +5911,20 @@ function _diasPrevistosEscala(emp, mes, ano){
   return n;
 }
 
+// Dias previstos no mês com jornada líquida ACIMA de 6h — base do VR
+// (CLT Art. 71). Ex.: 6x1A com sábado curto (4h) — o sábado conta pro VT
+// mas NÃO pro VR. Usado pra calcular a proporção de VR na folha.
+function _diasPrevistosComVR(emp, mes, ano){
+  if(!emp) return 0;
+  const dpm = new Date(ano, mes, 0).getDate();
+  let n = 0;
+  for(let d=1; d<=dpm; d++){
+    const exp = _getExpectedDay(emp, mes, ano, d);
+    if(exp && exp.tipo!=='folga' && exp.entrada && _liqMin(exp) > 360) n++;
+  }
+  return n;
+}
+
 // Dias úteis (seg–sex) de um mês — fallback de benefícios pra isento sem escala.
 function _diasUteisMes(mes, ano){
   const dpm = new Date(ano, mes, 0).getDate();
@@ -5955,9 +5991,16 @@ function recalculate(){
   // Dias pagos = trabalhados + dias de atestado (atestado é pago). Limitado
   // aos dias previstos — dias extras viram HE, não inflam a remuneração.
   const diasPagos = Math.min(diasPrevistos || (dias + _atest.dias), dias + _atest.dias);
-  // Multiplicador de benefícios por dia (VT/VR). Isento recebe integral —
-  // todos os dias previstos (ou dias úteis do mês se não tem escala).
+  // Multiplicador de benefícios por dia. VT conta todos os dias trabalhados.
+  // VR só os dias com jornada líquida > 6h (CLT Art. 71) — calculado pela
+  // proporção dos dias previstos com >6h sobre o total de dias previstos
+  // (ex.: 6x1A com sábado curto recebe VT no sábado mas não VR). Isento
+  // recebe ambos integrais.
   const diasBeneficio = isentoPonto ? (diasPrevistos || _diasUteisMes(_mesR, _anoR)) : dias;
+  const diasPrevistosVr = emp ? _diasPrevistosComVR(emp, _mesR, _anoR) : 0;
+  const diasBeneficioVr = isentoPonto
+    ? diasBeneficio
+    : (diasPrevistos > 0 ? Math.round(dias * (diasPrevistosVr / diasPrevistos)) : 0);
 
   // Atrasos — lista de ocorrências (coleção `atrasos`). Só as ocorrências
   // NÃO abonadas descontam. O atestado abate horas de atraso. Isento não desconta.
@@ -5984,8 +6027,9 @@ function recalculate(){
   const vtFreqCalc = emp?.vtFreq || 'diario';
   const vrFreqCalc = emp?.vrFreq || 'diario';
   const semCalc    = _semanasTrabalhadas(dias, emp?.escala);
-  const vtMult = (vtFreqCalc === 'semanal') ? semCalc : diasBeneficio;
-  const vrMult = (vrFreqCalc === 'semanal') ? semCalc : diasBeneficio;
+  const semCalcVr  = _semanasTrabalhadas(diasBeneficioVr, emp?.escala);
+  const vtMult = (vtFreqCalc === 'semanal') ? semCalc   : diasBeneficio;   // todos os dias
+  const vrMult = (vrFreqCalc === 'semanal') ? semCalcVr : diasBeneficioVr; // só dias > 6h
   setVal('payroll-vt-total',(numVal('payroll-vt-dia')*vtMult).toFixed(2));
   setVal('payroll-vr-total',(numVal('payroll-vr-dia')*vrMult).toFixed(2));
 

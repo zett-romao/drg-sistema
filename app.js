@@ -6904,6 +6904,7 @@ async function _updatePainelFechamento(mes,ano){
   const label=document.getElementById('fechamento-periodo-label');
   const badge=document.getElementById('fechamento-status-badge');
   const btnFechar=document.getElementById('btn-fechar-periodo');
+  const btnReabrir=document.getElementById('btn-reabrir-periodo');
   const infoFechado=document.getElementById('fechamento-periodo-fechado-info');
   const dataInput=document.getElementById('fechamento-data-input');
   if(label) label.textContent=`${MESES[mes]} / ${ano}  ·  ${_compLabel(mes,ano)}`;
@@ -6927,6 +6928,10 @@ async function _updatePainelFechamento(mes,ano){
       : `<span style="background:#E8F5E9;color:#2E7D32;padding:4px 10px;border-radius:12px;font-size:12px;font-weight:700"><i class="fa-solid fa-lock-open"></i> Período Aberto</span>`;
   }
   if(btnFechar) btnFechar.style.display=periodoFechado?'none':'inline-flex';
+  if(btnReabrir){
+    const temFechada=State.payrolls.some(p=>p.mes==mes&&p.ano==ano&&p.status==='fechada');
+    btnReabrir.style.display=(periodoFechado||temFechada)?'inline-flex':'none';
+  }
   if(infoFechado){
     if(periodoFechado && conf.fechadoEm){
       infoFechado.style.display='inline';
@@ -6965,6 +6970,35 @@ async function fecharPeriodo(){
   if(qtd===0){ toast(`Nenhuma folha aberta em ${MESES[mes]}/${ano}.`,'warning'); return; }
   if(!confirm(`Fechar ${qtd} folha(s) de ${MESES[mes]}/${ano}?\n\nApós o fechamento as folhas ficam bloqueadas para edição. Você poderá reabrir individualmente se necessário.`)) return;
   await _executarFechamentoPeriodo(mes,ano,key,State.confFolha?.[key]||{},false);
+}
+
+// Reabre TODAS as folhas fechadas da competência de uma vez (simétrico ao
+// "Fechar Todas"). Marca o período como reaberto. Útil antes da migração
+// (que aborta se houver folha fechada) e quando precisa reeditar o mês inteiro.
+async function reabrirPeriodo(){
+  const mes=parseInt(val('payroll-mes')||currentMes());
+  const ano=parseInt(val('payroll-ano')||currentAno());
+  const key=_periodoKey(mes,ano);
+  const fechadas=State.payrolls.filter(p=>p.mes==mes&&p.ano==ano&&p.status==='fechada');
+  if(!fechadas.length){ toast(`Nenhuma folha fechada em ${MESES[mes]}/${ano}.`,'warning'); return; }
+  if(!confirm(`Reabrir ${fechadas.length} folha(s) de ${MESES[mes]}/${ano}?\n\nTodas voltam a ficar EDITÁVEIS e o período é marcado como aberto.`)) return;
+  const agora=new Date().toISOString();
+  try{
+    await Promise.all(fechadas.map(p=>
+      DB.merge('payrolls',p.id,{status:'aberta',reabertoEm:agora}).then(()=>{
+        const s=State.payrolls.find(r=>r.id===p.id); if(s){ s.status='aberta'; s.reabertoEm=agora; }
+      })
+    ));
+    const conf=State.confFolha?.[key]||{};
+    const novaConf={...conf,fechado:false,reabertoEm:agora,updatedAt:agora};
+    await DB.saveDoc('configuracoes',`fechamento_${key}`,novaConf,true);
+    State.confFolha=State.confFolha||{};
+    State.confFolha[key]=novaConf;
+    toast(`${fechadas.length} folha(s) de ${MESES[mes]}/${ano} reabertas.`);
+    try{ Auth.log('PAYROLL_PERIODO_REABERTO',null,`${MESES[mes]}/${ano} — ${fechadas.length} folhas`); }catch(_){}
+    _updatePainelFechamento(mes,ano);
+    _updateFolhaStatusBadge();
+  }catch(e){ toast('Erro ao reabrir período.','error'); console.error(e); }
 }
 
 // Apura a Boa Permanência de uma folha SALVA no fechamento (sem o formulário).

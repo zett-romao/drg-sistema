@@ -4764,7 +4764,6 @@ function renderBeneficiosLista(){
         <th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border)">Colaborador</th>
         <th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border)">Posto</th>
         <th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border)">Período</th>
-        <th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border)" title="Dias de VT / Dias de VR (jornada > 6h)">Dias<br><small style="font-weight:400;color:var(--text-muted)">VT/VR</small></th>
         <th style="padding:6px 8px;text-align:right;border-bottom:1px solid var(--border)">VT/AM</th>
         <th style="padding:6px 8px;text-align:right;border-bottom:1px solid var(--border)">VR</th>
         <th style="padding:6px 8px;text-align:right;border-bottom:1px solid var(--border)">Total</th>
@@ -4786,9 +4785,8 @@ function renderBeneficiosLista(){
       <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7"><strong style="color:var(--primary)">${emp.nome}</strong><br><small style="color:var(--text-muted)">${emp.setor||'—'}</small></td>
       <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7;font-size:11px">${posto}</td>
       <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7;font-size:11px">${periodoCol}</td>
-      <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7"><span title="dias de VT">${b.diasVt}</span> / <span title="dias de VR (jornada > 6h)" style="color:#ff8a65;font-weight:600">${b.diasVr}</span></td>
-      <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7">${vtIcon} ${b.vtValor>0?fmtMoney(b.vtValor):'—'}</td>
-      <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7"><i class="fa-solid fa-utensils" style="color:#ff8a65"></i> ${b.vrValor>0?fmtMoney(b.vrValor):'—'}</td>
+      <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap">${vtIcon} ${b.vtValor>0?`<span style="color:var(--text-muted);font-size:11px">${b.diasVt}d ·</span> ${fmtMoney(b.vtValor)}`:'—'}</td>
+      <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap"><i class="fa-solid fa-utensils" style="color:#ff8a65"></i> ${b.vrValor>0?`<span style="color:#ff8a65;font-size:11px">${b.diasVr}d ·</span> ${fmtMoney(b.vrValor)}`:'—'}</td>
       <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;font-weight:700;color:#0288D1">${fmtMoney(b.total)}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7;font-size:11px;font-family:monospace;color:#00695C">${pix}</td>
       <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7"><button class="btn-icon" onclick="event.stopPropagation();openBeneficioDetalhe('${emp.id}','${escopo}','${ini}','${fim}')" title="Ver planilha individual"><i class="fa-solid fa-clipboard-list" style="color:#0288D1"></i></button></td>
@@ -4797,7 +4795,7 @@ function renderBeneficiosLista(){
   html += `</tbody>
     <tfoot style="background:#E8F5E9;font-weight:700">
       <tr>
-        <td colspan="6" style="padding:10px;text-align:right">TOTAL GERAL</td>
+        <td colspan="5" style="padding:10px;text-align:right">TOTAL GERAL</td>
         <td style="padding:10px;text-align:right">${fmtMoney(totalVT)}</td>
         <td style="padding:10px;text-align:right">${fmtMoney(totalVR)}</td>
         <td style="padding:10px;text-align:right;color:#1B5E20;font-size:14px">${fmtMoney(totalGeral)}</td>

@@ -951,6 +951,7 @@ function showSection(name){
   if(name==='ferias'         && !mods.ferias)          return;
   if(name==='rescisao'       && !mods.rescisao)        return;
   if(name==='contabilidade'  && !mods.contabilidade)   return;
+  if(name==='banco'          && Auth.currentUser?.role!=='master') return;
   if(name==='postos'         && !mods.postos)       return;
   if(name==='contratos'      && !mods.contratos)    return;
   if(name==='comunicacao'    && !mods.comunicacao)  return;
@@ -974,7 +975,7 @@ function showSection(name){
   if(navBtn)  navBtn.classList.add('active');
   const titles={dashboard:'Dashboard',employees:'Colaboradores',payroll:'Folha de Ponto',escalas:'Escalas',
                 pagamentos:'Pagamentos',adiantamentos:'Adiantamentos',aprovacoes:'Aprovações de Pagamentos',decimoterceiro:'13º Salário',ferias:'Férias',rescisao:'Rescisões',
-                contabilidade:'Contabilidade',users:'Usuários & Acessos',postos:'Postos de Trabalho',contratos:'Contratos',comunicacao:'Comunicação',autorizacoes:'Autorizações de Ponto',documentos:'Documentos do Colaborador',configuracoes:'Configurações'};
+                contabilidade:'Contabilidade',banco:'Banco de Dados',users:'Usuários & Acessos',postos:'Postos de Trabalho',contratos:'Contratos',comunicacao:'Comunicação',autorizacoes:'Autorizações de Ponto',documentos:'Documentos do Colaborador',configuracoes:'Configurações'};
   document.getElementById('topbar-title').textContent=titles[name]||name;
   State.currentSection=name;
   if(name==='employees') renderEmployeeTable();
@@ -988,6 +989,7 @@ function showSection(name){
   if(name==='ferias')          renderFeriasModulo();
   if(name==='rescisao')        renderRescisoes();
   if(name==='contabilidade')   { _applyModoBanners(State.empresa?.modoContabilidade||'ambas'); renderContabilidade(); }
+  if(name==='banco')           renderBancoDados();
   if(name==='comunicacao')     renderComunicacaoSection();
   if(name==='autorizacoes')    renderAutorizacoesSection();
   if(name==='documentos')      renderDocumentosPendentes();
@@ -2879,6 +2881,57 @@ function printFeriasModulo(){
   <p style="text-align:center;font-size:10px;color:#999;margin-top:30px">Gerado por ${APP_VERSION} em ${new Date().toLocaleDateString('pt-BR')}</p>
   </body></html>`);
   w.document.close(); w.print();
+}
+
+// ============================================
+// BANCO DE DADOS — página de CCT, backup e estatísticas
+// ============================================
+function renderBancoDados(){
+  // Card da CCT — mostra valores atuais (ou alerta se a CCT nao carregou)
+  const cctInfo = document.getElementById('banco-cct-info');
+  if(cctInfo){
+    const cct = State.cct;
+    if(!cct){
+      cctInfo.innerHTML = `<div style="padding:10px;background:#FFEBEE;border:1px solid #EF9A9A;border-radius:4px;color:#B71C1C">
+        <i class="fa-solid fa-triangle-exclamation"></i> <strong>CCT não carregada</strong> — o Firestore pode estar com erro de listener (veja "Recarregar dados"). Sem a CCT, a bonificação fica R$0.
+      </div>`;
+    } else {
+      const _bonifLine = cct.bonificacao>0
+        ? `<div style="margin-top:6px;padding:6px 8px;background:#E8F5E9;border-radius:4px"><strong>Bonificação Boa Permanência:</strong> ${fmtMoney(cct.bonificacao)}</div>`
+        : `<div style="margin-top:6px;padding:6px 8px;background:#FFEBEE;border-radius:4px;color:#B71C1C"><strong>Bonificação:</strong> NÃO CONFIGURADA — bonificações ficam R$0</div>`;
+      cctInfo.innerHTML = `
+        <div><strong>Vigência:</strong> ${cct.vigencia ? formatDateBr(cct.vigencia) : '—'}</div>
+        <div><strong>Salário base:</strong> ${cct.salarioBase ? fmtMoney(cct.salarioBase) : '—'}</div>
+        <div><strong>VT/dia:</strong> ${cct.vtDiario ? fmtMoney(cct.vtDiario) : '—'} · <strong>VR/dia:</strong> ${cct.vrDiario ? fmtMoney(cct.vrDiario) : '—'}</div>
+        <div><strong>VA mensal:</strong> ${cct.vaMensal ? fmtMoney(cct.vaMensal) : '—'}</div>
+        ${_bonifLine}
+      `;
+    }
+  }
+  // Card de estatísticas — conta o que está em memória
+  const statsEl = document.getElementById('banco-stats');
+  if(statsEl){
+    const nColab = (State.employees||[]).length;
+    const nPay   = (State.payrolls||[]).length;
+    const nEsc   = (State.escalas||[]).length;
+    const nPostos= (State.postos||[]).length;
+    statsEl.innerHTML = `
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #eee"><span>Colaboradores</span><strong>${nColab}</strong></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #eee"><span>Folhas (lançamentos)</span><strong>${nPay}</strong></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #eee"><span>Escalas salvas</span><strong>${nEsc}</strong></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #eee"><span>Postos de trabalho</span><strong>${nPostos}</strong></div>
+      <div style="margin-top:8px;padding:6px 8px;background:#E3F2FD;border-radius:4px;color:#0D47A1;font-size:11px"><i class="fa-solid fa-circle-info"></i> Fonte: Firebase Firestore</div>
+    `;
+  }
+}
+
+// Força o reload dos dados do Firestore — útil quando o listener falhou (erro
+// 400 / transport errored). Recarrega a página inteira: os listeners do init()
+// montam tudo de novo do zero.
+function recarregarDadosFirestore(){
+  if(!confirm('Recarregar dados do Firebase?\n\nA página vai ser recarregada. Qualquer alteração não salva será perdida.')) return;
+  try { window.location.reload(); }
+  catch(e){ toast('Erro ao recarregar: '+(e.message||e), 'error'); }
 }
 
 function renderContabilidade(){

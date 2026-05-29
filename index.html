@@ -229,6 +229,12 @@
           <span>Contabilidade</span>
         </a>
       </li>
+      <li id="nav-banco-li">
+        <a class="nav-link" id="nav-banco" onclick="showSection('banco')">
+          <i class="fa-solid fa-database"></i>
+          <span>Banco de Dados</span>
+        </a>
+      </li>
       <li id="nav-postos-li">
         <a class="nav-link" id="nav-postos" onclick="showSection('postos')">
           <i class="fa-solid fa-building"></i>
@@ -1104,6 +1110,41 @@
                   <p>Selecione um colaborador para ver o histórico</p>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== BANCO DE DADOS (CCT, Backup, Estatísticas) ===== -->
+      <section id="section-banco" class="section">
+        <div class="page-header">
+          <div>
+            <h2><i class="fa-solid fa-database"></i> Banco de Dados</h2>
+            <p>CCT, backup e estatísticas do sistema</p>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;align-items:start">
+          <div class="card">
+            <div class="card-header"><h3><i class="fa-solid fa-file-contract" style="color:#7C3AED"></i> Convenção Coletiva (CCT)</h3></div>
+            <div class="card-body">
+              <div id="banco-cct-info" style="font-size:13px;color:var(--text-muted);margin-bottom:12px">Carregando...</div>
+              <button class="btn btn-primary" onclick="openCctModal()" style="width:100%"><i class="fa-solid fa-pen-to-square"></i> Editar CCT</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><h3><i class="fa-solid fa-floppy-disk" style="color:#1565C0"></i> Backup</h3></div>
+            <div class="card-body">
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px"><i class="fa-solid fa-circle-info"></i> Backup é um JSON com colaboradores, folhas, usuários e logs.</div>
+              <button class="btn btn-success" onclick="exportDatabase()" style="width:100%;margin-bottom:8px"><i class="fa-solid fa-download"></i> Exportar backup agora</button>
+              <button class="btn btn-outline" onclick="importDatabase()" style="width:100%;margin-bottom:8px"><i class="fa-solid fa-upload"></i> Importar backup</button>
+              <button class="btn btn-outline" onclick="setupAutoBackup()" style="width:100%"><i class="fa-solid fa-clock-rotate-left"></i> Configurar auto-backup</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><h3><i class="fa-solid fa-chart-simple" style="color:#00897B"></i> Estatísticas</h3></div>
+            <div class="card-body">
+              <div id="banco-stats" style="font-size:13px"></div>
+              <button class="btn btn-outline" onclick="recarregarDadosFirestore()" style="width:100%;margin-top:12px;border-color:#1565C0;color:#1565C0"><i class="fa-solid fa-rotate"></i> Recarregar dados do Firebase</button>
             </div>
           </div>
         </div>
@@ -5815,6 +5856,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260529g"></script>
+<script src="app.js?v=20260529h"></script>
 </body>
 </html>

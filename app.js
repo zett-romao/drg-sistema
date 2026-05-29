@@ -14608,8 +14608,11 @@ function _ciclo12x36EhTrabalho(emp, ano, mes, dia){
   if(isNaN(dAnchor.getTime())) return null;
   const dAlvo = new Date(ano, mes-1, dia);
   const diff = Math.round((dAlvo - dAnchor) / 86400000);
-  if(diff < 0) return null;
-  return (diff % 2) === 0;
+  // Âncora = referência de PARIDADE do ciclo (não "1º dia de trabalho"): a
+  // alternância trabalha/folga vale nos DOIS sentidos a partir dela, então a
+  // escala pode ser re-ancorada no meio do contrato. O recorte de "antes da
+  // admissão" é tratado à parte em _getExpectedDay/_diaEmBrancoEhFalta.
+  return ((((diff % 2) + 2) % 2) === 0);
 }
 
 // ─── LOTAÇÃO POR DATA ────────────────────────────────────────────────────────
@@ -18193,8 +18196,16 @@ async function _escala12x36Anchor(cell){
     const tipo = (((dia - anchorDia) % 2) === 0) ? 'trabalho' : 'folga';
     _setEscalaRowTipo(row, tipo, emp, mes, ano);
   });
+  // Re-ancora o ciclo no cadastro (a escala reprojetada vira a referência;
+  // desvinculada do 1º dia de trabalho — pode mudar no meio do contrato).
+  if(emp){
+    const _zpA = n=>String(n).padStart(2,'0');
+    emp.ciclo12x36Inicio = `${ano}-${_zpA(mes)}-${_zpA(anchorDia)}`;
+    emp.updatedAt = new Date().toISOString();
+    try { await DB.save('employees', emp); } catch(e){ console.error('âncora 12x36', e); }
+  }
   await saveEscala(empId, true);
-  toast(`Ciclo 12x36: dia ${String(anchorDia).padStart(2,'0')} definido como trabalho — escala salva.${bloqueados?` ${bloqueados} dia(s) já trabalhado(s)/passado(s) preservado(s).`:''}`, 'success');
+  toast(`Ciclo 12x36 re-ancorado no dia ${String(anchorDia).padStart(2,'0')} (trabalho) — escala e cadastro salvos.${bloqueados?` ${bloqueados} dia(s) já trabalhado(s)/passado(s) preservado(s).`:''}`, 'success');
 }
 
 // ── Ajustar / trocar escala de um colaborador (modal) ──────────────────
@@ -18242,9 +18253,13 @@ async function aplicarAjusteEscala(){
   const fam = escalaFamilia(novaEscala);
   let novoDias;
   if(fam === '12x36'){
-    // Para 12x36, "a partir do dia X" também é a ÂNCORA do ciclo:
-    // o dia X vira dia de trabalho e a alternância flui a partir dele.
+    // Para 12x36, "a partir do dia X" é a ÂNCORA do ciclo: o dia X vira trabalho
+    // e a alternância flui a partir dele (nos dois sentidos). A escala reprojetada
+    // vira a referência → grava a âncora no cadastro (desvinculada do 1º dia de
+    // trabalho; pode mudar no meio do contrato).
     novoDias = _projectEscala12x36(tempEmp, mes, ano, null, diaX);
+    const _zpA = n=>String(n).padStart(2,'0');
+    emp.ciclo12x36Inicio = `${ano}-${_zpA(mes)}-${_zpA(diaX)}`;
   } else {
     novoDias = _projectEscala(tempEmp, mes, ano, _getPrevMonthDias(empId, mes, ano));
   }
@@ -18287,6 +18302,12 @@ async function aplicarAjusteEscala(){
       console.error('Erro ao atualizar cadastro:', e);
       toast('Escala reprojetada, mas FALHOU ao salvar o cadastro: ' + (e.message || e), 'error');
     }
+  } else if(fam === '12x36'){
+    // Mesmo sem "troca definitiva", persiste a ÂNCORA do ciclo no cadastro: a
+    // escala reprojetada na tela é a referência, o cadastro acompanha sozinho.
+    emp.updatedAt = new Date().toISOString();
+    try { await DB.save('employees', emp); }
+    catch(e){ console.error('Erro ao gravar âncora 12x36 no cadastro:', e); }
   }
   await saveEscala(empId, true); // salva direto — a folha passa a usar a escala nova
   closeModal('modal-ajustar-escala');

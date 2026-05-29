@@ -14791,8 +14791,20 @@ function _getExpectedDayComp(emp, compMes, compAno, dia){
 function _detectHEDivergencia(realDay, expectedDay){
   const out = { totalMin:0, motivos:[], precisaRevisao:false };
   if(!realDay || !expectedDay) return out;
-  if(!realDay.entrada || !realDay.saida || !expectedDay.entrada || !expectedDay.saida) return out;
-  if(expectedDay.tipo === 'folga') return out; // dia de folga sem expected — só vira HE se aprovado manualmente
+  if(!realDay.entrada || !realDay.saida) return out; // sem ponto real, nada a detectar
+  // Trabalhou em dia de FOLGA → toda a jornada é hora extra e PRECISA de decisão
+  // do gestor. Aparece na revisão como pendente (e denuncia erro de escala, como
+  // ponto batido num dia que deveria ser folga).
+  if(expectedDay.tipo === 'folga'){
+    const liq = _liqMin(realDay);
+    if(liq > HE_TOLERANCIA_DIA_MIN){
+      out.totalMin = liq;
+      out.motivos.push('Trabalhou em dia de FOLGA — toda a jornada é hora extra');
+      out.precisaRevisao = true;
+    }
+    return out;
+  }
+  if(!expectedDay.entrada || !expectedDay.saida) return out; // dia previsto sem horário
   const ent  = timeToMinutes(realDay.entrada);
   const eEnt = timeToMinutes(expectedDay.entrada);
   // Excesso de ENTRADA (entrou antes do contratual)
@@ -14859,6 +14871,25 @@ function _effectiveMinLiq(realDay, expectedDay, contratosMin){
 // Soma de horas extras (em minutos) de uma lista de pontoManualDias,
 // respeitando o status de revisão (heReview) de cada dia. Fonte única de
 // verdade do total de HE de uma folha baseada em ponto diário.
+// HE (em minutos) de UM dia — fonte única da regra por dia. Respeita a aprovação
+// (heReview) e trata trabalho em dia de FOLGA: nesse caso a jornada INTEIRA é
+// hora extra (não desconta jornada nenhuma, pois o dia era de descanso).
+function _heMinDia(realDay, expectedDay, minContratados){
+  if(!realDay || !realDay.entrada || !realDay.saida) return 0;
+  const realLiq = _liqMin(realDay);
+  const aprovado = (realDay.heReview?.status === 'aprovado');
+  // Folga (ou sem dia previsto) trabalhada → jornada inteira é HE, só se aprovada.
+  if(!expectedDay || expectedDay.tipo === 'folga'){
+    return aprovado ? realLiq : 0;
+  }
+  // Dia de trabalho: HE = excesso sobre a jornada esperada (ou mínimo contratual
+  // se a escala não tiver horário projetado nesse dia). Só conta se aprovada.
+  const baseLiq = (expectedDay.entrada && expectedDay.saida) ? _liqMin(expectedDay) : minContratados;
+  const excesso = realLiq - baseLiq;
+  if(excesso <= 0) return 0;
+  return aprovado ? excesso : 0;
+}
+
 function _heMinFromDias(emp, mes, ano, dias){
   if(!emp || !Array.isArray(dias)) return 0;
   const fam = escalaFamilia(emp.escala||'5x2A');
@@ -14871,14 +14902,7 @@ function _heMinFromDias(emp, mes, ano, dias){
   dias.forEach(d => {
     if(!d || !d.entrada || !d.saida) return;
     const expectedDay = _getExpectedDayComp(emp, mes, ano, d.dia);
-    const effLiq = _effectiveMinLiq(d, expectedDay, minContratados);
-    // Baseline da HE = a jornada esperada DO PRÓPRIO colaborador naquele dia
-    // (horário contratual / escala). HE é o que excede a jornada dele — não
-    // um mínimo fixo da família de escala. Sem dia esperado definido (ex.:
-    // trabalhou numa folga), cai no mínimo contratual da família.
-    const temEsperado = expectedDay && expectedDay.entrada && expectedDay.saida && expectedDay.tipo!=='folga';
-    const baseLiq = temEsperado ? _liqMin(expectedDay) : minContratados;
-    total += Math.max(0, effLiq - baseLiq);
+    total += _heMinDia(d, expectedDay, minContratados);
   });
   return total;
 }
@@ -15194,8 +15218,7 @@ function calcResumoManual(){
       const expectedDay=emp?_getExpectedDay(emp,rmes,rano,dia):null;
       const effLiq=_effectiveMinLiq(realDay,expectedDay,minContratados);
       // Baseline da HE = jornada esperada do próprio colaborador no dia.
-      const _temEsp=expectedDay && expectedDay.entrada && expectedDay.saida && expectedDay.tipo!=='folga';
-      totalHEmin+=Math.max(0,effLiq-(_temEsp?_liqMin(expectedDay):minContratados));
+      totalHEmin += _heMinDia(realDay, expectedDay, minContratados);
       // Atraso automático: déficit do dia (trabalhou menos que o previsto), além da tolerância CLT (10min)
       if(expectedDay && expectedDay.tipo!=='folga' && expectedDay.entrada && expectedDay.saida){
         const faltaDia=_liqMin(expectedDay)-effLiq;
@@ -15815,8 +15838,7 @@ async function applyPontoManual(){
       const effLiq=_effectiveMinLiq(realDay,expectedDay,minContratados);
       // Baseline da HE = jornada esperada do próprio colaborador no dia
       // (horário contratual / escala), não um mínimo fixo da família.
-      const _temEsp=expectedDay && expectedDay.entrada && expectedDay.saida && expectedDay.tipo!=='folga';
-      totalHEmin+=Math.max(0,effLiq-(_temEsp?_liqMin(expectedDay):minContratados));
+      totalHEmin += _heMinDia(realDay, expectedDay, minContratados);
       // Atraso automático: déficit do dia além da tolerância CLT (10min)
       if(expectedDay && expectedDay.tipo!=='folga' && expectedDay.entrada && expectedDay.saida){
         const faltaDia=_liqMin(expectedDay)-effLiq;

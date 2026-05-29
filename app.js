@@ -16086,8 +16086,15 @@ function printFolhaPonto(isPreview=false){
     const intFimDisplay=_intervaloCrossesMidnight(intIni,intFim,entrada,saida)?`${intFim} <span style="color:#FB8C00;font-size:9px">(+1)</span>`:intFim;
     let obsdia='';
     if(!entrada&&!saida){
-      if(isWknd||is12x36) obsdia='Folga';
-      else obsdia='Falta';
+      // Antes da admissão não é falta nem folga (não era colaborador ainda).
+      const _admP = emp.dataAdmissao ? new Date(emp.dataAdmissao+'T00:00:00') : null;
+      if(_admP && !isNaN(_admP.getTime()) && new Date(cd.ano, cd.mes-1, d) < _admP){
+        obsdia='—';
+      } else {
+        // Usa a regra real da escala (admissão/escala-aware) em vez do chute
+        // "fim de semana = folga, resto = falta". Respeita 6x1 alternado/12x36.
+        obsdia = _diaEmBrancoEhFalta(emp, cd.mes, cd.ano, d, isWknd, is12x36) ? 'Falta' : 'Folga';
+      }
     }
     const rowBg=isWknd?'background:#F8F9FA;color:#999':'';
     tabelaDias+=`<tr style="${rowBg}">
@@ -16342,8 +16349,15 @@ function _buildFolhaHtmlFromRecord(emp, p){
     const intFimDisplay=_intervaloCrossesMidnight(intIni,intFim,entrada,saida)?`${intFim} <span style="color:#FB8C00;font-size:9px">(+1)</span>`:intFim;
     let obsdia='';
     if(!entrada&&!saida){
-      if(isWknd||is12x36) obsdia='Folga';
-      else obsdia='Falta';
+      // Antes da admissão não é falta nem folga (não era colaborador ainda).
+      const _admP = emp.dataAdmissao ? new Date(emp.dataAdmissao+'T00:00:00') : null;
+      if(_admP && !isNaN(_admP.getTime()) && new Date(cd.ano, cd.mes-1, d) < _admP){
+        obsdia='—';
+      } else {
+        // Usa a regra real da escala (admissão/escala-aware) em vez do chute
+        // "fim de semana = folga, resto = falta". Respeita 6x1 alternado/12x36.
+        obsdia = _diaEmBrancoEhFalta(emp, cd.mes, cd.ano, d, isWknd, is12x36) ? 'Falta' : 'Folga';
+      }
     }
     const rowBg=isWknd?'background:#F8F9FA;color:#999':'';
     tabelaDias+=`<tr style="${rowBg}">

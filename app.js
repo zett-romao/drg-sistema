@@ -6127,7 +6127,7 @@ function _diasPrevistosEscala(emp, mes, ano){
   if(!emp) return 0;
   let n = 0;
   for(const d of _compDias(mes, ano)){
-    const exp = _getExpectedDay(emp, d.mes, d.ano, d.dia);
+    const exp = _getExpectedDay(emp, d.mes, d.ano, d.dia, true); // mês cheio (proporcional)
     if(exp && exp.tipo!=='folga' && exp.entrada) n++;
   }
   return n;
@@ -6140,7 +6140,7 @@ function _diasPrevistosComVR(emp, mes, ano){
   if(!emp) return 0;
   let n = 0;
   for(const d of _compDias(mes, ano)){
-    const exp = _getExpectedDay(emp, d.mes, d.ano, d.dia);
+    const exp = _getExpectedDay(emp, d.mes, d.ano, d.dia, true); // mês cheio (proporcional)
     if(exp && exp.tipo!=='folga' && exp.entrada && _liqMin(exp) > 360) n++;
   }
   return n;
@@ -14694,15 +14694,17 @@ function _segmentosLotacao(emp, mes, ano, pontoDias, atestDias){
   return arr;
 }
 
-function _getExpectedDay(emp, mes, ano, dia){
+function _getExpectedDay(emp, mes, ano, dia, ignoreAdmissao){
   if(!emp) return null;
   // Antes da admissão não havia jornada esperada (não era colaborador ainda) —
-  // evita falta / HE / remuneração-proporcional fantasma em quem foi admitido no
-  // meio do período (ex.: admitido 06/05 com competência começando em 26/04).
-  if(emp.dataAdmissao){
+  // evita falta/HE fantasma em quem foi admitido no meio do período. Marca
+  // `preAdmissao` para a HE distinguir disso de uma FOLGA real. `ignoreAdmissao`
+  // (usado na base de dias previstos do salário) pula o recorte, pois a
+  // remuneração é proporcional ao MÊS CHEIO — quem entrou no meio recebe a fração.
+  if(!ignoreAdmissao && emp.dataAdmissao){
     const _adm = new Date(emp.dataAdmissao+'T00:00:00');
     if(!isNaN(_adm.getTime()) && new Date(ano, mes-1, dia) < _adm){
-      return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
+      return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'', preAdmissao:true };
     }
   }
   // 0) Override de dia avulso (emp.overridesHorario) — prioridade máxima.
@@ -14794,6 +14796,7 @@ function _detectHEDivergencia(realDay, expectedDay){
   const out = { totalMin:0, motivos:[], precisaRevisao:false };
   if(!realDay || !expectedDay) return out;
   if(!realDay.entrada || !realDay.saida) return out; // sem ponto real, nada a detectar
+  if(expectedDay.preAdmissao) return out; // dia anterior à admissão: não é HE (não era colaborador)
   // Trabalhou em dia de FOLGA → toda a jornada é hora extra e PRECISA de decisão
   // do gestor. Aparece na revisão como pendente (e denuncia erro de escala, como
   // ponto batido num dia que deveria ser folga).
@@ -14878,6 +14881,7 @@ function _effectiveMinLiq(realDay, expectedDay, contratosMin){
 // hora extra (não desconta jornada nenhuma, pois o dia era de descanso).
 function _heMinDia(realDay, expectedDay, minContratados){
   if(!realDay || !realDay.entrada || !realDay.saida) return 0;
+  if(expectedDay?.preAdmissao) return 0; // antes da admissão não gera HE
   const realLiq = _liqMin(realDay);
   const aprovado = (realDay.heReview?.status === 'aprovado');
   // Folga (ou sem dia previsto) trabalhada → jornada inteira é HE, só se aprovada.
@@ -15948,7 +15952,16 @@ function printPreviewParcial(){
 // o ponto registrado, o excesso detectado e o motivo do não pagamento
 // conforme lançado na revisão. Retorna '' se não houver dias recusados.
 function _heRecusadasHtml(emp, mes, ano, dias){
-  const recusados = (dias||[]).filter(d => d && d.heReview && d.heReview.status === 'recusado');
+  // Só lista dias que AINDA são divergência real (recusado + precisaRevisao agora).
+  // Evita "HE não autorizada" fantasma de recusa antiga cuja escala já foi corrigida
+  // (ou de dia anterior à admissão, que não gera HE).
+  const recusados = (dias||[]).filter(d => {
+    if(!d || !d.heReview || d.heReview.status !== 'recusado') return false;
+    const rd = _compRealDate(mes, ano, d.dia);
+    const exp = _getExpectedDay(emp, rd.mes, rd.ano, rd.dia);
+    const det = exp ? _detectHEDivergencia(d, exp) : null;
+    return !!(det && det.precisaRevisao);
+  });
   if(!recusados.length) return '';
   const sem = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
   let rows = '';

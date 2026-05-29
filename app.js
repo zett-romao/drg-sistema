@@ -4538,6 +4538,22 @@ function calcAdNoturno(salarioBase, dias){
   return (salarioBase/220)*0.20*7*dias;
 }
 
+// Conta os dias TRABALHADOS da competência cuja LOTAÇÃO vigente era noturna
+// (turno noturno + escala 12x36). Base do adicional noturno por período — paga
+// só os dias em que o colaborador era noturno (ex.: noturno→diurno no meio do mês).
+function _diasNoturnosTrabalhados(emp, mes, ano, pontoDias){
+  if(!emp || !Array.isArray(pontoDias)) return 0;
+  let n=0;
+  for(const d of pontoDias){
+    if(!d || !d.entrada || !d.saida) continue;        // só dias efetivamente trabalhados
+    const rd=_compRealDate(mes, ano, d.dia);
+    const iso=`${rd.ano}-${String(rd.mes).padStart(2,'0')}-${String(rd.dia).padStart(2,'0')}`;
+    const lot=_lotacaoEm(emp, iso);
+    if(lot.turnoNoturno && escalaFamilia(lot.escala||'5x2A')==='12x36') n++;
+  }
+  return n;
+}
+
 // Converte "HH:MM" em minutos totais
 function timeToMinutes(t){
   if(!t) return null;
@@ -6300,20 +6316,26 @@ function recalculate(){
 
   // --- Adicional Noturno (20% sobre hora, hora noturna = 52min30s) ---
   // Isento (cargo de confiança) não recebe adicional noturno (Art. 62 CLT).
+  // POR PERÍODO: conta só os dias trabalhados cuja lotação vigente era noturna
+  // (ex.: colaboradora noturno→diurno no meio do mês recebe só os dias noturnos).
   if(emp && !isentoPonto){
-    const escala=emp.escala||'5x2A';
-    const noturno=emp.turnoNoturno&&escalaFamilia(escala)==='12x36';
+    const _empIdN=val('payroll-employee');
+    const _mesN=parseInt(val('payroll-mes')||currentMes());
+    const _anoN=parseInt(val('payroll-ano')||currentAno());
+    const _cardsN=_getPontoManualCards();
+    const _regN=State.payrolls.find(p=>p.employeeId===_empIdN&&p.mes==_mesN&&p.ano==_anoN);
+    const _pontoN=_cardsN.length ? _collectPontoManualDias()
+                : (_regN&&Array.isArray(_regN.pontoManualDias) ? _regN.pontoManualDias : []);
+    const diasNot=_diasNoturnosTrabalhados(emp, _mesN, _anoN, _pontoN);
+    // Card visível se é/foi noturno em algum momento (atual ou no período).
+    const ehNoturnoAtual=emp.turnoNoturno&&escalaFamilia(emp.escala||'5x2A')==='12x36';
     const noturnoCard=document.getElementById('noturno-card');
-    if(noturnoCard) noturnoCard.classList.toggle('hidden',!noturno);
-    if(noturno&&emp.salarioBase&&dias>0){
-      // Hora noturna reduzida = 52min30s = 52.5min. Em 12h, horas noturnas variam.
-      // Cálculo padrão: (salário/220) * 20% * 7h noturnas médias * dias plantão
-      const adN=calcAdNoturno(emp.salarioBase,dias);
-      setVal('payroll-noturno',adN.toFixed(2));
+    if(noturnoCard) noturnoCard.classList.toggle('hidden', !(diasNot>0||ehNoturnoAtual));
+    if(diasNot>0&&emp.salarioBase){
+      // (salário/220) * 20% * 7h noturnas médias * dias noturnos efetivos
+      setVal('payroll-noturno',calcAdNoturno(emp.salarioBase,diasNot).toFixed(2));
     } else {
-      // Não é noturno (ou 0 dias): zera o campo. Sem isso, um adicional antigo —
-      // de quando a escala/turno era noturno — ficava grudado e somava no total
-      // mesmo com o card escondido (adicional noturno fantasma).
+      // Sem dias noturnos: zera (evita adicional fantasma de quando era noturno).
       setVal('payroll-noturno','');
     }
   } else if(isentoPonto){
@@ -14568,6 +14590,41 @@ function _ciclo12x36EhTrabalho(emp, ano, mes, dia){
   return (diff % 2) === 0;
 }
 
+// ─── LOTAÇÃO POR DATA ────────────────────────────────────────────────────────
+// Um colaborador pode mudar de posto/turno/escala/horário/função/salário/
+// insalubridade/acúmulo numa data (emp.historicoLotacao[]). _lotacaoEm devolve o
+// snapshot do contrato vigente NA DATA; sem histórico cobrindo a data, cai no
+// estado atual (emp.*) — então quem nunca foi transferido calcula como antes.
+function _lotacaoSnapshot(src, emp){
+  const s = src || {};
+  const txt = (k,d)=> (s[k]!==undefined && s[k]!==null && s[k]!=='') ? s[k] : d;
+  const bool= (k,d)=> (s[k]!==undefined && s[k]!==null) ? !!s[k] : !!d;
+  const num = (k,d)=> (s[k]!==undefined && s[k]!==null && s[k]!=='') ? s[k] : d;
+  return {
+    posto:          txt('posto', emp.posto||''),
+    turnoNoturno:   bool('turnoNoturno', emp.turnoNoturno),
+    escala:         txt('escala', emp.escala||'5x2A'),
+    horarioEntrada: txt('horarioEntrada', emp.horarioEntrada||''),
+    horarioSaida:   txt('horarioSaida', emp.horarioSaida||''),
+    horarioRefIni:  txt('horarioRefIni', emp.horarioRefIni||''),
+    horarioRefFim:  txt('horarioRefFim', emp.horarioRefFim||''),
+    semRefeicao:    bool('semRefeicao', emp.semRefeicao),
+    cargo:          txt('cargo', emp.cargo||''),
+    salarioBase:    num('salarioBase', emp.salarioBase||0),
+    insalubridade:  num('insalubridade', emp.insalubridade||0),
+    acumuloFuncao:  bool('acumuloFuncao', emp.acumuloFuncao)
+  };
+}
+function _lotacaoEm(emp, dataISO){
+  if(!emp) return null;
+  const hist=(emp.historicoLotacao||[]).filter(h=>h&&h.dataInicio)
+    .sort((a,b)=>a.dataInicio.localeCompare(b.dataInicio));
+  if(!hist.length || !dataISO) return _lotacaoSnapshot(emp, emp);
+  let vig=null;
+  for(const h of hist){ if(h.dataInicio<=dataISO) vig=h; else break; }
+  return _lotacaoSnapshot(vig||hist[0], emp);
+}
+
 function _getExpectedDay(emp, mes, ano, dia){
   if(!emp) return null;
   // Antes da admissão não havia jornada esperada (não era colaborador ainda) —
@@ -14583,6 +14640,9 @@ function _getExpectedDay(emp, mes, ano, dia){
   //    O usuário disse explicitamente "este dia é diferente" — vence até a
   //    escala salva (que pode ter sido projetada antes do override existir).
   const ymd = `${ano}-${String(mes).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
+  // Lotação vigente na data (posto/turno/escala/horário/semRefeição) — faz o dia
+  // ser calculado com as regras do período em que ele cai (transferências).
+  const lot = _lotacaoEm(emp, ymd);
   const ov  = (emp.overridesHorario||[]).find(o => o.data === ymd);
   if(ov){
     if(ov.tipo === 'folga') return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
@@ -14590,8 +14650,8 @@ function _getExpectedDay(emp, mes, ano, dia){
       tipo:    'trabalho',
       entrada: ov.horarioEntrada || '',
       saida:   ov.horarioSaida   || '',
-      intIni:  emp.semRefeicao ? '' : (ov.horarioRefIni || ''),
-      intFim:  emp.semRefeicao ? '' : (ov.horarioRefFim || '')
+      intIni:  lot.semRefeicao ? '' : (ov.horarioRefIni || ''),
+      intFim:  lot.semRefeicao ? '' : (ov.horarioRefFim || '')
     };
   }
   // 1) Tenta escala salva
@@ -14601,43 +14661,43 @@ function _getExpectedDay(emp, mes, ano, dia){
     if(d){
       const tipo = d.tipo || 'trabalho';
       const trabalhaNoDia = tipo !== 'folga';
-      const temRefeicao   = tipo === 'trabalho' && !emp.semRefeicao;
+      const temRefeicao   = tipo === 'trabalho' && !lot.semRefeicao;
       // Dia de trabalho na escala mas sem horários preenchidos → usa o
-      // horário contratual do cadastro como referência. Sem isso, o dia
+      // horário contratual da LOTAÇÃO vigente como referência. Sem isso, o dia
       // fica sem "esperado" e a HE do excesso conta sem passar pela revisão.
       return {
         tipo,
-        entrada: d.entrada || (trabalhaNoDia ? (emp.horarioEntrada||'') : ''),
-        saida:   d.saida   || (trabalhaNoDia ? (emp.horarioSaida||'')   : ''),
-        intIni:  d.intIni  || (temRefeicao ? (emp.horarioRefIni||'12:00') : ''),
-        intFim:  d.intFim  || (temRefeicao ? (emp.horarioRefFim||'13:00') : '')
+        entrada: d.entrada || (trabalhaNoDia ? (lot.horarioEntrada||'') : ''),
+        saida:   d.saida   || (trabalhaNoDia ? (lot.horarioSaida||'')   : ''),
+        intIni:  d.intIni  || (temRefeicao ? (lot.horarioRefIni||'12:00') : ''),
+        intFim:  d.intFim  || (temRefeicao ? (lot.horarioRefFim||'13:00') : '')
       };
     }
   }
-  // 1b) Modelo de escala customizado
-  const _mod=_escalaModelo(emp.escala);
+  // 1b) Modelo de escala customizado (escala vigente na data)
+  const _mod=_escalaModelo(lot.escala);
   if(_mod){
     const md=_modeloDiaTemplate(_mod, new Date(ano, mes-1, dia));
     return { tipo:md.tipo||'folga', entrada:md.entrada||'', saida:md.saida||'', intIni:md.intIni||'', intFim:md.intFim||'' };
   }
-  // 2) Fallback: horários contratuais do cadastro (assume trabalho em dia útil)
+  // 2) Fallback: horários contratuais da lotação vigente (assume trabalho em dia útil)
   const diaSem = new Date(ano, mes-1, dia).getDay();
   const isWknd = diaSem===0 || diaSem===6;
-  const fam = escalaFamilia(emp.escala||'5x2A');
+  const fam = escalaFamilia(lot.escala||'5x2A');
   // 12x36 sem escala salva → projeta pela âncora do ciclo informada no cadastro
   if(fam==='12x36'){
     const ehTrab = _ciclo12x36EhTrabalho(emp, ano, mes, dia);
     if(ehTrab === false) return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
     if(ehTrab === true){
-      const h = _escalaHorariosDia(emp, diaSem);
+      const h = _escalaHorariosDia(emp, diaSem, lot);
       return { tipo:'trabalho', entrada:h.entrada, saida:h.saida, intIni:h.intIni, intFim:h.intFim };
     }
     // sem âncora definida → cai no retorno genérico abaixo
   }
   // 6x1 Alternado: folga sáb↔dom alternando — projeta sob demanda
-  if(emp.escala && emp.escala.startsWith('6x1ALT')){
+  if(lot.escala && lot.escala.startsWith('6x1ALT')){
     if(_6x1ALTEhFolga(emp, ano, mes, dia)) return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
-    const h = _escalaHorariosDia(emp, diaSem);
+    const h = _escalaHorariosDia(emp, diaSem, lot);
     return { tipo:'trabalho', entrada:h.entrada, saida:h.saida, intIni:h.intIni, intFim:h.intFim };
   }
   // Para 5x2 e fins de semana, sem horário esperado (é folga)
@@ -14645,10 +14705,10 @@ function _getExpectedDay(emp, mes, ano, dia){
   if(fam==='6x1' && diaSem===0) return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
   return {
     tipo:'trabalho',
-    entrada: emp.horarioEntrada || '',
-    saida:   emp.horarioSaida   || '',
-    intIni:  emp.semRefeicao ? '' : (emp.horarioRefIni || '12:00'),
-    intFim:  emp.semRefeicao ? '' : (emp.horarioRefFim || '13:00')
+    entrada: lot.horarioEntrada || '',
+    saida:   lot.horarioSaida   || '',
+    intIni:  lot.semRefeicao ? '' : (lot.horarioRefIni || '12:00'),
+    intFim:  lot.semRefeicao ? '' : (lot.horarioRefFim || '13:00')
   };
 }
 
@@ -16830,7 +16890,63 @@ async function savePosto(){
 
 // ---- Histórico de Postos ----
 
+// Timeline de lotação (posto/turno/escala/função/salário por vigência) — pra
+// conferência. Cada período aplica suas regras no cálculo da folha por data.
+function renderHistoricoLotacao(emp){
+  const el=document.getElementById('historico-lotacao-list'); if(!el) return;
+  const hist=(emp?.historicoLotacao||[]).slice().sort((a,b)=>(b.dataInicio||'').localeCompare(a.dataInicio||''));
+  if(!hist.length){ el.innerHTML=''; return; }
+  el.innerHTML=`<div style="font-size:12px;color:var(--text-muted);margin:0 0 4px"><i class="fa-solid fa-timeline"></i> Linha do tempo de lotação (aplicada no cálculo por data):</div>
+    <table class="report-table" style="font-size:12px;margin-bottom:10px">
+      <thead><tr>
+        <th style="background:#5C6BC0">A partir de</th>
+        <th style="background:#5C6BC0">Posto</th>
+        <th style="background:#5C6BC0">Função</th>
+        <th style="background:#5C6BC0">Escala</th>
+        <th style="background:#5C6BC0">Turno</th>
+        <th style="background:#5C6BC0">Salário</th>
+        <th style="background:#5C6BC0"></th>
+      </tr></thead>
+      <tbody>
+      ${hist.map(h=>`<tr>
+        <td><strong>${formatDateBr(h.dataInicio)}</strong></td>
+        <td>${h.posto||'—'}</td>
+        <td>${h.cargo||'—'}</td>
+        <td>${h.escala||'—'}</td>
+        <td>${h.turnoNoturno?'<span style="color:#5C6BC0;font-weight:600">Noturno</span>':'Diurno'}</td>
+        <td>${fmtMoney(h.salarioBase||0)}</td>
+        <td><button class="btn-icon btn-danger-icon" title="Remover este período"
+          onclick="removeHistoricoLotacao('${h.id}')"><i class="fa-solid fa-trash"></i></button></td>
+      </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+async function removeHistoricoLotacao(id){
+  const empId=State.editingEmployeeId;
+  const emp=State.employees.find(e=>e.id===empId); if(!emp) return;
+  if(!confirm('Remover este período de lotação? O cálculo dos dias afetados volta a usar o período anterior.')) return;
+  let lotHist=(emp.historicoLotacao||[]).filter(h=>h.id!==id).sort((a,b)=>a.dataInicio.localeCompare(b.dataInicio));
+  const ultimo=lotHist[lotHist.length-1];
+  const updated={ ...emp, historicoLotacao:lotHist, updatedAt:new Date().toISOString() };
+  if(ultimo){ Object.assign(updated, {
+    posto:ultimo.posto, turnoNoturno:ultimo.turnoNoturno, escala:ultimo.escala,
+    horarioEntrada:ultimo.horarioEntrada, horarioSaida:ultimo.horarioSaida,
+    horarioRefIni:ultimo.horarioRefIni, horarioRefFim:ultimo.horarioRefFim,
+    cargo:ultimo.cargo, salarioBase:ultimo.salarioBase,
+    insalubridade:ultimo.insalubridade, acumuloFuncao:ultimo.acumuloFuncao
+  }); }
+  try{
+    await DB.save('employees', _sanitizeForFirestore(updated));
+    Object.assign(emp, updated);
+    renderHistoricoLotacao(updated);
+    if(val('payroll-employee')===empId){ try{ onPayrollEmployeeChange(); }catch(_){} }
+    toast('Período de lotação removido.','success');
+  }catch(e){ console.error('removeHistoricoLotacao',e); toast('Erro ao remover.','error'); }
+}
+
 function renderHistoricoPostos(emp){
+  renderHistoricoLotacao(emp);
   const el=document.getElementById('historico-postos-list'); if(!el) return;
   const hist=(emp?.historicoPostos||[]).slice().sort((a,b)=>new Date(b.dataInicio)-new Date(a.dataInicio));
   if(hist.length===0){
@@ -16863,73 +16979,138 @@ function renderHistoricoPostos(emp){
   </div>`;
 }
 
+// ISO menos N dias.
+function _isoMinusDays(iso, n){
+  const d=new Date(iso+'T12:00:00'); d.setDate(d.getDate()-n);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+// Remove as escalas SALVAS do colaborador a partir do mês da vigência (inclusive),
+// para que _getExpectedDay reprojete por lotação (split por data) nesses meses.
+async function _limparEscalasSalvasDesde(empId, vigISO){
+  const [vy,vm]=vigISO.split('-').map(Number);
+  const afetadas=(State.escalas||[]).filter(es=>es.employeeId===empId && (es.ano>vy || (es.ano===vy && es.mes>=vm)));
+  for(const es of afetadas){ try{ await DB.remove('escalas', es.id); }catch(_){} }
+  if(afetadas.length) State.escalas=(State.escalas||[]).filter(es=>!afetadas.includes(es));
+}
+
 function openTransferenciaModal(){
   const empId=State.editingEmployeeId;
   const emp=State.employees.find(e=>e.id===empId);
-  if(!empId||!emp){ toast('Salve o colaborador antes de registrar transferências.','warning'); return; }
-
-  // Preencher info do posto atual
-  const postoAtual=emp.posto||'Nenhum posto definido';
-  document.getElementById('transferencia-posto-atual-texto').textContent=`Posto atual: ${postoAtual}`;
-
-  // Preencher select de novo posto (excluindo o atual)
+  if(!empId||!emp){ toast('Salve o colaborador antes de registrar mudanças de lotação.','warning'); return; }
+  const hojeISO=new Date().toISOString().slice(0,10);
+  const lot=_lotacaoEm(emp, hojeISO);
+  document.getElementById('transferencia-posto-atual-texto').textContent =
+    `Lotação atual: ${lot.posto||'—'} · ${lot.cargo||emp.setor||'—'} · ${lot.escala||'—'}${lot.turnoNoturno?' (noturno)':''} · ${fmtMoney(lot.salarioBase||0)}`;
+  // Novo posto (todos; "" = manter o atual)
   const sel=document.getElementById('transf-novo-posto');
-  sel.innerHTML='<option value="">— Selecione o novo posto —</option>';
-  State.postos.sort((a,b)=>(a.razaoSocial||'').localeCompare(b.razaoSocial||'')).forEach(p=>{
-    if(p.razaoSocial===postoAtual) return; // não mostra o atual
+  sel.innerHTML='<option value="">— Manter posto atual —</option>';
+  State.postos.slice().sort((a,b)=>(a.razaoSocial||'').localeCompare(b.razaoSocial||'')).forEach(p=>{
     const opt=document.createElement('option');
     opt.value=p.razaoSocial;
     opt.textContent=p.razaoSocial+(p.cidade?' — '+p.cidade:'');
     sel.appendChild(opt);
   });
-
-  // Data padrão = hoje
-  const hoje=new Date().toISOString().slice(0,10);
-  setVal('transf-data-saida',hoje);
-  setVal('transf-data-entrada',hoje);
+  // Escala — clona as opções do cadastro (inclui as personalizadas)
+  const escSel=document.getElementById('transf-escala'), empEsc=document.getElementById('emp-escala');
+  if(escSel && empEsc) escSel.innerHTML=empEsc.innerHTML;
+  if(escSel) escSel.value=emp.escala||'5x2A';
+  // Pré-preenche com a lotação atual (muda só o que trocou)
+  setVal('transf-data-entrada',hojeISO);
+  setVal('transf-cargo',emp.cargo||'');
+  setVal('transf-salario',emp.salarioBase||'');
+  const tn=document.getElementById('transf-turno-noturno'); if(tn) tn.checked=!!emp.turnoNoturno;
+  setVal('transf-h-entrada',emp.horarioEntrada||'');
+  setVal('transf-h-saida',emp.horarioSaida||'');
+  setVal('transf-h-ref-ini',emp.horarioRefIni||'');
+  setVal('transf-h-ref-fim',emp.horarioRefFim||'');
+  setVal('transf-insalubridade',String(emp.insalubridade||0));
+  const ac=document.getElementById('transf-acumulo'); if(ac) ac.checked=!!emp.acumuloFuncao;
   setVal('transf-obs','');
-
   document.getElementById('modal-transferencia').classList.remove('hidden');
 }
 
 async function saveTransferencia(){
   const empId=State.editingEmployeeId;
   const emp=State.employees.find(e=>e.id===empId); if(!emp) return;
-
-  const novoPosto=val('transf-novo-posto');
-  const dataSaida=val('transf-data-saida');
-  const dataEntrada=val('transf-data-entrada');
+  const vig=val('transf-data-entrada');
+  if(!vig){ toast('Informe a data de vigência (a partir de quando vale).','error'); return; }
+  const novoPosto=val('transf-novo-posto')||emp.posto||'';
   const obs=val('transf-obs').trim();
+  const snapNovo={
+    id:genId(), dataInicio:vig,
+    posto:novoPosto,
+    turnoNoturno:!!(document.getElementById('transf-turno-noturno')||{}).checked,
+    escala:val('transf-escala')||emp.escala||'5x2A',
+    horarioEntrada:val('transf-h-entrada')||'',
+    horarioSaida:val('transf-h-saida')||'',
+    horarioRefIni:val('transf-h-ref-ini')||'',
+    horarioRefFim:val('transf-h-ref-fim')||'',
+    semRefeicao:!!emp.semRefeicao,
+    cargo:val('transf-cargo')||'',
+    salarioBase:parseFloat(val('transf-salario'))||emp.salarioBase||0,
+    insalubridade:parseInt(val('transf-insalubridade'))||0,
+    acumuloFuncao:!!(document.getElementById('transf-acumulo')||{}).checked,
+    obs
+  };
+  // historicoLotacao — semeia o estado atual como 1º período (admissão) se vazio
+  let lotHist=[...(emp.historicoLotacao||[])];
+  if(!lotHist.length){
+    lotHist.push({
+      id:genId(), dataInicio:(emp.dataAdmissao||vig),
+      posto:emp.posto||'', turnoNoturno:!!emp.turnoNoturno, escala:emp.escala||'5x2A',
+      horarioEntrada:emp.horarioEntrada||'', horarioSaida:emp.horarioSaida||'',
+      horarioRefIni:emp.horarioRefIni||'', horarioRefFim:emp.horarioRefFim||'',
+      semRefeicao:!!emp.semRefeicao, cargo:emp.cargo||'', salarioBase:emp.salarioBase||0,
+      insalubridade:emp.insalubridade||0, acumuloFuncao:!!emp.acumuloFuncao,
+      obs:'Lotação inicial (admissão)'
+    });
+  }
+  lotHist=lotHist.filter(h=>h.dataInicio!==vig);   // re-edição da mesma data substitui
+  lotHist.push(snapNovo);
+  lotHist.sort((a,b)=>a.dataInicio.localeCompare(b.dataInicio));
+  const ultimo=lotHist[lotHist.length-1];          // estado "atual" = último período
 
-  if(!novoPosto){ toast('Selecione o novo posto.','error'); return; }
-  if(!dataSaida){ toast('Informe a data de saída do posto atual.','error'); return; }
-  if(!dataEntrada){ toast('Informe a data de entrada no novo posto.','error'); return; }
-
-  const hist=[...(emp.historicoPostos||[])];
-
-  // Fechar o posto atual (marcar dataFim no último sem dataFim)
-  const postoAtualNome=emp.posto;
-  if(postoAtualNome){
-    const aberto=hist.find(h=>!h.dataFim && h.postoNome===postoAtualNome);
-    if(aberto) aberto.dataFim=dataSaida;
-    else hist.push({ id:genId(), postoNome:postoAtualNome, dataInicio:emp.dataAdmissao||dataEntrada, dataFim:dataSaida, obs:'' });
+  // historicoPostos (log existente) — fecha o atual e abre o novo se o posto mudou
+  let postoHist=[...(emp.historicoPostos||[])];
+  if(novoPosto && novoPosto!==emp.posto){
+    const diaAntes=_isoMinusDays(vig,1);
+    const aberto=postoHist.find(h=>!h.dataFim && h.postoNome===emp.posto);
+    if(aberto) aberto.dataFim=diaAntes;
+    else if(emp.posto) postoHist.push({id:genId(),postoNome:emp.posto,dataInicio:emp.dataAdmissao||vig,dataFim:diaAntes,obs:''});
+    postoHist.push({id:genId(),postoNome:novoPosto,dataInicio:vig,dataFim:null,obs});
   }
 
-  // Adicionar novo posto
-  hist.push({ id:genId(), postoNome:novoPosto, dataInicio:dataEntrada, dataFim:null, obs });
-
-  // Atualizar colaborador
-  const updated={ ...emp, posto:novoPosto, historicoPostos:hist, updatedAt:new Date().toISOString() };
-  try {
-    await DB.save('employees', updated);
-    // Atualizar o select de posto no formulário
+  const updated={ ...emp,
+    historicoLotacao:lotHist, historicoPostos:postoHist,
+    // espelha os campos do ÚLTIMO período no estado atual do colaborador
+    posto:ultimo.posto, turnoNoturno:ultimo.turnoNoturno, escala:ultimo.escala,
+    horarioEntrada:ultimo.horarioEntrada, horarioSaida:ultimo.horarioSaida,
+    horarioRefIni:ultimo.horarioRefIni, horarioRefFim:ultimo.horarioRefFim,
+    cargo:ultimo.cargo, salarioBase:ultimo.salarioBase,
+    insalubridade:ultimo.insalubridade, acumuloFuncao:ultimo.acumuloFuncao,
+    updatedAt:new Date().toISOString()
+  };
+  try{
+    await DB.save('employees', _sanitizeForFirestore(updated));
+    Object.assign(emp, updated);
+    await _limparEscalasSalvasDesde(empId, vig);   // reprojeta por lotação nos meses afetados
+    // Reflete no formulário do cadastro aberto
     populatePostoSelect();
-    const sel=document.getElementById('emp-posto');
-    if(sel) sel.value=novoPosto;
+    const selP=document.getElementById('emp-posto'); if(selP) selP.value=updated.posto;
+    setVal('emp-cargo',updated.cargo||'');
+    setVal('emp-escala',updated.escala||'5x2A');
+    setVal('emp-salario-base',updated.salarioBase||'');
+    const tnE=document.getElementById('emp-turno-noturno'); if(tnE) tnE.checked=!!updated.turnoNoturno;
+    const acE=document.getElementById('emp-acumulo-funcao'); if(acE) acE.checked=!!updated.acumuloFuncao;
+    setVal('emp-insalubridade',String(updated.insalubridade||0));
+    setVal('emp-horario-entrada',updated.horarioEntrada||'');
+    setVal('emp-horario-saida',updated.horarioSaida||'');
     renderHistoricoPostos(updated);
     closeModal('modal-transferencia');
-    toast('Transferência registrada com sucesso!');
-  } catch(e){ toast('Erro ao registrar transferência.','error'); }
+    try{ Auth.log('LOTACAO_MUDANCA', null, `${emp.nome} → ${updated.posto} · ${updated.escala}${updated.turnoNoturno?' noturno':''} · vig ${vig}`); }catch(_){}
+    toast('Mudança de lotação registrada. Reabra/recalcule as folhas dos meses afetados pra atualizar os valores.','success');
+    if(val('payroll-employee')===empId){ try{ onPayrollEmployeeChange(); }catch(_){} }
+  }catch(e){ console.error('saveTransferencia',e); toast('Erro ao registrar a mudança de lotação.','error'); }
 }
 
 async function removeHistoricoPosto(index){
@@ -16985,8 +17166,10 @@ const ESCALA_HORARIOS_DEFAULT = {
 };
 
 // Retorna horários default para um colaborador num dia da semana específico
-function _escalaHorariosDia(emp, diaSem){
-  const escala = emp.escala || '5x2A';
+function _escalaHorariosDia(emp, diaSem, lot){
+  // L = lotação vigente na data (quando passada) ou o estado atual do colaborador.
+  const L = lot || emp;
+  const escala = L.escala || '5x2A';
   const _mod=_escalaModelo(escala);
   if(_mod){
     const md = _mod.tipo==='ciclo'
@@ -16994,21 +17177,21 @@ function _escalaHorariosDia(emp, diaSem){
       : (_mod.dias[diaSem]||{});
     return { entrada:md.entrada||'', intIni:md.intIni||'', intFim:md.intFim||'', saida:md.saida||'' };
   }
-  const noturno = !!emp.turnoNoturno || _escala12x36Noturna(escala);
+  const noturno = !!L.turnoNoturno || _escala12x36Noturna(escala);
   const def = ESCALA_HORARIOS_DEFAULT[escala] || ESCALA_HORARIOS_DEFAULT['5x2A'];
   // Escalas do sistema com horário fixo IGNORAM o horário do cadastro — a escala
   // define a jornada. As demais usam o horário do colaborador.
   const escalaFixa = _escalaFixa(escala);
-  let entrada = escalaFixa ? def.entrada : (emp.horarioEntrada || def.entrada);
-  let saida   = escalaFixa ? def.saida   : (emp.horarioSaida   || def.saida);
+  let entrada = escalaFixa ? def.entrada : (L.horarioEntrada || def.entrada);
+  let saida   = escalaFixa ? def.saida   : (L.horarioSaida   || def.saida);
   // Refeição: respeita flag "semRefeicao" e diferencia noturno/diurno no default
   let intIni, intFim;
-  if(emp.semRefeicao){
+  if(L.semRefeicao){
     intIni = ''; intFim = '';
-  } else if(emp.horarioRefIni && emp.horarioRefFim){
-    // Cadastro do colaborador tem refeição definida — usa a dele
-    intIni = emp.horarioRefIni;
-    intFim = emp.horarioRefFim;
+  } else if(L.horarioRefIni && L.horarioRefFim){
+    // Cadastro/lotação do colaborador tem refeição definida — usa a dele
+    intIni = L.horarioRefIni;
+    intFim = L.horarioRefFim;
   } else if(escalaFixa){
     // Escala do sistema com horário fixo: a refeição também é cravada pela
     // escala (def.intIni/intFim). As 12x36 não têm refeição (plantão); a 6x1
@@ -17023,7 +17206,7 @@ function _escalaHorariosDia(emp, diaSem){
     }
   }
   // Para 12x36 noturno, se não tem horário cadastrado, ajusta default
-  if(escala==='12x36' && noturno && !emp.horarioEntrada){
+  if(escala==='12x36' && noturno && !L.horarioEntrada){
     entrada = '19:00'; saida = '07:00';
   }
   // Variantes com horário diferenciado em sex/sáb — faz parte da DEFINIÇÃO

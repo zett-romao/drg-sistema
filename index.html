@@ -2904,14 +2904,15 @@
           <div id="historico-salario-list" style="font-size:13px;color:var(--text-muted)"></div>
         </div>
 
-        <!-- Histórico de Postos -->
+        <!-- Histórico de Lotação / Postos -->
         <div class="divider" style="margin:16px 0 8px">
-          <span>Histórico de Postos</span>
+          <span>Lotação / Transferências</span>
           <button class="btn btn-outline" style="font-size:12px;padding:4px 12px;margin-left:12px"
             onclick="openTransferenciaModal()" id="btn-transferir-posto">
-            <i class="fa-solid fa-right-left"></i> Registrar Transferência
+            <i class="fa-solid fa-right-left"></i> Registrar mudança de lotação
           </button>
         </div>
+        <div id="historico-lotacao-list"></div>
         <div id="historico-postos-list">
           <div class="empty-state small" style="padding:12px">
             <i class="fa-solid fa-building"></i>
@@ -4559,39 +4560,89 @@
 <div class="modal-overlay hidden" id="modal-transferencia" onclick="closeModal('modal-transferencia', event)">
   <div class="modal-dialog modal-md">
     <div class="modal-header">
-      <h3><i class="fa-solid fa-right-left"></i> Registrar Transferência de Posto</h3>
+      <h3><i class="fa-solid fa-right-left"></i> Mudança de Lotação</h3>
       <button class="modal-close" onclick="closeModal('modal-transferencia')"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <div class="modal-body">
       <div class="info-banner" id="transferencia-posto-atual-info">
         <i class="fa-solid fa-location-dot"></i>
-        <span id="transferencia-posto-atual-texto">Posto atual: —</span>
+        <span id="transferencia-posto-atual-texto">Lotação atual: —</span>
+      </div>
+      <p style="font-size:12px;color:var(--text-muted);margin:2px 0 10px">Registra que o colaborador passou a ter novas regras (posto/turno/escala/horário/função/salário) <strong>a partir da data de vigência</strong>. Os campos vêm preenchidos com a lotação atual — mude só o que trocou. A folha passa a calcular cada período com as regras dele (ex.: adicional noturno só nos dias noturnos). Pode ser retroativo (regularização).</p>
+      <div class="form-row">
+        <div class="form-group">
+          <label>A partir de (vigência) <span class="required">*</span></label>
+          <input type="date" id="transf-data-entrada">
+        </div>
+        <div class="form-group">
+          <label>Novo posto</label>
+          <select id="transf-novo-posto">
+            <option value="">— Manter posto atual —</option>
+          </select>
+        </div>
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label>Data de saída do posto atual <span class="required">*</span></label>
-          <input type="date" id="transf-data-saida">
+          <label>Função / Cargo</label>
+          <input type="text" id="transf-cargo" placeholder="Ex: Porteiro, Zelador...">
         </div>
         <div class="form-group">
-          <label>Data de entrada no novo posto <span class="required">*</span></label>
-          <input type="date" id="transf-data-entrada">
+          <label>Salário base (R$)</label>
+          <input type="number" id="transf-salario" step="0.01" min="0">
         </div>
       </div>
-      <div class="form-group">
-        <label>Novo Posto de Trabalho <span class="required">*</span></label>
-        <select id="transf-novo-posto">
-          <option value="">— Selecione o posto —</option>
-        </select>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Escala</label>
+          <select id="transf-escala"></select>
+        </div>
+        <div class="form-group">
+          <label>&nbsp;</label>
+          <div class="checkbox-group" style="padding:9px 0">
+            <input type="checkbox" id="transf-turno-noturno">
+            <label for="transf-turno-noturno" style="font-size:13px;font-weight:600;color:var(--text);cursor:pointer">
+              <i class="fa-solid fa-moon" style="color:#5C6BC0"></i> Turno noturno (adicional)
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Entrada</label><input type="time" id="transf-h-entrada"></div>
+        <div class="form-group"><label>Saída</label><input type="time" id="transf-h-saida"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Início refeição</label><input type="time" id="transf-h-ref-ini"></div>
+        <div class="form-group"><label>Fim refeição</label><input type="time" id="transf-h-ref-fim"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Insalubridade</label>
+          <select id="transf-insalubridade">
+            <option value="0">Não tem</option>
+            <option value="20">Grau Mínimo — 20%</option>
+            <option value="40">Grau Médio — 40%</option>
+            <option value="60">Grau Máximo — 60%</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>&nbsp;</label>
+          <div class="checkbox-group" style="padding:9px 0">
+            <input type="checkbox" id="transf-acumulo">
+            <label for="transf-acumulo" style="font-size:13px;font-weight:600;color:var(--text);cursor:pointer">
+              <i class="fa-solid fa-user-tie" style="color:#1976D2"></i> Acúmulo de função (+20%)
+            </label>
+          </div>
+        </div>
       </div>
       <div class="form-group">
         <label>Observação <small style="color:var(--text-muted)">(opcional)</small></label>
-        <input type="text" id="transf-obs" placeholder="Ex: Transferência a pedido do cliente, remanejamento...">
+        <input type="text" id="transf-obs" placeholder="Ex: Transferência a pedido do cliente, remanejamento, mudança de turno...">
       </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal('modal-transferencia')">Cancelar</button>
       <button class="btn btn-primary" onclick="saveTransferencia()">
-        <i class="fa-solid fa-floppy-disk"></i> Confirmar Transferência
+        <i class="fa-solid fa-floppy-disk"></i> Confirmar mudança
       </button>
     </div>
   </div>
@@ -5752,6 +5803,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260528u"></script>
+<script src="app.js?v=20260528v"></script>
 </body>
 </html>

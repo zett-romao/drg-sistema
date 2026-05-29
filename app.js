@@ -4590,7 +4590,7 @@ function _escala12x36Noturna(escala){
 // ESCALA_HORARIOS_DEFAULT (entrada/saida e, se tiver, intIni/intFim) + nos
 // <select> de escala (index.html).
 function _escalaFixa(escala){
-  return typeof escala==='string' && (escala.startsWith('12x36-') || escala==='6x1ALT-0900-1720');
+  return typeof escala==='string' && (escala.startsWith('12x36-') || escala==='6x1ALT-0900-1720' || escala==='6x1ALT-0800-1620');
 }
 
 // Retorna o modelo de escala customizado (escala no formato m_{id}) ou null
@@ -4639,6 +4639,7 @@ function escalaLabel(escala){
     '6x1C':'6x1 — Var. C (08h–17h / Sáb 4h)',
     '6x1ALT':'6x1 — Alternado (sáb ↔ dom)',
     '6x1ALT-0900-1720':'6x1 Alternado (09h–17h20)',
+    '6x1ALT-0800-1620':'6x1 Alternado (08h–16h20)',
     '12x36':'12x36',
     '12x36-07-19':'12x36 (07h–19h)',
     '12x36-06-18':'12x36 (06h–18h)',
@@ -17276,8 +17277,9 @@ const ESCALA_HORARIOS_DEFAULT = {
   '12x36-19-07': { entrada:'19:00', saida:'07:00' },
   '12x36-18-06': { entrada:'18:00', saida:'06:00' },
   // 6x1 Alternado fixo: seg-sex + 1 dia do fim de semana (revezando sáb/dom),
-  // 09:00-17:20 com almoço 12:00-13:00.
-  '6x1ALT-0900-1720': { entrada:'09:00', saida:'17:20', intIni:'12:00', intFim:'13:00' }
+  // almoço 12:00-13:00. Variantes por horário.
+  '6x1ALT-0900-1720': { entrada:'09:00', saida:'17:20', intIni:'12:00', intFim:'13:00' },
+  '6x1ALT-0800-1620': { entrada:'08:00', saida:'16:20', intIni:'12:00', intFim:'13:00' }
 };
 
 // Retorna horários default para um colaborador num dia da semana específico

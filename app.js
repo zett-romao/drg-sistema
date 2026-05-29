@@ -4891,9 +4891,11 @@ async function pagarBeneficiosSelecionados(){
   const hojeISO = new Date().toISOString().substring(0,10);
   let ini, fim, periodoLabel;
   if(tab === 'mes'){
-    const d=new Date(); ini=new Date(d.getFullYear(),d.getMonth(),1).toISOString().substring(0,10);
-    fim=new Date(d.getFullYear(),d.getMonth()+1,0).toISOString().substring(0,10);
-    periodoLabel=`${MESES[d.getMonth()+1]}/${d.getFullYear()}`;
+    // Competência (fecha dia 25) — alinha com a aba "Este Mês" e o dedup.
+    const d=new Date(); const cMes=d.getMonth()+1, cAno=d.getFullYear();
+    const per=_compPeriodo(cMes,cAno);
+    ini=per.deISO; fim=per.ateISO;
+    periodoLabel=`Competência ${MESES[cMes]}/${cAno} (${_compLabel(cMes,cAno)})`;
   } else if(tab === 'hoje'){
     ini=fim=hojeISO; periodoLabel=`dia ${new Date().toLocaleDateString('pt-BR')}`;
   } else {
@@ -5019,23 +5021,105 @@ function recalcBeneficioDetalhe(){
 // ============================================
 // BENEFÍCIOS A PAGAR — Exportação (Imprimir + PDF)
 // ============================================
-function exportBeneficiosLista(formato){
+// Período da aba ativa do modal (Hoje / Esta Semana / Este Mês=competência 26→25).
+function _benefPeriodoAtual(){
   const tab = _beneficioTabAtual || 'hoje';
   const hojeISO = new Date().toISOString().substring(0,10);
-  let ini, fim, escopo, periodoLabel, periodoCol;
   const fmt = iso => new Date(iso+'T12:00:00').toLocaleDateString('pt-BR');
   if(tab === 'hoje'){
-    ini = fim = hojeISO;
-    escopo = 'dia';
-    periodoLabel = `Hoje — ${fmt(hojeISO)}`;
-    periodoCol   = fmt(hojeISO);
-  } else {
-    const s = _semanaDe(hojeISO);
-    ini = s.inicio; fim = s.fim;
-    escopo = 'semana';
-    periodoLabel = `Semana — ${fmt(s.inicio)} a ${fmt(s.fim)}`;
-    periodoCol   = `${fmt(s.inicio)} → ${fmt(s.fim)}`;
+    return { ini:hojeISO, fim:hojeISO, escopo:'dia', periodoLabel:`Hoje — ${fmt(hojeISO)}`, periodoCol:fmt(hojeISO) };
   }
+  if(tab === 'mes'){
+    const d = new Date(); const cMes = d.getMonth()+1, cAno = d.getFullYear();
+    const per = _compPeriodo(cMes, cAno);
+    return { ini:per.deISO, fim:per.ateISO, escopo:'mes',
+      periodoLabel:`Competência ${MESES[cMes]}/${cAno} — ${_compLabel(cMes,cAno)}`,
+      periodoCol:`${fmt(per.deISO)} → ${fmt(per.ateISO)}` };
+  }
+  const s = _semanaDe(hojeISO);
+  return { ini:s.inicio, fim:s.fim, escopo:'semana',
+    periodoLabel:`Semana — ${fmt(s.inicio)} a ${fmt(s.fim)}`,
+    periodoCol:`${fmt(s.inicio)} → ${fmt(s.fim)}` };
+}
+
+// Lista de UM canal de pagamento (cartão VT, cartão VR ou dinheiro/PIX), no
+// período da aba ativa. Usa o cálculo ao vivo (_calcBeneficiosColab) e respeita
+// o canal definido no cadastro de cada colaborador.
+function exportBeneficiosCanal(canal, formato){
+  const { ini, fim, escopo, periodoLabel, periodoCol } = _benefPeriodoAtual();
+  const CFG = {
+    vt:       { titulo:'Carregar Cartão VT', cor:'#1565C0', pix:false },
+    vr:       { titulo:'Carregar Cartão VR (inclui Boa Permanência)', cor:'#E65100', pix:false },
+    dinheiro: { titulo:'Pagar em Dinheiro (PIX)', cor:'#2E7D32', pix:true },
+  }[canal];
+  if(!CFG){ toast('Canal inválido.','error'); return; }
+  const linhas = [];
+  (State.employees||[]).filter(e => (e.status||'ativo') === 'ativo').forEach(e => {
+    const b = _calcBeneficiosColab(e, ini, fim, escopo);
+    let valor = 0, dias = 0;
+    if(canal === 'vt'){ if(b.vtCanal === 'cartao'){ valor = b.vtValor; dias = b.diasVt; } }
+    else if(canal === 'vr'){ if(b.vrCanal === 'cartao'){ valor = b.vrValor; dias = b.diasVr; } }
+    else { valor = b.valorDinheiro || 0; dias = Math.max(b.diasVt||0, b.diasVr||0); }
+    if(valor > 0) linhas.push({ emp:e, b, valor, dias });
+  });
+  linhas.sort((a,b) => (a.emp.nome||'').localeCompare(b.emp.nome||''));
+  if(!linhas.length){ toast(`Nenhum colaborador em "${CFG.titulo}" neste período.`,'info'); return; }
+  const total = linhas.reduce((s,l)=>s+l.valor,0);
+  const colPix = CFG.pix ? '<th style="text-align:left">Chave PIX</th>' : '';
+  let rows = '';
+  linhas.forEach(({emp, b, valor, dias}, idx) => {
+    const matr = emp.registro ? String(emp.registro).padStart(4,'0') : '—';
+    const pixTd = CFG.pix ? `<td style="font-family:monospace;font-size:11px;color:#00695C">${emp.chavePix||'—'}</td>` : '';
+    rows += `<tr style="background:${idx%2?'#F8FAFF':'#fff'}">
+      <td style="text-align:center">${idx+1}</td>
+      <td style="text-align:center;font-weight:700">${matr}</td>
+      <td><strong>${emp.nome}</strong>${emp.setor?`<br><small style="color:#666">${emp.setor}</small>`:''}</td>
+      <td style="font-size:11px">${emp.posto||'—'}</td>
+      <td style="text-align:center;font-size:11px">${periodoCol}</td>
+      <td style="text-align:center">${dias}</td>
+      <td style="text-align:right;font-weight:700">${fmtMoney(valor)}</td>
+      ${pixTd}
+    </tr>`;
+  });
+  const html = `<!DOCTYPE html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="UTF-8"><title>${CFG.titulo} — ${periodoLabel}</title>
+<style>
+  body{font-family:Arial,sans-serif;padding:16px;color:#212529;font-size:12px}
+  h1{color:${CFG.cor};font-size:18px;margin-bottom:4px}
+  .info{font-size:11px;color:#666;margin-bottom:14px}
+  table{width:100%;border-collapse:collapse}
+  th{background:${CFG.cor};color:#fff;padding:8px;text-align:left;font-size:11px}
+  td{padding:6px 8px;border-bottom:1px solid #DEE2E6}
+  tfoot td{background:#F1F5F9;font-weight:700}
+  @media print{ body{padding:8px} h1{font-size:14px} table{font-size:10px} }
+</style></head>
+<body>
+<h1>${_e('nomeEmpresa')} — ${CFG.titulo}</h1>
+<p class="info"><strong>Período:</strong> ${periodoLabel} &middot; <strong>${linhas.length}</strong> colaborador(es) &middot; Gerado em ${new Date().toLocaleString('pt-BR')}</p>
+<table>
+  <thead><tr>
+    <th style="text-align:center">#</th>
+    <th style="text-align:center">Matr.</th>
+    <th>Colaborador</th>
+    <th>Posto</th>
+    <th style="text-align:center">Período</th>
+    <th style="text-align:center">Dias</th>
+    <th style="text-align:right">Valor</th>
+    ${colPix}
+  </tr></thead>
+  <tbody>${rows}</tbody>
+  <tfoot><tr>
+    <td colspan="6" style="text-align:right">TOTAL — ${CFG.titulo}</td>
+    <td style="text-align:right;color:${CFG.cor};font-size:14px">${fmtMoney(total)}</td>
+    ${CFG.pix?'<td></td>':''}
+  </tr></tfoot>
+</table>
+<p style="margin-top:18px;font-size:10px;color:#888;text-align:center">${_e('nomeEmpresa')} — Sistema DRG-Kronos 3.0</p>
+</body></html>`;
+  _abrirJanelaExport(html, formato, `Beneficios_${canal}_${new Date().toISOString().substring(0,10)}`);
+}
+
+function exportBeneficiosLista(formato){
+  const { ini, fim, escopo, periodoLabel, periodoCol } = _benefPeriodoAtual();
   const linhas = [];
   (State.employees||[])
     .filter(e => (e.status||'ativo') === 'ativo')

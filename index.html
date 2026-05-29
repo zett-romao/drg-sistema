@@ -4823,6 +4823,15 @@
         <button class="btn btn-secondary" onclick="exportBeneficiosLista('pdf')"><i class="fa-solid fa-file-pdf" style="color:#C62828"></i> Exportar PDF</button>
         <button class="btn btn-secondary" onclick="exportBeneficiosLista('excel')"><i class="fa-solid fa-file-excel" style="color:#1B5E20"></i> Exportar Excel</button>
       </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;justify-content:flex-end;align-items:center">
+        <span style="font-size:11px;color:var(--text-muted);font-weight:600;margin-right:2px">Listas por canal:</span>
+        <button class="btn btn-sm btn-outline" onclick="exportBeneficiosCanal('vt','print')" style="border-color:#1565C0;color:#1565C0;font-size:12px" title="Imprime só quem recebe VT no cartão (carregar na operadora)"><i class="fa-solid fa-bus"></i> Cartão VT</button>
+        <button class="btn btn-sm btn-outline" onclick="exportBeneficiosCanal('vr','print')" style="border-color:#E65100;color:#E65100;font-size:12px" title="Imprime só quem recebe VR no cartão (inclui Boa Permanência)"><i class="fa-solid fa-utensils"></i> Cartão VR</button>
+        <button class="btn btn-sm btn-outline" onclick="exportBeneficiosCanal('dinheiro','print')" style="border-color:#2E7D32;color:#2E7D32;font-size:12px" title="Imprime só quem recebe VT/VR em dinheiro (PIX)"><i class="fa-brands fa-pix"></i> Dinheiro/PIX</button>
+        <button class="btn btn-sm btn-outline" onclick="exportBeneficiosCanal('vt','excel')" style="font-size:12px" title="Exporta Cartão VT em Excel"><i class="fa-solid fa-file-excel" style="color:#1B5E20"></i> VT .xls</button>
+        <button class="btn btn-sm btn-outline" onclick="exportBeneficiosCanal('vr','excel')" style="font-size:12px" title="Exporta Cartão VR em Excel"><i class="fa-solid fa-file-excel" style="color:#1B5E20"></i> VR .xls</button>
+        <button class="btn btn-sm btn-outline" onclick="exportBeneficiosCanal('dinheiro','excel')" style="font-size:12px" title="Exporta Dinheiro/PIX em Excel"><i class="fa-solid fa-file-excel" style="color:#1B5E20"></i> PIX .xls</button>
+      </div>
       <div id="benef-lista" style="max-height:60vh;overflow:auto;border:1px solid var(--border);border-radius:6px"></div>
     </div>
     <div class="modal-footer">
@@ -5735,6 +5744,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260528r"></script>
+<script src="app.js?v=20260528t"></script>
 </body>
 </html>

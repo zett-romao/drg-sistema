@@ -2077,7 +2077,7 @@ function renderPayrollStats(){
   const tHE=payThisMonth.reduce((s,p)=>s+(p.horasExtrasValor||0),0);
   const tB=payThisMonth.reduce((s,p)=>s+(p.bonificacao||0),0);
   const tAN=payThisMonth.reduce((s,p)=>s+(p.adNoturno||0),0);
-  const tAdiant=payThisMonth.reduce((s,p)=>s+(p.adiantamento||0),0);
+  const tAdiant=payThisMonth.reduce((s,p)=>s+(p.adiantamentoValor||p.adiantamento||0),0);
   const tTotal=tR+tVT+tVR+tVA+tHE+tB+tAN;
   const sc='cursor:pointer;transition:box-shadow .15s' , sh='onmouseover="this.style.boxShadow=\'0 4px 16px #0002\'" onmouseout="this.style.boxShadow=\'\'"';
   grid.innerHTML=`
@@ -2923,7 +2923,7 @@ function renderContabilidade(){
     const an=p?p.adNoturno||0:0;
     const ins=p?p.insalubridade||0:0;
     const acu=p?p.acumulo||0:0;
-    const adiant=p?p.adiantamento||0:0;
+    const adiant=p?(p.adiantamentoValor||p.adiantamento||0):0;
     const totalFaltas=p?('faltasJustificadas' in p?(p.faltasJustificadas||0)+(p.faltasInjustificadas||0):(p.faltas||0)):0;
     // Boa Permanência (bon) é benefício pago no VR — NÃO entra na espécie (dinheiro)
     const especie=rem+an+ins+acu+he;
@@ -3045,7 +3045,7 @@ function exportContabilidadeCsv(){
       e.salarioBase||0,
       p?p.diasTrabalhados||0:'', p?totalFaltas:'',
       rem, p?p.valeTransporte||0:0, p?p.valeRefeicao||0:0, p?p.valeAlimentacaoLiquido||0:0,
-      p?p.horasExtrasValor||0:0, p?p.bonificacao||0:0, p?p.adNoturno||0:0, p?p.insalubridade||0:0, p?p.acumulo||0:0, p?p.adiantamento||0:0,
+      p?p.horasExtrasValor||0:0, p?p.bonificacao||0:0, p?p.adNoturno||0:0, p?p.insalubridade||0:0, p?p.acumulo||0:0, p?(p.adiantamentoValor||p.adiantamento||0):0,
       especie, e.chavePix||''
     ].map(v=>typeof v==='string'&&v.includes(',')? `"${v}"`:v);
   });
@@ -6728,9 +6728,22 @@ function loadPayrollRecord(id){
   // campos ocultos de total/desconto. Aqui só restaura o total salvo.
   setVal('payroll-atraso-min',p.minutosAtraso||'');
   setVal('payroll-desconto-atraso',p.descontoAtraso||'');
-  setVal('payroll-adiantamento-ativo',p.adiantamentoAtivo?'sim':'nao');
-  setVal('payroll-adiantamento-perc',p.adiantamentoPerc||40);
-  setVal('payroll-adiantamento-valor',p.adiantamentoValor||'');
+  // Optante (recebeAdiantamento no cadastro) FORÇA o adiantamento ativo —
+  // mesmo em folhas salvas antes da marcação OU se o campo não tinha sido gravado.
+  // Sem isso, dava prejuízo na empresa: pagava o salário cheio sem descontar o
+  // adiantamento já pago no meio do mês.
+  const _adEmp = State.employees.find(e=>e.id===p.employeeId);
+  const _adOptante = !!(_adEmp && _adEmp.recebeAdiantamento);
+  const _adPerc = p.adiantamentoPerc || 40;
+  setVal('payroll-adiantamento-ativo', (_adOptante || p.adiantamentoAtivo) ? 'sim' : 'nao');
+  setVal('payroll-adiantamento-perc', _adPerc);
+  // Garante valor coerente: se é optante e ainda não tem valor salvo (folha
+  // antiga), calcula AGORA pelo salário base. Evita exibir/persistir R$0 enquanto
+  // o recalculate não roda.
+  const _adValor = (_adOptante && !p.adiantamentoValor && (_adEmp?.salarioBase||0)>0)
+    ? (_adEmp.salarioBase * (_adPerc/100))
+    : (p.adiantamentoValor || 0);
+  setVal('payroll-adiantamento-valor', _adValor ? _adValor.toFixed(2) : '');
   // Jornada & Horas Extras
   setVal('payroll-entrada',       p.horarioEntrada||'');
   setVal('payroll-saida',         p.horarioSaida||'');

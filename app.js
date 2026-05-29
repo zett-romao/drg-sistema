@@ -4590,7 +4590,7 @@ function _escala12x36Noturna(escala){
 // ESCALA_HORARIOS_DEFAULT (entrada/saida e, se tiver, intIni/intFim) + nos
 // <select> de escala (index.html).
 function _escalaFixa(escala){
-  return typeof escala==='string' && (escala.startsWith('12x36-') || escala==='6x1ALT-0900-1720' || escala==='6x1ALT-0800-1620');
+  return typeof escala==='string' && (escala.startsWith('12x36-') || escala==='6x1ALT-0900-1720' || escala==='6x1ALT-0800-1620' || escala==='6x1ALT-0800-1700-S16');
 }
 
 // Retorna o modelo de escala customizado (escala no formato m_{id}) ou null
@@ -4640,6 +4640,7 @@ function escalaLabel(escala){
     '6x1ALT':'6x1 — Alternado (sáb ↔ dom)',
     '6x1ALT-0900-1720':'6x1 Alternado (09h–17h20)',
     '6x1ALT-0800-1620':'6x1 Alternado (08h–16h20)',
+    '6x1ALT-0800-1700-S16':'6x1 Alternado (Seg–Sex 08–17 / Sáb-Dom 08–16)',
     '12x36':'12x36',
     '12x36-07-19':'12x36 (07h–19h)',
     '12x36-06-18':'12x36 (06h–18h)',
@@ -17301,7 +17302,9 @@ const ESCALA_HORARIOS_DEFAULT = {
   // 6x1 Alternado fixo: seg-sex + 1 dia do fim de semana (revezando sáb/dom),
   // almoço 12:00-13:00. Variantes por horário.
   '6x1ALT-0900-1720': { entrada:'09:00', saida:'17:20', intIni:'12:00', intFim:'13:00' },
-  '6x1ALT-0800-1620': { entrada:'08:00', saida:'16:20', intIni:'12:00', intFim:'13:00' }
+  '6x1ALT-0800-1620': { entrada:'08:00', saida:'16:20', intIni:'12:00', intFim:'13:00' },
+  // Seg-Sex 08:00-17:00; sáb/dom (o que trabalha, revezando) sai 16:00. Almoço 12-13.
+  '6x1ALT-0800-1700-S16': { entrada:'08:00', saida:'17:00', intIni:'12:00', intFim:'13:00' }
 };
 
 // Retorna horários default para um colaborador num dia da semana específico
@@ -17359,6 +17362,11 @@ function _escalaHorariosDia(emp, diaSem, lot){
   }
   if(diaSem===6 && escala==='6x1C'){
     saida = '12:00'; intIni = ''; intFim = ''; // sábado 08h–12h (4h) — sem refeição
+  }
+  // 6x1 Alternado 08-17 com fim de semana mais curto: o dia de sáb/dom trabalhado
+  // sai às 16:00 (mantém o almoço 12-13). Seg-Sex segue 08-17.
+  if((diaSem===0 || diaSem===6) && escala==='6x1ALT-0800-1700-S16'){
+    saida = '16:00';
   }
   return { entrada, intIni, intFim, saida };
 }

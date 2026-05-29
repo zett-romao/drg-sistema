@@ -1507,12 +1507,19 @@
         <div class="card" id="pag-table-card" style="display:none">
           <div class="card-header">
             <h3 id="pag-table-title"><i class="fa-solid fa-money-check-dollar"></i> Holerites do Período</h3>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <div style="position:relative">
+                <i class="fa-solid fa-magnifying-glass" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#999;font-size:12px;pointer-events:none"></i>
+                <input type="text" id="pag-search" oninput="filterPagamentos()" placeholder="Buscar por nome ou matrícula..." style="padding:6px 10px 6px 32px;border:1px solid var(--border);border-radius:6px;font-size:13px;min-width:220px">
+              </div>
               <button class="btn btn-outline" onclick="exportPagamentosCsv()">
                 <i class="fa-solid fa-file-csv"></i> Exportar CSV
               </button>
               <button class="btn btn-success" onclick="printPagamentos()">
                 <i class="fa-solid fa-print"></i> Imprimir
+              </button>
+              <button class="btn btn-outline" id="btn-imprimir-selecionados-pag" onclick="printPagamentosSelecionados()" disabled style="border-color:#1B5E20;color:#1B5E20">
+                <i class="fa-solid fa-check-double"></i> Imprimir Selecionados <span id="pag-sel-count" style="background:#1B5E20;color:#fff;border-radius:10px;padding:1px 6px;font-size:10px;display:none;margin-left:4px">0</span>
               </button>
               <button class="btn btn-primary" onclick="openPagarEmLote()" style="background:#00695C;border-color:#00695C">
                 <i class="fa-brands fa-pix"></i> Pagar Todos via PIX
@@ -1523,6 +1530,7 @@
             <table class="data-table" id="pag-table" style="min-width:800px">
               <thead>
                 <tr>
+                  <th style="width:30px;text-align:center"><input type="checkbox" id="pag-check-all" onclick="toggleAllPagamentos(this)" title="Selecionar todos (visíveis)"></th>
                   <th>#</th>
                   <th>Reg.</th>
                   <th>Nome</th>
@@ -5807,6 +5815,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260529e"></script>
+<script src="app.js?v=20260529f"></script>
 </body>
 </html>

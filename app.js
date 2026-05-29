@@ -2347,7 +2347,8 @@ function renderPagamentos(){
         :`<span class="badge" style="background:#FFEBEE;color:#c0392b;border:1px solid #FFCDD2;padding:2px 8px;border-radius:12px;font-size:11px">— Sem folha</span>`;
     const rowBg=i%2===0?'#ffffff':'#EEF2FF';
     const border=!p?'border-left:3px solid #EF9A9A':'';
-    return `<tr style="background:${rowBg};${border}">
+    return `<tr style="background:${rowBg};${border}" data-nome="${(e.nome||'').toLowerCase()}" data-reg="${e.registro?String(e.registro).padStart(4,'0'):''}">
+      <td style="text-align:center"><input type="checkbox" class="pag-row-check" data-emp-id="${e.id}" onclick="updatePagSelCount()"></td>
       <td>${i+1}</td>
       <td style="font-size:11px">${e.registro?String(e.registro).padStart(4,'0'):'—'}</td>
       <td><strong>${e.nome}</strong></td>
@@ -2366,7 +2367,7 @@ function renderPagamentos(){
 
   // Rodapé com totais
   tfoot.innerHTML=`<tr style="background:#EEF4FF;font-weight:700;font-size:12px">
-    <td colspan="5" style="padding:8px 10px">TOTAIS — ${comFolha} de ${emps.length} com holerite</td>
+    <td colspan="6" style="padding:8px 10px">TOTAIS — ${comFolha} de ${emps.length} com holerite</td>
     <td>${fmtMoney(tBruto)}</td>
     <td style="color:#c0392b">(${fmtMoney(tINSS)})</td>
     <td style="color:#c0392b">(${fmtMoney(tIRRF)})</td>
@@ -2409,6 +2410,12 @@ function printPagamentos(){
   const mesLabel=MESES[mes]||'';
   const table=document.getElementById('pag-table');
   if(!table){ toast('Carregue os dados primeiro.','warning'); return; }
+  // Clona a tabela e tira a coluna de checkbox da impressão (1ª coluna).
+  const clone = table.cloneNode(true);
+  clone.querySelectorAll('tr').forEach(tr=>{
+    const first = tr.firstElementChild;
+    if(first && first.querySelector('input[type="checkbox"]')) first.remove();
+  });
   const w=window.open('','_blank');
   w.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
     <title>Pagamentos ${mesLabel}/${ano}</title>
@@ -2417,7 +2424,83 @@ function printPagamentos(){
     th{background:#1a3a6b;color:#fff}tr:nth-child(even){background:#f5f5f5}
     h2{color:#1a3a6b}</style></head><body>
     <h2>${_e('nomeEmpresa')} — Pagamentos ${mesLabel} / ${ano}</h2>
-    ${table.outerHTML}</body></html>`);
+    ${clone.outerHTML}</body></html>`);
+  w.document.close();
+  w.print();
+}
+
+// Filtro de busca (nome ou matrícula) — esconde linhas que não casam.
+function filterPagamentos(){
+  const q = (val('pag-search')||'').toLowerCase().trim();
+  document.querySelectorAll('#pag-tbody tr').forEach(tr=>{
+    if(!q){ tr.style.display=''; return; }
+    const nome = (tr.dataset.nome||'').toLowerCase();
+    const reg  = (tr.dataset.reg||'').toLowerCase();
+    tr.style.display = (nome.includes(q) || reg.includes(q)) ? '' : 'none';
+  });
+  // Desmarca o "selecionar todos" quando a busca muda.
+  const all = document.getElementById('pag-check-all');
+  if(all) all.checked = false;
+  updatePagSelCount();
+}
+
+// Marca/desmarca todas as linhas VISÍVEIS (respeita o filtro).
+function toggleAllPagamentos(master){
+  document.querySelectorAll('#pag-tbody tr').forEach(tr=>{
+    if(tr.style.display === 'none') return;
+    const cb = tr.querySelector('.pag-row-check');
+    if(cb) cb.checked = !!master.checked;
+  });
+  updatePagSelCount();
+}
+
+// Atualiza o contador + estado do botão "Imprimir Selecionados".
+function updatePagSelCount(){
+  const n = document.querySelectorAll('#pag-tbody .pag-row-check:checked').length;
+  const btn = document.getElementById('btn-imprimir-selecionados-pag');
+  const badge = document.getElementById('pag-sel-count');
+  if(btn) btn.disabled = (n === 0);
+  if(badge){
+    badge.textContent = n;
+    badge.style.display = n > 0 ? '' : 'none';
+  }
+}
+
+// Imprime SÓ os colaboradores marcados (clona a tabela, tira não-selecionados,
+// remove a coluna de checkbox e o tfoot — os totais não batem com a seleção).
+function printPagamentosSelecionados(){
+  const sel = Array.from(document.querySelectorAll('#pag-tbody .pag-row-check:checked'))
+                    .map(cb => cb.dataset.empId);
+  if(!sel.length){ toast('Selecione pelo menos um colaborador.','warning'); return; }
+  const mes=parseInt(val('pag-mes')||currentMes());
+  const ano=parseInt(val('pag-ano')||currentAno());
+  const mesLabel=MESES[mes]||'';
+  const table=document.getElementById('pag-table');
+  if(!table){ toast('Carregue os dados primeiro.','warning'); return; }
+  const set = new Set(sel);
+  const clone = table.cloneNode(true);
+  // 1) Remove rows não selecionadas
+  Array.from(clone.querySelectorAll('tbody tr')).forEach(tr=>{
+    const cb = tr.querySelector('.pag-row-check');
+    if(!cb || !set.has(cb.dataset.empId)) tr.remove();
+  });
+  // 2) Remove a coluna de checkbox (1ª) de todas as linhas (thead/tbody)
+  clone.querySelectorAll('tr').forEach(tr=>{
+    const first = tr.firstElementChild;
+    if(first && first.querySelector('input[type="checkbox"]')) first.remove();
+  });
+  // 3) Remove o rodapé com totais (não bate com a seleção)
+  const tfoot = clone.querySelector('tfoot');
+  if(tfoot) tfoot.remove();
+  const w=window.open('','_blank');
+  w.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+    <title>Holerites (selecionados) ${mesLabel}/${ano}</title>
+    <style>body{font-family:Arial,sans-serif;font-size:10px}
+    table{width:100%;border-collapse:collapse}th,td{border:1px solid #ccc;padding:4px 6px}
+    th{background:#1a3a6b;color:#fff}tr:nth-child(even){background:#f5f5f5}
+    h2{color:#1a3a6b}</style></head><body>
+    <h2>${_e('nomeEmpresa')} — Holerites (${sel.length} selecionado(s)) — ${mesLabel} / ${ano}</h2>
+    ${clone.outerHTML}</body></html>`);
   w.document.close();
   w.print();
 }

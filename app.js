@@ -16249,12 +16249,12 @@ ${_heRecusadasHtml(emp, mes, ano, diasPonto)}
   </div>
 </div>
 
-<script>window.onload=function(){ window.print(); }<\/script>
+${isPreview ? '<scr'+'ipt>document.title="Pré-via (rascunho) — não impressa";<\/scr'+'ipt>' : '<scr'+'ipt>window.onload=function(){ window.print(); }<\/scr'+'ipt>'}
 </body>
 </html>`;
 
   const win=window.open('','_blank','width=900,height=700');
-  if(!win){ toast('Permita pop-ups para imprimir a folha.','error'); return; }
+  if(!win){ toast(isPreview ? 'Permita pop-ups para ver a prévia.' : 'Permita pop-ups para imprimir a folha.','error'); return; }
   win.document.write(html);
   win.document.close();
 }

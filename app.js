@@ -4836,8 +4836,9 @@ function renderBeneficiosLista(){
     const cBadge = canal => canal==='dinheiro'
       ? '<span style="background:#E8F5E9;color:#2E7D32;font-size:8px;padding:1px 4px;border-radius:6px;font-weight:700;vertical-align:middle">PIX</span>'
       : '<span style="background:#E3F2FD;color:#1565C0;font-size:8px;padding:1px 4px;border-radius:6px;font-weight:700;vertical-align:middle">CARTÃO</span>';
-    html += `<tr style="background:${bg};cursor:pointer" onclick="openBeneficioDetalhe('${emp.id}','${escopo}','${ini}','${fim}')">
-      <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7" onclick="event.stopPropagation()"><input type="checkbox" class="benef-chk" data-emp-id="${emp.id}" data-valor="${b.valorDinheiro}" ${b.valorDinheiro>0?'':'disabled title="Sem valor em dinheiro — tudo no cartão"'} onchange="_benefSelCount()"></td>
+    const _busca = `${emp.nome||''} ${matr} ${emp.setor||''} ${posto}`.replace(/"/g,'');
+    html += `<tr style="background:${bg};cursor:pointer" data-busca="${_busca}" onclick="openBeneficioDetalhe('${emp.id}','${escopo}','${ini}','${fim}')">
+      <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7" onclick="event.stopPropagation()"><input type="checkbox" class="benef-chk" data-emp-id="${emp.id}" data-valor="${b.valorDinheiro}" data-dinheiro="${b.valorDinheiro>0?1:0}" title="${b.valorDinheiro>0?'Tem valor em dinheiro (PIX)':'No cartão — entra na impressão de selecionados; o PIX ignora'}" onchange="_benefSelCount()"></td>
       <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7;font-weight:700;color:var(--primary)">${matr}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7"><strong style="color:var(--primary)">${emp.nome}</strong><br><small style="color:var(--text-muted)">${emp.setor||'—'}</small></td>
       <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7;font-size:11px">${posto}</td>
@@ -4861,18 +4862,40 @@ function renderBeneficiosLista(){
     </tfoot>
   </table>`;
   listEl.innerHTML = html;
+  // Reaplica o filtro de busca atual (se houver) à lista recém-renderizada.
+  const _bb = document.getElementById('benef-busca');
+  if(_bb && _bb.value) _benefFiltrar(_bb.value); else { const _bc=document.getElementById('benef-busca-count'); if(_bc) _bc.textContent=''; }
   _benefSelCount();
 }
 
-// ── Seleção de colaboradores para pagamento de benefícios ──────────────
-// Só conta/marca quem tem valor em DINHEIRO (checkbox dos 100%-cartão fica disabled).
+// ── Seleção de colaboradores (impressão de selecionados + pagamento PIX) ──────
+// Os checkboxes ficam habilitados para TODOS (servem p/ imprimir selecionados).
+// O "Pagar em Dinheiro" ignora automaticamente quem é só cartão (valorDinheiro=0).
 function _benefToggleAll(hc){
-  document.querySelectorAll('.benef-chk').forEach(c=>{ if(!c.disabled) c.checked = hc.checked; });
+  // Marca/desmarca só as linhas VISÍVEIS (respeita o filtro da busca).
+  document.querySelectorAll('#benef-lista tbody tr').forEach(tr=>{
+    if(tr.style.display==='none') return;
+    const c=tr.querySelector('.benef-chk');
+    if(c && !c.disabled) c.checked = hc.checked;
+  });
   _benefSelCount();
 }
 function _benefSelCount(){
   const el=document.getElementById('benef-sel-count');
   if(el) el.textContent = document.querySelectorAll('.benef-chk:checked').length;
+}
+// Lupa: filtra a lista por nome / matrícula / setor / posto (ignora acento).
+function _benefFiltrar(q){
+  const norm = s => (s||'').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+  const termo = norm(q);
+  let vis = 0;
+  document.querySelectorAll('#benef-lista tbody tr').forEach(tr=>{
+    const hit = !termo || norm(tr.dataset.busca).includes(termo);
+    tr.style.display = hit ? '' : 'none';
+    if(hit) vis++;
+  });
+  const el = document.getElementById('benef-busca-count');
+  if(el) el.textContent = q ? `${vis} encontrado(s)` : '';
 }
 
 // Pagamento da parte em DINHEIRO dos benefícios via PIX REAL (Asaas). Cria uma
@@ -4906,11 +4929,12 @@ async function pagarBeneficiosSelecionados(){
 
   if(!confirm(`Pagar em dinheiro (PIX) os benefícios de ${chks.length} colaborador(es) — ${periodoLabel}?\n\nCria as solicitações na tela "Aprovações de Pagamentos", onde você confirma com o código 2FA e o Asaas dispara o PIX. (VT/VR de cartão são carregados na operadora à parte.)`)) return;
 
-  let ok=0, semPix=0, jaPend=0, erros=0;
+  let ok=0, semPix=0, jaPend=0, erros=0, soCartao=0;
   for(const c of chks){
     const emp=(State.employees||[]).find(e=>e.id===c.dataset.empId);
+    if(!emp){ erros++; continue; }
     const valor=parseFloat(c.dataset.valor)||0;   // só a parte em dinheiro
-    if(!emp || valor<=0){ erros++; continue; }
+    if(valor<=0){ soCartao++; continue; }          // marcado mas é tudo cartão → PIX ignora
     const pixKey=(emp.chavePix||'').trim();
     if(!pixKey){ semPix++; continue; }
     const jaExiste=(State.solicitacoes||[]).some(s=>s.origem==='beneficio' && s.employeeId===emp.id && s.competencia===comp && s.status==='pendente');
@@ -4929,6 +4953,7 @@ async function pagarBeneficiosSelecionados(){
   }
 
   const partes=[`${ok} solicitação(ões) criada(s)`];
+  if(soCartao) partes.push(`${soCartao} só no cartão (ignorado no PIX)`);
   if(semPix) partes.push(`${semPix} sem chave PIX`);
   if(jaPend) partes.push(`${jaPend} já pendente(s)`);
   if(erros)  partes.push(`${erros} com erro`);
@@ -5118,11 +5143,18 @@ function exportBeneficiosCanal(canal, formato){
   _abrirJanelaExport(html, formato, `Beneficios_${canal}_${new Date().toISOString().substring(0,10)}`);
 }
 
-function exportBeneficiosLista(formato){
+function exportBeneficiosLista(formato, soSelecionados){
   const { ini, fim, escopo, periodoLabel, periodoCol } = _benefPeriodoAtual();
+  let selIds = null;
+  if(soSelecionados){
+    selIds = new Set([...document.querySelectorAll('.benef-chk:checked')].map(c=>c.dataset.empId));
+    if(!selIds.size){ toast('Marque ao menos um colaborador para imprimir os selecionados.','info'); return; }
+  }
+  const periodoLabelFull = soSelecionados ? `${periodoLabel} — selecionados` : periodoLabel;
   const linhas = [];
   (State.employees||[])
     .filter(e => (e.status||'ativo') === 'ativo')
+    .filter(e => !selIds || selIds.has(e.id))
     .forEach(e => {
       const b = _calcBeneficiosColab(e, ini, fim, escopo);
       if(b.total > 0) linhas.push({ emp:e, b });
@@ -5151,7 +5183,7 @@ function exportBeneficiosLista(formato){
       <td style="font-family:monospace;font-size:11px;color:#00695C">${pix}</td>
     </tr>`;
   });
-  const html = `<!DOCTYPE html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="UTF-8"><title>Benefícios a Pagar — ${periodoLabel}</title>
+  const html = `<!DOCTYPE html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="UTF-8"><title>Benefícios a Pagar — ${periodoLabelFull}</title>
 <style>
   body{font-family:Arial,sans-serif;padding:16px;color:#212529;font-size:12px}
   h1{color:#0288D1;font-size:18px;margin-bottom:4px}
@@ -5165,7 +5197,7 @@ function exportBeneficiosLista(formato){
 </style></head>
 <body>
 <h1>${_e('nomeEmpresa')} — Planilha de Benefícios a Pagar</h1>
-<p class="info"><strong>Período:</strong> ${periodoLabel} &middot; <strong>${linhas.length}</strong> colaborador(es) &middot; Gerado em ${new Date().toLocaleString('pt-BR')}</p>
+<p class="info"><strong>Período:</strong> ${periodoLabelFull} &middot; <strong>${linhas.length}</strong> colaborador(es) &middot; Gerado em ${new Date().toLocaleString('pt-BR')}</p>
 <table>
   <thead><tr>
     <th style="text-align:center">#</th>
@@ -5193,7 +5225,7 @@ function exportBeneficiosLista(formato){
 <p style="margin-top:14px;font-size:11px;color:#555"><strong>Uso:</strong> esta planilha lista os colaboradores com benefícios a serem pagos manualmente (PIX, espécie ou cartão). Use a coluna "Chave PIX" para conferir o destinatário.</p>
 <p style="margin-top:18px;font-size:10px;color:#888;text-align:center">${_e('nomeEmpresa')} — Sistema DRG-Kronos 3.0 &middot; ${linhas.length} colaborador(es)</p>
 </body></html>`;
-  _abrirJanelaExport(html, formato, `Beneficios_${tab}_${new Date().toISOString().substring(0,10)}`);
+  _abrirJanelaExport(html, formato, `Beneficios_${soSelecionados?'selecionados':(_beneficioTabAtual||'hoje')}_${new Date().toISOString().substring(0,10)}`);
 }
 
 function exportBeneficioDetalhe(formato){

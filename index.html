@@ -4819,6 +4819,7 @@
       <div id="benef-info" style="background:#E1F5FE;padding:10px 14px;border-radius:6px;margin-bottom:14px;font-size:13px;color:#01579B"></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;justify-content:flex-end;align-items:center">
         <button class="btn btn-primary" onclick="pagarBeneficiosSelecionados()" style="background:#00897B" title="Paga via PIX (Asaas) só a parte marcada como dinheiro no cadastro"><i class="fa-brands fa-pix"></i> Pagar em Dinheiro (<span id="benef-sel-count">0</span>)</button>
+        <button class="btn btn-secondary" onclick="exportBeneficiosLista('print', true)" title="Imprime só os colaboradores marcados"><i class="fa-solid fa-print"></i> Imprimir selecionados</button>
         <button class="btn btn-secondary" onclick="exportBeneficiosLista('print')"><i class="fa-solid fa-print"></i> Imprimir lista</button>
         <button class="btn btn-secondary" onclick="exportBeneficiosLista('pdf')"><i class="fa-solid fa-file-pdf" style="color:#C62828"></i> Exportar PDF</button>
         <button class="btn btn-secondary" onclick="exportBeneficiosLista('excel')"><i class="fa-solid fa-file-excel" style="color:#1B5E20"></i> Exportar Excel</button>
@@ -4831,6 +4832,13 @@
         <button class="btn btn-sm btn-outline" onclick="exportBeneficiosCanal('vt','excel')" style="font-size:12px" title="Exporta Cartão VT em Excel"><i class="fa-solid fa-file-excel" style="color:#1B5E20"></i> VT .xls</button>
         <button class="btn btn-sm btn-outline" onclick="exportBeneficiosCanal('vr','excel')" style="font-size:12px" title="Exporta Cartão VR em Excel"><i class="fa-solid fa-file-excel" style="color:#1B5E20"></i> VR .xls</button>
         <button class="btn btn-sm btn-outline" onclick="exportBeneficiosCanal('dinheiro','excel')" style="font-size:12px" title="Exporta Dinheiro/PIX em Excel"><i class="fa-solid fa-file-excel" style="color:#1B5E20"></i> PIX .xls</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <div style="position:relative;flex:1;max-width:360px">
+          <i class="fa-solid fa-magnifying-glass" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:13px"></i>
+          <input type="text" id="benef-busca" oninput="_benefFiltrar(this.value)" placeholder="Buscar por nome, matrícula, setor ou posto..." style="width:100%;padding:7px 10px 7px 30px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none">
+        </div>
+        <span id="benef-busca-count" style="font-size:11px;color:var(--text-muted)"></span>
       </div>
       <div id="benef-lista" style="max-height:60vh;overflow:auto;border:1px solid var(--border);border-radius:6px"></div>
     </div>
@@ -5744,6 +5752,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260528t"></script>
+<script src="app.js?v=20260528u"></script>
 </body>
 </html>

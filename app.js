@@ -6221,6 +6221,17 @@ function recalculate(){
     ? diasBeneficio
     : (diasPrevistos > 0 ? Math.round(dias * (diasPrevistosVr / diasPrevistos)) : 0);
 
+  // Segmentos de lotação no período — base do salário/insalubridade/acúmulo POR
+  // PERÍODO (ex.: troca de função/salário no meio do mês). Fast-path: 1 segmento
+  // (sem transferência no período) → cálculo idêntico ao de antes, sem regressão.
+  const _cardsR=_getPontoManualCards();
+  const _regR=State.payrolls.find(p=>p.employeeId===empId&&p.mes==_mesR&&p.ano==_anoR);
+  const _pontoDiasR=_cardsR.length?_collectPontoManualDias()
+                  :(_regR&&Array.isArray(_regR.pontoManualDias)?_regR.pontoManualDias:[]);
+  const _segs=(emp && !isentoPonto && diasPrevistos>0)
+    ? _segmentosLotacao(emp,_mesR,_anoR,_pontoDiasR,_atest.dias) : [];
+  const _multiSeg=_segs.length>1;
+
   // Atrasos — lista de ocorrências (coleção `atrasos`). Só as ocorrências
   // NÃO abonadas descontam. O atestado abate horas de atraso. Isento não desconta.
   const _atrasoTot = _atrasoTotais(val('payroll-employee'), _mesR, _anoR);
@@ -6235,7 +6246,10 @@ function recalculate(){
   // parte → recebe a fração correspondente. O desconto de atraso NÃO é
   // abatido aqui — ele é subtraído UMA vez no líquido final (atrasoEnc) e
   // nas impressões. Antes era abatido nos dois lugares (desconto dobrado).
-  const remuneracaoProp = isentoPonto ? salBase : ((diasPrevistos>0) ? salBase*(diasPagos/diasPrevistos) : 0);
+  let remuneracaoProp;
+  if(isentoPonto) remuneracaoProp = salBase;
+  else if(_multiSeg) remuneracaoProp = _segs.reduce((s,x)=> s + (x.lot.salarioBase||0)*(x.diasPagos/diasPrevistos), 0);
+  else remuneracaoProp = (diasPrevistos>0) ? salBase*(diasPagos/diasPrevistos) : 0;
   const remuneracaoBase = Math.max(0, remuneracaoProp);
   if(salBase>0){
     setVal('payroll-remuneracao', remuneracaoBase.toFixed(2));
@@ -6345,28 +6359,36 @@ function recalculate(){
     setVal('payroll-noturno','');
   }
 
-  // --- Acúmulo de Função (+20% sobre salário base) ---
+  // --- Acúmulo de Função (+20% sobre salário base) — por período ---
   const acumuloCard=document.getElementById('acumulo-card');
-  if(emp&&emp.acumuloFuncao&&salBase>0){
+  // Valor: por segmento de lotação (só os períodos com acúmulo), proporcional aos
+  // dias previstos de cada um. Fast-path (1 segmento) = salBase*20% como antes.
+  const acumuloVal = _multiSeg
+    ? _segs.reduce((s,x)=> s + (x.lot.acumuloFuncao ? (x.lot.salarioBase||0)*0.20*(x.diasPrevistos/diasPrevistos) : 0), 0)
+    : ((emp&&emp.acumuloFuncao&&salBase>0) ? salBase*0.20 : 0);
+  if(acumuloVal>0){
     if(acumuloCard) acumuloCard.classList.remove('hidden');
-    const acumuloVal=salBase*0.20;
     setVal('payroll-acumulo',acumuloVal.toFixed(2));
   } else {
     if(acumuloCard) acumuloCard.classList.add('hidden');
     setVal('payroll-acumulo','');
   }
 
-  // --- Insalubridade (20% / 40% / 60% sobre salário mínimo nacional) ---
+  // --- Insalubridade (20% / 40% / 60% sobre salário mínimo nacional) — por período ---
   const insalubCard=document.getElementById('insalubridade-card');
   const insalubGrau=document.getElementById('insalubridade-grau');
   const insalubPerc=emp?(emp.insalubridade||0):0;
-  if(insalubPerc>0){
+  const salMin=(State.cct&&State.cct.salarioMinimo)||1518;
+  // Valor: por segmento (cada período usa seu grau), proporcional aos dias
+  // previstos. Fast-path (1 segmento) = salMin*perc/100 como antes.
+  const insalubVal = _multiSeg
+    ? _segs.reduce((s,x)=> s + salMin*((x.lot.insalubridade||0)/100)*(x.diasPrevistos/diasPrevistos), 0)
+    : (insalubPerc>0 ? salMin*(insalubPerc/100) : 0);
+  if(insalubVal>0){
     if(insalubCard) insalubCard.classList.remove('hidden');
-    const salMin=(State.cct&&State.cct.salarioMinimo)||1518;
-    const insalubVal=salMin*(insalubPerc/100);
     setVal('payroll-insalubridade',insalubVal.toFixed(2));
     if(insalubGrau){
-      const grauLabel=insalubPerc===20?'(Mínimo 20%)':insalubPerc===40?'(Médio 40%)':'(Máximo 60%)';
+      const grauLabel=_multiSeg?'(por período)':(insalubPerc===20?'(Mínimo 20%)':insalubPerc===40?'(Médio 40%)':'(Máximo 60%)');
       insalubGrau.textContent=grauLabel;
     }
   } else {
@@ -14624,6 +14646,47 @@ function _lotacaoEm(emp, dataISO){
   for(const h of hist){ if(h.dataInicio<=dataISO) vig=h; else break; }
   return _lotacaoSnapshot(vig||hist[0], emp);
 }
+// Chave do período de lotação vigente numa data ('__base__' = estado atual).
+function _lotacaoKeyEm(emp, dataISO){
+  const hist=(emp.historicoLotacao||[]).filter(h=>h&&h.dataInicio)
+    .sort((a,b)=>a.dataInicio.localeCompare(b.dataInicio));
+  if(!hist.length || !dataISO) return '__base__';
+  let vig=null;
+  for(const h of hist){ if(h.dataInicio<=dataISO) vig=h; else break; }
+  const v=vig||hist[0];
+  return v.id || v.dataInicio || '__base__';
+}
+// Divide a competência em SEGMENTOS por período de lotação. Cada segmento traz a
+// lotação vigente e quantos dias previstos/pagos caem nele — base do cálculo de
+// salário/insalubridade/acúmulo POR PERÍODO. Atestados (pagos) são distribuídos
+// proporcionalmente aos dias previstos de cada segmento.
+function _segmentosLotacao(emp, mes, ano, pontoDias, atestDias){
+  const pmap={}; (pontoDias||[]).forEach(d=>{ if(d&&d.dia!=null) pmap[d.dia]=d; });
+  const segs=new Map();
+  for(const cd of _compDias(mes,ano)){
+    const iso=`${cd.ano}-${String(cd.mes).padStart(2,'0')}-${String(cd.dia).padStart(2,'0')}`;
+    const exp=_getExpectedDay(emp, cd.mes, cd.ano, cd.dia);
+    const previsto=!!(exp && exp.tipo!=='folga' && exp.entrada);
+    const pd=pmap[cd.dia];
+    const trabalhou=!!(pd && pd.entrada && pd.saida);
+    const key=_lotacaoKeyEm(emp, iso);
+    if(!segs.has(key)) segs.set(key,{ key, lot:_lotacaoEm(emp, iso), diasPrevistos:0, diasPagos:0, ini:iso, fim:iso });
+    const s=segs.get(key);
+    if(previsto) s.diasPrevistos++;
+    if(trabalhou) s.diasPagos++;            // qualquer dia trabalhado (folga vira HE; o teto é os previstos)
+    s.fim=iso;
+  }
+  const arr=[...segs.values()];
+  // Distribui os dias de atestado (pagos) proporcionalmente aos previstos.
+  const atest=parseInt(atestDias)||0;
+  if(atest>0){
+    const prevTot=arr.reduce((s,x)=>s+x.diasPrevistos,0);
+    if(prevTot>0) arr.forEach(s=>{ s.diasPagos += Math.round(atest*s.diasPrevistos/prevTot); });
+  }
+  // Dias pagos do segmento não passam dos previstos dele (excedente vira HE).
+  arr.forEach(s=>{ s.diasPagos=Math.min(s.diasPrevistos, s.diasPagos); });
+  return arr;
+}
 
 function _getExpectedDay(emp, mes, ano, dia){
   if(!emp) return null;
@@ -15903,6 +15966,39 @@ function _avisoFolhaImpressa(diasTrabalhados, mes, ano){
   return '';
 }
 
+// Box na folha impressa listando os períodos de lotação quando há transferência
+// dentro da competência (valores são apurados por período). Vazio se não houver.
+function _segmentosLotacaoHtml(emp, mes, ano){
+  if(!emp || !Array.isArray(emp.historicoLotacao) || !emp.historicoLotacao.length) return '';
+  const keys=new Set();
+  for(const cd of _compDias(mes,ano)){
+    const iso=`${cd.ano}-${String(cd.mes).padStart(2,'0')}-${String(cd.dia).padStart(2,'0')}`;
+    keys.add(_lotacaoKeyEm(emp, iso));
+  }
+  if(keys.size<2) return '';
+  const segs=_segmentosLotacao(emp, mes, ano, [], 0);
+  const linhas=segs.map(s=>`<tr>
+      <td style="border:1px solid #B39DDB;padding:3px 6px">${formatDateBr(s.ini)} a ${formatDateBr(s.fim)}</td>
+      <td style="border:1px solid #B39DDB;padding:3px 6px">${s.lot.posto||'—'}</td>
+      <td style="border:1px solid #B39DDB;padding:3px 6px">${s.lot.cargo||'—'}</td>
+      <td style="border:1px solid #B39DDB;padding:3px 6px">${s.lot.escala||'—'} · ${s.lot.turnoNoturno?'Noturno':'Diurno'}</td>
+      <td style="border:1px solid #B39DDB;padding:3px 6px;text-align:right">${fmtMoney(s.lot.salarioBase||0)}</td>
+    </tr>`).join('');
+  return `<div style="margin:8px 0;padding:8px 10px;background:#EDE7F6;border:1.5px solid #B39DDB;border-radius:4px">
+    <strong style="color:#5E35B1;font-size:11px"><i class="fa-solid fa-right-left"></i> MUDANÇA DE LOTAÇÃO NO PERÍODO</strong>
+    <span style="font-size:10px;color:#5E35B1"> — salário/insalubridade/acúmulo e adicional noturno apurados por período:</span>
+    <table style="width:100%;border-collapse:collapse;font-size:10px;margin-top:4px">
+      <thead><tr style="background:#D1C4E9">
+        <th style="border:1px solid #B39DDB;padding:3px 6px;text-align:left">Período</th>
+        <th style="border:1px solid #B39DDB;padding:3px 6px;text-align:left">Posto</th>
+        <th style="border:1px solid #B39DDB;padding:3px 6px;text-align:left">Função</th>
+        <th style="border:1px solid #B39DDB;padding:3px 6px;text-align:left">Escala/Turno</th>
+        <th style="border:1px solid #B39DDB;padding:3px 6px;text-align:right">Salário</th>
+      </tr></thead><tbody>${linhas}</tbody>
+    </table>
+  </div>`;
+}
+
 // ============================================
 // IMPRIMIR FOLHA DE PONTO
 // ============================================
@@ -16083,6 +16179,7 @@ ${isPreview?`<div class="preview-banner">
 </div>
 
 ${_avisoFolhaImpressa(diasTrabalhados, mes, ano)}
+${_segmentosLotacaoHtml(emp, mes, ano)}
 
 <h2>Resumo do Período</h2>
 <div class="resumo-bar">
@@ -16321,6 +16418,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
 </div>
 
 ${_avisoFolhaImpressa(diasTrabalhados, mes, ano)}
+${_segmentosLotacaoHtml(emp, mes, ano)}
 
 <h2>Resumo do Período</h2>
 <div class="resumo-bar">

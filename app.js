@@ -15976,16 +15976,31 @@ const HE_TOLERANCIA_DIA_MIN    = 10;
 // 12x36: dia da âncora = trabalho, +1 = folga, +2 = trabalho... Retorna
 // null quando não há âncora ou a data é anterior a ela (indeterminado).
 function _ciclo12x36EhTrabalho(emp, ano, mes, dia){
-  const ini = emp && emp.ciclo12x36Inicio;
+  if(!emp) return null;
+  // Procura âncora vigente: SEGMENTO da lotação (ciclo12x36Inicio do segmento,
+  // ou dataInicio dele como fallback) → cadastro principal. Necessário quando
+  // há transferência entre 12x36 diurno e noturno: a paridade do ciclo pode
+  // inverter entre os segmentos e uma única âncora global manda a escala
+  // antiga pro lado errado (todos os dias trabalhados viram "folga trabalhada"
+  // → HE indevida em lote).
+  const ymd = `${ano}-${String(mes).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
+  let ini = null;
+  const hist = (emp.historicoLotacao||[]).filter(h=>h && h.dataInicio)
+    .sort((a,b)=>a.dataInicio.localeCompare(b.dataInicio));
+  if(hist.length){
+    let vig=null;
+    for(const h of hist){ if(h.dataInicio<=ymd) vig=h; else break; }
+    if(vig) ini = vig.ciclo12x36Inicio || vig.dataInicio;
+  }
+  if(!ini) ini = emp.ciclo12x36Inicio;
   if(!ini) return null;
   const dAnchor = new Date(ini + 'T00:00:00');
   if(isNaN(dAnchor.getTime())) return null;
   const dAlvo = new Date(ano, mes-1, dia);
   const diff = Math.round((dAlvo - dAnchor) / 86400000);
-  // Âncora = referência de PARIDADE do ciclo (não "1º dia de trabalho"): a
-  // alternância trabalha/folga vale nos DOIS sentidos a partir dela, então a
-  // escala pode ser re-ancorada no meio do contrato. O recorte de "antes da
-  // admissão" é tratado à parte em _getExpectedDay/_diaEmBrancoEhFalta.
+  // Âncora = referência de PARIDADE do ciclo: alternância vale nos DOIS sentidos
+  // a partir dela. O recorte de "antes da admissão" é tratado à parte em
+  // _getExpectedDay/_diaEmBrancoEhFalta.
   return ((((diff % 2) + 2) % 2) === 0);
 }
 

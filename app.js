@@ -5773,6 +5773,11 @@ function _semanasTrabalhadas(dias, escala){
 let _beneficioTabAtual = 'hoje';
 let _beneficioCustomIni = '';
 let _beneficioCustomFim = '';
+// Filtro de canal ativo: null (todos), 'vt' (Cartão VT), 'vr' (Cartão VR),
+// 'dinheiro' (PIX/Dinheiro) ou 'bp' (Boa Permanência). Quando ativo, a lista
+// principal só mostra colaboradores do canal selecionado e o banner do filtro
+// expõe atalhos de impressão/exportação.
+let _beneficioCanalFiltro = null;
 
 // Entrada legada (dashboard tile / botões antigos): redireciona pra seção dedicada.
 function openBeneficiosPagar(){
@@ -5806,6 +5811,32 @@ function switchBeneficioTab(tab){
 }
 
 // Aplica o range personalizado escolhido nos inputs de data.
+// Liga o filtro de canal (vt/vr/dinheiro/bp). Re-renderiza a lista — só os
+// colaboradores que recebem por esse canal aparecem. Banner com atalhos de
+// impressão e botão "Limpar" aparece acima da lista.
+function _benefAplicarFiltroCanal(canal){
+  // Para BP, exige aba "Este Período" — em outras abas o BP fica 0.
+  if(canal === 'bp' && (_beneficioTabAtual||'hoje') !== 'mes'){
+    toast('Boa Permanência só é apurada por competência — use a aba "Este Período".','warning');
+    return;
+  }
+  // Toggle: clicar no mesmo filtro ativo desliga.
+  if(_beneficioCanalFiltro === canal){
+    _beneficioCanalFiltro = null;
+  } else {
+    _beneficioCanalFiltro = canal;
+  }
+  renderBeneficiosLista();
+  // Feedback rápido: scroll pro topo da lista pra checar visualmente.
+  const info = document.getElementById('benef-info');
+  if(info) info.scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+function _benefLimparFiltroCanal(){
+  _beneficioCanalFiltro = null;
+  renderBeneficiosLista();
+}
+
 function _benefAplicarCustom(){
   const ini = val('benef-custom-ini');
   const fim = val('benef-custom-fim');
@@ -5975,6 +6006,23 @@ function renderBeneficiosLista(){
   linhas.sort((a,b) => (a.emp.nome||'').localeCompare(b.emp.nome||''));
   sem.sort((a,b) => (a.emp.nome||'').localeCompare(b.emp.nome||''));
   semBP.sort((a,b) => (a.emp.nome||'').localeCompare(b.emp.nome||''));
+  // Filtro de canal ativo: deixa só os colaboradores que recebem por esse
+  // canal. Os blocos "sem benefício" e "perdeu BP" também são suprimidos
+  // pra reduzir ruído visual — voltam quando o filtro é limpo.
+  if(_beneficioCanalFiltro){
+    const matchesFilter = l => {
+      if(_beneficioCanalFiltro === 'vt') return (l.b.valorCartaoVT||0) > 0;
+      if(_beneficioCanalFiltro === 'vr') return (l.b.valorCartaoVR||0) > 0;
+      if(_beneficioCanalFiltro === 'dinheiro') return (l.b.valorDinheiro||0) > 0;
+      if(_beneficioCanalFiltro === 'bp') return (l.b.bpValor||0) > 0;
+      return true;
+    };
+    for(let i=linhas.length-1; i>=0; i--){
+      if(!matchesFilter(linhas[i])) linhas.splice(i,1);
+    }
+    sem.length = 0;
+    if(_beneficioCanalFiltro !== 'bp') semBP.length = 0;
+  }
   // Total CALCULADO (todos) e Total A PAGAR (exclui pago/pendente — esses já
   // estão na esteira). Pago = soma do valor JÁ pago; Pendente = soma do que
   // está em aprovação. Recusado/estornado entram no "a pagar" pois precisam
@@ -5999,7 +6047,36 @@ function renderBeneficiosLista(){
   const totalBPAPagar = linhas.reduce((s,l)=>s + (isLiquidado(l.stat)?0:(l.b.bpValor||0)),0);
   const cntPago     = linhas.filter(l=>l.stat && l.stat.status==='pago').length;
   const cntPendente = linhas.filter(l=>l.stat && l.stat.status==='pendente').length;
-  document.getElementById('benef-info').innerHTML =
+  // Banner do FILTRO DE CANAL ativo (mostra acima do info). Tem atalhos pra
+  // exportar/imprimir SÓ o canal filtrado + botão limpar.
+  const filtroBanner = (() => {
+    if(!_beneficioCanalFiltro) return '';
+    const CFG = {
+      vt:       { titulo:'Cartão VT', icon:'fa-bus', cor:'#1565C0', bg:'#E3F2FD', exp:'vt' },
+      vr:       { titulo:'Cartão VR', icon:'fa-utensils', cor:'#E65100', bg:'#FFF3E0', exp:'vr' },
+      dinheiro: { titulo:'Dinheiro/PIX', icon:'fa-brands fa-pix', cor:'#2E7D32', bg:'#E8F5E9', exp:'dinheiro' },
+      bp:       { titulo:'Boa Permanência', icon:'fa-medal', cor:'#F57F17', bg:'#FFF9C4', exp:'bp' },
+    }[_beneficioCanalFiltro] || null;
+    if(!CFG) return '';
+    const totalFiltro = linhas.reduce((s,l)=>s + (
+      _beneficioCanalFiltro === 'vt' ? (l.b.valorCartaoVT||0) :
+      _beneficioCanalFiltro === 'vr' ? (l.b.valorCartaoVR||0) :
+      _beneficioCanalFiltro === 'dinheiro' ? (l.b.valorDinheiro||0) :
+      _beneficioCanalFiltro === 'bp' ? (l.b.bpValor||0) : 0
+    ), 0);
+    const expFn = _beneficioCanalFiltro === 'bp' ? 'exportBeneficiosBP' : `exportBeneficiosCanal('${CFG.exp}',`;
+    const fnClose = _beneficioCanalFiltro === 'bp' ? '' : ')';
+    return `<div style="background:${CFG.bg};border:2px solid ${CFG.cor};padding:10px 14px;border-radius:6px;margin-bottom:10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <span style="font-weight:700;color:${CFG.cor};font-size:14px"><i class="fa-solid ${CFG.icon}"></i> Filtro: ${CFG.titulo}</span>
+      <span style="color:${CFG.cor};font-weight:600">${linhas.length} colaborador(es) &middot; ${fmtMoney(totalFiltro)}</span>
+      <span style="flex:1"></span>
+      <button class="btn btn-sm btn-outline" onclick="${expFn}'print'${fnClose})" style="border-color:${CFG.cor};color:${CFG.cor};font-size:12px"><i class="fa-solid fa-print"></i> Imprimir</button>
+      <button class="btn btn-sm btn-outline" onclick="${expFn}'pdf'${fnClose})" style="border-color:#C62828;color:#C62828;font-size:12px"><i class="fa-solid fa-file-pdf"></i> PDF</button>
+      <button class="btn btn-sm btn-outline" onclick="${expFn}'excel'${fnClose})" style="font-size:12px"><i class="fa-solid fa-file-excel" style="color:#1B5E20"></i> Excel</button>
+      <button class="btn btn-sm btn-outline" onclick="_benefLimparFiltroCanal()" style="border-color:#9E9E9E;color:#616161;font-size:12px"><i class="fa-solid fa-xmark"></i> Limpar</button>
+    </div>`;
+  })();
+  document.getElementById('benef-info').innerHTML = filtroBanner +
     `${periodoLabel} &middot; <strong>${linhas.length}</strong> colaborador(es) &middot; A pagar: <strong style="color:#0288D1">${fmtMoney(totalAPagar)}</strong>` +
     (cntPago>0||cntPendente>0
       ? ` &middot; <span style="color:#2E7D32" title="Já registrado como pago"><i class="fa-solid fa-circle-check"></i> Pago: ${fmtMoney(totalPago)} (${cntPago})</span>` +

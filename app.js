@@ -5800,12 +5800,15 @@ function switchBeneficioTab(tab){
   // Range de datas só aparece na aba "Personalizado".
   const rng = document.getElementById('benef-custom-range');
   if(rng) rng.style.display = (tab==='custom') ? 'flex' : 'none';
-  if(tab==='custom' && !_beneficioCustomIni){
-    // Default: últimos 7 dias até hoje, pra dar uma sugestão de partida.
-    const hoje = new Date(); const isoH = hoje.toISOString().substring(0,10);
-    const ant = new Date(hoje.getTime() - 6*86400000).toISOString().substring(0,10);
-    _beneficioCustomIni = ant; _beneficioCustomFim = isoH;
-    setVal('benef-custom-ini', ant); setVal('benef-custom-fim', isoH);
+  if(tab==='custom'){
+    if(!_beneficioCustomIni){
+      // Default: últimos 7 dias até hoje, pra dar uma sugestão de partida.
+      const hoje = new Date(); const isoH = hoje.toISOString().substring(0,10);
+      const ant = new Date(hoje.getTime() - 6*86400000).toISOString().substring(0,10);
+      _beneficioCustomIni = ant; _beneficioCustomFim = isoH;
+      setVal('benef-custom-ini', ant); setVal('benef-custom-fim', isoH);
+    }
+    _benefMontarDropdownCompetencias();
   }
   renderBeneficiosLista();
 }
@@ -5815,10 +5818,14 @@ function switchBeneficioTab(tab){
 // colaboradores que recebem por esse canal aparecem. Banner com atalhos de
 // impressão e botão "Limpar" aparece acima da lista.
 function _benefAplicarFiltroCanal(canal){
-  // Para BP, exige aba "Este Período" — em outras abas o BP fica 0.
-  if(canal === 'bp' && (_beneficioTabAtual||'hoje') !== 'mes'){
-    toast('Boa Permanência só é apurada por competência — use a aba "Este Período".','warning');
-    return;
+  // Para BP, exige aba "Este Período" OU Personalizado com range = competência.
+  if(canal === 'bp'){
+    const tab = _beneficioTabAtual||'hoje';
+    const okCustom = tab === 'custom' && _compFromRange(_beneficioCustomIni, _beneficioCustomFim);
+    if(tab !== 'mes' && !okCustom){
+      toast('Boa Permanência só é apurada por competência. Use a aba "Este Período" ou ajuste o Personalizado para um range 26→25.','warning');
+      return;
+    }
   }
   // Toggle: clicar no mesmo filtro ativo desliga.
   if(_beneficioCanalFiltro === canal){
@@ -5835,6 +5842,47 @@ function _benefAplicarFiltroCanal(canal){
 function _benefLimparFiltroCanal(){
   _beneficioCanalFiltro = null;
   renderBeneficiosLista();
+}
+
+// Popula o <select> "Carregar competência" do Personalizado com TODAS as
+// competências de payrolls (atual + 24 últimas, sem duplicar). Permite ao
+// usuário pular pra qualquer competência passada sem digitar datas.
+function _benefMontarDropdownCompetencias(){
+  const sel = document.getElementById('benef-custom-competencia');
+  if(!sel) return;
+  // Coleta competências de payrolls salvas
+  const setComp = new Set();
+  (State.payrolls||[]).forEach(p => {
+    if(p.mes && p.ano) setComp.add(`${p.ano}-${String(p.mes).padStart(2,'0')}`);
+  });
+  // Adiciona competência ATUAL e as próximas 24 retroativas como sugestão
+  const d = new Date();
+  let m = d.getMonth()+1, a = d.getFullYear();
+  for(let i=0; i<24; i++){
+    setComp.add(`${a}-${String(m).padStart(2,'0')}`);
+    m--; if(m<1){ m=12; a--; }
+  }
+  // Ordena DESC (mais recente primeiro)
+  const lista = [...setComp].sort((x,y) => y.localeCompare(x));
+  sel.innerHTML = '<option value="">— Selecione —</option>' + lista.map(k => {
+    const [yy, mm] = k.split('-').map(n=>parseInt(n));
+    const lbl = `${MESES[mm]}/${yy} (${_compLabel(mm, yy)})`;
+    return `<option value="${k}">${lbl}</option>`;
+  }).join('');
+}
+
+// Quando o usuário escolhe uma competência no dropdown, preenche as datas
+// e aplica o filtro automaticamente.
+function _benefPreencherCompetencia(valor){
+  if(!valor) return;
+  const [aStr, mStr] = valor.split('-');
+  const a = parseInt(aStr), m = parseInt(mStr);
+  const per = _compPeriodo(m, a);
+  const iniEl = document.getElementById('benef-custom-ini');
+  const fimEl = document.getElementById('benef-custom-fim');
+  if(iniEl) iniEl.value = per.deISO;
+  if(fimEl) fimEl.value = per.ateISO;
+  _benefAplicarCustom();
 }
 
 function _benefAplicarCustom(){
@@ -5858,6 +5906,22 @@ function _benefAplicarCustom(){
     setTimeout(()=>{ info.style.backgroundColor = oldBg; }, 600);
     info.scrollIntoView({behavior:'smooth', block:'nearest'});
   }
+}
+
+// Detecta se um range (iniISO, fimISO) bate EXATAMENTE com uma competência
+// (26 do mês anterior → 25 do mês). Retorna {mPag, aPag} ou null.
+// Permite consultar/exportar benefícios de qualquer competência PASSADA pela
+// aba Personalizado — basta o usuário preencher 26/M-1 a 25/M.
+function _compFromRange(iniISO, fimISO){
+  if(!iniISO || !fimISO) return null;
+  const dIni = new Date(iniISO + 'T12:00:00');
+  const dFim = new Date(fimISO + 'T12:00:00');
+  if(isNaN(dIni.getTime()) || isNaN(dFim.getTime())) return null;
+  if(dIni.getDate() !== 26 || dFim.getDate() !== 25) return null;
+  const mFim = dFim.getMonth()+1, aFim = dFim.getFullYear();
+  const per = _compPeriodo(mFim, aFim);
+  if(per.deISO !== iniISO || per.ateISO !== fimISO) return null;
+  return { mPag: mFim, aPag: aFim };
 }
 
 // Chave de competência usada pra DEDUP/STATUS de pagamento de benefícios.
@@ -5950,15 +6014,26 @@ function renderBeneficiosLista(){
   // Colaboradores ativos que perderam a Boa Permanência (independente de ter
   // VT/VR/VA). Lista em bloco próprio pra dar visibilidade do "motivo".
   const semBP = [];
-  // Para a aba "Este Mês" (prospectivo), pré-computa o par {pag,uso} uma vez
-  // pra reaproveitar no loop sem recomputar a cada colaborador.
-  const _ctxMes = (tab === 'mes') ? (() => {
+  // Para a aba "Este Período" (prospectivo), pré-computa o par {pag,uso} uma
+  // vez pra reaproveitar no loop sem recomputar a cada colaborador.
+  // Para "Personalizado", se o range bater EXATAMENTE com uma competência
+  // (26→25), também usa o cálculo prospectivo — assim o usuário consulta
+  // qualquer competência PASSADA pela aba Personalizado, com BP e tudo.
+  let _ctxMes = null;
+  if(tab === 'mes'){
     const d = new Date();
     const mPag = d.getMonth()+1, aPag = d.getFullYear();
     let mUso = mPag+1, aUso = aPag;
     if(mUso>12){ mUso=1; aUso++; }
-    return { mPag, aPag, mUso, aUso };
-  })() : null;
+    _ctxMes = { mPag, aPag, mUso, aUso };
+  } else if(tab === 'custom'){
+    const cp = _compFromRange(_beneficioCustomIni, _beneficioCustomFim);
+    if(cp){
+      // Consulta histórica: mUso = mPag (a folha que está sendo apurada). BP
+      // vem da própria folha; faltas idem.
+      _ctxMes = { mPag: cp.mPag, aPag: cp.aPag, mUso: cp.mPag, aUso: cp.aPag };
+    }
+  }
   // Chave de competência (mesma usada por pagar*/dedup). Pra cada colaborador,
   // olha se já tem solicitação paga/pendente/recusada/estornada e marca a linha
   // — não some da lista (evita pagamento em dobro).
@@ -6430,15 +6505,25 @@ async function pagarBoaPermanencia(){
     toast('Sem permissão para lançar pagamentos.','error'); return;
   }
   const tab = _beneficioTabAtual || 'hoje';
-  if(tab !== 'mes'){
-    toast('Boa Permanência só é apurada no fechamento da competência — use a aba "Este Período".','warning');
+  // Aceita "Este Período" OU Personalizado com range válido de competência.
+  let cMes, cAno;
+  if(tab === 'mes'){
+    const d=new Date(); cMes=d.getMonth()+1; cAno=d.getFullYear();
+  } else if(tab === 'custom'){
+    const cp = _compFromRange(_beneficioCustomIni, _beneficioCustomFim);
+    if(!cp){
+      toast('Personalizado: ajuste para um range 26→25 (uma competência completa) pra pagar BP.','warning');
+      return;
+    }
+    cMes = cp.mPag; cAno = cp.aPag;
+  } else {
+    toast('Boa Permanência só é apurada por competência — use a aba "Este Período" ou Personalizado com range 26→25.','warning');
     return;
   }
   const chks=[...document.querySelectorAll('.benef-chk:checked')];
   if(!chks.length){ toast('Marque ao menos um colaborador.','info'); return; }
 
   const hojeISO = new Date().toISOString().substring(0,10);
-  const d=new Date(); const cMes=d.getMonth()+1, cAno=d.getFullYear();
   const per=_compPeriodo(cMes,cAno);
   const ini=per.deISO, fim=per.ateISO;
   const periodoLabel=`Competência ${MESES[cMes]}/${cAno} (${_compLabel(cMes,cAno)})`;
@@ -6446,7 +6531,8 @@ async function pagarBoaPermanencia(){
 
   // Pega bpValor real de cada colaborador (não confia só em data-valor-total)
   const cMesPag=cMes, aMesPag=cAno;
-  let mUso = cMesPag+1, aUso = cAno;
+  let mUso = (tab === 'custom') ? cMes : cMes+1;  // histórica: mUso=mPag; corrente: mUso=mPag+1
+  let aUso = cAno;
   if(mUso>12){ mUso=1; aUso=cAno+1; }
   const itens = [];
   for(const c of chks){
@@ -6838,13 +6924,23 @@ function exportBeneficiosCanal(canal, formato){
 // competência). Em outras abas avisa e aborta.
 function exportBeneficiosBP(formato){
   const tab = _beneficioTabAtual || 'hoje';
-  if(tab !== 'mes'){
-    toast('Boa Permanência só é apurada no fechamento da competência — use a aba "Este Período".','warning');
+  let mPag, aPag;
+  if(tab === 'mes'){
+    const d = new Date();
+    mPag = d.getMonth()+1; aPag = d.getFullYear();
+  } else if(tab === 'custom'){
+    const cp = _compFromRange(_beneficioCustomIni, _beneficioCustomFim);
+    if(!cp){
+      toast('Personalizado: ajuste para um range 26→25 (uma competência completa) pra exportar BP.','warning');
+      return;
+    }
+    mPag = cp.mPag; aPag = cp.aPag;
+  } else {
+    toast('Boa Permanência só é apurada por competência — use a aba "Este Período" ou Personalizado com range 26→25.','warning');
     return;
   }
-  const d = new Date();
-  const mPag = d.getMonth()+1, aPag = d.getFullYear();
-  let mUso = mPag+1, aUso = aPag;
+  let mUso = (tab === 'custom') ? mPag : mPag+1;   // histórica: mUso=mPag
+  let aUso = aPag;
   if(mUso>12){ mUso=1; aUso++; }
   const periodoLabel = `Competência ${MESES[mPag]}/${aPag} (${_compLabel(mPag,aPag)})`;
   const elegiveis = [];

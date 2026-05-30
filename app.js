@@ -6881,20 +6881,11 @@ function _calcBeneficiosColab(emp, dataInicioISO, dataFimISO, escopo){
         : (empE.valorDiarioVr || 0) * diasVr;
     }
   }
-  // VA — mensal fixo, proporcional aos dias trabalhados no período:
-  //   vaDia = valorMensalVa / diasÚteisDoMês  (mês do início do período).
-  //   Hoje: 1 dia se trabalhou · Semana/Personalizado: vaDia × diasVt.
-  // No escopo 'mes' o valor cheio é alcançado quando trabalha o mês todo.
+  // VA — mensal fixo (cartão alimentação creditado uma vez no mês). NÃO é
+  // proporcional a dias trabalhados (geraria valores quebrados sem sentido).
+  // Só aparece na aba "Este Mês" (via _calcBeneficiosColabPrevisto). Aqui
+  // mantém vaValor=0 e expõe vaMensal só pra referência/tooltip.
   if((empE.valorMensalVa||0) > 0){
-    const _d   = new Date(dataInicioISO + 'T12:00:00');
-    const _mes = _d.getMonth()+1, _ano = _d.getFullYear();
-    const diasUteis = _diasUteisMes(_mes, _ano) || 22;
-    const vaDia = (empE.valorMensalVa||0) / diasUteis;
-    if(escopo === 'dia'){
-      out.vaValor = (diasVt > 0) ? vaDia : 0;
-    } else {
-      out.vaValor = vaDia * diasVt;
-    }
     out.vaMensal = empE.valorMensalVa||0;
   }
   // Boa Permanência é paga NO VR (benefício, mensal). Só entra na visão MÊS e

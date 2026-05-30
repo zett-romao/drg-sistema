@@ -5813,14 +5813,19 @@ function renderBeneficiosLista(){
     escopo = 'dia';
     periodoLabel = `<strong>Hoje (${new Date().toLocaleDateString('pt-BR')})</strong>`;
   } else if(tab === 'mes'){
-    // Competência paga no fim deste mês = a rotulada pelo mês de calendário atual
-    // (fecha no dia 25). Período 26/(mês-1) → 25/mês.
+    // VT/VR ADIANTADOS: pagamento até o fim do mês ATUAL cobre o USO na
+    // competência SEGUINTE (Lei 7.418/85 e modelo padrão do mercado p/ VR).
+    // Cálculo prospectivo pela ESCALA do mês de uso; faltas injustificadas
+    // do mês atual descontam do próximo crédito.
     const d = new Date();
-    const cMes = d.getMonth()+1, cAno = d.getFullYear();
-    const per = _compPeriodo(cMes, cAno);
-    ini = per.deISO; fim = per.ateISO;
+    const mPag = d.getMonth()+1, aPag = d.getFullYear();
+    let mUso = mPag+1, aUso = aPag;
+    if(mUso>12){ mUso=1; aUso++; }
+    const perUso = _compPeriodo(mUso, aUso);
+    ini = perUso.deISO; fim = perUso.ateISO;
     escopo = 'mes';
-    periodoLabel = `<strong>Competência ${MESES[cMes]}/${cAno} — ${_compLabel(cMes,cAno)}</strong>`;
+    const ultDiaPag = new Date(aPag, mPag, 0).toLocaleDateString('pt-BR');
+    periodoLabel = `<strong>Pagar até ${ultDiaPag} — uso na Competência ${MESES[mUso]}/${aUso} (${_compLabel(mUso,aUso)})</strong>`;
   } else {
     const s = _semanaDe(hojeISO);
     ini = s.inicio; fim = s.fim;
@@ -5829,11 +5834,26 @@ function renderBeneficiosLista(){
   }
   // Coleta colaboradores ativos com algum dia trabalhado no período
   const linhas = [];
+  // Para a aba "Este Mês" (prospectivo), pré-computa o par {pag,uso} uma vez
+  // pra reaproveitar no loop sem recomputar a cada colaborador.
+  const _ctxMes = (tab === 'mes') ? (() => {
+    const d = new Date();
+    const mPag = d.getMonth()+1, aPag = d.getFullYear();
+    let mUso = mPag+1, aUso = aPag;
+    if(mUso>12){ mUso=1; aUso++; }
+    return { mPag, aPag, mUso, aUso };
+  })() : null;
   (State.employees||[])
     .filter(e => (e.status||'ativo') === 'ativo')
     .forEach(e => {
-      const b = _calcBeneficiosColab(e, ini, fim, escopo);
-      if(b.total > 0) linhas.push({ emp:e, b });
+      const b = _ctxMes
+        ? _calcBeneficiosColabPrevisto(e, _ctxMes.mUso, _ctxMes.aUso, _ctxMes.mPag, _ctxMes.aPag)
+        : _calcBeneficiosColab(e, ini, fim, escopo);
+      // Inclui linhas com desconto ou cheio (sem valor a pagar) pra dar
+      // transparência ao gestor — não esconde colaborador sem benefício.
+      if(b.total > 0 || (b.descVT||0)+(b.descVR||0) > 0 || (b.vtCheio||0)+(b.vrCheio||0) > 0) {
+        linhas.push({ emp:e, b });
+      }
     });
   linhas.sort((a,b) => (a.emp.nome||'').localeCompare(b.emp.nome||''));
   const totalGeral = linhas.reduce((s,l)=>s+l.b.total,0);
@@ -5891,8 +5911,8 @@ function renderBeneficiosLista(){
       <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7"><strong style="color:var(--primary)">${emp.nome}</strong><br><small style="color:var(--text-muted)">${emp.setor||'—'}</small></td>
       <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7;font-size:11px">${posto}</td>
       <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7;font-size:11px">${periodoCol}</td>
-      <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap">${vtIcon} ${b.vtValor>0?`<span style="color:var(--text-muted);font-size:11px">${b.diasVt}d ·</span> ${fmtMoney(b.vtValor)} ${cBadge(b.vtCanal)}`:'—'}</td>
-      <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap"><i class="fa-solid fa-utensils" style="color:#ff8a65"></i> ${b.vrValor>0?`<span style="color:#ff8a65;font-size:11px">${b.diasVr}d ·</span> ${fmtMoney(b.vrValor)} ${cBadge(b.vrCanal)}`:'—'}</td>
+      <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap">${vtIcon} ${b.vtValor>0?`<span style="color:var(--text-muted);font-size:11px">${b.diasVt}d ·</span> ${fmtMoney(b.vtValor)}${b.descVT>0?` <small style="color:#C62828" title="Desconto de ${b.faltasInjAnterior||0} falta(s) inj. anterior">(-${fmtMoney(b.descVT)})</small>`:''} ${cBadge(b.vtCanal)}`:(b.descVT>0?`<small style="color:#C62828" title="${b.faltasInjAnterior||0} falta(s) consumiram o crédito">${b.diasVt}d · ${fmtMoney(b.vtCheio||0)} −${fmtMoney(b.descVT)}</small>`:'—')}</td>
+      <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap"><i class="fa-solid fa-utensils" style="color:#ff8a65"></i> ${b.vrValor>0?`<span style="color:#ff8a65;font-size:11px">${b.diasVr}d ·</span> ${fmtMoney(b.vrValor)}${b.descVR>0?` <small style="color:#C62828" title="Desconto de ${b.faltasInjAnterior||0} falta(s) inj. anterior">(-${fmtMoney(b.descVR)})</small>`:''} ${cBadge(b.vrCanal)}`:(b.descVR>0?`<small style="color:#C62828" title="${b.faltasInjAnterior||0} falta(s) consumiram o crédito">${b.diasVr}d · ${fmtMoney(b.vrCheio||0)} −${fmtMoney(b.descVR)}</small>`:'—')}</td>
       <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;font-weight:700;color:#0288D1">${fmtMoney(b.total)}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7;font-size:11px;font-family:monospace;color:#00695C">${pix}</td>
       <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7"><button class="btn-icon" onclick="event.stopPropagation();openBeneficioDetalhe('${emp.id}','${escopo}','${ini}','${fim}')" title="Ver planilha individual"><i class="fa-solid fa-clipboard-list" style="color:#0288D1"></i></button></td>
@@ -6539,6 +6559,63 @@ function _calcBeneficiosColab(emp, dataInicioISO, dataFimISO, escopo){
   out.valorDinheiro = (out.vtCanal === 'dinheiro' ? out.vtValor : 0)
                     + (out.vrCanal === 'dinheiro' ? out.vrValor : 0);
   return out;
+}
+
+// ============================================================
+// BENEFÍCIOS PROSPECTIVOS (VT/VR pagos ANTECIPADO p/ uso no mês seguinte)
+// VT (Lei 7.418/85) e VR (CCT padrão) são fornecidos pelo empregador ANTES
+// do mês de uso — base = dias previstos pela escala no mês de uso. As faltas
+// injustificadas do mês ANTERIOR descontam do crédito do mês seguinte
+// (acerto de contas padrão do mercado).
+// ============================================================
+function _calcBeneficiosColabPrevisto(emp, mUso, aUso, mPag, aPag){
+  const empE = State.employees.find(e=>e.id===emp.id) || emp;
+  const diasVt = _diasPrevistosEscala(empE, mUso, aUso);
+  const diasVr = _diasPrevistosComVR(empE, mUso, aUso);
+  const semVt  = _semanasTrabalhadas(diasVt, empE.escala);
+  const semVr  = _semanasTrabalhadas(diasVr, empE.escala);
+  const vtTipo = empE.tipoTransporte || 'vt';
+  const vtFreq = empE.vtFreq || 'diario';
+  const vrFreq = empE.vrFreq || 'diario';
+  let vtCheio = 0;
+  if(vtTipo !== 'nao' && empE.valorDiarioVt){
+    vtCheio = (vtFreq === 'semanal')
+      ? (semVt > 0 ? empE.valorDiarioVt * semVt : 0)
+      : empE.valorDiarioVt * diasVt;
+  }
+  let vrCheio = 0;
+  if(empE.valorDiarioVr){
+    vrCheio = (vrFreq === 'semanal')
+      ? (semVr > 0 ? empE.valorDiarioVr * semVr : 0)
+      : empE.valorDiarioVr * diasVr;
+  }
+  // Desconto: faltas injustificadas da competência ATUAL (que está fechando).
+  // Se a folha ainda não está fechada, usa o valor atual (parcial).
+  const payAtual = (State.payrolls||[]).find(p=>p.employeeId===empE.id&&p.mes==mPag&&p.ano==aPag);
+  const faltasInj = (payAtual?.faltasInjustificadas)||0;
+  const descVT = Math.min(vtCheio, faltasInj * (empE.valorDiarioVt||0));
+  const descVR = Math.min(vrCheio, faltasInj * (empE.valorDiarioVr||0));
+  // Bonificação (Boa Permanência) da competência fechada entra junto no VR.
+  const bonusVr = (payAtual && payAtual.status==='fechada') ? (payAtual.bonificacao||0) : 0;
+  const vtValor = Math.max(0, vtCheio - descVT);
+  const vrValor = Math.max(0, vrCheio - descVR) + bonusVr;
+  const total = vtValor + vrValor;
+  const vtCanal = empE.vtCanal || 'cartao';
+  const vrCanal = empE.vrCanal || 'cartao';
+  return {
+    dias: diasVt, diasVt, diasVr,
+    semanas: semVt, semanasVr: semVr,
+    vtTipo, vtFreq, vrFreq,
+    vtCheio, vrCheio,
+    descVT, descVR, faltasInjAnterior: faltasInj,
+    bonusVr,
+    vtValor, vrValor,
+    total,
+    vtCanal, vrCanal,
+    valorCartaoVT: (vtCanal === 'cartao') ? vtValor : 0,
+    valorCartaoVR: (vrCanal === 'cartao') ? vrValor : 0,
+    valorDinheiro: (vtCanal === 'dinheiro' ? vtValor : 0) + (vrCanal === 'dinheiro' ? vrValor : 0)
+  };
 }
 
 // ============================================================

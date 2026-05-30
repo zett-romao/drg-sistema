@@ -6574,10 +6574,35 @@ async function marcarBeneficiosPagoManual(){
 // Estado do modal de detalhe (para os botões de export)
 let _beneficioDetalheCtx = null;
 
-function openBeneficioDetalhe(empId, escopo, dataIni, dataFim){
+function openBeneficioDetalhe(empId, _ignEscopo, _ignIni, _ignFim){
   const emp = State.employees.find(e=>e.id===empId);
   if(!emp){ toast('Colaborador não encontrado.','error'); return; }
-  // Para "Este Mês" (prospectivo), usa o MESMO cálculo da lista (prev. pela escala
+  // SEMPRE deriva o período da ABA ATIVA — ignora os parâmetros antigos
+  // (passados pelo onclick da linha) pra evitar modal mostrar "Hoje" quando
+  // a aba ativa é "Este Período". Assim o modal e a lista ficam sempre
+  // sincronizados, mesmo se o usuário trocou de aba antes de clicar.
+  let escopo, dataIni, dataFim;
+  const tab = _beneficioTabAtual || 'hoje';
+  const hojeISO = new Date().toISOString().substring(0,10);
+  if(tab === 'mes'){
+    const d = new Date();
+    const mPag = d.getMonth()+1, aPag = d.getFullYear();
+    let mUso = mPag+1, aUso = aPag;
+    if(mUso>12){ mUso=1; aUso++; }
+    const perUso = _compPeriodo(mUso, aUso);
+    dataIni = perUso.deISO; dataFim = perUso.ateISO; escopo = 'mes';
+  } else if(tab === 'custom'){
+    if(!_beneficioCustomIni || !_beneficioCustomFim){
+      toast('Defina a data inicial e final na aba Personalizado primeiro.','warning'); return;
+    }
+    dataIni = _beneficioCustomIni; dataFim = _beneficioCustomFim; escopo = 'semana';
+  } else if(tab === 'hoje'){
+    dataIni = dataFim = hojeISO; escopo = 'dia';
+  } else {
+    const s = _semanaDe(hojeISO);
+    dataIni = s.inicio; dataFim = s.fim; escopo = 'semana';
+  }
+  // Para "Este Período" (prospectivo), usa o MESMO cálculo da lista (prev. pela escala
   // + desconto de faltas anteriores) — senão modal e lista divergem.
   let b;
   if(escopo === 'mes'){
@@ -6678,6 +6703,7 @@ function openBeneficioDetalhe(empId, escopo, dataIni, dataFim){
   }
   recalcBeneficioDetalhe();
   document.getElementById('modal-beneficio-detalhe').classList.remove('hidden');
+  if(typeof _initModalDrag === 'function') _initModalDrag();
 }
 
 // Marca/desmarca todos os checkboxes habilitados da planilha de benefício
@@ -16380,7 +16406,48 @@ function printReport() {
 function closeModal(id,event){
   if(event&&event.target!==document.getElementById(id)) return;
   document.getElementById(id).classList.add('hidden');
+  // Ao fechar, zera o deslocamento do drag — assim a próxima abertura volta
+  // pra posição centralizada.
+  const dlg = document.getElementById(id)?.querySelector('.modal-dialog');
+  if(dlg){ dlg.style.transform=''; dlg.dataset.dragX=''; dlg.dataset.dragY=''; }
 }
+
+// Ativa drag-and-drop em modais — usuário arrasta pela barra de título
+// (.modal-header) pra mover o diálogo dentro da página e olhar conteúdo que
+// estaria atrás. Marca cada modal com data-drag-init pra não duplicar handlers.
+function _initModalDrag(){
+  document.querySelectorAll('.modal-overlay').forEach(ov => {
+    if(ov.dataset.dragInit === '1') return;
+    ov.dataset.dragInit = '1';
+    const dlg = ov.querySelector('.modal-dialog');
+    const hdr = ov.querySelector('.modal-header');
+    if(!dlg || !hdr) return;
+    hdr.style.cursor = 'move';
+    hdr.title = (hdr.title?hdr.title+' · ':'') + 'Arraste para mover';
+    let dragging = false, startX=0, startY=0, baseX=0, baseY=0;
+    hdr.addEventListener('mousedown', (ev) => {
+      // Não inicia drag em clique de botões/inputs do header (ex.: o X)
+      if(ev.target.closest('button, input, select, textarea, a')) return;
+      dragging = true;
+      startX = ev.clientX; startY = ev.clientY;
+      baseX = parseFloat(dlg.dataset.dragX||'0');
+      baseY = parseFloat(dlg.dataset.dragY||'0');
+      ev.preventDefault();
+    });
+    window.addEventListener('mousemove', (ev) => {
+      if(!dragging) return;
+      const dx = ev.clientX - startX, dy = ev.clientY - startY;
+      const nx = baseX + dx, ny = baseY + dy;
+      dlg.dataset.dragX = nx; dlg.dataset.dragY = ny;
+      dlg.style.transform = `translate(${nx}px, ${ny}px)`;
+    });
+    window.addEventListener('mouseup', () => { dragging = false; });
+  });
+}
+// Roda no carregamento (modais são markup estático no index.html).
+document.addEventListener('DOMContentLoaded', _initModalDrag);
+// Se DOMContentLoaded já passou (script carregado depois), roda já.
+if(document.readyState !== 'loading'){ try{ _initModalDrag(); }catch(_){} }
 function switchTab(tabId){
   document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.modal-tab').forEach(b=>b.classList.remove('active'));

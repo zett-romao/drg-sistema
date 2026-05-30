@@ -7317,25 +7317,27 @@ function _diasBeneficioNoIntervalo(emp, dataInicioISO, dataFimISO){
   if(isNaN(ini.getTime()) || isNaN(fim.getTime())) return { vt:0, vr:0 };
   let vt = 0, vr = 0;
   const cur = new Date(ini);
-  // Conta pela ESCALA (dia previsto de trabalho). Vale pra todos — isento OU
-  // colaborador comum. Antes contava SÓ dias com ponto efetivamente batido
-  // pros não-isentos, o que zerava o cálculo em períodos futuros e em
-  // períodos passados onde a batida ainda não foi importada. Agora o modal
-  // reflete o PERÍODO inteiro pela escala, consistente com a aba "Este
-  // Período" e com o conceito de benefício prospectivo (Lei 7.418/85).
+  // Conta pela FOLHA DE PONTO (dias efetivamente batidos) — é o que paga
+  // benefício na prática. Faltas não geram VT/VR. Pra 12x36, só conta o
+  // dia se houver registro real (cycle approximation do _colabTrabalhaNoDia
+  // não serve aqui — superestima).
+  //   - Isento: integral pela escala salva (não bate ponto — CLT Art. 62).
+  //   - Demais: ponto real com entrada+saída. VR exige jornada líquida > 6h.
   while(cur <= fim){
     const ano = cur.getFullYear(), mes = cur.getMonth()+1, dia = cur.getDate();
-    const iso = cur.toISOString().substring(0,10);
-    if(_colabTrabalhaNoDia(emp, iso)){
-      vt++;
-      // VR só conta dia com jornada esperada > 6h (CLT Art. 71). Usa o expected
-      // day; se não conseguir computar, assume jornada padrão >6h e conta.
+    if(emp.isentoPonto){
+      // Pra isento, conta pelos dias previstos da escala (sem ponto). Usa
+      // _getExpectedDay (lida com 12x36 via cycle anchor, escala salva etc.).
       const exp = _getExpectedDay(emp, mes, ano, dia);
-      if(exp && exp.tipo !== 'folga' && exp.entrada && exp.saida){
-        const min = _minutosLiqEsperados(exp);
-        if(min > 360) vr++;
-      } else {
-        vr++;   // default conservador — conta VR se trabalha mas não temos horário
+      if(exp && exp.tipo !== 'folga' && exp.entrada){
+        vt++;
+        if(_minutosLiqEsperados(exp) > 360) vr++;
+      }
+    } else {
+      const pd = _pontoDiaReal(emp, ano, mes, dia);
+      if(pd && pd.entrada && pd.saida){
+        vt++;
+        if(_liqMin(pd) > 360) vr++;
       }
     }
     cur.setDate(cur.getDate()+1);

@@ -6354,7 +6354,7 @@ async function pagarBoaPermanencia(){
   }
   const tab = _beneficioTabAtual || 'hoje';
   if(tab !== 'mes'){
-    toast('Boa Permanência só é apurada no fechamento mensal — use a aba "Este Mês".','warning');
+    toast('Boa Permanência só é apurada no fechamento da competência — use a aba "Este Período".','warning');
     return;
   }
   const chks=[...document.querySelectorAll('.benef-chk:checked')];
@@ -6518,8 +6518,8 @@ function openBeneficioDetalhe(empId, escopo, dataIni, dataFim){
   const periodoLabel = (escopo === 'dia')
     ? `Hoje — ${fmt(dataIni)}`
     : (escopo === 'mes')
-      ? `Mês — ${fmt(dataIni)} a ${fmt(dataFim)}`
-      : `Semana — ${fmt(dataIni)} a ${fmt(dataFim)}`;
+      ? `Competência (26→25) — ${fmt(dataIni)} a ${fmt(dataFim)}`
+      : `Período — ${fmt(dataIni)} a ${fmt(dataFim)}`;
   document.getElementById('benef-det-nome').textContent = emp.nome;
   const matr = emp.registro ? String(emp.registro).padStart(4,'0') : '—';
   const pixDet = emp.chavePix || '—';
@@ -6557,14 +6557,14 @@ function openBeneficioDetalhe(empId, escopo, dataIni, dataFim){
   // VA — mensal fixo. Só apurado no escopo 'mes' (via Previsto).
   if((emp.valorMensalVa||0) > 0){
     const valor = b.vaValor||0;
-    const multLabel = (escopo === 'mes') ? '×1 mês' : '(só no Mês)';
+    const multLabel = (escopo === 'mes') ? '×1 mês' : '(só no Período)';
     linhas.push({ rotulo: 'VA — Vale Alimentação', freq: 'Mensal', base: emp.valorMensalVa||0, multLabel, valor, campoId: 'edit-va', chkId: 'chk-va', desabilitado: (escopo !== 'mes') });
   }
   // Boa Permanência — mensal, desbundlada do VR.
   const bpCfg = (State.cct && State.cct.bonificacao) || 0;
   if(bpCfg > 0 || (b.bpValor||0) > 0 || emp.bonificacaoSemprePagar){
     const valor = b.bpValor||0;
-    let multLabel = (escopo === 'mes') ? '×1 mês' : '(só no Mês)';
+    let multLabel = (escopo === 'mes') ? '×1 mês' : '(só no Período)';
     let rotulo = 'Boa Permanência';
     if(escopo === 'mes' && valor === 0 && b.bpMotivo){
       multLabel = `<span style="color:#C62828" title="${esc(b.bpMotivo)}">perdeu</span>`;
@@ -7002,22 +7002,48 @@ function _diasBeneficioNoIntervalo(emp, dataInicioISO, dataFimISO){
   if(isNaN(ini.getTime()) || isNaN(fim.getTime())) return { vt:0, vr:0 };
   let vt = 0, vr = 0;
   const cur = new Date(ini);
+  // Conta pela ESCALA (dia previsto de trabalho). Vale pra todos — isento OU
+  // colaborador comum. Antes contava SÓ dias com ponto efetivamente batido
+  // pros não-isentos, o que zerava o cálculo em períodos futuros e em
+  // períodos passados onde a batida ainda não foi importada. Agora o modal
+  // reflete o PERÍODO inteiro pela escala, consistente com a aba "Este
+  // Período" e com o conceito de benefício prospectivo (Lei 7.418/85).
   while(cur <= fim){
     const ano = cur.getFullYear(), mes = cur.getMonth()+1, dia = cur.getDate();
-    if(emp.isentoPonto){
-      // Isento: integral pela escala (não bate ponto)
-      if(_colabTrabalhaNoDia(emp, cur.toISOString().substring(0,10))){ vt++; vr++; }
-    } else {
-      // Demais: SÓ dias com ponto efetivamente batido
-      const pd = _pontoDiaReal(emp, ano, mes, dia);
-      if(pd && pd.entrada && pd.saida){
-        vt++;
-        if(_liqMin(pd) > 360) vr++;            // jornada líquida real > 6h
+    const iso = cur.toISOString().substring(0,10);
+    if(_colabTrabalhaNoDia(emp, iso)){
+      vt++;
+      // VR só conta dia com jornada esperada > 6h (CLT Art. 71). Usa o expected
+      // day; se não conseguir computar, assume jornada padrão >6h e conta.
+      const exp = _getExpectedDay(emp, mes, ano, dia);
+      if(exp && exp.tipo !== 'folga' && exp.entrada && exp.saida){
+        const min = _minutosLiqEsperados(exp);
+        if(min > 360) vr++;
+      } else {
+        vr++;   // default conservador — conta VR se trabalha mas não temos horário
       }
     }
     cur.setDate(cur.getDate()+1);
   }
   return { vt, vr };
+}
+
+// Minutos líquidos esperados de um expectedDay (entrada→saída menos intervalo).
+// Usado pra decidir se a jornada do dia é > 6h pra fins de VR.
+function _minutosLiqEsperados(exp){
+  if(!exp || !exp.entrada || !exp.saida) return 0;
+  const toMin = hhmm => {
+    const [h,m] = String(hhmm).split(':').map(n=>parseInt(n)||0);
+    return h*60 + m;
+  };
+  let total = toMin(exp.saida) - toMin(exp.entrada);
+  if(total < 0) total += 24*60;   // jornada noturna virando o dia
+  if(exp.intIni && exp.intFim){
+    let pausa = toMin(exp.intFim) - toMin(exp.intIni);
+    if(pausa < 0) pausa += 24*60;
+    total -= pausa;
+  }
+  return Math.max(0, total);
 }
 
 // Retorna data ISO do início (segunda) e fim (domingo) da semana de uma data

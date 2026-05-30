@@ -5778,6 +5778,15 @@ let _beneficioCustomFim = '';
 // principal só mostra colaboradores do canal selecionado e o banner do filtro
 // expõe atalhos de impressão/exportação.
 let _beneficioCanalFiltro = null;
+// VIEW (visualização) ativa dentro da seção Benefícios:
+//   'aPagar'    → padrão · colaboradores com valor a pagar no período
+//   'pagos'     → quem já foi pago (status='pago') no período
+//   'semBenef'  → ativos sem benefício no período + motivo
+//   'perderamBP' → ativos elegíveis a BP que perderam + motivo (só na competência)
+// Os 4 são clicáveis via cards no topo. Cada view tem sua tabela e seus
+// botões de exportação/pagamento. Permite separar A Pagar dos Pagos sem
+// misturar — evita pagamento em dobro e organiza o fluxo do operador.
+let _beneficioView = 'aPagar';
 
 // Entrada legada (dashboard tile / botões antigos): redireciona pra seção dedicada.
 function openBeneficiosPagar(){
@@ -5842,6 +5851,16 @@ function _benefAplicarFiltroCanal(canal){
 function _benefLimparFiltroCanal(){
   _beneficioCanalFiltro = null;
   renderBeneficiosLista();
+}
+
+// Troca a VIEW (visualização) ativa: 'aPagar' | 'pagos' | 'semBenef' | 'perderamBP'.
+// Cada view tem sua tabela e seus botões de exportação/pagamento.
+function _benefSetView(view){
+  _beneficioView = view;
+  renderBeneficiosLista();
+  // Scroll suave pra topo da tabela pra checar a nova visualização.
+  const info = document.getElementById('benef-info');
+  if(info) info.scrollIntoView({behavior:'smooth', block:'start'});
 }
 
 // Popula o <select> "Carregar competência" do Personalizado com TODAS as
@@ -6081,9 +6100,15 @@ function renderBeneficiosLista(){
   linhas.sort((a,b) => (a.emp.nome||'').localeCompare(b.emp.nome||''));
   sem.sort((a,b) => (a.emp.nome||'').localeCompare(b.emp.nome||''));
   semBP.sort((a,b) => (a.emp.nome||'').localeCompare(b.emp.nome||''));
-  // Filtro de canal ativo: deixa só os colaboradores que recebem por esse
-  // canal. Os blocos "sem benefício" e "perdeu BP" também são suprimidos
-  // pra reduzir ruído visual — voltam quando o filtro é limpo.
+  // Particiona em 4 listas (views):
+  //   - linhasAPagar: tem valor a pagar AINDA (não pago, não pendente)
+  //   - linhasPagos: já pago ou pendente (registrado na esteira)
+  //   - sem: sem benefício no período (com motivo)
+  //   - semBP: perderam Boa Permanência (só na competência)
+  const linhasAPagar = linhas.filter(l => !(l.stat && (l.stat.status==='pago'||l.stat.status==='pendente')));
+  const linhasPagos  = linhas.filter(l =>  (l.stat && (l.stat.status==='pago'||l.stat.status==='pendente')));
+  // Filtro de canal ativo: aplicado APENAS à view "A Pagar". Limita a tabela
+  // ao canal selecionado pra revisar/imprimir só esse grupo.
   if(_beneficioCanalFiltro){
     const matchesFilter = l => {
       if(_beneficioCanalFiltro === 'vt') return (l.b.valorCartaoVT||0) > 0;
@@ -6092,11 +6117,9 @@ function renderBeneficiosLista(){
       if(_beneficioCanalFiltro === 'bp') return (l.b.bpValor||0) > 0;
       return true;
     };
-    for(let i=linhas.length-1; i>=0; i--){
-      if(!matchesFilter(linhas[i])) linhas.splice(i,1);
+    for(let i=linhasAPagar.length-1; i>=0; i--){
+      if(!matchesFilter(linhasAPagar[i])) linhasAPagar.splice(i,1);
     }
-    sem.length = 0;
-    if(_beneficioCanalFiltro !== 'bp') semBP.length = 0;
   }
   // Total CALCULADO (todos) e Total A PAGAR (exclui pago/pendente — esses já
   // estão na esteira). Pago = soma do valor JÁ pago; Pendente = soma do que
@@ -6122,6 +6145,30 @@ function renderBeneficiosLista(){
   const totalBPAPagar = linhas.reduce((s,l)=>s + (isLiquidado(l.stat)?0:(l.b.bpValor||0)),0);
   const cntPago     = linhas.filter(l=>l.stat && l.stat.status==='pago').length;
   const cntPendente = linhas.filter(l=>l.stat && l.stat.status==='pendente').length;
+  const cntAPagar   = linhasAPagar.length;
+  const cntPagosView= linhasPagos.length;
+  const cntSem      = sem.length;
+  const cntSemBP    = semBP.length;
+  // 4 cards de NAVEGAÇÃO entre views (A Pagar / Pagos / Sem Benefício / Perderam BP).
+  // Cada card mostra contagem + total; clicar troca a view ativa (highlight).
+  // Esse é o entry-point único da seção — todo o resto é a tabela da view ativa.
+  const viewCard = (view, label, icon, cor, bgAtivo, bgInativo, count, total) => {
+    const ativo = (_beneficioView === view);
+    const bg = ativo ? bgAtivo : bgInativo;
+    const border = ativo ? `2px solid ${cor}` : `1px solid #DEE2E6`;
+    const opacity = (count === 0 && !ativo) ? 0.45 : 1;
+    return `<button onclick="_benefSetView('${view}')" style="background:${bg};border:${border};border-radius:8px;padding:8px 14px;cursor:pointer;text-align:left;font-family:inherit;opacity:${opacity};min-width:140px">
+      <div style="font-size:11px;color:${cor};font-weight:700"><i class="fa-solid ${icon}"></i> ${label}</div>
+      <div style="font-size:16px;color:${cor};font-weight:700;margin-top:2px">${count}</div>
+      ${total!=null?`<div style="font-size:11px;color:${cor}">${fmtMoney(total)}</div>`:''}
+    </button>`;
+  };
+  const viewCardsHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+    ${viewCard('aPagar','A Pagar','fa-clock','#0288D1','#E1F5FE','#FFFFFF', cntAPagar, totalAPagar)}
+    ${viewCard('pagos','Pagos / Pendentes','fa-circle-check','#2E7D32','#E8F5E9','#FFFFFF', cntPagosView, totalPago+totalPendente)}
+    ${viewCard('semBenef','Sem Benefício','fa-circle-exclamation','#9E9E9E','#ECEFF1','#FFFFFF', cntSem, null)}
+    ${viewCard('perderamBP','Perderam B.Perm.','fa-medal','#F57F17','#FFF9C4','#FFFFFF', cntSemBP, null)}
+  </div>`;
   // Banner do FILTRO DE CANAL ativo (mostra acima do info). Tem atalhos pra
   // exportar/imprimir SÓ o canal filtrado + botão limpar.
   const filtroBanner = (() => {
@@ -6151,7 +6198,7 @@ function renderBeneficiosLista(){
       <button class="btn btn-sm btn-outline" onclick="_benefLimparFiltroCanal()" style="border-color:#9E9E9E;color:#616161;font-size:12px"><i class="fa-solid fa-xmark"></i> Limpar</button>
     </div>`;
   })();
-  document.getElementById('benef-info').innerHTML = filtroBanner +
+  document.getElementById('benef-info').innerHTML = viewCardsHTML + filtroBanner +
     `${periodoLabel} &middot; <strong>${linhas.length}</strong> colaborador(es) &middot; A pagar: <strong style="color:#0288D1">${fmtMoney(totalAPagar)}</strong>` +
     (cntPago>0||cntPendente>0
       ? ` &middot; <span style="color:#2E7D32" title="Já registrado como pago"><i class="fa-solid fa-circle-check"></i> Pago: ${fmtMoney(totalPago)} (${cntPago})</span>` +
@@ -6165,13 +6212,31 @@ function renderBeneficiosLista(){
       `<span style="background:#E8F5E9;color:#2E7D32;padding:3px 10px;border-radius:8px;font-weight:700"><i class="fa-brands fa-pix"></i> Pagar em Dinheiro (PIX): ${fmtMoney(totalDinheiro)}</span>` +
     `</div>`;
   const listEl = document.getElementById('benef-lista');
-  if(!linhas.length){
-    listEl.innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-check" style="color:#1B5E20"></i><p>Nenhum benefício a pagar neste período.</p></div>';
-    return;
+  // Decide qual lista vai pra tabela principal com base na VIEW ativa.
+  // semBenef e perderamBP usam tabelas dedicadas (rendering próprio mais abaixo).
+  const viewLinhas = (_beneficioView === 'pagos') ? linhasPagos
+                   : (_beneficioView === 'aPagar') ? linhasAPagar
+                   : []; // semBenef / perderamBP → tabela principal vazia
+  if(_beneficioView === 'aPagar' || _beneficioView === 'pagos'){
+    if(!viewLinhas.length){
+      const msg = (_beneficioView === 'pagos')
+        ? 'Nenhum pagamento registrado neste período.'
+        : 'Nenhum benefício a pagar neste período.';
+      listEl.innerHTML = `<div class="empty-state"><i class="fa-solid fa-circle-check" style="color:#1B5E20"></i><p>${msg}</p></div>`;
+      // Reaplica busca/contadores
+      const _bb = document.getElementById('benef-busca');
+      if(_bb && _bb.value) _benefFiltrar(_bb.value); else { const _bc=document.getElementById('benef-busca-count'); if(_bc) _bc.textContent=''; }
+      _benefSelCount();
+      return;
+    }
   }
   const fmtDate = iso => new Date(iso+'T12:00:00').toLocaleDateString('pt-BR');
   const periodoCol = (escopo === 'dia') ? fmtDate(ini) : `${fmtDate(ini)} → ${fmtDate(fim)}`;
-  let html = `<table style="width:100%;border-collapse:collapse;font-size:12px">
+  let html = '';
+  // Tabela principal — só renderiza pra views 'aPagar' e 'pagos'.
+  // 'semBenef' e 'perderamBP' usam as tabelas dedicadas (mais abaixo).
+  if(_beneficioView === 'aPagar' || _beneficioView === 'pagos'){
+  html += `<table style="width:100%;border-collapse:collapse;font-size:12px">
     <thead style="background:#F5F7FB;position:sticky;top:0">
       <tr>
         <th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border)"><input type="checkbox" onclick="_benefToggleAll(this)" title="Marcar todos"></th>
@@ -6189,7 +6254,7 @@ function renderBeneficiosLista(){
       </tr>
     </thead>
     <tbody>`;
-  linhas.forEach(({emp, b, stat}, idx) => {
+  viewLinhas.forEach(({emp, b, stat}, idx) => {
     const posto = (emp.posto || '—');
     // Cor de fundo da linha segue o status do pagamento (visual rápido):
     //   pago → verde claro · pendente → laranja claro · recusado/estornado → vermelho claro.
@@ -6263,63 +6328,81 @@ function renderBeneficiosLista(){
       </tr>` : ''}
     </tfoot>
   </table>`;
-  // PERDERAM BOA PERMANÊNCIA — bloco específico pra essa comissão (faltas,
-  // folha não fechada ainda, CCT sem valor). Só faz sentido na aba "Este Mês"
-  // (BP é mensal). Mostra o motivo de cada perda.
-  if(semBP.length){
-    html += `<details open style="margin-top:14px;background:#FFFDE7;border:1px solid #FFE082;border-radius:8px;padding:8px 12px">
-      <summary style="cursor:pointer;font-weight:700;color:#E65100;font-size:12px"><i class="fa-solid fa-medal" style="color:#F57F17"></i> Perderam a Boa Permanência (${semBP.length}) — ver motivo</summary>
-      <table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:8px">
+  } // fim do if(view === 'aPagar' || 'pagos')
+  // PERDERAM BOA PERMANÊNCIA — view 'perderamBP' OU bloco recolhível na view 'aPagar'.
+  // Renderiza como SEÇÃO PRINCIPAL (sem <details>) quando a view é 'perderamBP'.
+  if(_beneficioView === 'perderamBP'){
+    if(!semBP.length){
+      html += `<div class="empty-state"><i class="fa-solid fa-circle-check" style="color:#1B5E20"></i><p>Nenhum colaborador perdeu Boa Permanência neste período.</p></div>`;
+    } else {
+      html += `<div style="background:#FFFDE7;border:2px solid #FFE082;border-radius:8px;padding:10px 14px;margin-bottom:10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <span style="font-weight:700;color:#F57F17;font-size:14px"><i class="fa-solid fa-medal"></i> Perderam a Boa Permanência</span>
+        <span style="color:#F57F17;font-weight:600">${semBP.length} colaborador(es)</span>
+        <span style="flex:1"></span>
+        <button class="btn btn-sm btn-outline" onclick="exportBeneficiosBP('print')" style="border-color:#F57F17;color:#F57F17;font-size:12px"><i class="fa-solid fa-print"></i> Imprimir</button>
+        <button class="btn btn-sm btn-outline" onclick="exportBeneficiosBP('pdf')" style="border-color:#C62828;color:#C62828;font-size:12px"><i class="fa-solid fa-file-pdf"></i> PDF</button>
+        <button class="btn btn-sm btn-outline" onclick="exportBeneficiosBP('excel')" style="font-size:12px"><i class="fa-solid fa-file-excel" style="color:#1B5E20"></i> Excel</button>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead style="background:#FFF3E0;color:#5D4037">
           <tr>
-            <th style="padding:5px 8px;text-align:center;border-bottom:1px solid #FFE082">Matr.</th>
-            <th style="padding:5px 8px;text-align:left;border-bottom:1px solid #FFE082">Colaborador</th>
-            <th style="padding:5px 8px;text-align:left;border-bottom:1px solid #FFE082">Posto</th>
-            <th style="padding:5px 8px;text-align:left;border-bottom:1px solid #FFE082">Motivo</th>
+            <th style="padding:8px;text-align:center">Matr.</th>
+            <th style="padding:8px;text-align:left">Colaborador</th>
+            <th style="padding:8px;text-align:left">Posto</th>
+            <th style="padding:8px;text-align:left">Motivo</th>
           </tr>
         </thead>
         <tbody>
           ${semBP.map(({emp, motivo}, i) => {
             const matr = emp.registro ? String(emp.registro).padStart(4,'0') : '—';
-            return `<tr style="background:${i%2?'#FFFDE7':'#fff'}">
-              <td style="padding:5px 8px;text-align:center;border-bottom:1px solid #FFF3E0;font-weight:700;color:var(--primary)">${matr}</td>
-              <td style="padding:5px 8px;border-bottom:1px solid #FFF3E0"><strong style="color:#455A64">${emp.nome||'—'}</strong><br><small style="color:var(--text-muted)">${emp.setor||'—'}</small></td>
-              <td style="padding:5px 8px;border-bottom:1px solid #FFF3E0">${emp.posto||'—'}</td>
-              <td style="padding:5px 8px;border-bottom:1px solid #FFF3E0;color:#37474F"><i class="fa-solid fa-medal" style="color:#FF9800"></i> ${esc(motivo)}</td>
+            return `<tr style="background:${i%2?'#FFFDE7':'#fff'};cursor:pointer" onclick="openBeneficioDetalhe('${emp.id}')">
+              <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #FFF3E0;font-weight:700;color:var(--primary)">${matr}</td>
+              <td style="padding:6px 8px;border-bottom:1px solid #FFF3E0"><strong style="color:#455A64">${emp.nome||'—'}</strong><br><small style="color:var(--text-muted)">${emp.setor||'—'}</small></td>
+              <td style="padding:6px 8px;border-bottom:1px solid #FFF3E0;font-size:11px">${emp.posto||'—'}</td>
+              <td style="padding:6px 8px;border-bottom:1px solid #FFF3E0;color:#37474F"><i class="fa-solid fa-medal" style="color:#FF9800"></i> ${esc(motivo)}</td>
             </tr>`;
           }).join('')}
         </tbody>
-      </table>
+      </table>`;
+    }
+  } else if(_beneficioView === 'aPagar' && semBP.length){
+    html += `<details style="margin-top:14px;background:#FFFDE7;border:1px solid #FFE082;border-radius:8px;padding:8px 12px">
+      <summary style="cursor:pointer;font-weight:700;color:#E65100;font-size:12px"><i class="fa-solid fa-medal" style="color:#F57F17"></i> Perderam a Boa Permanência (${semBP.length}) — clique no card "Perderam B.Perm." acima pra abrir a lista completa</summary>
     </details>`;
   }
-  // SEM BENEFÍCIO — colaboradores ativos que não receberão nada no período +
-  // motivo. Bloco recolhível abaixo da lista principal pra dar transparência
-  // (operador enxerga rápido quem sumiu por configuração vs por trabalho).
-  if(sem.length){
-    html += `<details style="margin-top:14px;background:#F8F9FA;border:1px solid #E0E0E0;border-radius:8px;padding:8px 12px">
-      <summary style="cursor:pointer;font-weight:700;color:#5D4037;font-size:12px"><i class="fa-solid fa-circle-info" style="color:#9E9E9E"></i> Sem benefício no período (${sem.length}) — ver motivo</summary>
-      <table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:8px">
+  // SEM BENEFÍCIO — view 'semBenef' OU hint na view 'aPagar'.
+  if(_beneficioView === 'semBenef'){
+    if(!sem.length){
+      html += `<div class="empty-state"><i class="fa-solid fa-circle-check" style="color:#1B5E20"></i><p>Todos os colaboradores ativos têm benefício a receber neste período.</p></div>`;
+    } else {
+      html += `<div style="background:#ECEFF1;border:2px solid #B0BEC5;border-radius:8px;padding:10px 14px;margin-bottom:10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <span style="font-weight:700;color:#455A64;font-size:14px"><i class="fa-solid fa-circle-info"></i> Sem Benefício no Período</span>
+        <span style="color:#455A64;font-weight:600">${sem.length} colaborador(es)</span>
+        <span style="flex:1"></span>
+        <span style="font-size:11px;color:#666;font-style:italic">Exportação dessa lista — em desenvolvimento</span>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead style="background:#ECEFF1;color:#37474F">
           <tr>
-            <th style="padding:5px 8px;text-align:center;border-bottom:1px solid #CFD8DC">Matr.</th>
-            <th style="padding:5px 8px;text-align:left;border-bottom:1px solid #CFD8DC">Colaborador</th>
-            <th style="padding:5px 8px;text-align:left;border-bottom:1px solid #CFD8DC">Posto</th>
-            <th style="padding:5px 8px;text-align:left;border-bottom:1px solid #CFD8DC">Motivo</th>
+            <th style="padding:8px;text-align:center">Matr.</th>
+            <th style="padding:8px;text-align:left">Colaborador</th>
+            <th style="padding:8px;text-align:left">Posto</th>
+            <th style="padding:8px;text-align:left">Motivo</th>
           </tr>
         </thead>
         <tbody>
           ${sem.map(({emp, motivo}, i) => {
             const matr = emp.registro ? String(emp.registro).padStart(4,'0') : '—';
-            return `<tr style="background:${i%2?'#FAFBFC':'#fff'}">
-              <td style="padding:5px 8px;text-align:center;border-bottom:1px solid #EEF2F7;font-weight:700;color:var(--primary)">${matr}</td>
-              <td style="padding:5px 8px;border-bottom:1px solid #EEF2F7"><strong style="color:#455A64">${emp.nome||'—'}</strong><br><small style="color:var(--text-muted)">${emp.setor||'—'}</small></td>
-              <td style="padding:5px 8px;border-bottom:1px solid #EEF2F7">${emp.posto||'—'}</td>
-              <td style="padding:5px 8px;border-bottom:1px solid #EEF2F7;color:#37474F"><i class="fa-solid fa-circle-exclamation" style="color:#FF9800"></i> ${motivo}</td>
+            return `<tr style="background:${i%2?'#FAFBFC':'#fff'};cursor:pointer" onclick="openBeneficioDetalhe('${emp.id}')">
+              <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7;font-weight:700;color:var(--primary)">${matr}</td>
+              <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7"><strong style="color:#455A64">${emp.nome||'—'}</strong><br><small style="color:var(--text-muted)">${emp.setor||'—'}</small></td>
+              <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7;font-size:11px">${emp.posto||'—'}</td>
+              <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7;color:#37474F"><i class="fa-solid fa-circle-exclamation" style="color:#FF9800"></i> ${motivo}</td>
             </tr>`;
           }).join('')}
         </tbody>
-      </table>
-    </details>`;
+      </table>`;
+    }
   }
   listEl.innerHTML = html;
   // Reaplica o filtro de busca atual (se houver) à lista recém-renderizada.
@@ -7317,28 +7400,20 @@ function _diasBeneficioNoIntervalo(emp, dataInicioISO, dataFimISO){
   if(isNaN(ini.getTime()) || isNaN(fim.getTime())) return { vt:0, vr:0 };
   let vt = 0, vr = 0;
   const cur = new Date(ini);
-  // Conta pela FOLHA DE PONTO (dias efetivamente batidos) — é o que paga
-  // benefício na prática. Faltas não geram VT/VR. Pra 12x36, só conta o
-  // dia se houver registro real (cycle approximation do _colabTrabalhaNoDia
-  // não serve aqui — superestima).
-  //   - Isento: integral pela escala salva (não bate ponto — CLT Art. 62).
-  //   - Demais: ponto real com entrada+saída. VR exige jornada líquida > 6h.
+  // CONTA POR ESCALA PROJETADA — VT/VR/VA são PROSPECTIVOS (Lei 7.418/85
+  // p/ VT e padrão de mercado p/ VR/VA): pagos em ADIANTAMENTO baseado no
+  // que se ESPERA trabalhar no período. Faltas viram desconto no mês
+  // seguinte (responsabilidade da folha fechada, não dessa contagem).
+  // Usa _getExpectedDay que tem lógica correta de 12x36 (cycle anchor por
+  // segmento de lotação), escala salva (mes/ano) e fallback contratual.
+  // Boa Permanência segue caminho próprio (_boaPermanenciaElegivel), por
+  // PONTO BATIDO + faltas da folha — não passa por aqui.
   while(cur <= fim){
     const ano = cur.getFullYear(), mes = cur.getMonth()+1, dia = cur.getDate();
-    if(emp.isentoPonto){
-      // Pra isento, conta pelos dias previstos da escala (sem ponto). Usa
-      // _getExpectedDay (lida com 12x36 via cycle anchor, escala salva etc.).
-      const exp = _getExpectedDay(emp, mes, ano, dia);
-      if(exp && exp.tipo !== 'folga' && exp.entrada){
-        vt++;
-        if(_minutosLiqEsperados(exp) > 360) vr++;
-      }
-    } else {
-      const pd = _pontoDiaReal(emp, ano, mes, dia);
-      if(pd && pd.entrada && pd.saida){
-        vt++;
-        if(_liqMin(pd) > 360) vr++;
-      }
+    const exp = _getExpectedDay(emp, mes, ano, dia);
+    if(exp && exp.tipo !== 'folga' && exp.entrada){
+      vt++;
+      if(_minutosLiqEsperados(exp) > 360) vr++;
     }
     cur.setDate(cur.getDate()+1);
   }

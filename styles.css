@@ -1428,6 +1428,14 @@ ul { list-style: none; }
 .section.view-locked .btn-danger-icon { display: none !important; }
 .section.view-locked button:disabled { opacity: .45; cursor: not-allowed; }
 
+/* Esconde a coluna de checkbox da Contabilidade (tanto no print da
+   planilha completa quanto na visualização .hide-checks usada pelo botão Imprimir). */
+@media print {
+  .col-check, .cont-row-check { display: none !important; }
+}
+#cont-printable.hide-checks .col-check,
+#cont-printable.hide-checks .cont-row-check { display: none !important; }
+
 /* ---- Print ---- */
 @media print {
   .sidebar, .topbar, .page-header, nav, header,

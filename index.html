@@ -8,7 +8,7 @@
   <meta http-equiv="Expires" content="0">
   <title id="page-title">D.R. Global Multi Services — Sistema de Gestão de Colaboradores</title>
   <link rel="icon" href="logo.png" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20260526c">
+  <link rel="stylesheet" href="styles.css?v=20260530a">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -185,6 +185,12 @@
         <a class="nav-link" id="nav-pagamentos" onclick="showSection('pagamentos')">
           <i class="fa-solid fa-money-bill-wave"></i>
           <span>Pagamentos</span>
+        </a>
+      </li>
+      <li id="nav-recibos-li" class="hidden">
+        <a class="nav-link" id="nav-recibos" onclick="showSection('recibos')">
+          <i class="fa-solid fa-file-invoice-dollar"></i>
+          <span>Recibos Enviados</span>
         </a>
       </li>
       <li id="nav-adiantamentos-li" class="hidden">
@@ -1559,8 +1565,8 @@
               <button class="btn btn-success" onclick="printPagamentos()">
                 <i class="fa-solid fa-print"></i> Imprimir
               </button>
-              <button class="btn btn-outline" id="btn-imprimir-selecionados-pag" onclick="printPagamentosSelecionados()" disabled style="border-color:#1B5E20;color:#1B5E20">
-                <i class="fa-solid fa-check-double"></i> Imprimir Selecionados <span id="pag-sel-count" style="background:#1B5E20;color:#fff;border-radius:10px;padding:1px 6px;font-size:10px;display:none;margin-left:4px">0</span>
+              <button class="btn btn-outline" id="btn-imprimir-selecionados-pag" onclick="printPagamentosSelecionados()" disabled style="border-color:#1B5E20;color:#1B5E20" title="Gera 1 Recibo Oficial (CLT/Portaria 671) por colaborador selecionado, com códigos MTE/SEFIP">
+                <i class="fa-solid fa-file-invoice-dollar"></i> Recibos Oficiais (selecionados) <span id="pag-sel-count" style="background:#1B5E20;color:#fff;border-radius:10px;padding:1px 6px;font-size:10px;display:none;margin-left:4px">0</span>
               </button>
               <button class="btn btn-primary" onclick="openPagarEmLote()" style="background:#00695C;border-color:#00695C">
                 <i class="fa-brands fa-pix"></i> Pagar Todos via PIX
@@ -1591,6 +1597,89 @@
               <tfoot id="pag-tfoot"></tfoot>
             </table>
             <p style="font-size:11px;color:#999;padding:6px 12px">* FGTS é custo do empregador, não descontado do colaborador.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== SEÇÃO RECIBOS ENVIADOS ===== -->
+      <section id="section-recibos" class="section">
+        <div class="page-header">
+          <div>
+            <h2>Recibos Enviados</h2>
+            <p>Histórico de todos os recibos compartilhados — protocolos, links e visualizações</p>
+          </div>
+        </div>
+
+        <!-- Filtros -->
+        <div class="card">
+          <div class="card-body">
+            <div class="form-row" style="align-items:flex-end;flex-wrap:wrap;gap:12px">
+              <div class="form-group form-group-sm">
+                <label>Mês</label>
+                <select id="rec-mes" onchange="renderRecibosEnviados()">
+                  <option value="">Todos</option>
+                  <option value="1">Janeiro</option><option value="2">Fevereiro</option>
+                  <option value="3">Março</option><option value="4">Abril</option>
+                  <option value="5">Maio</option><option value="6">Junho</option>
+                  <option value="7">Julho</option><option value="8">Agosto</option>
+                  <option value="9">Setembro</option><option value="10">Outubro</option>
+                  <option value="11">Novembro</option><option value="12">Dezembro</option>
+                </select>
+              </div>
+              <div class="form-group form-group-sm">
+                <label>Ano</label>
+                <input type="number" id="rec-ano" value="" min="2020" max="2100" placeholder="Todos" onchange="renderRecibosEnviados()">
+              </div>
+              <div class="form-group form-group-sm">
+                <label>Status</label>
+                <select id="rec-status" onchange="renderRecibosEnviados()">
+                  <option value="">Todos</option>
+                  <option value="visualizado">Visualizados</option>
+                  <option value="pendente">Enviados (não abertos)</option>
+                  <option value="anulado">Anulados</option>
+                </select>
+              </div>
+              <div class="form-group" style="min-width:200px">
+                <label>Buscar colaborador</label>
+                <input type="text" id="rec-search" placeholder="Nome ou matrícula" oninput="renderRecibosEnviados()">
+              </div>
+              <div>
+                <button class="btn btn-primary" onclick="renderRecibosEnviados()">
+                  <i class="fa-solid fa-magnifying-glass"></i> Aplicar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="stats-grid" id="rec-stats" style="margin-bottom:20px"></div>
+
+        <!-- Tabela -->
+        <div class="card">
+          <div class="card-header">
+            <h3><i class="fa-solid fa-list-check"></i> Histórico</h3>
+            <button class="btn btn-outline btn-sm" onclick="exportRecibosCsv()">
+              <i class="fa-solid fa-file-csv"></i> Exportar CSV
+            </button>
+          </div>
+          <div class="card-body" style="padding:0;overflow-x:auto">
+            <table class="data-table" id="rec-table" style="min-width:900px">
+              <thead>
+                <tr style="background:#f1f5f9">
+                  <th>#</th>
+                  <th>Colaborador</th>
+                  <th>Competência</th>
+                  <th>Líquido</th>
+                  <th>Protocolo</th>
+                  <th>Enviado em</th>
+                  <th>Visualizado em</th>
+                  <th>Status</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="rec-tbody"></tbody>
+            </table>
           </div>
         </div>
       </section>
@@ -1753,8 +1842,14 @@
               <button class="btn btn-success" onclick="printContabilidade()">
                 <i class="fa-solid fa-print"></i> Imprimir Planilha
               </button>
+              <button class="btn btn-outline" id="btn-cont-imprimir-sel" onclick="printContabilidadeSelecionados()" disabled style="border-color:#1B5E20;color:#1B5E20" title="Imprime a planilha apenas com os colaboradores marcados">
+                <i class="fa-solid fa-check-double"></i> Imprimir Selecionados <span id="cont-sel-count" style="background:#1B5E20;color:#fff;border-radius:10px;padding:1px 6px;font-size:10px;display:none;margin-left:4px">0</span>
+              </button>
               <button class="btn btn-primary" onclick="exportarTodasFolhasPDF()" id="btn-export-folhas-pdf" title="Gera um PDF com as folhas de ponto de todos os colaboradores do mês">
                 <i class="fa-solid fa-file-pdf"></i> Exportar Folhas em PDF
+              </button>
+              <button class="btn btn-outline" id="btn-cont-pdf-sel" onclick="exportarFolhasPdfSelecionados()" disabled style="border-color:#1565C0;color:#1565C0" title="Gera PDF das folhas de ponto apenas dos colaboradores marcados">
+                <i class="fa-solid fa-file-pdf"></i> PDF Selecionados
               </button>
             </div>
           </div>
@@ -1774,6 +1869,7 @@
                 <table class="data-table" id="cont-table" style="min-width:1200px;font-size:12px">
                   <thead>
                     <tr>
+                      <th class="col-check" style="width:30px;text-align:center"><input type="checkbox" id="cont-check-all" onclick="toggleAllContabilidade(this)" title="Selecionar todos (visíveis)"></th>
                       <th>Nº</th>
                       <th>Matrícula</th>
                       <th>Nome do Colaborador</th>
@@ -1801,7 +1897,7 @@
                     </tr>
                   </thead>
                   <tbody id="cont-tbody">
-                    <tr><td colspan="24" style="text-align:center;padding:40px;color:var(--text-muted)">
+                    <tr><td colspan="25" style="text-align:center;padding:40px;color:var(--text-muted)">
                       <i class="fa-solid fa-calculator" style="font-size:2rem;display:block;margin-bottom:8px"></i>
                       Selecione mês/ano e clique em "Carregar"
                     </td></tr>
@@ -1922,6 +2018,7 @@
               </select>
               <select id="adiant-ano" onchange="renderAdiantamentos()" style="font-weight:700"></select>
               <button class="btn btn-primary btn-sm" onclick="pagarAdiantamentosLote()"><i class="fa-solid fa-money-bill-transfer"></i> Pagar selecionados</button>
+              <button class="btn btn-sm" onclick="marcarPagoExternoLote()" style="background:#00695C;color:#fff;border:none"><i class="fa-solid fa-circle-check"></i> Pago fora selecionados</button>
             </div>
           </div>
           <div class="card-body" style="overflow-x:auto;padding:0">
@@ -2599,6 +2696,10 @@
             <label>CTPS — Série</label>
             <input type="text" id="emp-ctps-serie" placeholder="0000">
           </div>
+          <div class="form-group form-group-sm">
+            <label>CTPS — UF</label>
+            <input type="text" id="emp-ctps-uf" placeholder="Ex.: SP" maxlength="2" style="text-transform:uppercase">
+          </div>
           <div class="form-group">
             <label>Data de Emissão da CTPS</label>
             <input type="date" id="emp-ctps-emissao">
@@ -2849,9 +2950,15 @@
           </div>
         </div>
         <div class="form-row">
-          <div class="form-group" style="grid-column:1 / -1">
+          <div class="form-group form-group-2">
             <label><i class="fa-solid fa-id-badge" style="color:var(--primary)"></i> Cargo / Função</label>
-            <input type="text" id="emp-cargo" placeholder="Ex.: Porteiro, Vigia, Zelador, Auxiliar de Limpeza">
+            <input type="text" id="emp-cargo" list="emp-cargo-options" placeholder="Ex.: Porteiro, Vigia, Zelador, Auxiliar de Limpeza" onchange="_onCargoChange()" onblur="_onCargoChange()">
+            <datalist id="emp-cargo-options"></datalist>
+            <span id="emp-cargo-hint" style="font-size:11px;color:#1565C0;margin-top:3px;display:block;min-height:14px"></span>
+          </div>
+          <div class="form-group form-group-sm">
+            <label><i class="fa-solid fa-hashtag" style="color:var(--primary)"></i> CBO</label>
+            <input type="text" id="emp-cbo" placeholder="Ex.: 517410" maxlength="7" title="Classificação Brasileira de Ocupações — código MTE (6 a 7 dígitos)">
           </div>
         </div>
         <div class="form-row">
@@ -3886,6 +3993,17 @@
           <span style="font-size:11px;color:var(--text-muted);margin-top:4px;display:block">Usado como base para cálculo da Insalubridade (20%, 40% ou 60%)</span>
         </div>
       </div>
+
+      <!-- ============== Salários por Função ============== -->
+      <div class="divider" style="margin-top:18px"><span><i class="fa-solid fa-list-ul" style="color:#1565C0"></i> Salários por Função</span></div>
+      <div class="info-banner" style="background:#E3F2FD;color:#0D47A1">
+        <i class="fa-solid fa-circle-info"></i>
+        Cadastre o piso salarial de cada função. Ao escolher a função no cadastro de um colaborador, o salário base é preenchido automaticamente.
+      </div>
+      <div id="cct-salarios-funcao-list" style="display:flex;flex-direction:column;gap:6px;margin-top:8px"></div>
+      <button type="button" class="btn btn-outline btn-sm" onclick="addSalarioFuncao()" style="margin-top:8px;color:#1565C0;border-color:#1565C0">
+        <i class="fa-solid fa-plus"></i> Adicionar função
+      </button>
 
       <!-- ============== Banco de Horas ============== -->
       <div class="divider" style="margin-top:18px"><span><i class="fa-solid fa-piggy-bank" style="color:#00897B"></i> Banco de Horas</span></div>
@@ -5867,6 +5985,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260530b"></script>
+<script src="app.js?v=20260530h"></script>
 </body>
 </html>

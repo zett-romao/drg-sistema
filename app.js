@@ -236,6 +236,7 @@ const State = {
   atestados:  [],
   documentos: [],
   rescisoes: [],
+  holeritesEnviados: [],
   parametrosLegais: null,
   cct: null,
   empresa: {...EMPRESA_DEFAULTS},
@@ -945,6 +946,7 @@ function showSection(name){
   if(name==='payroll'        && !mods.payroll)      return;
   if(name==='escalas'        && !mods.escalas)      return;
   if(name==='pagamentos'     && !mods.pagamentos)      return;
+  if(name==='recibos'        && !mods.pagamentos)      return;
   if(name==='adiantamentos'  && !mods.pagamentos)      return;
   if(name==='aprovacoes'     && !mods.pagamentosLancar && !mods.pagamentosAprovar) return;
   if(name==='decimoterceiro' && !mods.decimoterceiro)  return;
@@ -974,7 +976,7 @@ function showSection(name){
   if(section) section.classList.add('active');
   if(navBtn)  navBtn.classList.add('active');
   const titles={dashboard:'Dashboard',employees:'Colaboradores',payroll:'Folha de Ponto',escalas:'Escalas',
-                pagamentos:'Pagamentos',adiantamentos:'Adiantamentos',aprovacoes:'Aprovações de Pagamentos',decimoterceiro:'13º Salário',ferias:'Férias',rescisao:'Rescisões',
+                pagamentos:'Pagamentos',recibos:'Recibos Enviados',adiantamentos:'Adiantamentos',aprovacoes:'Aprovações de Pagamentos',decimoterceiro:'13º Salário',ferias:'Férias',rescisao:'Rescisões',
                 contabilidade:'Contabilidade',banco:'Banco de Dados',users:'Usuários & Acessos',postos:'Postos de Trabalho',contratos:'Contratos',comunicacao:'Comunicação',autorizacoes:'Autorizações de Ponto',documentos:'Documentos do Colaborador',configuracoes:'Configurações'};
   document.getElementById('topbar-title').textContent=titles[name]||name;
   State.currentSection=name;
@@ -983,6 +985,7 @@ function showSection(name){
   if(name==='escalas')   renderEscalas();
   if(name==='dashboard') renderDashboard();
   if(name==='pagamentos')      { _applyModoBanners(State.empresa?.modoContabilidade||'ambas'); renderPagamentos(); }
+  if(name==='recibos')         renderRecibosEnviados();
   if(name==='aprovacoes')      renderAprovacoes();
   if(name==='adiantamentos')   renderAdiantamentos();
   if(name==='decimoterceiro')  renderDecimoTerceiro();
@@ -1426,6 +1429,8 @@ function applyUserSession(user){
   if(btnHE) btnHE.classList.toggle('hidden', !(mods.aprovaHE || user.role==='master'));
   const pagLi=document.getElementById('nav-pagamentos-li');
   if(pagLi) pagLi.classList.toggle('hidden', !mods.pagamentos);
+  const recLi=document.getElementById('nav-recibos-li');
+  if(recLi) recLi.classList.toggle('hidden', !mods.pagamentos);
   const adiLi=document.getElementById('nav-adiantamentos-li');
   if(adiLi) adiLi.classList.toggle('hidden', !mods.pagamentos);
   const aprLi=document.getElementById('nav-aprovacoes-li');
@@ -2385,7 +2390,29 @@ function renderPagamentos(){
       <td style="color:#1565C0">${fgts?fmtMoney(fgts):'—'}</td>
       <td style="font-weight:700;color:#1B5E20">${liq?fmtMoney(liq):'<span style="color:#ccc">—</span>'}</td>
       <td>${badge}</td>
-      <td><button class="btn-icon" onclick="openPayrollForEmployee('${e.id}')" title="Abrir folha de ponto"><i class="fa-solid fa-arrow-up-right-from-square"></i></button></td>
+      <td style="white-space:nowrap">
+        ${(() => {
+          const env = p ? _reciboEnvioVigente(e.id, mes, ano) : null;
+          let badge = '';
+          let enviarTitle = 'Enviar recibo pro colaborador (gera link com protocolo)';
+          let enviarColor = '#1565C0';
+          if(env){
+            if(env.visualizadoEm){
+              badge = `<span title="Visualizado em ${new Date(env.visualizadoEm).toLocaleString('pt-BR')}" style="display:inline-block;background:#E8F5E9;color:#1B5E20;border:1px solid #A5D6A7;border-radius:10px;padding:0 6px;font-size:10px;margin-right:4px"><i class="fa-solid fa-circle-check"></i> Visualizado</span>`;
+              enviarTitle = `Visualizado em ${new Date(env.visualizadoEm).toLocaleString('pt-BR')}`;
+              enviarColor = '#1B5E20';
+            } else {
+              badge = `<span title="Enviado em ${new Date(env.geradoEm).toLocaleString('pt-BR')}; aguardando abertura" style="display:inline-block;background:#FFF3E0;color:#E65100;border:1px solid #FFCC80;border-radius:10px;padding:0 6px;font-size:10px;margin-right:4px"><i class="fa-solid fa-paper-plane"></i> Enviado</span>`;
+              enviarTitle = `Enviado em ${new Date(env.geradoEm).toLocaleString('pt-BR')} — aguardando abertura`;
+              enviarColor = '#E65100';
+            }
+          }
+          return `${badge}
+            <button class="btn-icon" onclick="imprimirReciboOficial('${e.id}')" title="Recibo Oficial CLT (Portaria 671)" ${p?'':'disabled style="opacity:.4;cursor:not-allowed"'}><i class="fa-solid fa-file-invoice-dollar" style="color:#1B5E20"></i></button>
+            <button class="btn-icon" onclick="enviarReciboOficial('${e.id}')" title="${enviarTitle}" ${p?'':'disabled style="opacity:.4;cursor:not-allowed"'}><i class="fa-solid fa-paper-plane" style="color:${enviarColor}"></i></button>
+            <button class="btn-icon" onclick="openPayrollForEmployee('${e.id}')" title="Abrir folha de ponto"><i class="fa-solid fa-arrow-up-right-from-square"></i></button>`;
+        })()}
+      </td>
     </tr>`;
   }).join('');
   tbody.innerHTML=rows;
@@ -2492,43 +2519,679 @@ function updatePagSelCount(){
   }
 }
 
-// Imprime SÓ os colaboradores marcados (clona a tabela, tira não-selecionados,
-// remove a coluna de checkbox e o tfoot — os totais não batem com a seleção).
+// ============================================
+// RECIBO DE PAGAMENTO DE SALÁRIO (CLT / Portaria 671)
+// Layout oficial com códigos MTE/SEFIP, bases (INSS/IRRF/FGTS), FGTS depositado,
+// linha de assinatura e rodapé com protocolo (placeholder — Fase B2 ativa o envio
+// pro app do colaborador e atualiza esse protocolo com data/hora de visualização).
+// ============================================
+
+// Monta as linhas de proventos/descontos a partir do payroll record.
+// Retorna { linhas:[{cod,nome,ref,pr,de}], totalPr, totalDe, liquido, baseINSS, baseFGTS, baseIRRF, fgtsDepositado }.
+function _reciboOficialLinhas(emp, p){
+  const salBase     = parseFloat(emp.salarioBase||0);
+  const remuneracao = +p.remuneracao||0;
+  const an          = +p.adNoturno||0;
+  const heVal       = +p.horasExtrasValor||0;
+  const heHoras     = +p.horasExtrasTotal||0;
+  const hePerc      = parseInt(p.horasExtrasPerc||50);
+  const ins         = +p.insalubridade||0;
+  const acu         = +p.acumulo||0;
+  const inss        = +p.inss||0;
+  const irrf        = +p.irrf||0;
+  const fgts        = +p.fgts||0;
+  const adiant      = +(p.adiantamentoValor||p.adiantamento||0);
+  const vt          = +p.valeTransporte||0;
+  const faltasNum   = +(p.faltas||0);
+  const descFaltas  = Math.max(0, salBase - remuneracao);
+  const grauInsal   = parseFloat(emp.insalubridade||0) || 20;
+  const linhas = [];
+
+  // Proventos
+  linhas.push({cod:'0001', nome:'Salário Mensal', ref:'30,00', pr:salBase, de:0});
+  if(heVal>0){
+    const code = hePerc>=100 ? '0081' : '0080';
+    const nome = hePerc>=100 ? 'Horas Extras 100%' : 'Horas Extras 50%';
+    linhas.push({cod:code, nome:nome, ref:heHoras.toFixed(2).replace('.',',')+' h', pr:heVal, de:0});
+  }
+  if(an>0) linhas.push({cod:'0066', nome:'Adicional Noturno 20%',  ref:'—',                                  pr:an,  de:0});
+  if(ins>0) linhas.push({cod:'0099', nome:'Adicional Insalubridade '+grauInsal+'%', ref:grauInsal+'%',       pr:ins, de:0});
+  if(acu>0) linhas.push({cod:'0103', nome:'Acúmulo de Função',     ref:'—',                                  pr:acu, de:0});
+
+  // Descontos
+  if(descFaltas>0) linhas.push({cod:'0950', nome:'Faltas / Atrasos',         ref:(faltasNum||0).toFixed(2).replace('.',',')+' d', pr:0, de:descFaltas});
+  if(adiant>0)     linhas.push({cod:'0905', nome:'Adiantamento Salarial',    ref:'40%',                                            pr:0, de:adiant});
+  if(inss>0)       linhas.push({cod:'0900', nome:'INSS',                     ref:'—',                                              pr:0, de:inss});
+  if(irrf>0)       linhas.push({cod:'0901', nome:'IRRF',                     ref:'—',                                              pr:0, de:irrf});
+  if(vt>0)         linhas.push({cod:'0910', nome:'Vale Transporte',          ref:'6%',                                             pr:0, de:vt});
+
+  const totalPr   = linhas.reduce((s,l)=>s+(l.pr||0), 0);
+  const totalDe   = linhas.reduce((s,l)=>s+(l.de||0), 0);
+  const liquido   = totalPr - totalDe;
+  const baseINSS  = Math.max(0, totalPr - descFaltas);  // proventos tributáveis (faltas já descontadas)
+  const baseFGTS  = baseINSS;
+  const baseIRRF  = Math.max(0, baseINSS - inss);
+  return { linhas, totalPr, totalDe, liquido, baseINSS, baseFGTS, baseIRRF, fgtsDepositado: fgts };
+}
+
+// Gera o hash do protocolo (não-críptográfico, só pra identificação visual).
+function _reciboGerarProtocolo(empId, mes, ano, liquido){
+  const seed = String(empId)+'|'+mes+'|'+ano+'|'+(liquido||0).toFixed(2)+'|'+new Date().toISOString();
+  let h = 0, i = 0, len = seed.length;
+  while(i<len){ h = ((h<<5)-h) + seed.charCodeAt(i++); h |= 0; }
+  return ('00000000' + (h>>>0).toString(16)).slice(-8) + ('00000000' + (Math.floor(Math.random()*0xffffffff)).toString(16)).slice(-8);
+}
+
+// HTML de UM recibo individual.
+// opts.protocolo  — usa um protocolo já existente (recibo enviado/persistido).
+// opts.visualizadoEm — exibe carimbo de visualização no rodapé.
+function _reciboOficialUmHTML(emp, p, mes, ano, opts){
+  opts = opts || {};
+  const r = _reciboOficialLinhas(emp, p);
+  const mesLabel = MESES[mes]||'';
+  const competencia = `${MESES[mes]||''} / ${ano}`;
+  const protocolo = opts.protocolo || _reciboGerarProtocolo(emp.id, mes, ano, r.liquido);
+  const visualizadoStr = opts.visualizadoEm
+    ? new Date(opts.visualizadoEm).toLocaleString('pt-BR')
+    : '<em>aguardando envio</em>';
+  const _esc = s => String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' })[c]);
+  const _mn  = v => (v>0 ? fmtMoney(v) : '');
+  const empNome = _e('nomeEmpresa') || _e('razaoSocial') || '';
+  const empCnpj = _e('cnpj') || '—';
+  const empEnd  = _empresaEnderecoLinha() || '';
+  const empCnae = _e('cnae') || '';
+  const empLogo = _e('logoUrl') || '';
+  const ctpsTxt = [emp.ctpsNumero, emp.ctpsSerie, emp.ctpsUf].filter(Boolean).join(' / ') || '—';
+  const rgTxt   = (emp.rg||'—') + (emp.rgOrgao?' '+emp.rgOrgao:'');
+  const endCol  = [emp.endereco, emp.numero?'nº '+emp.numero:'', emp.complemento, emp.bairro,
+                   [emp.cidade, emp.estado].filter(Boolean).join('/'), emp.cep?'CEP '+emp.cep:''].filter(Boolean).join(' — ') || '—';
+
+  const linhasHtml = r.linhas.map(l=>`
+    <tr>
+      <td style="padding:3px 6px;text-align:center;font-family:monospace">${l.cod}</td>
+      <td style="padding:3px 6px">${_esc(l.nome)}</td>
+      <td style="padding:3px 6px;text-align:center">${_esc(l.ref)}</td>
+      <td style="padding:3px 6px;text-align:right">${_mn(l.pr)}</td>
+      <td style="padding:3px 6px;text-align:right">${_mn(l.de)}</td>
+    </tr>`).join('');
+
+  // Linhas vazias para “completar” a tabela (visual de impresso oficial)
+  const minRows = 14;
+  const fillRows = Math.max(0, minRows - r.linhas.length);
+  let preenchimento = '';
+  for(let i=0;i<fillRows;i++) preenchimento += `<tr><td style="padding:3px 6px">&nbsp;</td><td></td><td></td><td></td><td></td></tr>`;
+
+  return `
+  <div class="recibo">
+    <table class="cabecalho" style="width:100%;border:1px solid #000;border-collapse:collapse">
+      <tr>
+        <td style="width:90px;border-right:1px solid #000;text-align:center;padding:6px">
+          ${empLogo?`<div style="background:#fff;padding:3px;display:inline-block"><img src="${_esc(empLogo)}" style="max-height:60px;max-width:80px"></div>`:'<div style="font-size:9px;color:#666">LOGO</div>'}
+        </td>
+        <td style="padding:6px 10px">
+          <div style="font-weight:700;font-size:13px">${_esc(empNome)}</div>
+          <div style="font-size:10px;line-height:1.3">CNPJ: ${_esc(empCnpj)}${empCnae?' &nbsp;·&nbsp; CNAE: '+_esc(empCnae):''}</div>
+          ${empEnd?`<div style="font-size:9px;color:#444;line-height:1.3">${_esc(empEnd)}</div>`:''}
+        </td>
+        <td style="width:230px;text-align:right;padding:6px 10px;border-left:1px solid #000">
+          <div style="font-weight:700;font-size:12px">RECIBO DE PAGAMENTO DE SALÁRIO</div>
+          <div style="font-size:10px">Competência: <strong>${_esc(competencia)}</strong></div>
+        </td>
+      </tr>
+    </table>
+
+    <table class="dados-col" style="width:100%;border:1px solid #000;border-top:none;border-collapse:collapse;font-size:10px">
+      <tr>
+        <td style="padding:3px 6px;width:55%"><strong>Colaborador:</strong> ${_esc(emp.nome)}</td>
+        <td style="padding:3px 6px"><strong>Matrícula:</strong> ${emp.registro?String(emp.registro).padStart(4,'0'):'—'}</td>
+      </tr>
+      <tr>
+        <td style="padding:3px 6px"><strong>CPF:</strong> ${_esc(emp.cpf||'—')} &nbsp;·&nbsp; <strong>RG:</strong> ${_esc(rgTxt)}</td>
+        <td style="padding:3px 6px"><strong>PIS/PASEP:</strong> ${_esc(emp.pisNit||'—')}</td>
+      </tr>
+      <tr>
+        <td style="padding:3px 6px"><strong>CTPS:</strong> ${_esc(ctpsTxt)}</td>
+        <td style="padding:3px 6px"><strong>Admissão:</strong> ${emp.dataAdmissao?formatDateBr(emp.dataAdmissao):'—'}</td>
+      </tr>
+      <tr>
+        <td style="padding:3px 6px"><strong>Cargo:</strong> ${_esc(emp.cargo||'—')}${emp.cargoCBO?' &nbsp;·&nbsp; <strong>CBO:</strong> '+_esc(emp.cargoCBO):''}</td>
+        <td style="padding:3px 6px"><strong>Salário-base:</strong> ${fmtMoney(emp.salarioBase||0)}</td>
+      </tr>
+      <tr>
+        <td style="padding:3px 6px" colspan="2"><strong>Endereço:</strong> ${_esc(endCol)}</td>
+      </tr>
+    </table>
+
+    <table class="lancamentos" style="width:100%;border:1px solid #000;border-top:none;border-collapse:collapse;font-size:10px">
+      <thead>
+        <tr style="background:#e8e8e8">
+          <th style="padding:4px 6px;border-bottom:1px solid #000;width:50px">Cód.</th>
+          <th style="padding:4px 6px;border-bottom:1px solid #000;text-align:left">Descrição</th>
+          <th style="padding:4px 6px;border-bottom:1px solid #000;width:90px">Referência</th>
+          <th style="padding:4px 6px;border-bottom:1px solid #000;width:100px;text-align:right">Vencimentos</th>
+          <th style="padding:4px 6px;border-bottom:1px solid #000;width:100px;text-align:right">Descontos</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${linhasHtml}
+        ${preenchimento}
+      </tbody>
+      <tfoot>
+        <tr style="background:#f3f3f3;font-weight:700">
+          <td colspan="3" style="padding:5px 6px;border-top:1px solid #000;text-align:right">TOTAIS</td>
+          <td style="padding:5px 6px;border-top:1px solid #000;text-align:right">${fmtMoney(r.totalPr)}</td>
+          <td style="padding:5px 6px;border-top:1px solid #000;text-align:right">${fmtMoney(r.totalDe)}</td>
+        </tr>
+        <tr style="background:#f9f9f9;font-weight:700">
+          <td colspan="4" style="padding:5px 6px;text-align:right">LÍQUIDO A RECEBER</td>
+          <td style="padding:5px 6px;text-align:right;font-size:12px">${fmtMoney(r.liquido)}</td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <table class="bases" style="width:100%;border:1px solid #000;border-top:none;border-collapse:collapse;font-size:9px">
+      <tr>
+        <td style="padding:4px 6px;width:25%"><strong>Salário-base:</strong> ${fmtMoney(emp.salarioBase||0)}</td>
+        <td style="padding:4px 6px;width:25%"><strong>Base INSS:</strong> ${fmtMoney(r.baseINSS)}</td>
+        <td style="padding:4px 6px;width:25%"><strong>Base FGTS:</strong> ${fmtMoney(r.baseFGTS)}</td>
+        <td style="padding:4px 6px;width:25%"><strong>FGTS depositado:</strong> ${fmtMoney(r.fgtsDepositado)}</td>
+      </tr>
+      <tr>
+        <td colspan="2" style="padding:4px 6px"><strong>Base IRRF:</strong> ${fmtMoney(r.baseIRRF)}</td>
+        <td colspan="2" style="padding:4px 6px"><strong>Banco / PIX:</strong> ${_esc(emp.chavePix||'—')}</td>
+      </tr>
+    </table>
+
+    <table class="assinatura" style="width:100%;border:1px solid #000;border-top:none;border-collapse:collapse;font-size:10px">
+      <tr>
+        <td style="padding:14px 10px;width:65%">
+          <div style="margin-bottom:30px">Declaro ter recebido a importância líquida acima discriminada, referente ao período mencionado.</div>
+          <div style="border-top:1px solid #000;padding-top:3px;font-size:9px">Assinatura do empregado &nbsp;·&nbsp; Data: ____/____/______</div>
+        </td>
+        <td style="padding:14px 10px;border-left:1px solid #000;font-size:9px;line-height:1.5">
+          <div style="margin-bottom:6px"><strong>Documento eletrônico</strong></div>
+          <div>Protocolo: <span style="font-family:monospace">${protocolo}</span></div>
+          <div>Gerado em: ${new Date().toLocaleString('pt-BR')}</div>
+          <div>Visualização: ${visualizadoStr}</div>
+        </td>
+      </tr>
+    </table>
+  </div>`;
+}
+
+// Empacota 1+ recibos numa página A4 pronta pra impressão (page-break entre).
+function _reciboOficialPaginaHTML(itens, mes, ano){
+  const blocos = itens.map((it,i)=>{
+    const sep = i>0 ? '<div style="page-break-before:always"></div>' : '';
+    return sep + _reciboOficialUmHTML(it.emp, it.p, mes, ano);
+  }).join('\n');
+  const mesLabel = MESES[mes]||'';
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+    <title>Recibo de Pagamento — ${mesLabel}/${ano}</title>
+    <style>
+      @page { size:A4; margin:14mm 12mm }
+      body { font-family: 'Times New Roman', Tinos, serif; font-size:10px; color:#000; margin:0 }
+      table { border-collapse:collapse }
+      .recibo { margin:0 auto }
+      @media print { body { -webkit-print-color-adjust:exact; print-color-adjust:exact } }
+    </style></head><body>
+    ${blocos}
+    </body></html>`;
+}
+
+// Imprime UM recibo (botão "Recibo" da linha da tabela de Pagamentos).
+function imprimirReciboOficial(empId){
+  const mes=parseInt(val('pag-mes')||currentMes());
+  const ano=parseInt(val('pag-ano')||currentAno());
+  const emp = State.employees.find(e=>e.id===empId);
+  const p   = State.payrolls.find(x=>x.employeeId===empId && x.mes===mes && x.ano===ano);
+  if(!emp){ toast('Colaborador não encontrado.','error'); return; }
+  if(!p){ toast('Folha desse colaborador não foi calculada para o período.','warning'); return; }
+  const html = _reciboOficialPaginaHTML([{emp,p}], mes, ano);
+  const w = window.open('','_blank');
+  w.document.write(html); w.document.close(); w.print();
+  Auth.log && Auth.log('RECIBO_OFICIAL_GERADO', null, `${emp.nome} | ${String(mes).padStart(2,'0')}/${ano}`);
+}
+
+// Imprime os recibos oficiais de TODOS os colaboradores marcados.
+// Substitui o antigo "Imprimir Selecionados" (que só clonava a tabela).
 function printPagamentosSelecionados(){
   const sel = Array.from(document.querySelectorAll('#pag-tbody .pag-row-check:checked'))
                     .map(cb => cb.dataset.empId);
   if(!sel.length){ toast('Selecione pelo menos um colaborador.','warning'); return; }
   const mes=parseInt(val('pag-mes')||currentMes());
   const ano=parseInt(val('pag-ano')||currentAno());
-  const mesLabel=MESES[mes]||'';
-  const table=document.getElementById('pag-table');
-  if(!table){ toast('Carregue os dados primeiro.','warning'); return; }
-  const set = new Set(sel);
-  const clone = table.cloneNode(true);
-  // 1) Remove rows não selecionadas
-  Array.from(clone.querySelectorAll('tbody tr')).forEach(tr=>{
-    const cb = tr.querySelector('.pag-row-check');
-    if(!cb || !set.has(cb.dataset.empId)) tr.remove();
+  const itens=[]; let semFolha=0;
+  for(const empId of sel){
+    const emp = State.employees.find(e=>e.id===empId);
+    const p   = State.payrolls.find(x=>x.employeeId===empId && x.mes===mes && x.ano===ano);
+    if(emp && p) itens.push({emp,p}); else if(emp) semFolha++;
+  }
+  if(!itens.length){ toast('Nenhum dos selecionados tem folha calculada para o período.','warning'); return; }
+  const html = _reciboOficialPaginaHTML(itens, mes, ano);
+  const w = window.open('','_blank');
+  w.document.write(html); w.document.close(); w.print();
+  Auth.log && Auth.log('RECIBO_OFICIAL_GERADO_LOTE', null, `${itens.length} recibo(s) | ${String(mes).padStart(2,'0')}/${ano}${semFolha?` (${semFolha} sem folha)`:''}`);
+}
+
+// ============================================
+// B2 — ENVIO DO RECIBO PRO APP DO COLABORADOR
+// Como o app de login do colaborador ainda não existe, o "envio" gera um
+// link único (#/recibo/TOKEN) que o gestor manda por WhatsApp/e-mail. Quando
+// o colaborador abre, o sistema marca `visualizadoEm` (data/hora) e estampa o
+// protocolo no recibo — atende à comprovação de entrega da CLT.
+// ============================================
+
+// Procura um envio NÃO anulado para esse colaborador/competência.
+function _reciboEnvioVigente(empId, mes, ano){
+  return (State.holeritesEnviados||[]).find(r =>
+    r.employeeId===empId && r.mes===mes && r.ano===ano && !r.anulado);
+}
+
+// Gera token URL-safe (32 hex chars) — só "quem tem o link vê" (estilo Drive).
+function _reciboGerarToken(){
+  if(window.crypto && crypto.getRandomValues){
+    const arr = new Uint8Array(16);
+    crypto.getRandomValues(arr);
+    return Array.from(arr).map(b=>b.toString(16).padStart(2,'0')).join('');
+  }
+  return (Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)).slice(0,32);
+}
+
+// Snapshot dos campos do colaborador usados no recibo. Persistimos junto com
+// o registro pra que o link público continue válido mesmo se o cadastro mudar.
+function _reciboSnapshotEmp(emp){
+  const keys = ['id','nome','registro','cpf','rg','rgOrgao','pisNit','ctpsNumero','ctpsSerie','ctpsUf',
+                'dataAdmissao','cargo','cargoCBO','salarioBase','insalubridade',
+                'endereco','numero','complemento','bairro','cidade','estado','cep','chavePix'];
+  const out = {};
+  keys.forEach(k => out[k] = emp[k] || '');
+  return out;
+}
+
+// Cria (ou recupera) o envio e abre o modal com link copiável + WhatsApp/e-mail.
+async function enviarReciboOficial(empId){
+  if(!getUserModules(Auth.currentUser).pagamentosLancar){
+    toast('Você não tem permissão para enviar recibos.','error'); return;
+  }
+  const mes = parseInt(val('pag-mes')||currentMes());
+  const ano = parseInt(val('pag-ano')||currentAno());
+  const emp = State.employees.find(e=>e.id===empId);
+  const p   = State.payrolls.find(x=>x.employeeId===empId && x.mes===mes && x.ano===ano);
+  if(!emp){ toast('Colaborador não encontrado.','error'); return; }
+  if(!p){ toast('Folha desse colaborador não foi calculada para o período.','warning'); return; }
+
+  let reg = _reciboEnvioVigente(empId, mes, ano);
+  if(!reg){
+    const r = _reciboOficialLinhas(emp, p);
+    reg = {
+      id: genId(),
+      employeeId: empId,
+      employeeNome: emp.nome,
+      mes, ano,
+      protocolo: _reciboGerarProtocolo(empId, mes, ano, r.liquido),
+      token:     _reciboGerarToken(),
+      geradoEm:  new Date().toISOString(),
+      geradoPor: (Auth.currentUser && (Auth.currentUser.username || Auth.currentUser.nome)) || '—',
+      enviado:   true,
+      visualizadoEm: null,
+      anulado:   false,
+      liquido:   r.liquido,
+      empSnapshot: _reciboSnapshotEmp(emp),
+      pSnapshot:   JSON.parse(JSON.stringify(p))
+    };
+    try {
+      await DB.save('holeritesEnviados', reg);
+      State.holeritesEnviados = [...(State.holeritesEnviados||[]).filter(x=>x.id!==reg.id), reg];
+      Auth.log && Auth.log('RECIBO_ENVIADO', null, `${emp.nome} | ${String(mes).padStart(2,'0')}/${ano} | ${reg.protocolo}`);
+    } catch(e){
+      console.error(e);
+      toast('Erro ao salvar o envio. Tente novamente.','error'); return;
+    }
+  }
+  const link = location.origin + location.pathname + '#/recibo/' + reg.token;
+  _abrirModalEnvioRecibo(emp, reg, link);
+}
+
+function _abrirModalEnvioRecibo(emp, reg, link){
+  const compLabel = `${MESES[reg.mes]||''}/${reg.ano}`;
+  const primeiroNome = (emp.nome||'').split(' ')[0] || emp.nome || '';
+  const msgWa = `Olá ${primeiroNome}! Seu recibo de pagamento (${compLabel}) está disponível para visualização: ${link}`;
+  const waUrl = `https://wa.me/${(emp.celular||'').replace(/\D/g,'')?'55'+emp.celular.replace(/\D/g,''):''}?text=${encodeURIComponent(msgWa)}`;
+  const mailto = `mailto:${emp.email||''}?subject=${encodeURIComponent('Recibo de pagamento — '+compLabel)}&body=${encodeURIComponent(msgWa)}`;
+  const visualBox = reg.visualizadoEm
+    ? `<div style="background:#E8F5E9;border-left:4px solid #1B5E20;padding:10px 12px;margin-bottom:12px;font-size:13px;color:#1B5E20"><i class="fa-solid fa-circle-check"></i> <strong>Visualizado em ${new Date(reg.visualizadoEm).toLocaleString('pt-BR')}</strong></div>`
+    : `<div style="background:#FFF3E0;border-left:4px solid #E65100;padding:10px 12px;margin-bottom:12px;font-size:13px;color:#E65100"><i class="fa-solid fa-clock"></i> Aguardando visualização do colaborador</div>`;
+
+  document.getElementById('modal-envio-recibo')?.remove();
+  const html = `
+    <div id="modal-envio-recibo" class="modal" style="display:flex;align-items:center;justify-content:center;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999">
+      <div class="modal-content" style="background:#fff;max-width:560px;width:92%;border-radius:8px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.3)">
+        <div style="background:#1a3a6b;color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
+          <h3 style="margin:0;font-size:16px"><i class="fa-solid fa-paper-plane"></i> Enviar recibo — ${(emp.nome||'').split(' ').slice(0,2).join(' ')}</h3>
+          <button onclick="document.getElementById('modal-envio-recibo').remove()" style="background:transparent;border:none;color:#fff;font-size:20px;cursor:pointer;line-height:1">&times;</button>
+        </div>
+        <div style="padding:16px">
+          ${visualBox}
+          <div style="font-size:12px;color:#555;margin-bottom:12px">
+            <div><strong>Competência:</strong> ${compLabel}</div>
+            <div><strong>Protocolo:</strong> <span style="font-family:monospace">${reg.protocolo}</span></div>
+            <div><strong>Líquido:</strong> ${fmtMoney(reg.liquido||0)}</div>
+          </div>
+          <label style="font-weight:600;font-size:12px;display:block;margin-bottom:4px">Link único do recibo</label>
+          <div style="display:flex;gap:6px">
+            <input type="text" id="recibo-link-input" value="${link}" readonly style="flex:1;font-family:monospace;font-size:11px;padding:8px 10px;border:1px solid #ccc;border-radius:4px;background:#f7f7f7">
+            <button onclick="_copiarLinkRecibo()" style="background:#1a3a6b;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:13px"><i class="fa-solid fa-copy"></i> Copiar</button>
+          </div>
+          <p style="font-size:11px;color:#888;margin:4px 0 0">Qualquer pessoa com o link pode ver o recibo. Compartilhe apenas com ${primeiroNome}.</p>
+          <div style="display:flex;gap:8px;margin-top:16px">
+            <a href="${waUrl}" target="_blank" style="flex:1;text-align:center;background:#25D366;color:#fff;border:none;padding:10px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:600"><i class="fa-brands fa-whatsapp"></i> WhatsApp${emp.celular?' ('+emp.celular+')':''}</a>
+            <a href="${mailto}" style="flex:1;text-align:center;background:#1565C0;color:#fff;border:none;padding:10px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:600"><i class="fa-solid fa-envelope"></i> E-mail${emp.email?' ('+emp.email+')':''}</a>
+          </div>
+        </div>
+        <div style="padding:10px 16px;border-top:1px solid #eee;display:flex;justify-content:space-between;align-items:center;background:#fafafa">
+          <button onclick="_anularReciboEnviado('${reg.id}')" style="background:transparent;color:#c0392b;border:1px solid #c0392b;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px"><i class="fa-solid fa-ban"></i> Anular este envio</button>
+          <button onclick="document.getElementById('modal-envio-recibo').remove()" style="background:#666;color:#fff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;font-size:13px">Fechar</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function _copiarLinkRecibo(){
+  const input = document.getElementById('recibo-link-input');
+  if(!input) return;
+  input.select(); input.setSelectionRange(0, 999);
+  try {
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(input.value).then(()=>toast('Link copiado!','success'));
+    } else {
+      document.execCommand('copy');
+      toast('Link copiado!','success');
+    }
+  } catch(e){ console.error(e); toast('Não foi possível copiar — copie manualmente.','warning'); }
+}
+
+async function _anularReciboEnviado(regId){
+  if(!confirm('Anular este envio? O link deixará de funcionar imediatamente. Você poderá gerar um novo recibo depois.')) return;
+  const reg = (State.holeritesEnviados||[]).find(r=>r.id===regId);
+  if(!reg){ toast('Registro não encontrado.','error'); return; }
+  const updated = {...reg, anulado:true, anuladoEm:new Date().toISOString(),
+                   anuladoPor:(Auth.currentUser&&(Auth.currentUser.username||Auth.currentUser.nome))||'—'};
+  try {
+    await DB.save('holeritesEnviados', updated);
+    const ix = State.holeritesEnviados.findIndex(r=>r.id===regId);
+    if(ix>=0) State.holeritesEnviados[ix] = updated;
+    Auth.log && Auth.log('RECIBO_ANULADO', null, `${reg.employeeNome} | ${String(reg.mes).padStart(2,'0')}/${reg.ano} | ${reg.protocolo}`);
+    toast('Envio anulado.','success');
+    document.getElementById('modal-envio-recibo')?.remove();
+    if(State.currentSection==='pagamentos') renderPagamentos();
+  } catch(e){ console.error(e); toast('Erro ao anular.','error'); }
+}
+
+// ============================================
+// ROTA PÚBLICA — #/recibo/TOKEN
+// Detectada no início de init(). Bypass do login do gestor. Usa
+// collectionGroup pra achar o registro pelo token. Marca visualizadoEm na
+// 1ª abertura e renderiza o recibo no body.
+// ============================================
+async function _entrarRotaPublicaSeAplicavel(){
+  const hash = location.hash || '';
+  const m = hash.match(/^#\/recibo\/([A-Fa-f0-9]{16,64})$/);
+  if(!m) return false;
+  const token = m[1];
+
+  document.body.innerHTML = `<div style="font-family:Arial;padding:60px;text-align:center;color:#666">
+    <div style="font-size:42px;margin-bottom:14px">⏳</div>
+    <div>Carregando seu recibo...</div></div>`;
+
+  // Garante Firebase Auth (anônima quando necessário, pra ler o documento)
+  try {
+    if(!firebase.auth().currentUser){
+      await firebase.auth().signInAnonymously();
+    }
+  } catch(e){ console.warn('Sem auth anônima:', e); }
+
+  try {
+    const snap = await firebase.firestore().collectionGroup('holeritesEnviados')
+                       .where('token','==',token).limit(1).get();
+    if(snap.empty){
+      document.body.innerHTML = _paginaPublicaErroHTML('Recibo não encontrado.', 'O link pode ter sido digitado errado ou o envio foi anulado pelo emissor.');
+      return true;
+    }
+    const docRef = snap.docs[0].ref;
+    const data   = snap.docs[0].data();
+    if(data.anulado){
+      document.body.innerHTML = _paginaPublicaErroHTML('Recibo indisponível.', 'Este recibo foi anulado pelo emissor.');
+      return true;
+    }
+    // Marca como visualizado na PRIMEIRA abertura
+    if(!data.visualizadoEm){
+      data.visualizadoEm = new Date().toISOString();
+      try {
+        await docRef.update({
+          visualizadoEm: data.visualizadoEm,
+          userAgent: (navigator.userAgent||'').slice(0,200)
+        });
+      } catch(e){ console.warn('Falha ao registrar visualização:', e); }
+    }
+
+    const emp = data.empSnapshot || {};
+    const p   = data.pSnapshot   || {};
+    const reciboHtml = _reciboOficialUmHTML(emp, p, data.mes, data.ano,
+      { protocolo: data.protocolo, visualizadoEm: data.visualizadoEm });
+
+    document.body.innerHTML = `
+      <div style="background:#eef0f4;min-height:100vh;padding:0">
+        <div style="background:#1a3a6b;color:#fff;padding:10px 16px;font-family:Arial;font-size:13px;text-align:center">
+          Recibo de Pagamento · Documento eletrônico
+        </div>
+        <div style="max-width:820px;margin:16px auto;background:#fff;box-shadow:0 2px 18px rgba(0,0,0,.12);padding:24px;font-family:'Times New Roman',serif">
+          <div style="background:#E8F5E9;border-left:4px solid #1B5E20;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#1B5E20;font-family:Arial">
+            <i class="fa-solid fa-circle-check"></i> <strong>Visualização registrada em ${new Date(data.visualizadoEm).toLocaleString('pt-BR')}</strong> · Protocolo <span style="font-family:monospace">${data.protocolo}</span>
+          </div>
+          <div style="text-align:center;margin:0 0 14px">
+            <button onclick="window.print()" style="background:#1B5E20;color:#fff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;font-family:Arial;font-size:13px">
+              🖨 Imprimir / Salvar PDF
+            </button>
+          </div>
+          ${reciboHtml}
+        </div>
+        <style>
+          @media print {
+            body { background:#fff !important }
+            div[style*="background:#1a3a6b"], div[style*="background:#E8F5E9"], button { display:none !important }
+            div[style*="max-width:820px"] { box-shadow:none !important; padding:0 !important; max-width:100% !important; margin:0 !important }
+          }
+        </style>
+      </div>`;
+    return true;
+  } catch(e){
+    console.error('Erro ao carregar recibo público:', e);
+    document.body.innerHTML = _paginaPublicaErroHTML('Não foi possível abrir o recibo.', (e&&e.message)||'Erro de conexão. Tente novamente em alguns instantes.');
+    return true;
+  }
+}
+
+function _paginaPublicaErroHTML(titulo, msg){
+  return `<div style="font-family:Arial;padding:40px;text-align:center;background:#f4f4f8;min-height:100vh">
+    <div style="max-width:480px;margin:0 auto;background:#fff;padding:40px;border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,.1)">
+      <div style="font-size:48px;color:#c0392b;margin-bottom:8px">⚠️</div>
+      <h2 style="color:#333;margin:0 0 10px">${titulo}</h2>
+      <p style="color:#666;margin:0">${msg}</p>
+    </div></div>`;
+}
+
+// ============================================
+// TELA RECIBOS ENVIADOS — histórico consolidado
+// Mostra TODOS os envios já feitos: filtros por mês/ano/status/colaborador,
+// cards com totais, tabela com protocolo + link rápido + ações (reabrir
+// modal, anular, reimprimir).
+// ============================================
+function _recibosEnviadosFiltrados(){
+  const mes = (val('rec-mes')||'').trim();
+  const ano = (val('rec-ano')||'').trim();
+  const status = (val('rec-status')||'').trim();
+  const q = (val('rec-search')||'').toLowerCase().trim();
+  let lista = (State.holeritesEnviados||[]).slice();
+  if(mes) lista = lista.filter(r=>r.mes==parseInt(mes));
+  if(ano) lista = lista.filter(r=>r.ano==parseInt(ano));
+  if(status==='visualizado') lista = lista.filter(r=>!!r.visualizadoEm && !r.anulado);
+  if(status==='pendente')    lista = lista.filter(r=>!r.visualizadoEm && !r.anulado);
+  if(status==='anulado')     lista = lista.filter(r=>!!r.anulado);
+  if(q){
+    lista = lista.filter(r=>{
+      const emp = State.employees.find(e=>e.id===r.employeeId);
+      const reg = emp?String(emp.registro||'').padStart(4,'0'):'';
+      const nome = (r.employeeNome || emp?.nome || '').toLowerCase();
+      return nome.includes(q) || reg.includes(q);
+    });
+  }
+  // Mais recentes primeiro
+  lista.sort((a,b)=> new Date(b.geradoEm||0) - new Date(a.geradoEm||0));
+  return lista;
+}
+
+function renderRecibosEnviados(){
+  const tbody = document.getElementById('rec-tbody');
+  const statsEl = document.getElementById('rec-stats');
+  if(!tbody) return;
+  const todos = (State.holeritesEnviados||[]);
+  const filtrados = _recibosEnviadosFiltrados();
+
+  // Stats globais (não filtrados — visão geral fica útil)
+  const totalEnv  = todos.length;
+  const totalVis  = todos.filter(r=>!!r.visualizadoEm && !r.anulado).length;
+  const totalPend = todos.filter(r=>!r.visualizadoEm && !r.anulado).length;
+  const totalAnu  = todos.filter(r=>!!r.anulado).length;
+  const pctVis    = totalEnv>0 ? Math.round(totalVis*100/totalEnv) : 0;
+  if(statsEl){
+    statsEl.innerHTML = `
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(26,58,107,0.1)"><i class="fa-solid fa-paper-plane" style="color:#1a3a6b"></i></div>
+        <div class="stat-info"><div class="stat-label">Total enviados</div><div class="stat-value" style="color:#1a3a6b">${totalEnv}</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(27,94,32,0.1)"><i class="fa-solid fa-circle-check" style="color:#1B5E20"></i></div>
+        <div class="stat-info"><div class="stat-label">Visualizados (${pctVis}%)</div><div class="stat-value" style="color:#1B5E20">${totalVis}</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(230,81,0,0.1)"><i class="fa-solid fa-clock" style="color:#E65100"></i></div>
+        <div class="stat-info"><div class="stat-label">Aguardando abertura</div><div class="stat-value" style="color:#E65100">${totalPend}</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(192,57,43,0.1)"><i class="fa-solid fa-ban" style="color:#c0392b"></i></div>
+        <div class="stat-info"><div class="stat-label">Anulados</div><div class="stat-value" style="color:#c0392b">${totalAnu}</div></div>
+      </div>`;
+  }
+
+  if(!filtrados.length){
+    tbody.innerHTML = `<tr><td colspan="9" style="padding:30px;text-align:center;color:#888">
+      ${totalEnv===0 ? 'Nenhum recibo enviado ainda. Use o botão de envio na tela Pagamentos.' : 'Nenhum recibo bate com os filtros aplicados.'}
+    </td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = filtrados.map((r,i)=>{
+    const emp = State.employees.find(e=>e.id===r.employeeId);
+    const nome = r.employeeNome || emp?.nome || '—';
+    const reg  = emp ? String(emp.registro||'').padStart(4,'0') : '—';
+    const compLabel = `${MESES[r.mes]||'?'}/${r.ano}`;
+    const liq = fmtMoney(r.liquido||0);
+    const enviado = r.geradoEm ? new Date(r.geradoEm).toLocaleString('pt-BR') : '—';
+    const visual  = r.visualizadoEm ? new Date(r.visualizadoEm).toLocaleString('pt-BR') : '—';
+    let badge;
+    if(r.anulado){
+      badge = `<span style="background:#FFEBEE;color:#c0392b;border:1px solid #FFCDD2;padding:2px 8px;border-radius:12px;font-size:11px"><i class="fa-solid fa-ban"></i> Anulado</span>`;
+    } else if(r.visualizadoEm){
+      badge = `<span style="background:#E8F5E9;color:#1B5E20;border:1px solid #A5D6A7;padding:2px 8px;border-radius:12px;font-size:11px"><i class="fa-solid fa-circle-check"></i> Visualizado</span>`;
+    } else {
+      badge = `<span style="background:#FFF3E0;color:#E65100;border:1px solid #FFCC80;padding:2px 8px;border-radius:12px;font-size:11px"><i class="fa-solid fa-clock"></i> Aguardando</span>`;
+    }
+    const link = location.origin + location.pathname + '#/recibo/' + (r.token||'');
+    const linkEscaped = link.replace(/'/g,"\\'");
+    const bg = i%2===0 ? '#fff' : '#f7f9fc';
+    return `<tr style="background:${bg}">
+      <td>${i+1}</td>
+      <td><strong>${nome}</strong><br><span style="font-size:10px;color:#888">Reg. ${reg}</span></td>
+      <td style="white-space:nowrap">${compLabel}</td>
+      <td style="font-weight:600;color:#1B5E20">${liq}</td>
+      <td style="font-family:monospace;font-size:10px;color:#555" title="${r.protocolo||''}">${(r.protocolo||'—').slice(0,10)}…</td>
+      <td style="font-size:11px">${enviado}</td>
+      <td style="font-size:11px">${visual}</td>
+      <td>${badge}</td>
+      <td style="white-space:nowrap">
+        ${r.anulado ? '' : `
+          <button class="btn-icon" onclick="_reciboReabrirModal('${r.id}')" title="Abrir modal de envio (copiar link, WhatsApp, e-mail)"><i class="fa-solid fa-paper-plane" style="color:#1565C0"></i></button>
+          <button class="btn-icon" onclick="_reciboCopiarLinkRapido('${linkEscaped}')" title="Copiar link"><i class="fa-solid fa-link" style="color:#1a3a6b"></i></button>
+          <button class="btn-icon" onclick="_reciboAbrirComoColaborador('${linkEscaped}')" title="Abrir o link em uma nova aba (como o colaborador veria)"><i class="fa-solid fa-up-right-from-square" style="color:#666"></i></button>
+        `}
+        <button class="btn-icon" onclick="_reciboImprimirDoRegistro('${r.id}')" title="Imprimir recibo"><i class="fa-solid fa-print" style="color:#1B5E20"></i></button>
+        ${r.anulado ? '' : `<button class="btn-icon" onclick="_anularReciboEnviado('${r.id}')" title="Anular envio"><i class="fa-solid fa-ban" style="color:#c0392b"></i></button>`}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// Reabre o modal de envio com os dados do registro existente.
+function _reciboReabrirModal(regId){
+  const reg = (State.holeritesEnviados||[]).find(r=>r.id===regId);
+  if(!reg){ toast('Registro não encontrado.','error'); return; }
+  const emp = State.employees.find(e=>e.id===reg.employeeId) || reg.empSnapshot || { nome: reg.employeeNome };
+  const link = location.origin + location.pathname + '#/recibo/' + reg.token;
+  _abrirModalEnvioRecibo(emp, reg, link);
+}
+
+function _reciboCopiarLinkRapido(link){
+  try {
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(link).then(()=>toast('Link copiado!','success'));
+    } else {
+      const ta = document.createElement('textarea'); ta.value=link; document.body.appendChild(ta);
+      ta.select(); document.execCommand('copy'); ta.remove();
+      toast('Link copiado!','success');
+    }
+  } catch(e){ console.error(e); toast('Não foi possível copiar.','error'); }
+}
+
+function _reciboAbrirComoColaborador(link){
+  window.open(link, '_blank');
+}
+
+// Imprime o recibo direto a partir do snapshot persistido (não precisa ter folha em estado).
+function _reciboImprimirDoRegistro(regId){
+  const reg = (State.holeritesEnviados||[]).find(r=>r.id===regId);
+  if(!reg){ toast('Registro não encontrado.','error'); return; }
+  const emp = reg.empSnapshot || State.employees.find(e=>e.id===reg.employeeId);
+  const p = reg.pSnapshot;
+  if(!emp || !p){ toast('Dados do recibo incompletos.','error'); return; }
+  const html = _reciboOficialPaginaHTML([{emp, p}], reg.mes, reg.ano);
+  const w = window.open('','_blank');
+  w.document.write(html); w.document.close(); w.print();
+}
+
+function exportRecibosCsv(){
+  const lista = _recibosEnviadosFiltrados();
+  if(!lista.length){ toast('Nada para exportar.','warning'); return; }
+  const header = ['#','Colaborador','Registro','Competência','Líquido','Protocolo','Token','Enviado em','Visualizado em','Status','Link'];
+  const rows = lista.map((r,i)=>{
+    const emp = State.employees.find(e=>e.id===r.employeeId);
+    const nome = r.employeeNome || emp?.nome || '';
+    const reg = emp ? String(emp.registro||'').padStart(4,'0') : '';
+    const status = r.anulado?'Anulado':(r.visualizadoEm?'Visualizado':'Aguardando');
+    const link = location.origin + location.pathname + '#/recibo/' + (r.token||'');
+    const fmtBr = iso => iso ? new Date(iso).toLocaleString('pt-BR') : '';
+    return [i+1, nome, reg, `${MESES[r.mes]||'?'}/${r.ano}`,
+      (r.liquido||0).toFixed(2).replace('.',','),
+      r.protocolo||'', r.token||'',
+      fmtBr(r.geradoEm), fmtBr(r.visualizadoEm), status, link
+    ].map(v=>String(v).replace(/;/g,',')).join(';');
   });
-  // 2) Remove a coluna de checkbox (1ª) de todas as linhas (thead/tbody)
-  clone.querySelectorAll('tr').forEach(tr=>{
-    const first = tr.firstElementChild;
-    if(first && first.querySelector('input[type="checkbox"]')) first.remove();
-  });
-  // 3) Remove o rodapé com totais (não bate com a seleção)
-  const tfoot = clone.querySelector('tfoot');
-  if(tfoot) tfoot.remove();
-  const w=window.open('','_blank');
-  w.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
-    <title>Holerites (selecionados) ${mesLabel}/${ano}</title>
-    <style>body{font-family:Arial,sans-serif;font-size:10px}
-    table{width:100%;border-collapse:collapse}th,td{border:1px solid #ccc;padding:4px 6px}
-    th{background:#1a3a6b;color:#fff}tr:nth-child(even){background:#f5f5f5}
-    h2{color:#1a3a6b}</style></head><body>
-    <h2>${_e('nomeEmpresa')} — Holerites (${sel.length} selecionado(s)) — ${mesLabel} / ${ano}</h2>
-    ${clone.outerHTML}</body></html>`);
-  w.document.close();
-  w.print();
+  const csv = '﻿' + [header.join(';'), ...rows].join('\n');
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+  a.download = `recibos_enviados_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
 }
 
 // ============================================
@@ -3009,7 +3672,8 @@ function renderContabilidade(){
     tTotal+=especie+vt+vr+va+bon;
     const rowBg=i%2===0?'#ffffff':'#EEF2FF';
     const semFolhaBorder=!p?'border-left:3px solid #EF9A9A':'';
-    return `<tr style="background:${rowBg};${semFolhaBorder}">
+    return `<tr style="background:${rowBg};${semFolhaBorder}" data-nome="${(e.nome||'').toLowerCase()}" data-reg="${e.registro?String(e.registro).padStart(4,'0'):''}">
+      <td class="col-check" style="text-align:center"><input type="checkbox" class="cont-row-check" data-emp-id="${e.id}" onclick="updateContSelCount()"></td>
       <td>${i+1}</td>
       <td>${e.registro?String(e.registro).padStart(4,'0'):'—'}</td>
       <td><strong>${e.nome}</strong></td>
@@ -3039,7 +3703,7 @@ function renderContabilidade(){
 
   tbody.innerHTML=rows;
   tfoot.innerHTML=`<tr style="background:#EEF4FF;font-weight:700">
-    <td colspan="11" style="padding:8px 10px">TOTAIS — ${emps.length} colaborador(es)</td>
+    <td colspan="12" style="padding:8px 10px">TOTAIS — ${emps.length} colaborador(es)</td>
     <td>${fmtMoney(tR)}</td>
     <td>${fmtMoney(tVT)}</td>
     <td>${fmtMoney(tVR)}</td>
@@ -3143,8 +3807,141 @@ function printContabilidade(){
   const printArea=document.getElementById('cont-printable');
   const header=printArea?.querySelector('.cont-report-header');
   if(header) header.style.display='flex';
+  // Esconde a coluna de checkbox na impressão (ela não faz sentido no papel)
+  printArea?.classList.add('hide-checks');
   window.print();
+  printArea?.classList.remove('hide-checks');
   if(header) header.style.display='none';
+}
+
+// Marca/desmarca todas as linhas (toggle do header)
+function toggleAllContabilidade(master){
+  document.querySelectorAll('#cont-tbody .cont-row-check').forEach(cb=>{
+    cb.checked = !!master.checked;
+  });
+  updateContSelCount();
+}
+
+function updateContSelCount(){
+  const n = document.querySelectorAll('#cont-tbody .cont-row-check:checked').length;
+  const btnImp = document.getElementById('btn-cont-imprimir-sel');
+  const btnPdf = document.getElementById('btn-cont-pdf-sel');
+  const badge  = document.getElementById('cont-sel-count');
+  if(btnImp) btnImp.disabled = (n === 0);
+  if(btnPdf) btnPdf.disabled = (n === 0);
+  if(badge){
+    badge.textContent = n;
+    badge.style.display = n > 0 ? '' : 'none';
+  }
+}
+
+// Imprime a planilha SÓ com os marcados — clona a tabela, remove linhas
+// não-selecionadas, remove a coluna de checkbox e o tfoot (totais não batem).
+function printContabilidadeSelecionados(){
+  const sel = Array.from(document.querySelectorAll('#cont-tbody .cont-row-check:checked'))
+                    .map(cb => cb.dataset.empId);
+  if(!sel.length){ toast('Selecione pelo menos um colaborador.','warning'); return; }
+  const mes=parseInt(val('cont-mes')||currentMes());
+  const ano=parseInt(val('cont-ano')||currentAno());
+  const mesLabel=MESES[mes]||'';
+  const table=document.getElementById('cont-table');
+  if(!table){ toast('Carregue a planilha primeiro.','warning'); return; }
+
+  const set = new Set(sel);
+  const clone = table.cloneNode(true);
+  // Remove rows não selecionadas
+  Array.from(clone.querySelectorAll('tbody tr')).forEach(tr=>{
+    const cb = tr.querySelector('.cont-row-check');
+    if(!cb || !set.has(cb.dataset.empId)) tr.remove();
+  });
+  // Renumera o "Nº" (a 2ª coluna depois do checkbox)
+  Array.from(clone.querySelectorAll('tbody tr')).forEach((tr,i)=>{
+    const td = tr.children[1]; // checkbox=0, Nº=1
+    if(td) td.textContent = String(i+1);
+  });
+  // Remove a coluna de checkbox (1ª) de thead/tbody
+  clone.querySelectorAll('tr').forEach(tr=>{
+    const first = tr.firstElementChild;
+    if(first && (first.classList?.contains('col-check') || first.querySelector('input[type="checkbox"]'))) first.remove();
+  });
+  // Remove o tfoot (totais não batem com a seleção)
+  const tfoot = clone.querySelector('tfoot');
+  if(tfoot) tfoot.remove();
+
+  const empresaNome = _e('nomeEmpresa') || '';
+  const empresaEnd  = _empresaEnderecoLinha() || '';
+  const w = window.open('','_blank','width=1200,height=800');
+  if(!w){ toast('Permita pop-ups para imprimir.','error'); return; }
+  w.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+    <title>Planilha de Contabilidade (selecionados) ${mesLabel}/${ano}</title>
+    <style>
+      @page { size:A4 landscape; margin:8mm }
+      body { font-family:Arial,sans-serif; font-size:10px; color:#212529; margin:0; padding:10px }
+      h2 { color:#1a3a6b; margin:0 0 4px }
+      .sub { color:#555; font-size:11px; margin-bottom:10px }
+      table { width:100%; border-collapse:collapse; min-width:1100px }
+      th,td { border:1px solid #ccc; padding:3px 5px; font-size:9.5px }
+      th { background:#1a3a6b; color:#fff; text-align:left }
+      tr:nth-child(even) td { background:#f5f7fb }
+    </style></head><body>
+    <h2>${empresaNome} — Planilha de Contabilidade</h2>
+    <div class="sub">Competência: <strong>${mesLabel}/${ano}</strong> · ${sel.length} colaborador(es) selecionado(s) · Gerado em ${new Date().toLocaleString('pt-BR')}${empresaEnd?'<br>'+empresaEnd:''}</div>
+    ${clone.outerHTML}
+    <script>window.onload=function(){ window.print(); }<\/script>
+    </body></html>`);
+  w.document.close();
+}
+
+// Exporta o PDF das folhas de ponto SÓ dos colaboradores marcados.
+function exportarFolhasPdfSelecionados(){
+  const sel = Array.from(document.querySelectorAll('#cont-tbody .cont-row-check:checked'))
+                    .map(cb => cb.dataset.empId);
+  if(!sel.length){ toast('Selecione pelo menos um colaborador.','warning'); return; }
+  const mes=parseInt(val('cont-mes')||currentMes());
+  const ano=parseInt(val('cont-ano')||currentAno());
+  const mesLabel=MESES[mes]||'';
+  const set = new Set(sel);
+
+  let payrolls = State.payrolls.filter(p=>p.mes==mes && p.ano==ano && set.has(p.employeeId));
+  if(!payrolls.length){
+    toast('Nenhum dos selecionados tem folha lançada no período.','warning'); return;
+  }
+  payrolls.sort((a,b)=>{
+    const nA=(State.employees.find(e=>e.id===a.employeeId)||{}).nome||'';
+    const nB=(State.employees.find(e=>e.id===b.employeeId)||{}).nome||'';
+    return nA.localeCompare(nB);
+  });
+  toast(`Gerando PDF de ${payrolls.length} folha(s) — aguarde...`,'info');
+
+  let bodyHtml='';
+  for(const p of payrolls){
+    const emp=State.employees.find(e=>e.id===p.employeeId);
+    if(!emp) continue;
+    bodyHtml+=_buildFolhaHtmlFromRecord(emp,p);
+  }
+  const fullHtml=`<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Folhas de Ponto (selecionados) — ${mesLabel}/${ano} — ${_e('nomeEmpresa')}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Arial,sans-serif;font-size:11px;color:#212529}
+  @media print{
+    @page{size:A4;margin:8mm}
+    div[style*="page-break-after"]{page-break-after:always}
+  }
+</style>
+</head>
+<body>
+${bodyHtml}
+<script>window.onload=function(){ window.print(); }<\/script>
+</body>
+</html>`;
+  const win=window.open('','_blank','width=900,height=700');
+  if(!win){ toast('Permita pop-ups para exportar o PDF.','error'); return; }
+  win.document.write(fullHtml);
+  win.document.close();
 }
 
 // ============================================
@@ -3929,6 +4726,7 @@ function openEmployeeModal(id=null){
   document.getElementById('modal-employee').classList.remove('hidden');
   populatePostoSelect();
   populateEscalaSelect();
+  _populateCargoOptions();
   switchTab('tab-pessoal');
   _resetCadastroImport();
   const titleEl=document.getElementById('modal-employee-title');
@@ -3940,6 +4738,7 @@ function openEmployeeModal(id=null){
     setVal('emp-id',emp.id); setVal('emp-nome',emp.nome); setVal('emp-rg',emp.rg||'');
     setVal('emp-cpf',emp.cpf); setVal('emp-titulo',emp.tituloEleitor||''); setVal('emp-pis',emp.pisNit||'');
     setVal('emp-ctps-numero',emp.ctpsNumero||''); setVal('emp-ctps-serie',emp.ctpsSerie||'');
+    setVal('emp-ctps-uf',emp.ctpsUf||''); setVal('emp-cbo',emp.cargoCBO||'');
     setVal('emp-nascimento',emp.dataNascimento||'');
     setVal('emp-email',emp.email||''); setVal('emp-celular',emp.celular||''); setVal('emp-cep',emp.cep||'');
     setVal('emp-endereco',emp.endereco||''); setVal('emp-numero',emp.numero||''); setVal('emp-complemento',emp.complemento||'');
@@ -4331,7 +5130,8 @@ async function saveEmployee(){
     registro: isNew ? getNextRegistro() : (State.employees.find(e=>e.id===State.editingEmployeeId)?.registro || getNextRegistro()),
     nome, rg:val('emp-rg'), cpf,
     tituloEleitor:val('emp-titulo'), pisNit:val('emp-pis'),
-    ctpsNumero:val('emp-ctps-numero'), ctpsSerie:val('emp-ctps-serie'),
+    ctpsNumero:val('emp-ctps-numero'), ctpsSerie:val('emp-ctps-serie'), ctpsUf:(val('emp-ctps-uf')||'').toUpperCase(),
+    cargoCBO:(val('emp-cbo')||'').replace(/[^0-9]/g,''),
     dataNascimento:val('emp-nascimento'),
     posto:val('emp-posto'),
     setor:val('emp-setor'),
@@ -8542,11 +9342,59 @@ function openPagoExternoModal(empId, mes, ano){
   document.getElementById('modal-pago-externo')?.classList.remove('hidden');
 }
 
+// Abre o modal de "pago fora" em modo LOTE para todos os selecionados.
+async function marcarPagoExternoLote(){
+  if(!getUserModules(Auth.currentUser).pagamentosLancar){
+    toast('Você não tem permissão para lançar pagamentos.','error'); return;
+  }
+  const checks=[...document.querySelectorAll('#adiant-tbody .adiant-check:checked')];
+  if(!checks.length){ toast('Selecione ao menos um colaborador (marque as caixas).','warning'); return; }
+  const {mes,ano} = _adiantMesAno();
+  _pagoExtCtx = { lote:true, ids: checks.map(c=>c.dataset.emp), mes, ano };
+  setVal('pago-ext-data', new Date().toISOString().substring(0,10));
+  setVal('pago-ext-obs','');
+  document.getElementById('modal-pago-externo')?.classList.remove('hidden');
+}
+
 async function confirmarPagoExterno(){
   if(!_pagoExtCtx){ toast('Contexto perdido — reabra o modal.','error'); return; }
-  const {empId, mes, ano} = _pagoExtCtx;
   const data=val('pago-ext-data')||new Date().toISOString().substring(0,10);
   const obs=(val('pago-ext-obs')||'').trim();
+
+  // Modo LOTE — aplica a mesma data/obs a todos os colaboradores selecionados.
+  if(_pagoExtCtx.lote){
+    const {ids, mes:mL, ano:aL} = _pagoExtCtx;
+    let ok=0, erros=0;
+    for(const empId of ids){
+      const p=(State.payrolls||[]).find(pp=>pp.employeeId===empId && pp.mes==mL && pp.ano==aL);
+      if(!p){ erros++; continue; }
+      const emp=State.employees.find(e=>e.id===empId);
+      const updated={...p,
+        adiantamentoPagoExterno:{
+          data, obs,
+          registradoEm:new Date().toISOString(),
+          registradoPor:Auth.currentUser?.username || Auth.currentUser?.nome || '—'
+        },
+        updatedAt:new Date().toISOString()
+      };
+      try{
+        await DB.save('payrolls', updated);
+        const ix=State.payrolls.findIndex(x=>x.id===p.id);
+        if(ix>=0) State.payrolls[ix]=updated;
+        Auth.log('ADIANT_PAGO_EXTERNO', null, `${emp?.nome||'—'} | ${String(mL).padStart(2,'0')}/${aL} | R$ ${(p.adiantamentoValor||0).toFixed(2)}${obs?' | '+obs:''}`);
+        ok++;
+      }catch(e){ console.error('lote pago fora', e); erros++; }
+    }
+    toast(`${ok} marcado(s) como pago fora${erros?` · ${erros} erro(s)`:''}.`, erros?'warning':'success');
+    closeModal('modal-pago-externo');
+    _pagoExtCtx=null;
+    renderAdiantamentos();
+    if(typeof renderDashboard==='function' && State.currentSection==='dashboard') renderDashboard();
+    return;
+  }
+
+  // Modo INDIVIDUAL (mantém o comportamento original).
+  const {empId, mes, ano} = _pagoExtCtx;
   const p=(State.payrolls||[]).find(pp=>pp.employeeId===empId && pp.mes==mes && pp.ano==ano);
   if(!p){ toast('Folha não encontrada.','error'); return; }
   const emp=State.employees.find(e=>e.id===empId);
@@ -11284,7 +12132,10 @@ Retorne SOMENTE um JSON válido (sem markdown, sem comentários, sem explicaçã
   "plrValorAnual": "valor anual da PLR (Participação nos Lucros e Resultados) em R$ ou null",
   "percentualAdNoturno": "percentual de adicional noturno (geralmente 20) ou null",
   "salarioMinimoNacional": "salário mínimo nacional vigente em R$ ou null",
-  "bancoValidadeMeses": "prazo em MESES para compensar horas do banco (geralmente 6 ou 12) ou null"
+  "bancoValidadeMeses": "prazo em MESES para compensar horas do banco (geralmente 6 ou 12) ou null",
+  "salariosPorFuncao": [
+    { "funcao": "nome exato da função (ex.: Porteiro/Controlador de Acesso, Recepcionista de Portaria, Folguista, Fiscal de Piso/Fiscal de Loja, Op. Portaria Remota, Auxiliar/Oficial de Serv. Gerais, Zelador)", "salario": 0.00, "observacao": "texto curto se houver complemento (ex.: + Acúmulo de Função 20%) ou string vazia" }
+  ]
 }
 
 REGRAS:
@@ -11292,7 +12143,8 @@ REGRAS:
 2. Datas SEMPRE em AAAA-MM-DD. Se vier DD/MM/AAAA, converta.
 3. NÃO confunda salário-base da categoria com salário mínimo nacional.
 4. "Bonificação" / "Boa Permanência" / "Assiduidade" = bônus por NÃO faltar no mês. Não confunda com PLR.
-5. Retorne APENAS o JSON.`;
+5. "salariosPorFuncao" — extraia TODAS as funções listadas no documento com seu piso salarial. Mantenha o nome EXATO como aparece no documento. Se a CCT tiver "Zelador R$ 2.144,33 + Acúmulo Função no valor de 20% salário", coloque o salário 2144.33 e a observação "+ Acúmulo de Função 20%". Se não houver lista por função, retorne array vazio [].
+6. Retorne APENAS o JSON.`;
 
   const resp = await fetch(GEMINI_PROXY_URL, {
     method:'POST',
@@ -11333,6 +12185,27 @@ function _preencherCctDoIA(d){
     setVal('cct-plr',       Number(d.plrValorAnual).toFixed(2));
     setVal('cct-plr-anual', Number(d.plrValorAnual).toFixed(2));
     n++;
+  }
+  // Salários por função — vindos do array. Faz merge com o que já está na tela
+  // (preserva linhas digitadas manualmente que a IA não trouxe).
+  if(Array.isArray(d.salariosPorFuncao) && d.salariosPorFuncao.length){
+    const atual = _coletarSalariosFuncao();
+    const norm = s => String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+    const idx = new Map(atual.map((s,i)=>[norm(s.funcao), i]));
+    d.salariosPorFuncao.forEach(s=>{
+      if(!s || !s.funcao) return;
+      const key = norm(s.funcao);
+      const salario = Number(s.salario)||0;
+      const obs = String(s.observacao||'');
+      if(idx.has(key)){
+        const i = idx.get(key);
+        atual[i] = { funcao: s.funcao, salario, observacao: obs };
+      } else {
+        atual.push({ funcao: s.funcao, salario, observacao: obs });
+      }
+    });
+    renderCctSalariosFuncao(atual);
+    n += d.salariosPorFuncao.length;
   }
   return n;
 }
@@ -14564,6 +15437,131 @@ async function buscarCep(cep){
 // ============================================
 // CCT — CONVENÇÃO COLETIVA DE TRABALHO
 // ============================================
+// Presets sugeridos quando o cliente abre a CCT pela 1ª vez (mais comum no setor).
+const CCT_FUNCOES_DEFAULT = [
+  { funcao:'Porteiro/Controlador de Acesso', salario:0, observacao:'' },
+  { funcao:'Recepcionista de Portaria',      salario:0, observacao:'' },
+  { funcao:'Folguista',                      salario:0, observacao:'' },
+  { funcao:'Fiscal de Piso/Fiscal de Loja',  salario:0, observacao:'' },
+  { funcao:'Op. Portaria Remota',            salario:0, observacao:'' },
+  { funcao:'Auxiliar/Oficial de Serv. Gerais', salario:0, observacao:'' },
+  { funcao:'Zelador',                        salario:0, observacao:'+ Acúmulo de Função 20%' }
+];
+
+function renderCctSalariosFuncao(lista){
+  const cont=document.getElementById('cct-salarios-funcao-list'); if(!cont) return;
+  if(!Array.isArray(lista)||lista.length===0){
+    cont.innerHTML='<p style="color:#999;font-size:12px;font-style:italic">Nenhuma função cadastrada. Use os botões para adicionar ou importe via IA.</p>';
+    return;
+  }
+  cont.innerHTML = lista.map((s,i)=>`
+    <div class="cct-sf-row" data-i="${i}" style="display:grid;grid-template-columns:1fr 130px 1fr 30px;gap:6px;align-items:center;background:#F5F8FC;border:1px solid #E0E0E0;border-radius:4px;padding:6px 8px">
+      <input type="text" value="${(s.funcao||'').replace(/"/g,'&quot;')}" placeholder="Função (ex.: Porteiro)" style="font-size:13px;padding:4px 8px;border:1px solid #ccc;border-radius:3px" data-k="funcao">
+      <input type="number" min="0" step="0.01" value="${s.salario||''}" placeholder="0,00" style="font-size:13px;padding:4px 8px;border:1px solid #ccc;border-radius:3px;text-align:right" data-k="salario">
+      <input type="text" value="${(s.observacao||'').replace(/"/g,'&quot;')}" placeholder="Observação (opcional)" style="font-size:12px;padding:4px 8px;border:1px solid #ccc;border-radius:3px;color:#555" data-k="observacao">
+      <button type="button" onclick="removerSalarioFuncao(${i})" title="Remover" style="background:transparent;border:none;color:#c0392b;cursor:pointer;font-size:14px"><i class="fa-solid fa-trash"></i></button>
+    </div>
+  `).join('');
+}
+
+function _coletarSalariosFuncao(){
+  const rows = document.querySelectorAll('#cct-salarios-funcao-list .cct-sf-row');
+  const out = [];
+  rows.forEach(row=>{
+    const get = k => (row.querySelector(`[data-k="${k}"]`)?.value || '').trim();
+    const funcao = get('funcao');
+    const salario = parseFloat(get('salario').replace(',','.'))||0;
+    const obs = get('observacao');
+    if(!funcao) return;
+    out.push({ funcao, salario, observacao: obs });
+  });
+  return out;
+}
+
+function addSalarioFuncao(){
+  const lista = _coletarSalariosFuncao();
+  lista.push({ funcao:'', salario:0, observacao:'' });
+  renderCctSalariosFuncao(lista);
+  // Foca o input recém adicionado
+  setTimeout(()=>{
+    const rows = document.querySelectorAll('#cct-salarios-funcao-list .cct-sf-row');
+    const last = rows[rows.length-1]?.querySelector('[data-k="funcao"]');
+    last?.focus();
+  }, 50);
+}
+
+function removerSalarioFuncao(i){
+  const lista = _coletarSalariosFuncao();
+  lista.splice(i,1);
+  renderCctSalariosFuncao(lista);
+}
+
+// Popula o datalist do cadastro de colaborador com as funções da CCT.
+function _populateCargoOptions(){
+  const dl = document.getElementById('emp-cargo-options'); if(!dl) return;
+  const lista = (State.cct && Array.isArray(State.cct.salariosPorFuncao)) ? State.cct.salariosPorFuncao : [];
+  dl.innerHTML = lista.map(s => `<option value="${(s.funcao||'').replace(/"/g,'&quot;')}">`).join('');
+}
+
+// Quando o usuário escolhe/sai do campo Cargo no cadastro: se houver match na
+// CCT, sugere o salário base, mostra a observação (ex.: acúmulo) e — se o campo
+// salário estiver vazio — preenche automaticamente.
+function _onCargoChange(){
+  const cargo = (val('emp-cargo')||'').trim();
+  const hint = document.getElementById('emp-cargo-hint');
+  if(hint) hint.textContent = '';
+  if(!cargo) return;
+  const match = _cctBuscarFuncao(cargo);
+  if(!match){
+    if(hint) hint.innerHTML = '<i class="fa-solid fa-circle-info" style="color:#999"></i> Função não está na CCT — salário não será sugerido.';
+    return;
+  }
+  const salAtual = numVal('emp-salario-base')||0;
+  const salCct = Number(match.salario)||0;
+  if(salCct>0){
+    // Se vazio → preenche. Se já tem valor diferente → sugere mas não sobrescreve.
+    if(salAtual<=0){
+      setVal('emp-salario-base', salCct.toFixed(2));
+      if(hint) hint.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#1B5E20"></i> Salário <strong>${fmtMoney(salCct)}</strong> preenchido da CCT (função: ${match.funcao})${match.observacao?' · '+match.observacao:''}.`;
+    } else if(Math.abs(salAtual-salCct)>0.01){
+      if(hint) hint.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="color:#E65100"></i> CCT prevê <strong>${fmtMoney(salCct)}</strong> para "${match.funcao}" — atual: ${fmtMoney(salAtual)}. <a href="javascript:_aplicarSalarioCct()" style="color:#1565C0">Aplicar CCT</a>.${match.observacao?' '+match.observacao:''}`;
+    } else {
+      if(hint) hint.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#1B5E20"></i> Salário bate com a CCT (${match.funcao})${match.observacao?' · '+match.observacao:''}.`;
+    }
+  } else if(match.observacao){
+    if(hint) hint.innerHTML = `<i class="fa-solid fa-circle-info" style="color:#1565C0"></i> ${match.observacao}`;
+  }
+}
+
+function _aplicarSalarioCct(){
+  const cargo = (val('emp-cargo')||'').trim();
+  const m = _cctBuscarFuncao(cargo);
+  if(!m || !(m.salario>0)) return;
+  setVal('emp-salario-base', Number(m.salario).toFixed(2));
+  _onCargoChange();
+  toast('Salário ajustado pela CCT.','success');
+}
+
+// Procura na CCT a função (case-insensitive, ignora barras/acentos pra dar match).
+function _cctBuscarFuncao(nome){
+  const lista = (State.cct && Array.isArray(State.cct.salariosPorFuncao)) ? State.cct.salariosPorFuncao : [];
+  if(!nome || !lista.length) return null;
+  const norm = s => String(s||'').toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g,'')
+    .replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+  const target = norm(nome);
+  if(!target) return null;
+  // 1) match exato
+  let hit = lista.find(s => norm(s.funcao) === target);
+  if(hit) return hit;
+  // 2) substring (ex.: cadastro "Porteiro" → CCT "Porteiro/Controlador de Acesso")
+  hit = lista.find(s => {
+    const f = norm(s.funcao);
+    return f.includes(target) || target.includes(f);
+  });
+  return hit || null;
+}
+
 function openCctModal(){
   document.getElementById('modal-cct').classList.remove('hidden');
   const cct=State.cct;
@@ -14588,6 +15586,9 @@ function openCctModal(){
     setVal('cct-plr-p2-pago',cct.plrP2DataPagamento||'');
     setVal('cct-banco-validade',cct.bancoValidadeMeses||12);
     setVal('cct-banco-aviso',cct.bancoAvisoDias||30);
+    renderCctSalariosFuncao(Array.isArray(cct.salariosPorFuncao) && cct.salariosPorFuncao.length
+      ? cct.salariosPorFuncao
+      : CCT_FUNCOES_DEFAULT);
   } else {
     infoEl.style.display='none';
     ['cct-vigencia','cct-salario-base','cct-vt-diario','cct-vr-diario','cct-va-mensal','cct-bonificacao','cct-plr',
@@ -14598,6 +15599,7 @@ function openCctModal(){
     setVal('cct-plr-aviso-dias',30);
     setVal('cct-banco-validade',12);
     setVal('cct-banco-aviso',30);
+    renderCctSalariosFuncao(CCT_FUNCOES_DEFAULT);
   }
 }
 
@@ -14625,6 +15627,7 @@ async function saveCct(){
     plrP2DataPagamento:val('cct-plr-p2-pago')||'',
     bancoValidadeMeses:numVal('cct-banco-validade')||12,
     bancoAvisoDias:numVal('cct-banco-aviso')||30,
+    salariosPorFuncao: _coletarSalariosFuncao(),
     updatedAt:new Date().toISOString()
   };
   const btn=document.querySelector('#modal-cct .btn-primary');
@@ -14668,14 +15671,34 @@ async function applyCctToAll(){
     salarioBase:numVal('cct-salario-base'),
     vtDiario:numVal('cct-vt-diario'),
     vrDiario:numVal('cct-vr-diario'),
-    vaMensal:numVal('cct-va-mensal')
+    vaMensal:numVal('cct-va-mensal'),
+    salariosPorFuncao: _coletarSalariosFuncao()
   };
-  if(!cct.vtDiario&&!cct.vrDiario&&!cct.vaMensal&&!cct.salarioBase){
+  const semNada = !cct.vtDiario && !cct.vrDiario && !cct.vaMensal && !cct.salarioBase
+                  && !(cct.salariosPorFuncao||[]).some(s=>s.salario>0);
+  if(semNada){
     toast('Preencha ao menos um valor da CCT antes de aplicar.','warning'); return;
   }
   const ativos=State.employees.filter(e=>(e.status||'ativo')==='ativo');
   if(ativos.length===0){ toast('Nenhum colaborador ativo encontrado.','warning'); return; }
-  document.getElementById('confirm-message').textContent=`Aplicar CCT a ${ativos.length} colaborador(es) ativo(s)? Os valores de salário, VT, VR e VA serão atualizados.`;
+  // Pré-calcula quantos vão receber salário por função vs. fallback
+  const tmpState = { salariosPorFuncao: cct.salariosPorFuncao };
+  const _busca = nome => {
+    const norm = s => String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+    const t = norm(nome); if(!t) return null;
+    let h = (tmpState.salariosPorFuncao||[]).find(s=>norm(s.funcao)===t);
+    if(h) return h;
+    return (tmpState.salariosPorFuncao||[]).find(s=>{ const f=norm(s.funcao); return f.includes(t)||t.includes(f); }) || null;
+  };
+  let porFuncao=0, porBase=0, semSal=0;
+  ativos.forEach(e=>{
+    const m=_busca(e.cargo);
+    if(m && m.salario>0) porFuncao++;
+    else if(cct.salarioBase) porBase++;
+    else semSal++;
+  });
+  const detalhe = `${porFuncao} pela função · ${porBase} pelo salário-base · ${semSal} sem ajuste de salário`;
+  document.getElementById('confirm-message').innerHTML=`Aplicar CCT a <strong>${ativos.length} colaborador(es)</strong> ativo(s)?<br><br>Salários: <em>${detalhe}</em>.<br>VT, VR e VA serão atualizados em todos.`;
   const btn=document.getElementById('confirm-ok-btn');
   btn.innerHTML='<i class="fa-solid fa-users-gear"></i> Aplicar';
   btn.onclick=async()=>{
@@ -14683,7 +15706,9 @@ async function applyCctToAll(){
     try {
       const tasks=ativos.map(emp=>{
         const updated={...emp, updatedAt:new Date().toISOString()};
-        if(cct.salarioBase) updated.salarioBase=cct.salarioBase;
+        const m=_busca(emp.cargo);
+        if(m && m.salario>0) updated.salarioBase = Number(m.salario);
+        else if(cct.salarioBase) updated.salarioBase = cct.salarioBase;
         if(cct.vtDiario)    updated.valorDiarioVt=cct.vtDiario;
         if(cct.vrDiario)    updated.valorDiarioVr=cct.vrDiario;
         if(cct.vaMensal)    updated.valorMensalVa=cct.vaMensal;
@@ -14691,7 +15716,7 @@ async function applyCctToAll(){
       });
       await Promise.all(tasks);
       closeModal('modal-confirm');
-      toast(`CCT aplicada a ${ativos.length} colaborador(es)!`);
+      toast(`CCT aplicada a ${ativos.length} colaborador(es)! (${detalhe})`);
     } catch(e){ toast('Erro ao aplicar CCT.','error'); }
     finally { setBtnLoading(btn,false,'<i class="fa-solid fa-trash"></i> Excluir'); }
   };
@@ -19386,6 +20411,11 @@ async function _carregarDadosPosLogin(){
     State.atrasos = data;
     if(State.currentSection==='payroll'){ renderAtrasosFolha(); recalculate(); }
   });
+  DB.listen('holeritesEnviados', data => {
+    State.holeritesEnviados = data;
+    if(State.currentSection==='pagamentos') renderPagamentos();
+    if(State.currentSection==='recibos') renderRecibosEnviados();
+  });
   DB.listen('escalasModelos', data => {
     State.escalasModelos = data;
     const m=document.getElementById('modal-escala-modelos');
@@ -19461,6 +20491,10 @@ async function init(){
   await new Promise(resolve => {
     const unsub = firebase.auth().onAuthStateChanged(u => { unsub(); resolve(u); });
   });
+
+  // 2b. Rota pública do recibo (#/recibo/TOKEN) — bypass do login do gestor.
+  // Se detectar, renderiza o recibo no body e encerra o init aqui.
+  if(await _entrarRotaPublicaSeAplicavel()) return;
 
   // 3. Listeners de UI permanentes (não dependem de login)
   document.getElementById('ferias-inicio')?.addEventListener('change', calcFeriasDias);

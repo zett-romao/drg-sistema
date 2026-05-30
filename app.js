@@ -5906,7 +5906,7 @@ function renderBeneficiosLista(){
       : '<span style="background:#E3F2FD;color:#1565C0;font-size:8px;padding:1px 4px;border-radius:6px;font-weight:700;vertical-align:middle">CARTÃO</span>';
     const _busca = `${emp.nome||''} ${matr} ${emp.setor||''} ${posto}`.replace(/"/g,'');
     html += `<tr style="background:${bg};cursor:pointer" data-busca="${_busca}" onclick="openBeneficioDetalhe('${emp.id}','${escopo}','${ini}','${fim}')">
-      <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7" onclick="event.stopPropagation()"><input type="checkbox" class="benef-chk" data-emp-id="${emp.id}" data-valor="${b.valorDinheiro}" data-dinheiro="${b.valorDinheiro>0?1:0}" title="${b.valorDinheiro>0?'Tem valor em dinheiro (PIX)':'No cartão — entra na impressão de selecionados; o PIX ignora'}" onchange="_benefSelCount()"></td>
+      <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7" onclick="event.stopPropagation()"><input type="checkbox" class="benef-chk" data-emp-id="${emp.id}" data-valor="${b.valorDinheiro}" data-valor-total="${b.total}" data-dinheiro="${b.valorDinheiro>0?1:0}" title="${b.valorDinheiro>0?'Tem valor em dinheiro (PIX)':'No cartão — entra na impressão de selecionados; o PIX ignora (use Forçar PIX para contingência)'}" onchange="_benefSelCount()"></td>
       <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7;font-weight:700;color:var(--primary)">${matr}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7"><strong style="color:var(--primary)">${emp.nome}</strong><br><small style="color:var(--text-muted)">${emp.setor||'—'}</small></td>
       <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7;font-size:11px">${posto}</td>
@@ -6026,6 +6026,72 @@ async function pagarBeneficiosSelecionados(){
   if(jaPend) partes.push(`${jaPend} já pendente(s)`);
   if(erros)  partes.push(`${erros} com erro`);
   toast(partes.join(' · ') + (ok>0?'. Aprove em "Aprovações de Pagamentos" (2FA).':'.'), ok>0?'success':'warning');
+  if(ok>0){
+    closeModal('modal-beneficios-pagar');
+    if(typeof showSection==='function') showSection('aprovacoes');
+  }
+}
+
+// CONTINGÊNCIA: paga o VALOR TOTAL (cartão + dinheiro) via PIX para os
+// selecionados. Use quando a plataforma de cartão (VT/VR) está fora do ar e
+// precisa garantir o pagamento até o prazo. Substitui o pagamento via cartão
+// — depois NÃO carrega o cartão (senão paga 2×).
+async function pagarBeneficiosForcarPIX(){
+  if(!getUserModules(Auth.currentUser).pagamentosLancar){
+    toast('Você não tem permissão para lançar pagamentos.','error'); return;
+  }
+  const chks=[...document.querySelectorAll('.benef-chk:checked')];
+  if(!chks.length){ toast('Marque ao menos um colaborador.','info'); return; }
+
+  // Mesma lógica de período da função normal (dedup compartilhado).
+  const tab = _beneficioTabAtual || 'hoje';
+  const hojeISO = new Date().toISOString().substring(0,10);
+  let ini, fim, periodoLabel;
+  if(tab === 'mes'){
+    const d=new Date(); const cMes=d.getMonth()+1, cAno=d.getFullYear();
+    const per=_compPeriodo(cMes,cAno);
+    ini=per.deISO; fim=per.ateISO;
+    periodoLabel=`Competência ${MESES[cMes]}/${cAno} (${_compLabel(cMes,cAno)})`;
+  } else if(tab === 'hoje'){
+    ini=fim=hojeISO; periodoLabel=`dia ${new Date().toLocaleDateString('pt-BR')}`;
+  } else {
+    const s=_semanaDe(hojeISO); ini=s.inicio; fim=s.fim;
+    periodoLabel=`semana ${new Date(ini+'T12:00:00').toLocaleDateString('pt-BR')}–${new Date(fim+'T12:00:00').toLocaleDateString('pt-BR')}`;
+  }
+  const comp=`BEN_${ini}_${fim}`;
+
+  const totalGeral = chks.reduce((s,c)=>s+(parseFloat(c.dataset.valorTotal)||0),0);
+  if(!confirm(`⚠️ CONTINGÊNCIA — Forçar PIX do TOTAL (cartão + dinheiro) de ${chks.length} colaborador(es) — ${periodoLabel}?\n\nValor a pagar via PIX: ${fmtMoney(totalGeral)}\n\n• Use quando a plataforma de CARTÃO (VT/VR) estiver indisponível.\n• ATENÇÃO: depois NÃO carregue o cartão desses colaboradores (senão paga em dobro).\n• As solicitações vão para "Aprovações de Pagamentos" → 2FA → Asaas dispara o PIX.\n\nConfirmar?`)) return;
+
+  let ok=0, semPix=0, jaPend=0, erros=0, semValor=0;
+  for(const c of chks){
+    const emp=(State.employees||[]).find(e=>e.id===c.dataset.empId);
+    if(!emp){ erros++; continue; }
+    const valor=parseFloat(c.dataset.valorTotal)||0;  // TOTAL (cartão + dinheiro)
+    if(valor<=0){ semValor++; continue; }
+    const pixKey=(emp.chavePix||'').trim();
+    if(!pixKey){ semPix++; continue; }
+    const jaExiste=(State.solicitacoes||[]).some(s=>s.origem==='beneficio' && s.employeeId===emp.id && s.competencia===comp && s.status==='pendente');
+    if(jaExiste){ jaPend++; continue; }
+    const pixTipo=emp.chavePixTipo||detectPixKeyType(pixKey);
+    try{
+      const sol=await _criarSolicitacaoPagamento({
+        employeeId:emp.id, employeeNome:emp.nome, payrollId:'',
+        valor, pixKey:_pixKeyParaAsaas(pixKey,pixTipo), keyType:pixTipo,
+        descricao:`Benefícios (contingência PIX — cartão+dinheiro) ${periodoLabel} — ${emp.nome}`,
+        scheduleDate:hojeISO, competencia:comp, origem:'beneficio',
+      });
+      Auth.log('PAGAMENTO_SOLICITADO', null, `Benefícios (CONTINGÊNCIA PIX) ${periodoLabel} | ${emp.nome} | R$ ${valor.toFixed(2)} | sol ${sol.id}`);
+      ok++;
+    }catch(e){ erros++; }
+  }
+
+  const partes=[`${ok} solicitação(ões) criada(s) via CONTINGÊNCIA PIX`];
+  if(semValor) partes.push(`${semValor} sem valor a pagar`);
+  if(semPix) partes.push(`${semPix} sem chave PIX`);
+  if(jaPend) partes.push(`${jaPend} já pendente(s)`);
+  if(erros)  partes.push(`${erros} com erro`);
+  toast(partes.join(' · ') + (ok>0?'. Aprove em "Aprovações de Pagamentos" (2FA). Não carregue o cartão depois.':'.'), ok>0?'success':'warning');
   if(ok>0){
     closeModal('modal-beneficios-pagar');
     if(typeof showSection==='function') showSection('aprovacoes');

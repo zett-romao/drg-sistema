@@ -5156,6 +5156,7 @@
       <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:10px">
         <thead style="background:#1a3a6b;color:#fff">
           <tr>
+            <th style="padding:8px 10px;text-align:center;width:34px"><input type="checkbox" id="chk-all-benef-det" onclick="_benefDetToggleAll(this)" title="Marcar/desmarcar todos"></th>
             <th style="padding:8px 10px;text-align:left">Benefício</th>
             <th style="padding:8px 10px;text-align:center">Freq.</th>
             <th style="padding:8px 10px;text-align:right">Valor Base (R$)</th>
@@ -5166,7 +5167,7 @@
         <tbody id="benef-det-tbody"></tbody>
         <tfoot>
           <tr style="background:#E8F5E9;font-weight:700">
-            <td colspan="4" style="padding:8px 10px;text-align:right">TOTAL</td>
+            <td colspan="5" style="padding:8px 10px;text-align:right">TOTAL (só marcados)</td>
             <td style="padding:8px 10px;text-align:right;color:#1B5E20;font-size:15px" id="benef-det-total">R$ 0,00</td>
           </tr>
         </tfoot>
@@ -6050,6 +6051,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260530z"></script>
+<script src="app.js?v=20260530aa"></script>
 </body>
 </html>

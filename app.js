@@ -6533,8 +6533,8 @@ function openBeneficioDetalhe(empId, escopo, dataIni, dataFim){
     `<strong style="color:#00695C"><i class="fa-brands fa-pix"></i> Chave PIX:</strong> <span style="font-family:monospace">${pixDet}</span>`;
   const tbody = document.getElementById('benef-det-tbody');
   const linhas = [];
-  // VT/AM — todos os dias trabalhados. 'semana'/'mes' somam o intervalo.
-  if(b.vtTipo !== 'nao' && emp.valorDiarioVt){
+  // VT/AM
+  if(b.vtTipo !== 'nao' && (emp.valorDiarioVt||0) > 0){
     let mult = 1, multLabel = '×1 dia';
     if(escopo === 'dia' && b.vtFreq === 'diario'){ mult = b.diasVt>0?1:0; multLabel = b.diasVt>0?'×1 dia':'(não trab.)'; }
     else if(b.vtFreq === 'semanal'){ mult = b.semanas; multLabel = `×${b.semanas} sem.`; }
@@ -6542,47 +6542,91 @@ function openBeneficioDetalhe(empId, escopo, dataIni, dataFim){
     else if(escopo === 'dia' && b.vtFreq === 'semanal'){ mult = 0; multLabel = '(pago semanal)'; }
     const ben = (b.vtTipo === 'am') ? 'AM — Auxílio Mobilidade' : 'VT — Vale Transporte';
     const freqLabel = (b.vtFreq === 'semanal') ? 'Semanal' : 'Diária';
-    linhas.push({ rotulo: ben, freq: freqLabel, base: emp.valorDiarioVt||0, mult, multLabel, valor: b.vtValor, campoId: 'edit-vt' });
+    linhas.push({ rotulo: ben, freq: freqLabel, base: emp.valorDiarioVt||0, multLabel, valor: b.vtValor||0, campoId: 'edit-vt', chkId: 'chk-vt' });
   }
-  // VR — usa a contagem de dias com jornada > 6h (b.diasVr / b.semanasVr)
-  if(emp.valorDiarioVr){
+  // VR
+  if((emp.valorDiarioVr||0) > 0){
     let mult = 1, multLabel = '×1 dia';
     if(escopo === 'dia' && b.vrFreq === 'diario'){ mult = b.diasVr>0?1:0; multLabel = `${b.diasVr>0?'×1 dia (>6h)':'(jornada ≤ 6h)'}`; }
     else if(b.vrFreq === 'semanal'){ mult = b.semanasVr; multLabel = `×${b.semanasVr} sem.`; }
     else if(escopo !== 'dia' && b.vrFreq === 'diario'){ mult = b.diasVr; multLabel = `×${b.diasVr} dias (>6h)`; }
     else if(escopo === 'dia' && b.vrFreq === 'semanal'){ mult = 0; multLabel = '(pago semanal)'; }
     const freqLabel = (b.vrFreq === 'semanal') ? 'Semanal' : 'Diária';
-    // VR diário (sem a Boa Permanência, que vai em linha própria abaixo)
-    linhas.push({ rotulo: 'VR — Vale Refeição', freq: freqLabel, base: emp.valorDiarioVr||0, mult, multLabel, valor: (b.vrValor - (b.bonusVr||0)), campoId: 'edit-vr' });
+    linhas.push({ rotulo: 'VR — Vale Refeição', freq: freqLabel, base: emp.valorDiarioVr||0, multLabel, valor: b.vrValor||0, campoId: 'edit-vr', chkId: 'chk-vr' });
   }
-  // Boa Permanência paga NO VR (benefício mensal, apurada no fechamento)
-  if((b.bonusVr||0) > 0){
-    linhas.push({ rotulo: 'Boa Permanência (no VR)', freq: 'Mensal', base: b.bonusVr, mult: 1, multLabel: '×1 mês', valor: b.bonusVr, campoId: 'edit-bonusvr' });
+  // VA — mensal fixo. Só apurado no escopo 'mes' (via Previsto).
+  if((emp.valorMensalVa||0) > 0){
+    const valor = b.vaValor||0;
+    const multLabel = (escopo === 'mes') ? '×1 mês' : '(só no Mês)';
+    linhas.push({ rotulo: 'VA — Vale Alimentação', freq: 'Mensal', base: emp.valorMensalVa||0, multLabel, valor, campoId: 'edit-va', chkId: 'chk-va', desabilitado: (escopo !== 'mes') });
+  }
+  // Boa Permanência — mensal, desbundlada do VR.
+  const bpCfg = (State.cct && State.cct.bonificacao) || 0;
+  if(bpCfg > 0 || (b.bpValor||0) > 0 || emp.bonificacaoSemprePagar){
+    const valor = b.bpValor||0;
+    let multLabel = (escopo === 'mes') ? '×1 mês' : '(só no Mês)';
+    let rotulo = 'Boa Permanência';
+    if(escopo === 'mes' && valor === 0 && b.bpMotivo){
+      multLabel = `<span style="color:#C62828" title="${esc(b.bpMotivo)}">perdeu</span>`;
+      rotulo = `Boa Permanência <small style="color:#C62828;font-weight:400" title="${esc(b.bpMotivo)}"><i class="fa-solid fa-circle-info"></i></small>`;
+    }
+    linhas.push({ rotulo, freq: 'Mensal', base: bpCfg, multLabel, valor, campoId: 'edit-bp', chkId: 'chk-bp', desabilitado: (escopo !== 'mes') || valor === 0 });
   }
   if(!linhas.length){
-    tbody.innerHTML = '<tr><td colspan="5" style="padding:14px;text-align:center;color:var(--text-muted)">Nenhum benefício cadastrado para este período.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" style="padding:14px;text-align:center;color:var(--text-muted)">Nenhum benefício cadastrado para este período.</td></tr>';
   } else {
-    tbody.innerHTML = linhas.map(l => `<tr>
-      <td style="padding:8px 10px;border-bottom:1px solid #EEF2F7;font-weight:600">${l.rotulo}</td>
-      <td style="padding:8px 10px;text-align:center;border-bottom:1px solid #EEF2F7;font-size:11px">${l.freq}</td>
-      <td style="padding:8px 10px;text-align:right;border-bottom:1px solid #EEF2F7">${fmtMoney(l.base)}</td>
-      <td style="padding:8px 10px;text-align:right;border-bottom:1px solid #EEF2F7;font-size:11px;color:var(--text-muted)">${l.multLabel}</td>
-      <td style="padding:4px;border-bottom:1px solid #EEF2F7;text-align:right">
-        <input type="number" id="${l.campoId}" value="${l.valor.toFixed(2)}" step="0.01" min="0" onchange="recalcBeneficioDetalhe()" style="width:100px;text-align:right;font-weight:700">
-      </td>
-    </tr>`).join('');
+    tbody.innerHTML = linhas.map(l => {
+      const checked = (l.valor > 0 && !l.desabilitado) ? 'checked' : '';
+      const disabled = l.desabilitado ? 'disabled' : '';
+      const dim = l.desabilitado ? 'opacity:0.55;' : '';
+      return `<tr style="${dim}">
+        <td style="padding:8px 10px;text-align:center;border-bottom:1px solid #EEF2F7"><input type="checkbox" id="${l.chkId}" ${checked} ${disabled} onchange="recalcBeneficioDetalhe()" title="Marcar para incluir na exportação/impressão"></td>
+        <td style="padding:8px 10px;border-bottom:1px solid #EEF2F7;font-weight:600">${l.rotulo}</td>
+        <td style="padding:8px 10px;text-align:center;border-bottom:1px solid #EEF2F7;font-size:11px">${l.freq}</td>
+        <td style="padding:8px 10px;text-align:right;border-bottom:1px solid #EEF2F7">${fmtMoney(l.base)}</td>
+        <td style="padding:8px 10px;text-align:right;border-bottom:1px solid #EEF2F7;font-size:11px;color:var(--text-muted)">${l.multLabel}</td>
+        <td style="padding:4px;border-bottom:1px solid #EEF2F7;text-align:right">
+          <input type="number" id="${l.campoId}" value="${(l.valor||0).toFixed(2)}" step="0.01" min="0" ${disabled} onchange="recalcBeneficioDetalhe()" style="width:100px;text-align:right;font-weight:700${l.desabilitado?';background:#F5F5F5;color:#999':''}">
+        </td>
+      </tr>`;
+    }).join('');
   }
   setVal('benef-det-obs','');
   _beneficioDetalheCtx = { emp, b, escopo, dataIni, dataFim, posto, periodoLabel };
+  // Reflete o checkbox "marcar tudo" no estado real após render
+  const chkAll = document.getElementById('chk-all-benef-det');
+  if(chkAll){
+    const ativos = [...document.querySelectorAll('#benef-det-tbody input[type=checkbox]')].filter(c=>!c.disabled);
+    chkAll.checked = ativos.length>0 && ativos.every(c=>c.checked);
+  }
   recalcBeneficioDetalhe();
   document.getElementById('modal-beneficio-detalhe').classList.remove('hidden');
 }
 
+// Marca/desmarca todos os checkboxes habilitados da planilha de benefício
+function _benefDetToggleAll(hc){
+  document.querySelectorAll('#benef-det-tbody input[type=checkbox]').forEach(c=>{
+    if(!c.disabled) c.checked = hc.checked;
+  });
+  recalcBeneficioDetalhe();
+}
+
 function recalcBeneficioDetalhe(){
-  const vt = numVal('edit-vt');
-  const vr = numVal('edit-vr');
-  const bonusVr = numVal('edit-bonusvr');  // Boa Permanência paga no VR (mensal)
-  document.getElementById('benef-det-total').textContent = fmtMoney(vt + vr + bonusVr);
+  // Soma APENAS os benefícios marcados (e habilitados). Permite ao usuário
+  // imprimir/exportar combinações específicas — ex.: só VT, só VR+BP, etc.
+  const itens = [
+    {chkId:'chk-vt', campoId:'edit-vt'},
+    {chkId:'chk-vr', campoId:'edit-vr'},
+    {chkId:'chk-va', campoId:'edit-va'},
+    {chkId:'chk-bp', campoId:'edit-bp'},
+  ];
+  let total = 0;
+  for(const it of itens){
+    const chk = document.getElementById(it.chkId);
+    if(!chk || !chk.checked || chk.disabled) continue;
+    total += numVal(it.campoId) || 0;
+  }
+  document.getElementById('benef-det-total').textContent = fmtMoney(total);
 }
 
 // ============================================
@@ -6773,18 +6817,32 @@ function exportBeneficiosLista(formato, soSelecionados){
 function exportBeneficioDetalhe(formato){
   if(!_beneficioDetalheCtx){ toast('Abra um colaborador primeiro.','error'); return; }
   const ctx = _beneficioDetalheCtx;
-  const vt = numVal('edit-vt');
-  const vr = numVal('edit-vr');
-  const obs = val('benef-det-obs');
-  const total = vt + vr;
   const emp = ctx.emp;
+  const obs = val('benef-det-obs');
+  // Lê só os marcados (e habilitados)
+  const checked = id => { const c=document.getElementById(id); return c && c.checked && !c.disabled; };
+  const vt = checked('chk-vt') ? (numVal('edit-vt')||0) : 0;
+  const vr = checked('chk-vr') ? (numVal('edit-vr')||0) : 0;
+  const va = checked('chk-va') ? (numVal('edit-va')||0) : 0;
+  const bp = checked('chk-bp') ? (numVal('edit-bp')||0) : 0;
+  const total = vt + vr + va + bp;
+  if(total === 0){
+    toast('Marque pelo menos um benefício com valor para exportar.','warning'); return;
+  }
   let rows = '';
-  if(emp.valorDiarioVt && ctx.b.vtTipo !== 'nao'){
+  if(vt > 0){
     const nome = ctx.b.vtTipo==='am'?'AM — Auxílio Mobilidade':'VT — Vale Transporte';
     rows += `<tr><td><strong>${nome}</strong></td><td style="text-align:center">${ctx.b.vtFreq==='semanal'?'Semanal':'Diária'}</td><td style="text-align:right">${fmtMoney(emp.valorDiarioVt||0)}</td><td style="text-align:right;font-weight:700">${fmtMoney(vt)}</td></tr>`;
   }
-  if(emp.valorDiarioVr){
+  if(vr > 0){
     rows += `<tr><td><strong>VR — Vale Refeição</strong></td><td style="text-align:center">${ctx.b.vrFreq==='semanal'?'Semanal':'Diária'}</td><td style="text-align:right">${fmtMoney(emp.valorDiarioVr||0)}</td><td style="text-align:right;font-weight:700">${fmtMoney(vr)}</td></tr>`;
+  }
+  if(va > 0){
+    rows += `<tr><td><strong>VA — Vale Alimentação</strong></td><td style="text-align:center">Mensal</td><td style="text-align:right">${fmtMoney(emp.valorMensalVa||0)}</td><td style="text-align:right;font-weight:700">${fmtMoney(va)}</td></tr>`;
+  }
+  if(bp > 0){
+    const bpBase = (State.cct && State.cct.bonificacao) || bp;
+    rows += `<tr><td><strong>Boa Permanência</strong></td><td style="text-align:center">Mensal</td><td style="text-align:right">${fmtMoney(bpBase)}</td><td style="text-align:right;font-weight:700">${fmtMoney(bp)}</td></tr>`;
   }
   const matrPdf = emp.registro ? String(emp.registro).padStart(4,'0') : '—';
   const pixPdf  = emp.chavePix || '—';

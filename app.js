@@ -2301,7 +2301,7 @@ function renderPagamentos(){
   folhasMes.forEach(p=>{ folhaMap[p.employeeId]=p; });
 
   // Totais
-  let tBruto=0,tINSS=0,tIRRF=0,tFGTS=0,tLiquido=0,comFolha=0,semFolhaCount=0;
+  let tBruto=0,tINSS=0,tIRRF=0,tFGTS=0,tAdiant=0,tLiquido=0,comFolha=0,semFolhaCount=0;
   emps.forEach(e=>{
     const p=folhaMap[e.id];
     if(p){
@@ -2310,6 +2310,7 @@ function renderPagamentos(){
       tINSS   +=(p.inss||0);
       tIRRF   +=(p.irrf||0);
       tFGTS   +=(p.fgts||0);
+      tAdiant +=(p.adiantamentoValor||p.adiantamento||0);
       tLiquido+=(p.totalLiquidoFinal||p.remuneracao||0);
     } else { semFolhaCount++; }
   });
@@ -2359,6 +2360,7 @@ function renderPagamentos(){
     const bruto   =p?(p.totalBruto||0):0;
     const inss    =p?(p.inss||0):0;
     const irrf    =p?(p.irrf||0):0;
+    const adiant  =p?(p.adiantamentoValor||p.adiantamento||0):0;
     const fgts    =p?(p.fgts||0):0;
     const liq     =p?(p.totalLiquidoFinal||p.remuneracao||0):0;
     const statusStr=p?p.status:'sem folha';
@@ -2379,6 +2381,7 @@ function renderPagamentos(){
       <td style="font-weight:600">${bruto?fmtMoney(bruto):'<span style="color:#ccc">—</span>'}</td>
       <td style="color:#c0392b">${inss?'('+fmtMoney(inss)+')':'—'}</td>
       <td style="color:#c0392b">${irrf?'('+fmtMoney(irrf)+')':'—'}</td>
+      <td style="color:#c0392b">${adiant?'('+fmtMoney(adiant)+')':'—'}</td>
       <td style="color:#1565C0">${fgts?fmtMoney(fgts):'—'}</td>
       <td style="font-weight:700;color:#1B5E20">${liq?fmtMoney(liq):'<span style="color:#ccc">—</span>'}</td>
       <td>${badge}</td>
@@ -2393,6 +2396,7 @@ function renderPagamentos(){
     <td>${fmtMoney(tBruto)}</td>
     <td style="color:#c0392b">(${fmtMoney(tINSS)})</td>
     <td style="color:#c0392b">(${fmtMoney(tIRRF)})</td>
+    <td style="color:#c0392b">${tAdiant>0?'('+fmtMoney(tAdiant)+')':'—'}</td>
     <td style="color:#1565C0">${fmtMoney(tFGTS)}</td>
     <td style="color:var(--success)">${fmtMoney(tLiquido)}</td>
     <td colspan="2"></td>

@@ -630,18 +630,6 @@
           </div>
           <div style="display:flex;align-items:center;gap:8px">
             <span id="fechamento-status-badge"></span>
-            <button id="btn-migrar-competencia" class="btn btn-sm" onclick="migrarParaCompetencia()" style="background:#6D4C41;color:#fff;border:none;font-size:12px;white-space:nowrap" title="AÇÃO ÚNICA na virada para o modelo de competência (fecha dia 25): move os dias 26-31 já gravados para a folha da competência do mês seguinte. Faça backup antes. Roda só uma vez.">
-              <i class="fa-solid fa-arrows-turn-right"></i> Migrar p/ competência (1x)
-            </button>
-            <button id="btn-backfill-periodo" class="btn btn-sm" onclick="backfillFolhasPeriodo()" style="background:#00897B;color:#fff;border:none;font-size:12px;white-space:nowrap" title="Preenche os dias sem ponto real com as horas previstas pela escala/cadastro, por colaborador, até a 1ª batida real. Use só na virada para o novo modelo.">
-              <i class="fa-solid fa-wand-magic-sparkles"></i> Preencher folhas do período
-            </button>
-            <button id="btn-limpar-backfill" class="btn btn-sm" onclick="limparBackfillPeriodo()" style="background:#B0BEC5;color:#263238;border:none;font-size:12px;white-space:nowrap" title="Remove SÓ os dias projetados pelo backfill (origem 'backfill', sem batida real) das folhas desta competência. Preserva as batidas reais. Use se for preencher o ponto manualmente.">
-              <i class="fa-solid fa-eraser"></i> Limpar dias de backfill
-            </button>
-            <button id="btn-reprojetar-migrados" class="btn btn-sm" onclick="reprojetarDiasMigrados()" style="background:#8E24AA;color:#fff;border:none;font-size:12px;white-space:nowrap" title="AÇÃO ÚNICA da virada: reescreve os dias 26-31 (vindos do mês anterior pela migração) com a escala atual de cada colaborador (corrige horário/padrão antigos). Não toca nos dias 1-25. Faça backup antes.">
-              <i class="fa-solid fa-arrows-rotate"></i> Reprojetar dias 26-31 (virada)
-            </button>
             <button id="btn-fechar-periodo" class="btn btn-sm" onclick="fecharPeriodo()" style="background:#5C6BC0;color:#fff;border:none;font-size:12px;white-space:nowrap;display:none">
               <i class="fa-solid fa-lock"></i> Fechar Todas as Folhas
             </button>
@@ -6052,6 +6040,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260530j"></script>
+<script src="app.js?v=20260530k"></script>
 </body>
 </html>

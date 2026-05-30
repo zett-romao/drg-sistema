@@ -8301,11 +8301,8 @@ async function reabrirFolha(){
 // BACKFILL — preenche folhas do período com as horas previstas
 // ============================================
 // Ação ÚNICA usada na virada para o modelo de competência (fecha dia 25).
-// Para cada colaborador ativo (não isento), projeta as horas esperadas
-// (escala/cadastro, sem faltas) nos dias SEM ponto real, do início do período
-// (ou da admissão) até a 1ª batida real. Depois da 1ª batida, vale o ponto real
-// (dia útil sem batida = falta, como já é). Dias com batida real não são tocados.
-// Marca os dias preenchidos com origem 'backfill' (auditável e reversível).
+// Botão removido da UI em 2026-05-30 (migração já concluída). Função preservada
+// caso precise restaurar o botão pra novo cliente no futuro.
 async function backfillFolhasPeriodo(){
   if(Auth.currentUser?.role!=='master'){ toast('Apenas o usuário master pode rodar o preenchimento do período.','error'); return; }
   const mes=parseInt(val('payroll-mes')||currentMes());

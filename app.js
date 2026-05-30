@@ -16534,6 +16534,13 @@ async function savePontoManualRascunho(){
 // ter falta num dia futuro (mês ainda em andamento).
 function _diaEmBrancoEhFalta(emp, mes, ano, dia, isWeekend, is12x36){
   if(!emp) return false;
+  // Override de folga avulsa — prioridade máxima (vence escala salva e ciclo
+  // do 12x36). Necessário pra casos como transferência mid-month em 12x36 onde
+  // a paridade da escala antiga é oposta à da nova: marca-se folga avulsa nos
+  // dias problemáticos do segmento anterior.
+  const _ymdOv = `${ano}-${String(mes).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
+  const _ov = (emp.overridesHorario||[]).find(o => o.data === _ymdOv);
+  if(_ov && _ov.tipo === 'folga') return false;
   let deveriaTrabalhar;
   const escalaSalva = (State.escalas||[]).find(e => e.employeeId===emp.id && e.mes==mes && e.ano==ano);
   if(escalaSalva && Array.isArray(escalaSalva.dias)){

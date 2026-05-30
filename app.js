@@ -5817,6 +5817,48 @@ function _benefAplicarCustom(){
   renderBeneficiosLista();
 }
 
+// Chave de competência usada pra DEDUP/STATUS de pagamento de benefícios.
+// MESMA lógica das funções pagar* (Selecionados/ForçarPIX/PagoManual): assim a
+// lista enxerga corretamente os pagamentos já feitos. Para 'mes' usa o período
+// de PAGAMENTO (competência ATUAL) — não o período de USO mostrado na tela
+// (que é a próxima competência).
+function _benefCompKey(tab){
+  const hojeISO = new Date().toISOString().substring(0,10);
+  if(tab === 'mes'){
+    const d=new Date(); const cMes=d.getMonth()+1, cAno=d.getFullYear();
+    const per=_compPeriodo(cMes,cAno);
+    return `BEN_${per.deISO}_${per.ateISO}`;
+  } else if(tab === 'hoje'){
+    return `BEN_${hojeISO}_${hojeISO}`;
+  } else if(tab === 'custom'){
+    if(!_beneficioCustomIni || !_beneficioCustomFim) return null;
+    return `BEN_${_beneficioCustomIni}_${_beneficioCustomFim}`;
+  } else {
+    const s=_semanaDe(hojeISO); return `BEN_${s.inicio}_${s.fim}`;
+  }
+}
+
+// Status do pagamento de benefício do colaborador na competência. Olha as
+// solicitações de origem 'beneficio' ou 'beneficio-manual'. Prioridade:
+// pago > pendente > recusado > estornado.
+function _benefStatusColab(empId, comp){
+  if(!comp) return null;
+  const sols = (State.solicitacoes||[]).filter(s =>
+    (s.origem==='beneficio'||s.origem==='beneficio-manual') &&
+    s.employeeId===empId && s.competencia===comp
+  );
+  if(!sols.length) return null;
+  const pago = sols.find(s=>s.status==='pago');
+  if(pago) return { status:'pago', sol:pago };
+  const pend = sols.find(s=>s.status==='pendente');
+  if(pend) return { status:'pendente', sol:pend };
+  const rec  = sols.find(s=>s.status==='recusado');
+  if(rec)  return { status:'recusado', sol:rec };
+  const est  = sols.find(s=>s.status==='estornado');
+  if(est)  return { status:'estornado', sol:est };
+  return null;
+}
+
 function renderBeneficiosLista(){
   const tab = _beneficioTabAtual || 'hoje';
   const hojeISO = new Date().toISOString().substring(0,10);
@@ -5867,28 +5909,48 @@ function renderBeneficiosLista(){
     if(mUso>12){ mUso=1; aUso++; }
     return { mPag, aPag, mUso, aUso };
   })() : null;
+  // Chave de competência (mesma usada por pagar*/dedup). Pra cada colaborador,
+  // olha se já tem solicitação paga/pendente/recusada/estornada e marca a linha
+  // — não some da lista (evita pagamento em dobro).
+  const _compKey = _benefCompKey(tab);
   (State.employees||[])
     .filter(e => (e.status||'ativo') === 'ativo')
     .forEach(e => {
       const b = _ctxMes
         ? _calcBeneficiosColabPrevisto(e, _ctxMes.mUso, _ctxMes.aUso, _ctxMes.mPag, _ctxMes.aPag)
         : _calcBeneficiosColab(e, ini, fim, escopo);
-      // Inclui linhas com desconto ou cheio (sem valor a pagar) pra dar
-      // transparência ao gestor — não esconde colaborador sem benefício.
-      if(b.total > 0 || (b.descVT||0)+(b.descVR||0) > 0 || (b.vtCheio||0)+(b.vrCheio||0) > 0) {
-        linhas.push({ emp:e, b });
+      const stat = _benefStatusColab(e.id, _compKey);
+      // Inclui linhas com desconto, cheio (sem valor a pagar) OU já com
+      // pagamento registrado (pago/pendente/recusado/estornado) pra dar
+      // transparência ao gestor e evitar pagar duas vezes.
+      if(b.total > 0 || (b.descVT||0)+(b.descVR||0) > 0 || (b.vtCheio||0)+(b.vrCheio||0) > 0 || stat) {
+        linhas.push({ emp:e, b, stat });
       }
     });
   linhas.sort((a,b) => (a.emp.nome||'').localeCompare(b.emp.nome||''));
+  // Total CALCULADO (todos) e Total A PAGAR (exclui pago/pendente — esses já
+  // estão na esteira). Pago = soma do valor JÁ pago; Pendente = soma do que
+  // está em aprovação. Recusado/estornado entram no "a pagar" pois precisam
+  // ser refeitos.
+  const isLiquidado = s => s && (s.status==='pago' || s.status==='pendente');
   const totalGeral = linhas.reduce((s,l)=>s+l.b.total,0);
   const totalVT    = linhas.reduce((s,l)=>s+l.b.vtValor,0);
   const totalVR    = linhas.reduce((s,l)=>s+l.b.vrValor,0);
-  // Totais por CANAL de pagamento (definido no cadastro de cada colaborador)
-  const totalCartaoVT = linhas.reduce((s,l)=>s+(l.b.valorCartaoVT||0),0);
-  const totalCartaoVR = linhas.reduce((s,l)=>s+(l.b.valorCartaoVR||0),0);
-  const totalDinheiro = linhas.reduce((s,l)=>s+(l.b.valorDinheiro||0),0);
+  const totalAPagar    = linhas.reduce((s,l)=>s + (isLiquidado(l.stat)?0:l.b.total), 0);
+  const totalPago      = linhas.reduce((s,l)=>s + (l.stat && l.stat.status==='pago' ? (l.stat.sol.valor||0) : 0), 0);
+  const totalPendente  = linhas.reduce((s,l)=>s + (l.stat && l.stat.status==='pendente' ? (l.stat.sol.valor||0) : 0), 0);
+  // Totais por CANAL de pagamento — só do que AINDA falta pagar.
+  const totalCartaoVT = linhas.reduce((s,l)=>s + (isLiquidado(l.stat)?0:(l.b.valorCartaoVT||0)),0);
+  const totalCartaoVR = linhas.reduce((s,l)=>s + (isLiquidado(l.stat)?0:(l.b.valorCartaoVR||0)),0);
+  const totalDinheiro = linhas.reduce((s,l)=>s + (isLiquidado(l.stat)?0:(l.b.valorDinheiro||0)),0);
+  const cntPago     = linhas.filter(l=>l.stat && l.stat.status==='pago').length;
+  const cntPendente = linhas.filter(l=>l.stat && l.stat.status==='pendente').length;
   document.getElementById('benef-info').innerHTML =
-    `${periodoLabel} &middot; <strong>${linhas.length}</strong> colaborador(es) &middot; Total: <strong style="color:#0288D1">${fmtMoney(totalGeral)}</strong>` +
+    `${periodoLabel} &middot; <strong>${linhas.length}</strong> colaborador(es) &middot; A pagar: <strong style="color:#0288D1">${fmtMoney(totalAPagar)}</strong>` +
+    (cntPago>0||cntPendente>0
+      ? ` &middot; <span style="color:#2E7D32" title="Já registrado como pago"><i class="fa-solid fa-circle-check"></i> Pago: ${fmtMoney(totalPago)} (${cntPago})</span>` +
+        (cntPendente>0?` &middot; <span style="color:#E65100" title="Em aprovação/Asaas"><i class="fa-solid fa-hourglass-half"></i> Pendente: ${fmtMoney(totalPendente)} (${cntPendente})</span>`:'')
+      : '') +
     `<div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap">` +
       `<span style="background:#E3F2FD;color:#1565C0;padding:3px 10px;border-radius:8px;font-weight:700"><i class="fa-solid fa-credit-card"></i> Carregar Cartão VT: ${fmtMoney(totalCartaoVT)}</span>` +
       `<span style="background:#FFF3E0;color:#E65100;padding:3px 10px;border-radius:8px;font-weight:700"><i class="fa-solid fa-credit-card"></i> Carregar Cartão VR: ${fmtMoney(totalCartaoVR)}</span>` +
@@ -5917,9 +5979,16 @@ function renderBeneficiosLista(){
       </tr>
     </thead>
     <tbody>`;
-  linhas.forEach(({emp, b}, idx) => {
+  linhas.forEach(({emp, b, stat}, idx) => {
     const posto = (emp.posto || '—');
-    const bg = idx % 2 ? '#FAFBFC' : '#fff';
+    // Cor de fundo da linha segue o status do pagamento (visual rápido):
+    //   pago → verde claro · pendente → laranja claro · recusado/estornado → vermelho claro.
+    let bg = idx % 2 ? '#FAFBFC' : '#fff';
+    if(stat){
+      if(stat.status==='pago')      bg = '#E8F5E9';
+      else if(stat.status==='pendente') bg = '#FFF3E0';
+      else if(stat.status==='recusado' || stat.status==='estornado') bg = '#FFEBEE';
+    }
     const vtIcon = b.vtTipo === 'am' ? '<i class="fa-solid fa-motorcycle" style="color:#4fc3f7"></i>'
                                      : '<i class="fa-solid fa-bus" style="color:#4fc3f7"></i>';
     const matr = emp.registro ? String(emp.registro).padStart(4,'0') : '—';
@@ -5928,11 +5997,32 @@ function renderBeneficiosLista(){
     const cBadge = canal => canal==='dinheiro'
       ? '<span style="background:#E8F5E9;color:#2E7D32;font-size:8px;padding:1px 4px;border-radius:6px;font-weight:700;vertical-align:middle">PIX</span>'
       : '<span style="background:#E3F2FD;color:#1565C0;font-size:8px;padding:1px 4px;border-radius:6px;font-weight:700;vertical-align:middle">CARTÃO</span>';
-    const _busca = `${emp.nome||''} ${matr} ${emp.setor||''} ${posto}`.replace(/"/g,'');
+    // Badge do STATUS do pagamento da competência. Bloqueia checkbox quando
+    // já pago/pendente pra evitar lançar de novo (pagamento em dobro).
+    let statusBadge = '';
+    let chkAttr = '';
+    if(stat){
+      const sol = stat.sol || {};
+      const dt  = sol.pagoEm || (sol.criadoEm||'').substring(0,10);
+      const dtBr = dt ? new Date(dt+'T12:00:00').toLocaleDateString('pt-BR') : '';
+      if(stat.status==='pago'){
+        const forma = sol.formaPgtoManual ? ` · ${esc(sol.formaPgtoManual)}` : (sol.origem==='beneficio' ? ' · PIX' : '');
+        statusBadge = `<div style="margin-top:3px"><span style="background:#2E7D32;color:#fff;font-size:9px;padding:2px 6px;border-radius:8px;font-weight:700" title="Pago em ${dtBr}${forma} — R$ ${(sol.valor||0).toFixed(2)}"><i class="fa-solid fa-circle-check"></i> PAGO${dtBr?` ${dtBr}`:''}</span></div>`;
+        chkAttr = `disabled title="Já pago em ${dtBr}${forma} — bloqueado para evitar pagto em dobro"`;
+      } else if(stat.status==='pendente'){
+        statusBadge = `<div style="margin-top:3px"><span style="background:#E65100;color:#fff;font-size:9px;padding:2px 6px;border-radius:8px;font-weight:700" title="Em aprovação — sol ${sol.id||''}"><i class="fa-solid fa-hourglass-half"></i> PENDENTE</span></div>`;
+        chkAttr = `disabled title="Pagamento pendente em Aprovações — bloqueado para evitar duplicidade"`;
+      } else if(stat.status==='recusado'){
+        statusBadge = `<div style="margin-top:3px"><span style="background:#C62828;color:#fff;font-size:9px;padding:2px 6px;border-radius:8px;font-weight:700" title="Recusado — refaça em Aprovações"><i class="fa-solid fa-circle-xmark"></i> RECUSADO</span></div>`;
+      } else if(stat.status==='estornado'){
+        statusBadge = `<div style="margin-top:3px"><span style="background:#AD1457;color:#fff;font-size:9px;padding:2px 6px;border-radius:8px;font-weight:700" title="Estornado — refaça em Aprovações"><i class="fa-solid fa-rotate-left"></i> ESTORNADO</span></div>`;
+      }
+    }
+    const _busca = `${emp.nome||''} ${matr} ${emp.setor||''} ${posto} ${stat?stat.status:''}`.replace(/"/g,'');
     html += `<tr style="background:${bg};cursor:pointer" data-busca="${_busca}" onclick="openBeneficioDetalhe('${emp.id}','${escopo}','${ini}','${fim}')">
-      <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7" onclick="event.stopPropagation()"><input type="checkbox" class="benef-chk" data-emp-id="${emp.id}" data-valor="${b.valorDinheiro}" data-valor-total="${b.total}" data-dinheiro="${b.valorDinheiro>0?1:0}" title="${b.valorDinheiro>0?'Tem valor em dinheiro (PIX)':'No cartão — entra na impressão de selecionados; o PIX ignora (use Forçar PIX para contingência)'}" onchange="_benefSelCount()"></td>
+      <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7" onclick="event.stopPropagation()"><input type="checkbox" class="benef-chk" data-emp-id="${emp.id}" data-valor="${b.valorDinheiro}" data-valor-total="${b.total}" data-dinheiro="${b.valorDinheiro>0?1:0}" ${chkAttr || `title="${b.valorDinheiro>0?'Tem valor em dinheiro (PIX)':'No cartão — entra na impressão de selecionados; o PIX ignora (use Forçar PIX para contingência)'}"`} onchange="_benefSelCount()"></td>
       <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7;font-weight:700;color:var(--primary)">${matr}</td>
-      <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7"><strong style="color:var(--primary)">${emp.nome}</strong><br><small style="color:var(--text-muted)">${emp.setor||'—'}</small></td>
+      <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7"><strong style="color:var(--primary)">${emp.nome}</strong><br><small style="color:var(--text-muted)">${emp.setor||'—'}</small>${statusBadge}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7;font-size:11px">${posto}</td>
       <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7;font-size:11px">${periodoCol}</td>
       <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap">${vtIcon} ${b.vtValor>0?`<span style="color:var(--text-muted);font-size:11px">${b.diasVt}d ·</span> ${fmtMoney(b.vtValor)}${b.descVT>0?` <small style="color:#C62828" title="Desconto de ${b.faltasInjAnterior||0} falta(s) inj. anterior">(-${fmtMoney(b.descVT)})</small>`:''} ${cBadge(b.vtCanal)}`:(b.descVT>0?`<small style="color:#C62828" title="${b.faltasInjAnterior||0} falta(s) consumiram o crédito">${b.diasVt}d · ${fmtMoney(b.vtCheio||0)} −${fmtMoney(b.descVT)}</small>`:'—')}</td>
@@ -5945,12 +6035,18 @@ function renderBeneficiosLista(){
   html += `</tbody>
     <tfoot style="background:#E8F5E9;font-weight:700">
       <tr>
-        <td colspan="5" style="padding:10px;text-align:right">TOTAL GERAL</td>
+        <td colspan="5" style="padding:10px;text-align:right">TOTAL CALCULADO</td>
         <td style="padding:10px;text-align:right">${fmtMoney(totalVT)}</td>
         <td style="padding:10px;text-align:right">${fmtMoney(totalVR)}</td>
         <td style="padding:10px;text-align:right;color:#1B5E20;font-size:14px">${fmtMoney(totalGeral)}</td>
         <td colspan="2"></td>
       </tr>
+      ${(cntPago>0||cntPendente>0) ? `
+      <tr style="background:#FFFFFF;font-weight:600">
+        <td colspan="7" style="padding:8px 10px;text-align:right;color:#0288D1">A PAGAR (líquido)</td>
+        <td style="padding:8px 10px;text-align:right;color:#0288D1;font-size:14px">${fmtMoney(totalAPagar)}</td>
+        <td colspan="2" style="padding:8px 10px;font-size:11px;color:var(--text-muted)">${cntPago>0?`<i class="fa-solid fa-circle-check" style="color:#2E7D32"></i> ${cntPago} pago(s) ${fmtMoney(totalPago)}`:''}${cntPendente>0?`${cntPago>0?' · ':''}<i class="fa-solid fa-hourglass-half" style="color:#E65100"></i> ${cntPendente} pendente(s) ${fmtMoney(totalPendente)}`:''}</td>
+      </tr>` : ''}
     </tfoot>
   </table>`;
   listEl.innerHTML = html;
@@ -6021,7 +6117,7 @@ async function pagarBeneficiosSelecionados(){
 
   if(!confirm(`Pagar em dinheiro (PIX) os benefícios de ${chks.length} colaborador(es) — ${periodoLabel}?\n\nCria as solicitações na tela "Aprovações de Pagamentos", onde você confirma com o código 2FA e o Asaas dispara o PIX. (VT/VR de cartão são carregados na operadora à parte.)`)) return;
 
-  let ok=0, semPix=0, jaPend=0, erros=0, soCartao=0;
+  let ok=0, semPix=0, jaPend=0, jaPago=0, erros=0, soCartao=0;
   for(const c of chks){
     const emp=(State.employees||[]).find(e=>e.id===c.dataset.empId);
     if(!emp){ erros++; continue; }
@@ -6029,8 +6125,11 @@ async function pagarBeneficiosSelecionados(){
     if(valor<=0){ soCartao++; continue; }          // marcado mas é tudo cartão → PIX ignora
     const pixKey=(emp.chavePix||'').trim();
     if(!pixKey){ semPix++; continue; }
-    const jaExiste=(State.solicitacoes||[]).some(s=>s.origem==='beneficio' && s.employeeId===emp.id && s.competencia===comp && s.status==='pendente');
-    if(jaExiste){ jaPend++; continue; }
+    // Dedup: bloqueia se já tem PENDENTE ou PAGO para mesma competência.
+    // Recusado/estornado NÃO bloqueia (precisa refazer).
+    const colSols=(State.solicitacoes||[]).filter(s=>(s.origem==='beneficio'||s.origem==='beneficio-manual') && s.employeeId===emp.id && s.competencia===comp);
+    if(colSols.some(s=>s.status==='pago')){ jaPago++; continue; }
+    if(colSols.some(s=>s.status==='pendente')){ jaPend++; continue; }
     const pixTipo=emp.chavePixTipo||detectPixKeyType(pixKey);
     try{
       const sol=await _criarSolicitacaoPagamento({
@@ -6047,6 +6146,7 @@ async function pagarBeneficiosSelecionados(){
   const partes=[`${ok} solicitação(ões) criada(s)`];
   if(soCartao) partes.push(`${soCartao} só no cartão (ignorado no PIX)`);
   if(semPix) partes.push(`${semPix} sem chave PIX`);
+  if(jaPago) partes.push(`${jaPago} já pago(s) — bloqueado p/ evitar duplicidade`);
   if(jaPend) partes.push(`${jaPend} já pendente(s)`);
   if(erros)  partes.push(`${erros} com erro`);
   toast(partes.join(' · ') + (ok>0?'. Aprove em "Aprovações de Pagamentos" (2FA).':'.'), ok>0?'success':'warning');
@@ -6086,7 +6186,7 @@ async function pagarBeneficiosForcarPIX(){
   const totalGeral = chks.reduce((s,c)=>s+(parseFloat(c.dataset.valorTotal)||0),0);
   if(!confirm(`⚠️ CONTINGÊNCIA — Forçar PIX do TOTAL (cartão + dinheiro) de ${chks.length} colaborador(es) — ${periodoLabel}?\n\nValor a pagar via PIX: ${fmtMoney(totalGeral)}\n\n• Use quando a plataforma de CARTÃO (VT/VR) estiver indisponível.\n• ATENÇÃO: depois NÃO carregue o cartão desses colaboradores (senão paga em dobro).\n• As solicitações vão para "Aprovações de Pagamentos" → 2FA → Asaas dispara o PIX.\n\nConfirmar?`)) return;
 
-  let ok=0, semPix=0, jaPend=0, erros=0, semValor=0;
+  let ok=0, semPix=0, jaPend=0, jaPago=0, erros=0, semValor=0;
   for(const c of chks){
     const emp=(State.employees||[]).find(e=>e.id===c.dataset.empId);
     if(!emp){ erros++; continue; }
@@ -6094,8 +6194,10 @@ async function pagarBeneficiosForcarPIX(){
     if(valor<=0){ semValor++; continue; }
     const pixKey=(emp.chavePix||'').trim();
     if(!pixKey){ semPix++; continue; }
-    const jaExiste=(State.solicitacoes||[]).some(s=>s.origem==='beneficio' && s.employeeId===emp.id && s.competencia===comp && s.status==='pendente');
-    if(jaExiste){ jaPend++; continue; }
+    // Dedup: bloqueia se já tem PENDENTE ou PAGO para mesma competência.
+    const colSols=(State.solicitacoes||[]).filter(s=>(s.origem==='beneficio'||s.origem==='beneficio-manual') && s.employeeId===emp.id && s.competencia===comp);
+    if(colSols.some(s=>s.status==='pago')){ jaPago++; continue; }
+    if(colSols.some(s=>s.status==='pendente')){ jaPend++; continue; }
     const pixTipo=emp.chavePixTipo||detectPixKeyType(pixKey);
     try{
       const sol=await _criarSolicitacaoPagamento({
@@ -6112,6 +6214,7 @@ async function pagarBeneficiosForcarPIX(){
   const partes=[`${ok} solicitação(ões) criada(s) via CONTINGÊNCIA PIX`];
   if(semValor) partes.push(`${semValor} sem valor a pagar`);
   if(semPix) partes.push(`${semPix} sem chave PIX`);
+  if(jaPago) partes.push(`${jaPago} já pago(s) — bloqueado p/ evitar duplicidade`);
   if(jaPend) partes.push(`${jaPend} já pendente(s)`);
   if(erros)  partes.push(`${erros} com erro`);
   toast(partes.join(' · ') + (ok>0?'. Aprove em "Aprovações de Pagamentos" (2FA). Não carregue o cartão depois.':'.'), ok>0?'success':'warning');

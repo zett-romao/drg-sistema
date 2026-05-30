@@ -2003,6 +2003,26 @@ function renderDashboard(){
         }
       }
     }
+
+    // Adiantamentos quinzenais — TOTAL do mês corrente (todos com adiantamentoAtivo
+    // e valor > 0, vencidos ou não). Clique abre a lista por colaborador.
+    {
+      const _agoraQ=new Date();
+      const _mesQ=_agoraQ.getMonth()+1, _anoQ=_agoraQ.getFullYear();
+      const _listaQ=(State.payrolls||[]).filter(p =>
+        p.mes==_mesQ && p.ano==_anoQ &&
+        p.adiantamentoAtivo && (p.adiantamentoValor||0)>0
+      );
+      if(_listaQ.length>0){
+        const _totQ=_listaQ.reduce((s,p)=>s+(p.adiantamentoValor||0),0);
+        catalogo.push({key:'adiantQuinzenais', html:_statCard({
+          label:'Adiantamentos quinzenais', value:_listaQ.length, icon:'fa-money-bill-trend-up',
+          accent:'#00897B', iconBg:'#E0F2F1', iconColor:'#00695C', valueColor:'#00695C',
+          sub:`${fmtMoney(_totQ)} — ${MESES[_mesQ]}/${_anoQ} · clique p/ ver a lista`, subColor:'#00695C',
+          onclick:"showSection('adiantamentos')", title:'Total dos adiantamentos quinzenais do mês corrente'
+        })});
+      }
+    }
   }
   if(colabsHoje.length>0||colabsSemana.length>0) catalogo.push({key:'beneficios', html:_statCard({label:'Benefícios a pagar hoje', value:colabsHoje.length, icon:'fa-money-check-dollar',
     accent:'#0288D1', iconBg:'#E1F5FE', iconColor:'#0288D1', valueColor:'#0288D1',

@@ -6582,8 +6582,12 @@ function _calcBeneficiosColab(emp, dataInicioISO, dataFimISO, escopo){
 // ============================================================
 function _calcBeneficiosColabPrevisto(emp, mUso, aUso, mPag, aPag){
   const empE = State.employees.find(e=>e.id===emp.id) || emp;
-  const diasVt = _diasPrevistosEscala(empE, mUso, aUso);
-  const diasVr = _diasPrevistosComVR(empE, mUso, aUso);
+  // Isento (CLT Art. 62 — cargo de confiança): NÃO bate ponto, NÃO tem falta
+  // controlada, NÃO sofre desconto. Recebe benefício INTEGRAL pelo mês de uso
+  // (dias úteis da competência, sem filtro de admissão/escala/aprovação).
+  const isentoBPonto = !!empE.isentoPonto;
+  const diasVt = isentoBPonto ? _diasUteisMes(mUso, aUso) : _diasPrevistosEscala(empE, mUso, aUso);
+  const diasVr = isentoBPonto ? _diasUteisMes(mUso, aUso) : _diasPrevistosComVR(empE, mUso, aUso);
   const semVt  = _semanasTrabalhadas(diasVt, empE.escala);
   const semVr  = _semanasTrabalhadas(diasVr, empE.escala);
   const vtTipo = empE.tipoTransporte || 'vt';
@@ -6603,8 +6607,9 @@ function _calcBeneficiosColabPrevisto(emp, mUso, aUso, mPag, aPag){
   }
   // Desconto: faltas injustificadas da competência ATUAL (que está fechando).
   // Se a folha ainda não está fechada, usa o valor atual (parcial).
+  // Isento NÃO sofre desconto (não tem falta controlada — CLT Art. 62).
   const payAtual = (State.payrolls||[]).find(p=>p.employeeId===empE.id&&p.mes==mPag&&p.ano==aPag);
-  const faltasInj = (payAtual?.faltasInjustificadas)||0;
+  const faltasInj = isentoBPonto ? 0 : ((payAtual?.faltasInjustificadas)||0);
   const descVT = Math.min(vtCheio, faltasInj * (empE.valorDiarioVt||0));
   const descVR = Math.min(vrCheio, faltasInj * (empE.valorDiarioVr||0));
   // Bonificação (Boa Permanência) da competência fechada entra junto no VR.

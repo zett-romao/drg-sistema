@@ -6038,7 +6038,19 @@ let _beneficioDetalheCtx = null;
 function openBeneficioDetalhe(empId, escopo, dataIni, dataFim){
   const emp = State.employees.find(e=>e.id===empId);
   if(!emp){ toast('Colaborador não encontrado.','error'); return; }
-  const b = _calcBeneficiosColab(emp, dataIni, dataFim, escopo);
+  // Para "Este Mês" (prospectivo), usa o MESMO cálculo da lista (prev. pela escala
+  // + desconto de faltas anteriores) — senão modal e lista divergem.
+  let b;
+  if(escopo === 'mes'){
+    const d = new Date(dataIni+'T12:00:00');
+    const _comp = _competenciaDe(d);
+    const mUso = _comp.mes, aUso = _comp.ano;
+    let mPag = mUso-1, aPag = aUso;
+    if(mPag<1){ mPag=12; aPag--; }
+    b = _calcBeneficiosColabPrevisto(emp, mUso, aUso, mPag, aPag);
+  } else {
+    b = _calcBeneficiosColab(emp, dataIni, dataFim, escopo);
+  }
   const posto = (emp.posto || '—');
   const fmt = iso => new Date(iso+'T12:00:00').toLocaleDateString('pt-BR');
   const periodoLabel = (escopo === 'dia')

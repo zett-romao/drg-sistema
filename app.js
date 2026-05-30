@@ -5855,12 +5855,18 @@ function _benefLimparFiltroCanal(){
 
 // Troca a VIEW (visualização) ativa: 'aPagar' | 'pagos' | 'semBenef' | 'perderamBP'.
 // Cada view tem sua tabela e seus botões de exportação/pagamento.
+// Re-renderiza a lista E rola pra ela ficar visível (feedback de que mudou).
 function _benefSetView(view){
   _beneficioView = view;
+  // Limpa o filtro de canal se trocou de view (só faz sentido na 'aPagar')
+  if(view !== 'aPagar') _beneficioCanalFiltro = null;
   renderBeneficiosLista();
-  // Scroll suave pra topo da tabela pra checar a nova visualização.
-  const info = document.getElementById('benef-info');
-  if(info) info.scrollIntoView({behavior:'smooth', block:'start'});
+  // Scroll suave pra LISTA nova (não pros cards) pra usuário ver o conteúdo.
+  // Pequeno delay pro DOM renderizar antes de medir/rolar.
+  setTimeout(() => {
+    const list = document.getElementById('benef-lista');
+    if(list) list.scrollIntoView({behavior:'smooth', block:'start'});
+  }, 50);
 }
 
 // Popula o <select> "Carregar competência" do Personalizado com TODAS as

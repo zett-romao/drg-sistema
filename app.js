@@ -6113,10 +6113,10 @@ function renderBeneficiosLista(){
         ? _calcBeneficiosColabPrevisto(e, _ctxMes.mUso, _ctxMes.aUso, _ctxMes.mPag, _ctxMes.aPag)
         : _calcBeneficiosColab(e, ini, fim, escopo);
       const stat = _benefStatusColab(e.id, _compKey);
-      // Boa Permanência perdida → entra na lista "Perderam BP" independente de
-      // estar na lista principal por outros benefícios. Só na aba "Este Mês"
-      // (BP é mensal e só é apurada via Previsto).
-      if(_ctxMes && b.bpMotivo && (b.bpValor||0) === 0){
+      // Boa Permanência perdida → entra na lista "Perderam BP" SOMENTE quando
+      // a folha está FECHADA e o colab teve falta. Quando pendente (folha não
+      // fechada ainda) é 'N/C' — não entra como perda, é "ainda não apurado".
+      if(_ctxMes && b.bpMotivo && (b.bpValor||0) === 0 && !b.bpPendente){
         semBP.push({ emp:e, b, motivo: b.bpMotivo });
       }
       // Critério pra entrar na LISTA PRINCIPAL (a pagar):
@@ -6357,7 +6357,7 @@ function renderBeneficiosLista(){
       <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap">${vtIcon} ${b.vtValor>0?`<span style="color:var(--text-muted);font-size:11px">${b.diasVt}d ·</span> ${fmtMoney(b.vtValor)}${b.descVT>0?` <small style="color:#C62828" title="Desconto de ${b.faltasInjAnterior||0} falta(s) inj. anterior">(-${fmtMoney(b.descVT)})</small>`:''} ${cBadge(b.vtCanal)}`:(b.descVT>0?`<small style="color:#C62828" title="${b.faltasInjAnterior||0} falta(s) consumiram o crédito">${b.diasVt}d · ${fmtMoney(b.vtCheio||0)} −${fmtMoney(b.descVT)}</small>`:'—')}</td>
       <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap"><i class="fa-solid fa-utensils" style="color:#ff8a65"></i> ${b.vrValor>0?`<span style="color:#ff8a65;font-size:11px">${b.diasVr}d ·</span> ${fmtMoney(b.vrValor)}${b.descVR>0?` <small style="color:#C62828" title="Desconto de ${b.faltasInjAnterior||0} falta(s) inj. anterior">(-${fmtMoney(b.descVR)})</small>`:''} ${cBadge(b.vrCanal)}`:(b.descVR>0?`<small style="color:#C62828" title="${b.faltasInjAnterior||0} falta(s) consumiram o crédito">${b.diasVr}d · ${fmtMoney(b.vrCheio||0)} −${fmtMoney(b.descVR)}</small>`:'—')}</td>
       <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap"><i class="fa-solid fa-basket-shopping" style="color:#AD1457"></i> ${(b.vaValor||0)>0?`${fmtMoney(b.vaValor)}${b.descVA>0?` <small style="color:#C62828" title="Desconto de ${b.faltasInjAnterior||0} falta(s) inj. — mensal">(-${fmtMoney(b.descVA)})</small>`:''} ${cBadge(b.vaCanal||'cartao')}`:((b.vaMensal||0)>0&&b.descVA>0?`<small style="color:#C62828" title="${b.faltasInjAnterior||0} falta(s) consumiram o VA">${fmtMoney(b.vaMensal||0)} −${fmtMoney(b.descVA)}</small>`:'—')}</td>
-      <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap"><i class="fa-solid fa-medal" style="color:#F57F17"></i> ${(b.bpValor||0)>0?`${fmtMoney(b.bpValor)} ${cBadge(b.bpCanal||'dinheiro')}`:(b.bpMotivo?`<small style="color:#C62828" title="${esc(b.bpMotivo)}">perdeu <i class="fa-solid fa-circle-info" style="color:#9E9E9E"></i></small>`:'—')}</td>
+      <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap"><i class="fa-solid fa-medal" style="color:#F57F17"></i> ${(b.bpValor||0)>0?`${fmtMoney(b.bpValor)} ${cBadge(b.bpCanal||'dinheiro')}`:(b.bpPendente?`<small style="color:#9E9E9E" title="Folha não fechada — Boa Permanência só apura no fechamento do mês">N/C <i class="fa-solid fa-clock" style="color:#9E9E9E"></i></small>`:(b.bpMotivo?`<small style="color:#C62828" title="${esc(b.bpMotivo)}">perdeu <i class="fa-solid fa-circle-info" style="color:#9E9E9E"></i></small>`:'—'))}</td>
       <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;font-weight:700;color:#0288D1">${fmtMoney(b.total)}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7;font-size:11px;font-family:monospace;color:#00695C">${pix}</td>
       <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7"><button class="btn-icon" onclick="event.stopPropagation();openBeneficioDetalhe('${emp.id}','${escopo}','${ini}','${fim}')" title="Ver planilha individual"><i class="fa-solid fa-clipboard-list" style="color:#0288D1"></i></button></td>
@@ -6894,9 +6894,14 @@ function openBeneficioDetalhe(empId, _ignEscopo, _ignIni, _ignFim){
     const valor = b.bpValor||0;
     let multLabel = (escopo === 'mes') ? '×1 mês' : '(só no Período)';
     let rotulo = 'Boa Permanência';
-    if(escopo === 'mes' && valor === 0 && b.bpMotivo){
-      multLabel = `<span style="color:#C62828" title="${esc(b.bpMotivo)}">perdeu</span>`;
-      rotulo = `Boa Permanência <small style="color:#C62828;font-weight:400" title="${esc(b.bpMotivo)}"><i class="fa-solid fa-circle-info"></i></small>`;
+    if(escopo === 'mes' && valor === 0){
+      if(b.bpPendente){
+        multLabel = `<span style="color:#9E9E9E" title="Folha não fechada — BP só apura no fechamento da competência">N/C</span>`;
+        rotulo = `Boa Permanência <small style="color:#9E9E9E;font-weight:400" title="Folha não fechada — N/C (não cabível ainda)"><i class="fa-solid fa-clock"></i></small>`;
+      } else if(b.bpMotivo){
+        multLabel = `<span style="color:#C62828" title="${esc(b.bpMotivo)}">perdeu</span>`;
+        rotulo = `Boa Permanência <small style="color:#C62828;font-weight:400" title="${esc(b.bpMotivo)}"><i class="fa-solid fa-circle-info"></i></small>`;
+      }
     }
     linhas.push({ rotulo, freq: 'Mensal', base: bpCfg, multLabel, valor, campoId: 'edit-bp', chkId: 'chk-bp', desabilitado: (escopo !== 'mes') || valor === 0 });
   }
@@ -7239,7 +7244,7 @@ function exportBeneficiosLista(formato, soSelecionados){
       <td style="text-align:right">${benVT} ${fmtMoney(b.vtValor)}</td>
       <td style="text-align:right">${fmtMoney(b.vrValor)}</td>
       <td style="text-align:right">${fmtMoney(b.vaValor||0)}</td>
-      <td style="text-align:right">${fmtMoney(b.bpValor||0)}</td>
+      <td style="text-align:right">${(b.bpValor||0)>0 ? fmtMoney(b.bpValor) : (b.bpPendente ? '<span style="color:#9E9E9E">N/C</span>' : (b.bpMotivo ? '<span style="color:#C62828">perdeu</span>' : '—'))}</td>
       <td style="text-align:right;font-weight:700">${fmtMoney(b.total)}</td>
       <td style="font-family:monospace;font-size:11px;color:#00695C">${pix}</td>
     </tr>`;
@@ -7668,7 +7673,7 @@ function _calcBeneficiosColabPrevisto(emp, mUso, aUso, mPag, aPag){
   //   - Quando NÃO elegível, devolve bpValor=0 + bpMotivo p/ a lista "perdeu".
   const bpFromCct = (State.cct && State.cct.bonificacao) || 0;
   const sempreP   = !!empE.bonificacaoSemprePagar;
-  let bpValor = 0, bpMotivo = '', bpElegivel = false;
+  let bpValor = 0, bpMotivo = '', bpElegivel = false, bpPendente = false;
   if(isentoBPonto || sempreP){
     bpValor = (payAtual && payAtual.bonificacao) || bpFromCct;
     bpElegivel = bpValor > 0;
@@ -7680,7 +7685,10 @@ function _calcBeneficiosColabPrevisto(emp, mUso, aUso, mPag, aPag){
       bpElegivel = bpValor > 0;
       if(!bpValor) bpMotivo = 'CCT sem valor de Boa Permanência configurado';
     } else {
-      bpMotivo = _bp.motivo || 'Não elegível';
+      // pendente = folha do mês AINDA NÃO FECHADA → N/C (não cabível ainda).
+      // só vira "perdeu" depois do fechamento E se tiver tido falta.
+      bpPendente = !!_bp.pendente;
+      bpMotivo   = _bp.motivo || 'Não elegível';
     }
   }
   const vtValor = Math.max(0, vtCheio - descVT);
@@ -7700,7 +7708,7 @@ function _calcBeneficiosColabPrevisto(emp, mUso, aUso, mPag, aPag){
     vtTipo, vtFreq, vrFreq,
     vtCheio, vrCheio, vaCheio, vaMensal,
     descVT, descVR, descVA, faltasInjAnterior: faltasInj,
-    bpValor, bpMotivo, bpElegivel, bpFromCct,
+    bpValor, bpMotivo, bpElegivel, bpFromCct, bpPendente,
     bonusVr: bpValor, // compat: chamadores antigos liam bonusVr (lia o mesmo conceito)
     vtValor, vrValor, vaValor,
     total,

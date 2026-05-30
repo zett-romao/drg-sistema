@@ -8476,9 +8476,18 @@ function _adiantToggleAll(master){
 }
 
 function _abrirFolhaColaborador(empId){
+  if(!empId) return;
   showSection('payroll');
+  // Garante que a opção do colaborador-alvo está no select ANTES de selecionar:
+  // alinha o filtro de posto, inclui demitidos/afastados se for o caso e injeta
+  // a opção se mesmo assim faltar. Sem isso, sel.value=empId falhava silenciosa
+  // e a folha do colaborador não carregava (o nome era clicável mas "não ia").
+  try { _ensurePayrollEmployeeOption(empId); } catch(e){ console.warn('_abrirFolhaColaborador', e); }
   const sel=document.getElementById('payroll-employee');
-  if(sel){ sel.value=empId; if(typeof onPayrollEmployeeChange==='function') onPayrollEmployeeChange(); }
+  if(sel){
+    sel.value=empId;
+    if(typeof onPayrollEmployeeChange==='function') onPayrollEmployeeChange();
+  }
 }
 
 // Recalcula o valor do adiantamento de uma folha já salva (salário base ×

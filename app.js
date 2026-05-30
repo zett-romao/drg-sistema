@@ -16835,8 +16835,12 @@ async function openHEReview(){
   // escala e ficam invisíveis na folha/escala — causa comum de HE fantasma.
   const _per = _compPeriodo(mes, ano);
   const _ovr = (emp.overridesHorario||[]).filter(o => o && o.data >= _per.deISO && o.data <= _per.ateISO);
-  const _ovrAviso = _ovr.length
-    ? `<div style="margin-top:6px;padding:6px 10px;background:#FFF8E1;border:1px solid #F9A825;border-radius:4px;color:#E65100;font-size:12px"><i class="fa-solid fa-triangle-exclamation"></i> Este colaborador tem <strong>${_ovr.length} dia(s) avulso(s)</strong> neste período (${_ovr.map(o=>_fmtDtBr(o.data)).join(', ')}). Eles têm <strong>prioridade sobre a escala</strong> — se uma divergência não fizer sentido, confira/remova no cadastro (bloco "Dias avulsos").</div>`
+  // Só avisa sobre dias avulsos QUANDO há divergência pra revisar — senão os
+  // avulsos estão fazendo o trabalho deles (suprimindo HE legítima como em
+  // troca de escala) e o aviso só polui. Se aparecer HE inexplicada, o aviso
+  // entra pra ajudar a investigar.
+  const _ovrAviso = (_ovr.length && linhas.length)
+    ? `<div style="margin-top:6px;padding:6px 10px;background:#FFF8E1;border:1px solid #F9A825;border-radius:4px;color:#E65100;font-size:12px"><i class="fa-solid fa-triangle-exclamation"></i> Este colaborador tem <strong>${_ovr.length} dia(s) avulso(s)</strong> neste período (${_ovr.map(o=>_fmtDtBr(o.data)).join(', ')}). Eles têm <strong>prioridade sobre a escala</strong> — se uma divergência abaixo não fizer sentido, confira/remova no cadastro (bloco "Dias avulsos").</div>`
     : '';
   document.getElementById('he-review-info').innerHTML =
     `<strong>${emp.nome}</strong> &middot; ${MESES[mes]}/${ano} &middot; <strong>${linhas.length}</strong> dia(s) com divergência acima de 10min/dia` + _ovrAviso;

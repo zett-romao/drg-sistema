@@ -2004,6 +2004,7 @@
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;justify-content:flex-end;align-items:center">
           <button class="btn btn-primary" onclick="pagarBeneficiosSelecionados()" style="background:#00897B" title="Paga via PIX (Asaas) só a parte marcada como dinheiro no cadastro"><i class="fa-brands fa-pix"></i> Pagar em Dinheiro (<span id="benef-sel-count">0</span>)</button>
           <button class="btn btn-primary" onclick="pagarBeneficiosForcarPIX()" style="background:#D84315" title="CONTINGÊNCIA: paga via PIX o VALOR TOTAL (cartão+dinheiro) dos selecionados. Use quando a plataforma do cartão estiver fora do ar. Depois não carregue o cartão (pagaria 2x)."><i class="fa-solid fa-bolt"></i> Forçar PIX (contingência)</button>
+          <button class="btn btn-primary" onclick="pagarBoaPermanencia()" style="background:#F57F17" title="Paga via PIX SÓ a Boa Permanência (comissão de assiduidade). Só funciona na aba 'Este Mês'. Dedup independente de VT/VR/VA."><i class="fa-solid fa-medal"></i> Pagar B.Perm. (PIX)</button>
           <button class="btn btn-primary" onclick="marcarBeneficiosPagoManual()" style="background:#455A64" title="Registra como PAGO MANUAL (sem disparar PIX/cartão). Use quando o pagamento foi feito FORA do sistema (espécie, cheque, transferência manual etc.)."><i class="fa-solid fa-money-bill-wave"></i> Pago Manual</button>
           <button class="btn btn-secondary" onclick="exportBeneficiosLista('print', true)" title="Imprime só os colaboradores marcados"><i class="fa-solid fa-print"></i> Imprimir selecionados</button>
           <button class="btn btn-secondary" onclick="exportBeneficiosLista('print')"><i class="fa-solid fa-print"></i> Imprimir lista</button>
@@ -6049,6 +6050,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260530y"></script>
+<script src="app.js?v=20260530z"></script>
 </body>
 </html>

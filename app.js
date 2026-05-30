@@ -5815,6 +5815,18 @@ function _benefAplicarCustom(){
   _beneficioCustomFim = fim;
   _beneficioTabAtual = 'custom';
   renderBeneficiosLista();
+  // Feedback visual — sem isso o usuário acha que o botão não fez nada quando
+  // ele re-clica com as mesmas datas. Toast + flash amarelo no info do período.
+  const fmtBr = iso => new Date(iso+'T12:00:00').toLocaleDateString('pt-BR');
+  toast(`Período aplicado: ${fmtBr(ini)} → ${fmtBr(fim)}`,'success');
+  const info = document.getElementById('benef-info');
+  if(info){
+    info.style.transition = 'background-color 0.4s ease';
+    const oldBg = info.style.backgroundColor || '';
+    info.style.backgroundColor = '#FFF59D';   // flash amarelo
+    setTimeout(()=>{ info.style.backgroundColor = oldBg; }, 600);
+    info.scrollIntoView({behavior:'smooth', block:'nearest'});
+  }
 }
 
 // Chave de competência usada pra DEDUP/STATUS de pagamento de benefícios.
@@ -5904,6 +5916,9 @@ function renderBeneficiosLista(){
   // pagar nem pagamento registrado). Renderizados em seção separada abaixo
   // com o motivo da ausência — transparência total p/ o gestor.
   const sem = [];
+  // Colaboradores ativos que perderam a Boa Permanência (independente de ter
+  // VT/VR/VA). Lista em bloco próprio pra dar visibilidade do "motivo".
+  const semBP = [];
   // Para a aba "Este Mês" (prospectivo), pré-computa o par {pag,uso} uma vez
   // pra reaproveitar no loop sem recomputar a cada colaborador.
   const _ctxMes = (tab === 'mes') ? (() => {
@@ -5924,6 +5939,12 @@ function renderBeneficiosLista(){
         ? _calcBeneficiosColabPrevisto(e, _ctxMes.mUso, _ctxMes.aUso, _ctxMes.mPag, _ctxMes.aPag)
         : _calcBeneficiosColab(e, ini, fim, escopo);
       const stat = _benefStatusColab(e.id, _compKey);
+      // Boa Permanência perdida → entra na lista "Perderam BP" independente de
+      // estar na lista principal por outros benefícios. Só na aba "Este Mês"
+      // (BP é mensal e só é apurada via Previsto).
+      if(_ctxMes && b.bpMotivo && (b.bpValor||0) === 0){
+        semBP.push({ emp:e, b, motivo: b.bpMotivo });
+      }
       // Critério pra entrar na LISTA PRINCIPAL (a pagar):
       //   - tem valor calculado (>0), OU
       //   - teve desconto/cheio (transparência do desconto), OU
@@ -5953,6 +5974,7 @@ function renderBeneficiosLista(){
     });
   linhas.sort((a,b) => (a.emp.nome||'').localeCompare(b.emp.nome||''));
   sem.sort((a,b) => (a.emp.nome||'').localeCompare(b.emp.nome||''));
+  semBP.sort((a,b) => (a.emp.nome||'').localeCompare(b.emp.nome||''));
   // Total CALCULADO (todos) e Total A PAGAR (exclui pago/pendente — esses já
   // estão na esteira). Pago = soma do valor JÁ pago; Pendente = soma do que
   // está em aprovação. Recusado/estornado entram no "a pagar" pois precisam
@@ -5962,6 +5984,7 @@ function renderBeneficiosLista(){
   const totalVT    = linhas.reduce((s,l)=>s+l.b.vtValor,0);
   const totalVR    = linhas.reduce((s,l)=>s+l.b.vrValor,0);
   const totalVA    = linhas.reduce((s,l)=>s+(l.b.vaValor||0),0);
+  const totalBP    = linhas.reduce((s,l)=>s+(l.b.bpValor||0),0);
   const totalAPagar    = linhas.reduce((s,l)=>s + (isLiquidado(l.stat)?0:l.b.total), 0);
   const totalPago      = linhas.reduce((s,l)=>s + (l.stat && l.stat.status==='pago' ? (l.stat.sol.valor||0) : 0), 0);
   const totalPendente  = linhas.reduce((s,l)=>s + (l.stat && l.stat.status==='pendente' ? (l.stat.sol.valor||0) : 0), 0);
@@ -5969,7 +5992,11 @@ function renderBeneficiosLista(){
   const totalCartaoVT = linhas.reduce((s,l)=>s + (isLiquidado(l.stat)?0:(l.b.valorCartaoVT||0)),0);
   const totalCartaoVR = linhas.reduce((s,l)=>s + (isLiquidado(l.stat)?0:(l.b.valorCartaoVR||0)),0);
   const totalCartaoVA = linhas.reduce((s,l)=>s + (isLiquidado(l.stat)?0:(l.b.valorCartaoVA||0)),0);
+  const totalCartaoBP = linhas.reduce((s,l)=>s + (isLiquidado(l.stat)?0:(l.b.valorCartaoBP||0)),0);
   const totalDinheiro = linhas.reduce((s,l)=>s + (isLiquidado(l.stat)?0:(l.b.valorDinheiro||0)),0);
+  // Total da Boa Permanência ainda a pagar (independente do canal) — pra
+  // dimensionar o card no header e o botão dedicado.
+  const totalBPAPagar = linhas.reduce((s,l)=>s + (isLiquidado(l.stat)?0:(l.b.bpValor||0)),0);
   const cntPago     = linhas.filter(l=>l.stat && l.stat.status==='pago').length;
   const cntPendente = linhas.filter(l=>l.stat && l.stat.status==='pendente').length;
   document.getElementById('benef-info').innerHTML =
@@ -5982,6 +6009,7 @@ function renderBeneficiosLista(){
       `<span style="background:#E3F2FD;color:#1565C0;padding:3px 10px;border-radius:8px;font-weight:700"><i class="fa-solid fa-credit-card"></i> Carregar Cartão VT: ${fmtMoney(totalCartaoVT)}</span>` +
       `<span style="background:#FFF3E0;color:#E65100;padding:3px 10px;border-radius:8px;font-weight:700"><i class="fa-solid fa-credit-card"></i> Carregar Cartão VR: ${fmtMoney(totalCartaoVR)}</span>` +
       (totalCartaoVA > 0 ? `<span style="background:#FCE4EC;color:#AD1457;padding:3px 10px;border-radius:8px;font-weight:700"><i class="fa-solid fa-credit-card"></i> Carregar Cartão VA: ${fmtMoney(totalCartaoVA)}</span>` : '') +
+      (totalBPAPagar > 0 ? `<span style="background:#FFF9C4;color:#F57F17;padding:3px 10px;border-radius:8px;font-weight:700"><i class="fa-solid fa-medal"></i> Boa Permanência: ${fmtMoney(totalBPAPagar)}</span>` : '') +
       `<span style="background:#E8F5E9;color:#2E7D32;padding:3px 10px;border-radius:8px;font-weight:700"><i class="fa-brands fa-pix"></i> Pagar em Dinheiro (PIX): ${fmtMoney(totalDinheiro)}</span>` +
     `</div>`;
   const listEl = document.getElementById('benef-lista');
@@ -6002,6 +6030,7 @@ function renderBeneficiosLista(){
         <th style="padding:6px 8px;text-align:right;border-bottom:1px solid var(--border)">VT/AM</th>
         <th style="padding:6px 8px;text-align:right;border-bottom:1px solid var(--border)">VR</th>
         <th style="padding:6px 8px;text-align:right;border-bottom:1px solid var(--border)">VA</th>
+        <th style="padding:6px 8px;text-align:right;border-bottom:1px solid var(--border)" title="Boa Permanência (comissão de assiduidade)">B.Perm.</th>
         <th style="padding:6px 8px;text-align:right;border-bottom:1px solid var(--border)">Total</th>
         <th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border)">Chave PIX</th>
         <th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border)">Ações</th>
@@ -6057,6 +6086,7 @@ function renderBeneficiosLista(){
       <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap">${vtIcon} ${b.vtValor>0?`<span style="color:var(--text-muted);font-size:11px">${b.diasVt}d ·</span> ${fmtMoney(b.vtValor)}${b.descVT>0?` <small style="color:#C62828" title="Desconto de ${b.faltasInjAnterior||0} falta(s) inj. anterior">(-${fmtMoney(b.descVT)})</small>`:''} ${cBadge(b.vtCanal)}`:(b.descVT>0?`<small style="color:#C62828" title="${b.faltasInjAnterior||0} falta(s) consumiram o crédito">${b.diasVt}d · ${fmtMoney(b.vtCheio||0)} −${fmtMoney(b.descVT)}</small>`:'—')}</td>
       <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap"><i class="fa-solid fa-utensils" style="color:#ff8a65"></i> ${b.vrValor>0?`<span style="color:#ff8a65;font-size:11px">${b.diasVr}d ·</span> ${fmtMoney(b.vrValor)}${b.descVR>0?` <small style="color:#C62828" title="Desconto de ${b.faltasInjAnterior||0} falta(s) inj. anterior">(-${fmtMoney(b.descVR)})</small>`:''} ${cBadge(b.vrCanal)}`:(b.descVR>0?`<small style="color:#C62828" title="${b.faltasInjAnterior||0} falta(s) consumiram o crédito">${b.diasVr}d · ${fmtMoney(b.vrCheio||0)} −${fmtMoney(b.descVR)}</small>`:'—')}</td>
       <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap"><i class="fa-solid fa-basket-shopping" style="color:#AD1457"></i> ${(b.vaValor||0)>0?`${fmtMoney(b.vaValor)}${b.descVA>0?` <small style="color:#C62828" title="Desconto de ${b.faltasInjAnterior||0} falta(s) inj. — mensal">(-${fmtMoney(b.descVA)})</small>`:''} ${cBadge(b.vaCanal||'cartao')}`:((b.vaMensal||0)>0&&b.descVA>0?`<small style="color:#C62828" title="${b.faltasInjAnterior||0} falta(s) consumiram o VA">${fmtMoney(b.vaMensal||0)} −${fmtMoney(b.descVA)}</small>`:'—')}</td>
+      <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap"><i class="fa-solid fa-medal" style="color:#F57F17"></i> ${(b.bpValor||0)>0?`${fmtMoney(b.bpValor)} ${cBadge(b.bpCanal||'dinheiro')}`:(b.bpMotivo?`<small style="color:#C62828" title="${esc(b.bpMotivo)}">perdeu <i class="fa-solid fa-circle-info" style="color:#9E9E9E"></i></small>`:'—')}</td>
       <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;font-weight:700;color:#0288D1">${fmtMoney(b.total)}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7;font-size:11px;font-family:monospace;color:#00695C">${pix}</td>
       <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7"><button class="btn-icon" onclick="event.stopPropagation();openBeneficioDetalhe('${emp.id}','${escopo}','${ini}','${fim}')" title="Ver planilha individual"><i class="fa-solid fa-clipboard-list" style="color:#0288D1"></i></button></td>
@@ -6069,17 +6099,47 @@ function renderBeneficiosLista(){
         <td style="padding:10px;text-align:right">${fmtMoney(totalVT)}</td>
         <td style="padding:10px;text-align:right">${fmtMoney(totalVR)}</td>
         <td style="padding:10px;text-align:right">${fmtMoney(totalVA)}</td>
+        <td style="padding:10px;text-align:right">${fmtMoney(totalBP)}</td>
         <td style="padding:10px;text-align:right;color:#1B5E20;font-size:14px">${fmtMoney(totalGeral)}</td>
         <td colspan="2"></td>
       </tr>
       ${(cntPago>0||cntPendente>0) ? `
       <tr style="background:#FFFFFF;font-weight:600">
-        <td colspan="8" style="padding:8px 10px;text-align:right;color:#0288D1">A PAGAR (líquido)</td>
+        <td colspan="9" style="padding:8px 10px;text-align:right;color:#0288D1">A PAGAR (líquido)</td>
         <td style="padding:8px 10px;text-align:right;color:#0288D1;font-size:14px">${fmtMoney(totalAPagar)}</td>
         <td colspan="2" style="padding:8px 10px;font-size:11px;color:var(--text-muted)">${cntPago>0?`<i class="fa-solid fa-circle-check" style="color:#2E7D32"></i> ${cntPago} pago(s) ${fmtMoney(totalPago)}`:''}${cntPendente>0?`${cntPago>0?' · ':''}<i class="fa-solid fa-hourglass-half" style="color:#E65100"></i> ${cntPendente} pendente(s) ${fmtMoney(totalPendente)}`:''}</td>
       </tr>` : ''}
     </tfoot>
   </table>`;
+  // PERDERAM BOA PERMANÊNCIA — bloco específico pra essa comissão (faltas,
+  // folha não fechada ainda, CCT sem valor). Só faz sentido na aba "Este Mês"
+  // (BP é mensal). Mostra o motivo de cada perda.
+  if(semBP.length){
+    html += `<details open style="margin-top:14px;background:#FFFDE7;border:1px solid #FFE082;border-radius:8px;padding:8px 12px">
+      <summary style="cursor:pointer;font-weight:700;color:#E65100;font-size:12px"><i class="fa-solid fa-medal" style="color:#F57F17"></i> Perderam a Boa Permanência (${semBP.length}) — ver motivo</summary>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:8px">
+        <thead style="background:#FFF3E0;color:#5D4037">
+          <tr>
+            <th style="padding:5px 8px;text-align:center;border-bottom:1px solid #FFE082">Matr.</th>
+            <th style="padding:5px 8px;text-align:left;border-bottom:1px solid #FFE082">Colaborador</th>
+            <th style="padding:5px 8px;text-align:left;border-bottom:1px solid #FFE082">Posto</th>
+            <th style="padding:5px 8px;text-align:left;border-bottom:1px solid #FFE082">Motivo</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${semBP.map(({emp, motivo}, i) => {
+            const matr = emp.registro ? String(emp.registro).padStart(4,'0') : '—';
+            return `<tr style="background:${i%2?'#FFFDE7':'#fff'}">
+              <td style="padding:5px 8px;text-align:center;border-bottom:1px solid #FFF3E0;font-weight:700;color:var(--primary)">${matr}</td>
+              <td style="padding:5px 8px;border-bottom:1px solid #FFF3E0"><strong style="color:#455A64">${emp.nome||'—'}</strong><br><small style="color:var(--text-muted)">${emp.setor||'—'}</small></td>
+              <td style="padding:5px 8px;border-bottom:1px solid #FFF3E0">${emp.posto||'—'}</td>
+              <td style="padding:5px 8px;border-bottom:1px solid #FFF3E0;color:#37474F"><i class="fa-solid fa-medal" style="color:#FF9800"></i> ${esc(motivo)}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </details>`;
+  }
   // SEM BENEFÍCIO — colaboradores ativos que não receberão nada no período +
   // motivo. Bloco recolhível abaixo da lista principal pra dar transparência
   // (operador enxerga rápido quem sumiu por configuração vs por trabalho).
@@ -6278,6 +6338,78 @@ async function pagarBeneficiosForcarPIX(){
   if(jaPend) partes.push(`${jaPend} já pendente(s)`);
   if(erros)  partes.push(`${erros} com erro`);
   toast(partes.join(' · ') + (ok>0?'. Aprove em "Aprovações de Pagamentos" (2FA). Não carregue o cartão depois.':'.'), ok>0?'success':'warning');
+  if(ok>0){
+    if(typeof showSection==='function') showSection('aprovacoes');
+  }
+}
+
+// PAGAR BOA PERMANÊNCIA (PIX) — só essa comissão, sem VT/VR/VA. Só faz
+// sentido na aba "Este Mês" (BP é apurada no fechamento mensal). Dedup
+// SEPARADO das outras funções: usa `competencia=BP_<de>_<ate>` e
+// `origem='beneficio-bp'`, então pagar BP não bloqueia pagar VT/VR/VA e
+// vice-versa.
+async function pagarBoaPermanencia(){
+  if(!getUserModules(Auth.currentUser).pagamentosLancar){
+    toast('Sem permissão para lançar pagamentos.','error'); return;
+  }
+  const tab = _beneficioTabAtual || 'hoje';
+  if(tab !== 'mes'){
+    toast('Boa Permanência só é apurada no fechamento mensal — use a aba "Este Mês".','warning');
+    return;
+  }
+  const chks=[...document.querySelectorAll('.benef-chk:checked')];
+  if(!chks.length){ toast('Marque ao menos um colaborador.','info'); return; }
+
+  const hojeISO = new Date().toISOString().substring(0,10);
+  const d=new Date(); const cMes=d.getMonth()+1, cAno=d.getFullYear();
+  const per=_compPeriodo(cMes,cAno);
+  const ini=per.deISO, fim=per.ateISO;
+  const periodoLabel=`Competência ${MESES[cMes]}/${cAno} (${_compLabel(cMes,cAno)})`;
+  const comp=`BP_${ini}_${fim}`;   // chave SEPARADA das outras (BEN_)
+
+  // Pega bpValor real de cada colaborador (não confia só em data-valor-total)
+  const cMesPag=cMes, aMesPag=cAno;
+  let mUso = cMesPag+1, aUso = cAno;
+  if(mUso>12){ mUso=1; aUso=cAno+1; }
+  const itens = [];
+  for(const c of chks){
+    const emp=(State.employees||[]).find(e=>e.id===c.dataset.empId);
+    if(!emp) continue;
+    const b = _calcBeneficiosColabPrevisto(emp, mUso, aUso, cMesPag, aMesPag);
+    if((b.bpValor||0) > 0) itens.push({emp, b});
+  }
+  if(!itens.length){
+    toast('Nenhum colaborador marcado tem Boa Permanência a pagar.','warning'); return;
+  }
+  const totalGeral = itens.reduce((s,i)=>s+(i.b.bpValor||0),0);
+  if(!confirm(`Pagar BOA PERMANÊNCIA (PIX) de ${itens.length} colaborador(es) — ${periodoLabel}?\n\nValor total: ${fmtMoney(totalGeral)}\n\nCria solicitação SEPARADA das outras (VT/VR/VA continuam por fora). Vai p/ "Aprovações de Pagamentos" → 2FA → Asaas dispara o PIX.`)) return;
+
+  let ok=0, semPix=0, jaPend=0, jaPago=0, erros=0;
+  for(const {emp, b} of itens){
+    const valor = b.bpValor||0;
+    const pixKey=(emp.chavePix||'').trim();
+    if(!pixKey){ semPix++; continue; }
+    const colSols=(State.solicitacoes||[]).filter(s=>s.origem==='beneficio-bp' && s.employeeId===emp.id && s.competencia===comp);
+    if(colSols.some(s=>s.status==='pago')){ jaPago++; continue; }
+    if(colSols.some(s=>s.status==='pendente')){ jaPend++; continue; }
+    const pixTipo=emp.chavePixTipo||detectPixKeyType(pixKey);
+    try{
+      const sol=await _criarSolicitacaoPagamento({
+        employeeId:emp.id, employeeNome:emp.nome, payrollId:'',
+        valor, pixKey:_pixKeyParaAsaas(pixKey,pixTipo), keyType:pixTipo,
+        descricao:`Boa Permanência ${periodoLabel} — ${emp.nome}`,
+        scheduleDate:hojeISO, competencia:comp, origem:'beneficio-bp',
+      });
+      Auth.log('PAGAMENTO_SOLICITADO', null, `Boa Permanência ${periodoLabel} | ${emp.nome} | R$ ${valor.toFixed(2)} | sol ${sol.id}`);
+      ok++;
+    }catch(e){ erros++; }
+  }
+  const partes=[`${ok} solicitação(ões) criada(s)`];
+  if(semPix) partes.push(`${semPix} sem chave PIX`);
+  if(jaPago) partes.push(`${jaPago} já pago(s) — bloqueado`);
+  if(jaPend) partes.push(`${jaPend} já pendente(s)`);
+  if(erros)  partes.push(`${erros} com erro`);
+  toast(partes.join(' · ') + (ok>0?'. Aprove em "Aprovações de Pagamentos" (2FA).':'.'), ok>0?'success':'warning');
   if(ok>0){
     if(typeof showSection==='function') showSection('aprovacoes');
   }
@@ -6859,7 +6991,7 @@ function _calcBeneficiosColab(emp, dataInicioISO, dataFimISO, escopo){
     vtTipo: empE.tipoTransporte || 'vt',
     vtFreq: empE.vtFreq || 'diario',
     vrFreq: empE.vrFreq || 'diario',
-    vtValor: 0, vrValor: 0, vaValor: 0, bonusVr: 0, total: 0
+    vtValor: 0, vrValor: 0, vaValor: 0, bpValor: 0, bonusVr: 0, total: 0
   };
   // VT/AM — todos os dias trabalhados. escopo 'dia' = só o do dia; senão soma o intervalo.
   if(out.vtTipo !== 'nao' && empE.valorDiarioVt){
@@ -6899,17 +7031,20 @@ function _calcBeneficiosColab(emp, dataInicioISO, dataFimISO, escopo){
       out.vrValor += out.bonusVr;
     }
   }
-  out.total = out.vtValor + out.vrValor + (out.vaValor||0);
-  // Canal de pagamento (definido no cadastro). VR cobre também a Boa Permanência.
+  out.total = out.vtValor + out.vrValor + (out.vaValor||0) + (out.bpValor||0);
+  // Canal de pagamento (definido no cadastro). VR e BP são separados agora.
   out.vtCanal = empE.vtCanal || 'cartao';
   out.vrCanal = empE.vrCanal || 'cartao';
   out.vaCanal = empE.vaCanal || out.vrCanal || 'cartao';
+  out.bpCanal = empE.bpCanal || 'dinheiro';
   out.valorCartaoVT = (out.vtCanal === 'cartao') ? out.vtValor : 0;
   out.valorCartaoVR = (out.vrCanal === 'cartao') ? out.vrValor : 0;
   out.valorCartaoVA = (out.vaCanal === 'cartao') ? (out.vaValor||0) : 0;
+  out.valorCartaoBP = (out.bpCanal === 'cartao') ? (out.bpValor||0) : 0;
   out.valorDinheiro = (out.vtCanal === 'dinheiro' ? out.vtValor : 0)
                     + (out.vrCanal === 'dinheiro' ? out.vrValor : 0)
-                    + (out.vaCanal === 'dinheiro' ? (out.vaValor||0) : 0);
+                    + (out.vaCanal === 'dinheiro' ? (out.vaValor||0) : 0)
+                    + (out.bpCanal === 'dinheiro' ? (out.bpValor||0) : 0);
   return out;
 }
 
@@ -6968,30 +7103,56 @@ function _calcBeneficiosColabPrevisto(emp, mUso, aUso, mPag, aPag){
   } else {
     vaCheio = 0;
   }
-  // Bonificação (Boa Permanência) da competência fechada entra junto no VR.
-  const bonusVr = (payAtual && payAtual.status==='fechada') ? (payAtual.bonificacao||0) : 0;
+  // Boa Permanência — desacoplada do VR (linha/coluna/botão próprios).
+  //   - Lê o valor da folha do mês de pagamento (se já fechada e bonificação>0),
+  //     OU da CCT (`State.cct.bonificacao`) como referência prospectiva.
+  //   - Elegibilidade: folha fechada + faltas=0 (qualquer tipo), OU isento,
+  //     OU flag `bonificacaoSemprePagar` no cadastro (override do master).
+  //   - Quando NÃO elegível, devolve bpValor=0 + bpMotivo p/ a lista "perdeu".
+  const bpFromCct = (State.cct && State.cct.bonificacao) || 0;
+  const sempreP   = !!empE.bonificacaoSemprePagar;
+  let bpValor = 0, bpMotivo = '', bpElegivel = false;
+  if(isentoBPonto || sempreP){
+    bpValor = (payAtual && payAtual.bonificacao) || bpFromCct;
+    bpElegivel = bpValor > 0;
+    if(!bpValor) bpMotivo = 'CCT sem valor de Boa Permanência configurado';
+  } else {
+    const _bp = _boaPermanenciaElegivel(empE, mPag, aPag);
+    if(_bp.ok){
+      bpValor = (payAtual && payAtual.bonificacao) || bpFromCct;
+      bpElegivel = bpValor > 0;
+      if(!bpValor) bpMotivo = 'CCT sem valor de Boa Permanência configurado';
+    } else {
+      bpMotivo = _bp.motivo || 'Não elegível';
+    }
+  }
   const vtValor = Math.max(0, vtCheio - descVT);
-  const vrValor = Math.max(0, vrCheio - descVR) + bonusVr;
+  const vrValor = Math.max(0, vrCheio - descVR);   // SEM somar BP aqui
   const vaValor = Math.max(0, vaCheio - descVA);
-  const total = vtValor + vrValor + vaValor;
+  const total = vtValor + vrValor + vaValor + bpValor;
   const vtCanal = empE.vtCanal || 'cartao';
   const vrCanal = empE.vrCanal || 'cartao';
   // VA segue o canal do VR por padrão (mesmo cartão alimentação no mercado).
   const vaCanal = empE.vaCanal || vrCanal || 'cartao';
+  // BP geralmente paga via PIX/dinheiro (comissão, não vai no cartão). Default
+  // 'dinheiro' (PIX); cadastro pode sobrescrever via emp.bpCanal.
+  const bpCanal = empE.bpCanal || 'dinheiro';
   return {
     dias: diasVt, diasVt, diasVr,
     semanas: semVt, semanasVr: semVr,
     vtTipo, vtFreq, vrFreq,
     vtCheio, vrCheio, vaCheio, vaMensal,
     descVT, descVR, descVA, faltasInjAnterior: faltasInj,
-    bonusVr,
+    bpValor, bpMotivo, bpElegivel, bpFromCct,
+    bonusVr: bpValor, // compat: chamadores antigos liam bonusVr (lia o mesmo conceito)
     vtValor, vrValor, vaValor,
     total,
-    vtCanal, vrCanal, vaCanal,
+    vtCanal, vrCanal, vaCanal, bpCanal,
     valorCartaoVT: (vtCanal === 'cartao') ? vtValor : 0,
     valorCartaoVR: (vrCanal === 'cartao') ? vrValor : 0,
     valorCartaoVA: (vaCanal === 'cartao') ? vaValor : 0,
-    valorDinheiro: (vtCanal === 'dinheiro' ? vtValor : 0) + (vrCanal === 'dinheiro' ? vrValor : 0) + (vaCanal === 'dinheiro' ? vaValor : 0)
+    valorCartaoBP: (bpCanal === 'cartao') ? bpValor : 0,
+    valorDinheiro: (vtCanal === 'dinheiro' ? vtValor : 0) + (vrCanal === 'dinheiro' ? vrValor : 0) + (vaCanal === 'dinheiro' ? vaValor : 0) + (bpCanal === 'dinheiro' ? bpValor : 0)
   };
 }
 

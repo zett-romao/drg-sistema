@@ -5900,6 +5900,10 @@ function renderBeneficiosLista(){
   }
   // Coleta colaboradores ativos com algum dia trabalhado no período
   const linhas = [];
+  // Colaboradores ativos que NÃO entram na lista principal (sem benefício a
+  // pagar nem pagamento registrado). Renderizados em seção separada abaixo
+  // com o motivo da ausência — transparência total p/ o gestor.
+  const sem = [];
   // Para a aba "Este Mês" (prospectivo), pré-computa o par {pag,uso} uma vez
   // pra reaproveitar no loop sem recomputar a cada colaborador.
   const _ctxMes = (tab === 'mes') ? (() => {
@@ -5920,14 +5924,35 @@ function renderBeneficiosLista(){
         ? _calcBeneficiosColabPrevisto(e, _ctxMes.mUso, _ctxMes.aUso, _ctxMes.mPag, _ctxMes.aPag)
         : _calcBeneficiosColab(e, ini, fim, escopo);
       const stat = _benefStatusColab(e.id, _compKey);
-      // Inclui linhas com desconto, cheio (sem valor a pagar) OU já com
-      // pagamento registrado (pago/pendente/recusado/estornado) pra dar
-      // transparência ao gestor e evitar pagar duas vezes.
-      if(b.total > 0 || (b.descVT||0)+(b.descVR||0) > 0 || (b.vtCheio||0)+(b.vrCheio||0) > 0 || stat) {
+      // Critério pra entrar na LISTA PRINCIPAL (a pagar):
+      //   - tem valor calculado (>0), OU
+      //   - teve desconto/cheio (transparência do desconto), OU
+      //   - já tem pagamento registrado (pago/pendente/recusado/estornado).
+      // Quem sobra entra na lista "Sem benefício" com motivo.
+      if(b.total > 0 || (b.descVT||0)+(b.descVR||0)+(b.descVA||0) > 0 || (b.vtCheio||0)+(b.vrCheio||0)+(b.vaCheio||0) > 0 || stat) {
         linhas.push({ emp:e, b, stat });
+      } else {
+        // Motivo da ausência (ordem de prioridade — vence o mais informativo).
+        let motivo = 'Sem benefícios cadastrados';
+        const semVT = !(e.valorDiarioVt > 0) || (e.tipoTransporte === 'nao');
+        const semVR = !(e.valorDiarioVr > 0);
+        const semVA = !(e.valorMensalVa > 0);
+        if(semVT && semVR && semVA){
+          motivo = 'Sem VT/VR/VA cadastrados (valores zerados no cadastro)';
+        } else if((b.diasVt||0) === 0 && (b.diasVr||0) === 0){
+          motivo = _ctxMes
+            ? 'Sem dias previstos na escala do próximo mês'
+            : 'Sem ponto batido / dias trabalhados no período';
+        } else if(!_ctxMes && escopo !== 'mes'){
+          // Tab Hoje/Semana/Personalizado: VA é mensal (não conta), só VT/VR.
+          // Se nem VT nem VR foi gerado (cheio=0), provavelmente não trabalhou.
+          motivo = 'Sem dias trabalhados no período';
+        }
+        sem.push({ emp:e, b, motivo });
       }
     });
   linhas.sort((a,b) => (a.emp.nome||'').localeCompare(b.emp.nome||''));
+  sem.sort((a,b) => (a.emp.nome||'').localeCompare(b.emp.nome||''));
   // Total CALCULADO (todos) e Total A PAGAR (exclui pago/pendente — esses já
   // estão na esteira). Pago = soma do valor JÁ pago; Pendente = soma do que
   // está em aprovação. Recusado/estornado entram no "a pagar" pois precisam
@@ -5936,12 +5961,14 @@ function renderBeneficiosLista(){
   const totalGeral = linhas.reduce((s,l)=>s+l.b.total,0);
   const totalVT    = linhas.reduce((s,l)=>s+l.b.vtValor,0);
   const totalVR    = linhas.reduce((s,l)=>s+l.b.vrValor,0);
+  const totalVA    = linhas.reduce((s,l)=>s+(l.b.vaValor||0),0);
   const totalAPagar    = linhas.reduce((s,l)=>s + (isLiquidado(l.stat)?0:l.b.total), 0);
   const totalPago      = linhas.reduce((s,l)=>s + (l.stat && l.stat.status==='pago' ? (l.stat.sol.valor||0) : 0), 0);
   const totalPendente  = linhas.reduce((s,l)=>s + (l.stat && l.stat.status==='pendente' ? (l.stat.sol.valor||0) : 0), 0);
   // Totais por CANAL de pagamento — só do que AINDA falta pagar.
   const totalCartaoVT = linhas.reduce((s,l)=>s + (isLiquidado(l.stat)?0:(l.b.valorCartaoVT||0)),0);
   const totalCartaoVR = linhas.reduce((s,l)=>s + (isLiquidado(l.stat)?0:(l.b.valorCartaoVR||0)),0);
+  const totalCartaoVA = linhas.reduce((s,l)=>s + (isLiquidado(l.stat)?0:(l.b.valorCartaoVA||0)),0);
   const totalDinheiro = linhas.reduce((s,l)=>s + (isLiquidado(l.stat)?0:(l.b.valorDinheiro||0)),0);
   const cntPago     = linhas.filter(l=>l.stat && l.stat.status==='pago').length;
   const cntPendente = linhas.filter(l=>l.stat && l.stat.status==='pendente').length;
@@ -5954,6 +5981,7 @@ function renderBeneficiosLista(){
     `<div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap">` +
       `<span style="background:#E3F2FD;color:#1565C0;padding:3px 10px;border-radius:8px;font-weight:700"><i class="fa-solid fa-credit-card"></i> Carregar Cartão VT: ${fmtMoney(totalCartaoVT)}</span>` +
       `<span style="background:#FFF3E0;color:#E65100;padding:3px 10px;border-radius:8px;font-weight:700"><i class="fa-solid fa-credit-card"></i> Carregar Cartão VR: ${fmtMoney(totalCartaoVR)}</span>` +
+      (totalCartaoVA > 0 ? `<span style="background:#FCE4EC;color:#AD1457;padding:3px 10px;border-radius:8px;font-weight:700"><i class="fa-solid fa-credit-card"></i> Carregar Cartão VA: ${fmtMoney(totalCartaoVA)}</span>` : '') +
       `<span style="background:#E8F5E9;color:#2E7D32;padding:3px 10px;border-radius:8px;font-weight:700"><i class="fa-brands fa-pix"></i> Pagar em Dinheiro (PIX): ${fmtMoney(totalDinheiro)}</span>` +
     `</div>`;
   const listEl = document.getElementById('benef-lista');
@@ -5973,6 +6001,7 @@ function renderBeneficiosLista(){
         <th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border)">Período</th>
         <th style="padding:6px 8px;text-align:right;border-bottom:1px solid var(--border)">VT/AM</th>
         <th style="padding:6px 8px;text-align:right;border-bottom:1px solid var(--border)">VR</th>
+        <th style="padding:6px 8px;text-align:right;border-bottom:1px solid var(--border)">VA</th>
         <th style="padding:6px 8px;text-align:right;border-bottom:1px solid var(--border)">Total</th>
         <th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border)">Chave PIX</th>
         <th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border)">Ações</th>
@@ -6027,6 +6056,7 @@ function renderBeneficiosLista(){
       <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7;font-size:11px">${periodoCol}</td>
       <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap">${vtIcon} ${b.vtValor>0?`<span style="color:var(--text-muted);font-size:11px">${b.diasVt}d ·</span> ${fmtMoney(b.vtValor)}${b.descVT>0?` <small style="color:#C62828" title="Desconto de ${b.faltasInjAnterior||0} falta(s) inj. anterior">(-${fmtMoney(b.descVT)})</small>`:''} ${cBadge(b.vtCanal)}`:(b.descVT>0?`<small style="color:#C62828" title="${b.faltasInjAnterior||0} falta(s) consumiram o crédito">${b.diasVt}d · ${fmtMoney(b.vtCheio||0)} −${fmtMoney(b.descVT)}</small>`:'—')}</td>
       <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap"><i class="fa-solid fa-utensils" style="color:#ff8a65"></i> ${b.vrValor>0?`<span style="color:#ff8a65;font-size:11px">${b.diasVr}d ·</span> ${fmtMoney(b.vrValor)}${b.descVR>0?` <small style="color:#C62828" title="Desconto de ${b.faltasInjAnterior||0} falta(s) inj. anterior">(-${fmtMoney(b.descVR)})</small>`:''} ${cBadge(b.vrCanal)}`:(b.descVR>0?`<small style="color:#C62828" title="${b.faltasInjAnterior||0} falta(s) consumiram o crédito">${b.diasVr}d · ${fmtMoney(b.vrCheio||0)} −${fmtMoney(b.descVR)}</small>`:'—')}</td>
+      <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap"><i class="fa-solid fa-basket-shopping" style="color:#AD1457"></i> ${(b.vaValor||0)>0?`${fmtMoney(b.vaValor)}${b.descVA>0?` <small style="color:#C62828" title="Desconto de ${b.faltasInjAnterior||0} falta(s) inj. — mensal">(-${fmtMoney(b.descVA)})</small>`:''} ${cBadge(b.vaCanal||'cartao')}`:((b.vaMensal||0)>0&&b.descVA>0?`<small style="color:#C62828" title="${b.faltasInjAnterior||0} falta(s) consumiram o VA">${fmtMoney(b.vaMensal||0)} −${fmtMoney(b.descVA)}</small>`:'—')}</td>
       <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;font-weight:700;color:#0288D1">${fmtMoney(b.total)}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7;font-size:11px;font-family:monospace;color:#00695C">${pix}</td>
       <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7"><button class="btn-icon" onclick="event.stopPropagation();openBeneficioDetalhe('${emp.id}','${escopo}','${ini}','${fim}')" title="Ver planilha individual"><i class="fa-solid fa-clipboard-list" style="color:#0288D1"></i></button></td>
@@ -6038,17 +6068,47 @@ function renderBeneficiosLista(){
         <td colspan="5" style="padding:10px;text-align:right">TOTAL CALCULADO</td>
         <td style="padding:10px;text-align:right">${fmtMoney(totalVT)}</td>
         <td style="padding:10px;text-align:right">${fmtMoney(totalVR)}</td>
+        <td style="padding:10px;text-align:right">${fmtMoney(totalVA)}</td>
         <td style="padding:10px;text-align:right;color:#1B5E20;font-size:14px">${fmtMoney(totalGeral)}</td>
         <td colspan="2"></td>
       </tr>
       ${(cntPago>0||cntPendente>0) ? `
       <tr style="background:#FFFFFF;font-weight:600">
-        <td colspan="7" style="padding:8px 10px;text-align:right;color:#0288D1">A PAGAR (líquido)</td>
+        <td colspan="8" style="padding:8px 10px;text-align:right;color:#0288D1">A PAGAR (líquido)</td>
         <td style="padding:8px 10px;text-align:right;color:#0288D1;font-size:14px">${fmtMoney(totalAPagar)}</td>
         <td colspan="2" style="padding:8px 10px;font-size:11px;color:var(--text-muted)">${cntPago>0?`<i class="fa-solid fa-circle-check" style="color:#2E7D32"></i> ${cntPago} pago(s) ${fmtMoney(totalPago)}`:''}${cntPendente>0?`${cntPago>0?' · ':''}<i class="fa-solid fa-hourglass-half" style="color:#E65100"></i> ${cntPendente} pendente(s) ${fmtMoney(totalPendente)}`:''}</td>
       </tr>` : ''}
     </tfoot>
   </table>`;
+  // SEM BENEFÍCIO — colaboradores ativos que não receberão nada no período +
+  // motivo. Bloco recolhível abaixo da lista principal pra dar transparência
+  // (operador enxerga rápido quem sumiu por configuração vs por trabalho).
+  if(sem.length){
+    html += `<details style="margin-top:14px;background:#F8F9FA;border:1px solid #E0E0E0;border-radius:8px;padding:8px 12px">
+      <summary style="cursor:pointer;font-weight:700;color:#5D4037;font-size:12px"><i class="fa-solid fa-circle-info" style="color:#9E9E9E"></i> Sem benefício no período (${sem.length}) — ver motivo</summary>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:8px">
+        <thead style="background:#ECEFF1;color:#37474F">
+          <tr>
+            <th style="padding:5px 8px;text-align:center;border-bottom:1px solid #CFD8DC">Matr.</th>
+            <th style="padding:5px 8px;text-align:left;border-bottom:1px solid #CFD8DC">Colaborador</th>
+            <th style="padding:5px 8px;text-align:left;border-bottom:1px solid #CFD8DC">Posto</th>
+            <th style="padding:5px 8px;text-align:left;border-bottom:1px solid #CFD8DC">Motivo</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${sem.map(({emp, motivo}, i) => {
+            const matr = emp.registro ? String(emp.registro).padStart(4,'0') : '—';
+            return `<tr style="background:${i%2?'#FAFBFC':'#fff'}">
+              <td style="padding:5px 8px;text-align:center;border-bottom:1px solid #EEF2F7;font-weight:700;color:var(--primary)">${matr}</td>
+              <td style="padding:5px 8px;border-bottom:1px solid #EEF2F7"><strong style="color:#455A64">${emp.nome||'—'}</strong><br><small style="color:var(--text-muted)">${emp.setor||'—'}</small></td>
+              <td style="padding:5px 8px;border-bottom:1px solid #EEF2F7">${emp.posto||'—'}</td>
+              <td style="padding:5px 8px;border-bottom:1px solid #EEF2F7;color:#37474F"><i class="fa-solid fa-circle-exclamation" style="color:#FF9800"></i> ${motivo}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </details>`;
+  }
   listEl.innerHTML = html;
   // Reaplica o filtro de busca atual (se houver) à lista recém-renderizada.
   const _bb = document.getElementById('benef-busca');
@@ -6799,7 +6859,7 @@ function _calcBeneficiosColab(emp, dataInicioISO, dataFimISO, escopo){
     vtTipo: empE.tipoTransporte || 'vt',
     vtFreq: empE.vtFreq || 'diario',
     vrFreq: empE.vrFreq || 'diario',
-    vtValor: 0, vrValor: 0, bonusVr: 0, total: 0
+    vtValor: 0, vrValor: 0, vaValor: 0, bonusVr: 0, total: 0
   };
   // VT/AM — todos os dias trabalhados. escopo 'dia' = só o do dia; senão soma o intervalo.
   if(out.vtTipo !== 'nao' && empE.valorDiarioVt){
@@ -6832,14 +6892,17 @@ function _calcBeneficiosColab(emp, dataInicioISO, dataFimISO, escopo){
       out.vrValor += out.bonusVr;
     }
   }
-  out.total = out.vtValor + out.vrValor;
+  out.total = out.vtValor + out.vrValor + (out.vaValor||0);
   // Canal de pagamento (definido no cadastro). VR cobre também a Boa Permanência.
   out.vtCanal = empE.vtCanal || 'cartao';
   out.vrCanal = empE.vrCanal || 'cartao';
+  out.vaCanal = empE.vaCanal || out.vrCanal || 'cartao';
   out.valorCartaoVT = (out.vtCanal === 'cartao') ? out.vtValor : 0;
   out.valorCartaoVR = (out.vrCanal === 'cartao') ? out.vrValor : 0;
+  out.valorCartaoVA = (out.vaCanal === 'cartao') ? (out.vaValor||0) : 0;
   out.valorDinheiro = (out.vtCanal === 'dinheiro' ? out.vtValor : 0)
-                    + (out.vrCanal === 'dinheiro' ? out.vrValor : 0);
+                    + (out.vrCanal === 'dinheiro' ? out.vrValor : 0)
+                    + (out.vaCanal === 'dinheiro' ? (out.vaValor||0) : 0);
   return out;
 }
 
@@ -6882,26 +6945,46 @@ function _calcBeneficiosColabPrevisto(emp, mUso, aUso, mPag, aPag){
   const faltasInj = isentoBPonto ? 0 : ((payAtual?.faltasInjustificadas)||0);
   const descVT = Math.min(vtCheio, faltasInj * (empE.valorDiarioVt||0));
   const descVR = Math.min(vrCheio, faltasInj * (empE.valorDiarioVr||0));
+  // VA — Vale Alimentação (mensal fixo). Regras (mesmas da folha):
+  //   - Isento → integral, sem desconto (CLT Art. 62).
+  //   - ≥3 faltas inj → desconta vaDia × faltas (cap em vaMensal).
+  //   - 0/1/2 faltas → integral (perdão das 2 primeiras).
+  const vaMensal = empE.valorMensalVa || 0;
+  let vaCheio = vaMensal, descVA = 0;
+  if(vaMensal > 0){
+    if(isentoBPonto){
+      vaCheio = vaMensal; descVA = 0;
+    } else if(faltasInj >= 3){
+      const vaDia = diasVt > 0 ? vaMensal/diasVt : 0;
+      descVA = Math.min(vaMensal, vaDia * faltasInj);
+    } // 0/1/2 faltas → integral
+  } else {
+    vaCheio = 0;
+  }
   // Bonificação (Boa Permanência) da competência fechada entra junto no VR.
   const bonusVr = (payAtual && payAtual.status==='fechada') ? (payAtual.bonificacao||0) : 0;
   const vtValor = Math.max(0, vtCheio - descVT);
   const vrValor = Math.max(0, vrCheio - descVR) + bonusVr;
-  const total = vtValor + vrValor;
+  const vaValor = Math.max(0, vaCheio - descVA);
+  const total = vtValor + vrValor + vaValor;
   const vtCanal = empE.vtCanal || 'cartao';
   const vrCanal = empE.vrCanal || 'cartao';
+  // VA segue o canal do VR por padrão (mesmo cartão alimentação no mercado).
+  const vaCanal = empE.vaCanal || vrCanal || 'cartao';
   return {
     dias: diasVt, diasVt, diasVr,
     semanas: semVt, semanasVr: semVr,
     vtTipo, vtFreq, vrFreq,
-    vtCheio, vrCheio,
-    descVT, descVR, faltasInjAnterior: faltasInj,
+    vtCheio, vrCheio, vaCheio, vaMensal,
+    descVT, descVR, descVA, faltasInjAnterior: faltasInj,
     bonusVr,
-    vtValor, vrValor,
+    vtValor, vrValor, vaValor,
     total,
-    vtCanal, vrCanal,
+    vtCanal, vrCanal, vaCanal,
     valorCartaoVT: (vtCanal === 'cartao') ? vtValor : 0,
     valorCartaoVR: (vrCanal === 'cartao') ? vrValor : 0,
-    valorDinheiro: (vtCanal === 'dinheiro' ? vtValor : 0) + (vrCanal === 'dinheiro' ? vrValor : 0)
+    valorCartaoVA: (vaCanal === 'cartao') ? vaValor : 0,
+    valorDinheiro: (vtCanal === 'dinheiro' ? vtValor : 0) + (vrCanal === 'dinheiro' ? vrValor : 0) + (vaCanal === 'dinheiro' ? vaValor : 0)
   };
 }
 

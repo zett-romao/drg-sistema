@@ -5850,7 +5850,27 @@ function _benefAplicarFiltroCanal(canal){
 
 function _benefLimparFiltroCanal(){
   _beneficioCanalFiltro = null;
+  // Sincroniza o dropdown da action bar (se existir)
+  const sel = document.getElementById('benef-filtro-canal');
+  if(sel) sel.value = '';
   renderBeneficiosLista();
+}
+
+// Versão pro dropdown: '' significa "limpar filtro" (todos os canais).
+function _benefAplicarFiltroCanalDropdown(canal){
+  if(!canal){ _benefLimparFiltroCanal(); return; }
+  // Reusa a função existente, que faz validações (ex.: bp exige aba Período).
+  // Pra evitar o "toggle" (que desliga ao clicar no já-ativo), seto antes.
+  if(_beneficioCanalFiltro === canal){
+    // já estava ativo → mantém. (toggle do botão antigo não se aplica ao dropdown)
+    return;
+  }
+  _benefAplicarFiltroCanal(canal);
+  // Se a função recusou (ex.: bp fora da aba Período), reverte o dropdown
+  if(_beneficioCanalFiltro !== canal){
+    const sel = document.getElementById('benef-filtro-canal');
+    if(sel) sel.value = _beneficioCanalFiltro || '';
+  }
 }
 
 // Dispatcher dos exports: lê os 2 dropdowns (tipo + formato) e chama a
@@ -6442,6 +6462,9 @@ function renderBeneficiosLista(){
   // Reaplica o filtro de busca atual (se houver) à lista recém-renderizada.
   const _bb = document.getElementById('benef-busca');
   if(_bb && _bb.value) _benefFiltrar(_bb.value); else { const _bc=document.getElementById('benef-busca-count'); if(_bc) _bc.textContent=''; }
+  // Sincroniza o dropdown 'Filtrar canal' com o estado atual.
+  const _selCanal = document.getElementById('benef-filtro-canal');
+  if(_selCanal) _selCanal.value = _beneficioCanalFiltro || '';
   _benefSelCount();
 }
 

@@ -2013,6 +2013,16 @@
           <button class="btn btn-primary btn-sm" onclick="pagarBoaPermanencia()" style="background:#F57F17;white-space:nowrap;flex-shrink:0;font-size:12px" title="Paga via PIX SÓ a Boa Permanência (comissão de assiduidade). Só funciona na aba 'Este Período' (competência). Dedup independente de VT/VR/VA."><i class="fa-solid fa-medal"></i> B.Perm. PIX</button>
           <button class="btn btn-primary btn-sm" onclick="marcarBeneficiosPagoManual()" style="background:#455A64;white-space:nowrap;flex-shrink:0;font-size:12px" title="Registra como PAGO MANUAL (sem disparar PIX/cartão). Use quando o pagamento foi feito FORA do sistema (espécie, cheque, transferência manual etc.)."><i class="fa-solid fa-money-bill-wave"></i> Pago Manual</button>
           <span style="display:inline-flex;align-items:center;gap:6px;margin-left:12px;flex-shrink:0">
+            <i class="fa-solid fa-filter" style="color:var(--text-muted)" title="Filtrar a lista por canal"></i>
+            <select id="benef-filtro-canal" onchange="_benefAplicarFiltroCanalDropdown(this.value)" style="padding:4px 8px;border:1px solid #CFD8DC;border-radius:5px;font-size:12px;background:#fff" title="Filtra a lista visualmente por canal de pagamento">
+              <option value="">Todos os canais</option>
+              <option value="vt">Cartão VT</option>
+              <option value="vr">Cartão VR</option>
+              <option value="dinheiro">Dinheiro / PIX</option>
+              <option value="bp">Boa Permanência</option>
+            </select>
+          </span>
+          <span style="display:inline-flex;align-items:center;gap:6px;margin-left:8px;flex-shrink:0">
             <i class="fa-solid fa-print" style="color:var(--text-muted)"></i>
             <select id="benef-export-tipo" style="padding:4px 8px;border:1px solid #CFD8DC;border-radius:5px;font-size:12px;background:#fff" title="O que imprimir/exportar">
               <option value="todos">Lista completa (todos)</option>
@@ -2030,13 +2040,6 @@
             </select>
             <button class="btn btn-secondary btn-sm" onclick="_benefExportarDispatch()" style="white-space:nowrap;flex-shrink:0;font-size:12px" title="Gerar conforme as opções acima"><i class="fa-solid fa-download"></i> Gerar</button>
           </span>
-        </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;justify-content:flex-end;align-items:center">
-          <span style="font-size:11px;color:var(--text-muted);font-weight:600;margin-right:2px">Filtrar canal:</span>
-          <button class="btn btn-sm btn-outline" onclick="_benefAplicarFiltroCanal('vt')" style="border-color:#1565C0;color:#1565C0;font-size:12px" title="Filtra a lista pra mostrar só quem recebe VT no cartão. Use os atalhos no banner pra imprimir/exportar."><i class="fa-solid fa-bus"></i> Cartão VT</button>
-          <button class="btn btn-sm btn-outline" onclick="_benefAplicarFiltroCanal('vr')" style="border-color:#E65100;color:#E65100;font-size:12px" title="Filtra a lista pra mostrar só quem recebe VR no cartão."><i class="fa-solid fa-utensils"></i> Cartão VR</button>
-          <button class="btn btn-sm btn-outline" onclick="_benefAplicarFiltroCanal('dinheiro')" style="border-color:#2E7D32;color:#2E7D32;font-size:12px" title="Filtra a lista pra mostrar só quem recebe em dinheiro (PIX)."><i class="fa-brands fa-pix"></i> Dinheiro/PIX</button>
-          <button class="btn btn-sm btn-outline" onclick="_benefAplicarFiltroCanal('bp')" style="border-color:#F57F17;color:#F57F17;font-size:12px" title="Filtra a lista pra mostrar só quem recebe Boa Permanência. Só funciona na aba 'Este Período'."><i class="fa-solid fa-medal"></i> B.Perm.</button>
         </div>
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
           <div style="position:relative;flex:1;max-width:360px">
@@ -6069,6 +6072,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260530pp"></script>
+<script src="app.js?v=20260530qq"></script>
 </body>
 </html>

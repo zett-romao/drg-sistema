@@ -3002,8 +3002,9 @@ function renderContabilidade(){
     const acu=p?p.acumulo||0:0;
     const adiant=p?(p.adiantamentoValor||p.adiantamento||0):0;
     const totalFaltas=p?('faltasJustificadas' in p?(p.faltasJustificadas||0)+(p.faltasInjustificadas||0):(p.faltas||0)):0;
-    // Boa Permanência (bon) é benefício pago no VR — NÃO entra na espécie (dinheiro)
-    const especie=rem+an+ins+acu+he;
+    // Boa Permanência (bon) é benefício pago no VR — NÃO entra na espécie (dinheiro).
+    // Adiantamento ja foi pago no meio do mes -> descontado do TOTAL ESPECIE (restante a receber).
+    const especie=rem+an+ins+acu+he-adiant;
     tR+=rem; tVT+=vt; tVR+=vr; tVA+=va; tHE+=he; tB+=bon; tAN+=an; tIns+=ins; tAcu+=acu; tAdiant+=adiant;
     tTotal+=especie+vt+vr+va+bon;
     const rowBg=i%2===0?'#ffffff':'#EEF2FF';

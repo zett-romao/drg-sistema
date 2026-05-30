@@ -117,11 +117,11 @@ ul { list-style: none; }
   flex: 1;
   padding: 10px 10px;
   overflow-y: auto;
-  /* Distribui o espaço vertical sobrando entre todos os itens — em telas
-     grandes os itens ficam visualmente espaçados, sem buracão no fim. */
+  /* Com grupos colapsáveis, alinhar no topo é o esperado — o overflow rola
+     quando o usuário expande muitos grupos. */
   display: flex;
   flex-direction: column;
-  justify-content: space-evenly;
+  gap: 1px;
 }
 .sidebar-nav li { margin-bottom: 0; flex-shrink: 0; }
 
@@ -141,6 +141,48 @@ ul { list-style: none; }
 .nav-link i { width: 18px; text-align: center; font-size: 13px; flex-shrink: 0; }
 .nav-link:hover { background: var(--sidebar-hover); color: #fff; }
 .nav-link.active { background: var(--sidebar-active); color: #fff; font-weight: 600; }
+
+/* ---- Sidebar — grupos colapsáveis ---- */
+.nav-group { list-style: none; margin-top: 2px; }
+.nav-group-header {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 6px 10px;
+  background: transparent; border: none;
+  color: #7A8A9E;
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 0.05em; text-transform: uppercase;
+  cursor: pointer; border-radius: var(--radius-sm);
+  transition: background var(--transition), color var(--transition);
+  text-align: left;
+}
+.nav-group-header:hover { color: #B5C6D9; background: rgba(255,255,255,0.04); }
+.nav-group-emoji { font-size: 13px; line-height: 1; flex-shrink: 0; }
+.nav-group-title { flex: 1; }
+.nav-group-chevron {
+  font-size: 10px; opacity: .6;
+  transition: transform var(--transition);
+}
+.nav-group-items {
+  list-style: none; padding: 2px 0 6px; margin: 0;
+  max-height: 800px; overflow: hidden;
+  transition: max-height .25s ease, opacity .2s ease;
+  opacity: 1;
+}
+.nav-group-items .nav-link { padding-left: 24px; }
+/* Grupo recolhido */
+.nav-group.collapsed .nav-group-chevron { transform: rotate(-90deg); }
+.nav-group.collapsed .nav-group-items {
+  max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0;
+  pointer-events: none;
+}
+/* Grupo com seção ativa: destaca o título */
+.nav-group.has-active > .nav-group-header { color: #B5C6D9; }
+.nav-group.has-active > .nav-group-header .nav-group-chevron { opacity: 1; }
+/* Sidebar colapsada (modo compacto) — esconde título do grupo, deixa só o emoji */
+.sidebar.collapsed .nav-group-header { justify-content: center; padding: 10px 6px; }
+.sidebar.collapsed .nav-group-title,
+.sidebar.collapsed .nav-group-chevron { display: none; }
+.sidebar.collapsed .nav-group-items .nav-link { padding-left: 12px; }
 
 .sidebar-db {
   padding: 6px 12px 10px;

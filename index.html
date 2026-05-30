@@ -8,7 +8,7 @@
   <meta http-equiv="Expires" content="0">
   <title id="page-title">D.R. Global Multi Services — Sistema de Gestão de Colaboradores</title>
   <link rel="icon" href="logo.png" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20260530a">
+  <link rel="stylesheet" href="styles.css?v=20260530b">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -145,125 +145,192 @@
     </div>
 
     <ul class="sidebar-nav">
+      <!-- Dashboard solto no topo -->
       <li>
         <a class="nav-link active" id="nav-dashboard" onclick="showSection('dashboard')">
           <i class="fa-solid fa-gauge-high"></i>
           <span>Dashboard</span>
         </a>
       </li>
-      <li id="nav-employees-li">
-        <a class="nav-link" id="nav-employees" onclick="showSection('employees')">
-          <i class="fa-solid fa-users"></i>
-          <span>Colaboradores</span>
-        </a>
+
+      <!-- 👥 PESSOAS -->
+      <li class="nav-group" id="nav-grp-pessoas">
+        <button type="button" class="nav-group-header" onclick="toggleNavGroup('pessoas')">
+          <span class="nav-group-emoji">👥</span>
+          <span class="nav-group-title">Pessoas</span>
+          <i class="fa-solid fa-chevron-down nav-group-chevron"></i>
+        </button>
+        <ul class="nav-group-items">
+          <li id="nav-employees-li">
+            <a class="nav-link" id="nav-employees" onclick="showSection('employees')">
+              <i class="fa-solid fa-users"></i>
+              <span>Colaboradores</span>
+            </a>
+          </li>
+          <li id="nav-documentos-li" class="hidden">
+            <a class="nav-link" id="nav-documentos" onclick="showSection('documentos')">
+              <i class="fa-solid fa-folder-tree"></i>
+              <span>Documentos</span>
+            </a>
+          </li>
+          <li id="nav-comunicacao-li" class="hidden">
+            <a class="nav-link" id="nav-comunicacao" onclick="showSection('comunicacao')">
+              <i class="fa-solid fa-comments"></i>
+              <span>Comunicação</span>
+            </a>
+          </li>
+        </ul>
       </li>
-      <li id="nav-comunicacao-li" class="hidden">
-        <a class="nav-link" id="nav-comunicacao" onclick="showSection('comunicacao')">
-          <i class="fa-solid fa-comments"></i>
-          <span>Comunicação</span>
-        </a>
+
+      <!-- 📅 PONTO & JORNADA -->
+      <li class="nav-group" id="nav-grp-ponto">
+        <button type="button" class="nav-group-header" onclick="toggleNavGroup('ponto')">
+          <span class="nav-group-emoji">📅</span>
+          <span class="nav-group-title">Ponto &amp; Jornada</span>
+          <i class="fa-solid fa-chevron-down nav-group-chevron"></i>
+        </button>
+        <ul class="nav-group-items">
+          <li>
+            <a class="nav-link" id="nav-payroll" onclick="showSection('payroll')">
+              <i class="fa-solid fa-file-invoice-dollar"></i>
+              <span>Folha de Ponto</span>
+            </a>
+          </li>
+          <li id="nav-escalas-li" class="hidden">
+            <a class="nav-link" id="nav-escalas" onclick="showSection('escalas')">
+              <i class="fa-solid fa-calendar-days"></i>
+              <span>Escalas</span>
+            </a>
+          </li>
+          <li id="nav-autorizacoes-li" class="hidden">
+            <a class="nav-link" id="nav-autorizacoes" onclick="showSection('autorizacoes')">
+              <i class="fa-solid fa-user-shield"></i>
+              <span>Autorizações</span>
+            </a>
+          </li>
+        </ul>
       </li>
-      <li id="nav-autorizacoes-li" class="hidden">
-        <a class="nav-link" id="nav-autorizacoes" onclick="showSection('autorizacoes')">
-          <i class="fa-solid fa-user-shield"></i>
-          <span>Autorizações</span>
-        </a>
+
+      <!-- 💰 PAGAMENTOS -->
+      <li class="nav-group" id="nav-grp-pagamentos">
+        <button type="button" class="nav-group-header" onclick="toggleNavGroup('pagamentos')">
+          <span class="nav-group-emoji">💰</span>
+          <span class="nav-group-title">Pagamentos</span>
+          <i class="fa-solid fa-chevron-down nav-group-chevron"></i>
+        </button>
+        <ul class="nav-group-items">
+          <li id="nav-pagamentos-li" class="hidden">
+            <a class="nav-link" id="nav-pagamentos" onclick="showSection('pagamentos')">
+              <i class="fa-solid fa-money-bill-wave"></i>
+              <span>Pagamentos</span>
+            </a>
+          </li>
+          <li id="nav-adiantamentos-li" class="hidden">
+            <a class="nav-link" id="nav-adiantamentos" onclick="showSection('adiantamentos')">
+              <i class="fa-solid fa-hand-holding-dollar"></i>
+              <span>Adiantamentos</span>
+            </a>
+          </li>
+          <li id="nav-aprovacoes-li" class="hidden">
+            <a class="nav-link" id="nav-aprovacoes" onclick="showSection('aprovacoes')">
+              <i class="fa-solid fa-hourglass-half"></i>
+              <span>Aprovações</span>
+            </a>
+          </li>
+          <li id="nav-recibos-li" class="hidden">
+            <a class="nav-link" id="nav-recibos" onclick="showSection('recibos')">
+              <i class="fa-solid fa-file-invoice-dollar"></i>
+              <span>Recibos Enviados</span>
+            </a>
+          </li>
+        </ul>
       </li>
-      <li>
-        <a class="nav-link" id="nav-payroll" onclick="showSection('payroll')">
-          <i class="fa-solid fa-file-invoice-dollar"></i>
-          <span>Folha de Ponto</span>
-        </a>
+
+      <!-- 📜 CLT PERIÓDICO -->
+      <li class="nav-group" id="nav-grp-clt">
+        <button type="button" class="nav-group-header" onclick="toggleNavGroup('clt')">
+          <span class="nav-group-emoji">📜</span>
+          <span class="nav-group-title">CLT Periódico</span>
+          <i class="fa-solid fa-chevron-down nav-group-chevron"></i>
+        </button>
+        <ul class="nav-group-items">
+          <li id="nav-decimoterceiro-li" class="hidden">
+            <a class="nav-link" id="nav-decimoterceiro" onclick="showSection('decimoterceiro')">
+              <i class="fa-solid fa-gift"></i>
+              <span>13º Salário</span>
+            </a>
+          </li>
+          <li id="nav-ferias-li" class="hidden">
+            <a class="nav-link" id="nav-ferias" onclick="showSection('ferias')">
+              <i class="fa-solid fa-umbrella-beach"></i>
+              <span>Férias</span>
+            </a>
+          </li>
+          <li id="nav-rescisao-li" class="hidden">
+            <a class="nav-link" id="nav-rescisao" onclick="showSection('rescisao')">
+              <i class="fa-solid fa-file-circle-xmark"></i>
+              <span>Rescisões</span>
+            </a>
+          </li>
+        </ul>
       </li>
-      <li id="nav-escalas-li" class="hidden">
-        <a class="nav-link" id="nav-escalas" onclick="showSection('escalas')">
-          <i class="fa-solid fa-calendar-days"></i>
-          <span>Escalas</span>
-        </a>
+
+      <!-- 🏢 OPERAÇÃO -->
+      <li class="nav-group" id="nav-grp-operacao">
+        <button type="button" class="nav-group-header" onclick="toggleNavGroup('operacao')">
+          <span class="nav-group-emoji">🏢</span>
+          <span class="nav-group-title">Operação</span>
+          <i class="fa-solid fa-chevron-down nav-group-chevron"></i>
+        </button>
+        <ul class="nav-group-items">
+          <li id="nav-postos-li">
+            <a class="nav-link" id="nav-postos" onclick="showSection('postos')">
+              <i class="fa-solid fa-building"></i>
+              <span>Postos de Trabalho</span>
+            </a>
+          </li>
+          <li id="nav-contratos-li" class="hidden">
+            <a class="nav-link" id="nav-contratos" onclick="showSection('contratos')">
+              <i class="fa-solid fa-shield-halved"></i>
+              <span>Administração</span>
+            </a>
+          </li>
+          <li id="nav-contabilidade-li">
+            <a class="nav-link" id="nav-contabilidade" onclick="showSection('contabilidade')">
+              <i class="fa-solid fa-calculator"></i>
+              <span>Contabilidade</span>
+            </a>
+          </li>
+        </ul>
       </li>
-      <li id="nav-pagamentos-li" class="hidden">
-        <a class="nav-link" id="nav-pagamentos" onclick="showSection('pagamentos')">
-          <i class="fa-solid fa-money-bill-wave"></i>
-          <span>Pagamentos</span>
-        </a>
-      </li>
-      <li id="nav-recibos-li" class="hidden">
-        <a class="nav-link" id="nav-recibos" onclick="showSection('recibos')">
-          <i class="fa-solid fa-file-invoice-dollar"></i>
-          <span>Recibos Enviados</span>
-        </a>
-      </li>
-      <li id="nav-adiantamentos-li" class="hidden">
-        <a class="nav-link" id="nav-adiantamentos" onclick="showSection('adiantamentos')">
-          <i class="fa-solid fa-hand-holding-dollar"></i>
-          <span>Adiantamentos</span>
-        </a>
-      </li>
-      <li id="nav-aprovacoes-li" class="hidden">
-        <a class="nav-link" id="nav-aprovacoes" onclick="showSection('aprovacoes')">
-          <i class="fa-solid fa-hourglass-half"></i>
-          <span>Aprovações</span>
-        </a>
-      </li>
-      <li id="nav-documentos-li" class="hidden">
-        <a class="nav-link" id="nav-documentos" onclick="showSection('documentos')">
-          <i class="fa-solid fa-folder-tree"></i>
-          <span>Documentos</span>
-        </a>
-      </li>
-      <li id="nav-decimoterceiro-li" class="hidden">
-        <a class="nav-link" id="nav-decimoterceiro" onclick="showSection('decimoterceiro')">
-          <i class="fa-solid fa-gift"></i>
-          <span>13º Salário</span>
-        </a>
-      </li>
-      <li id="nav-ferias-li" class="hidden">
-        <a class="nav-link" id="nav-ferias" onclick="showSection('ferias')">
-          <i class="fa-solid fa-umbrella-beach"></i>
-          <span>Férias</span>
-        </a>
-      </li>
-      <li id="nav-rescisao-li" class="hidden">
-        <a class="nav-link" id="nav-rescisao" onclick="showSection('rescisao')">
-          <i class="fa-solid fa-file-circle-xmark"></i>
-          <span>Rescisões</span>
-        </a>
-      </li>
-      <li id="nav-contabilidade-li">
-        <a class="nav-link" id="nav-contabilidade" onclick="showSection('contabilidade')">
-          <i class="fa-solid fa-calculator"></i>
-          <span>Contabilidade</span>
-        </a>
-      </li>
-      <li id="nav-banco-li">
-        <a class="nav-link" id="nav-banco" onclick="showSection('banco')">
-          <i class="fa-solid fa-database"></i>
-          <span>Banco de Dados</span>
-        </a>
-      </li>
-      <li id="nav-postos-li">
-        <a class="nav-link" id="nav-postos" onclick="showSection('postos')">
-          <i class="fa-solid fa-building"></i>
-          <span>Postos de Trabalho</span>
-        </a>
-      </li>
-      <li id="nav-contratos-li" class="hidden">
-        <a class="nav-link" id="nav-contratos" onclick="showSection('contratos')">
-          <i class="fa-solid fa-shield-halved"></i>
-          <span>Administração</span>
-        </a>
-      </li>
-      <li id="nav-users-li" class="hidden">
-        <a class="nav-link" id="nav-users" onclick="showSection('users')">
-          <i class="fa-solid fa-user-shield"></i>
-          <span>Usuários & Acessos</span>
-        </a>
-      </li>
-      <li id="nav-configuracoes-li" class="hidden">
-        <a class="nav-link" id="nav-configuracoes" onclick="showSection('configuracoes')">
-          <i class="fa-solid fa-gear"></i>
-          <span>Configurações</span>
-        </a>
+
+      <!-- ⚙️ SISTEMA -->
+      <li class="nav-group" id="nav-grp-sistema">
+        <button type="button" class="nav-group-header" onclick="toggleNavGroup('sistema')">
+          <span class="nav-group-emoji">⚙️</span>
+          <span class="nav-group-title">Sistema</span>
+          <i class="fa-solid fa-chevron-down nav-group-chevron"></i>
+        </button>
+        <ul class="nav-group-items">
+          <li id="nav-banco-li">
+            <a class="nav-link" id="nav-banco" onclick="showSection('banco')">
+              <i class="fa-solid fa-database"></i>
+              <span>Banco de Dados</span>
+            </a>
+          </li>
+          <li id="nav-users-li" class="hidden">
+            <a class="nav-link" id="nav-users" onclick="showSection('users')">
+              <i class="fa-solid fa-user-shield"></i>
+              <span>Usuários &amp; Acessos</span>
+            </a>
+          </li>
+          <li id="nav-configuracoes-li" class="hidden">
+            <a class="nav-link" id="nav-configuracoes" onclick="showSection('configuracoes')">
+              <i class="fa-solid fa-gear"></i>
+              <span>Configurações</span>
+            </a>
+          </li>
+        </ul>
       </li>
     </ul>
 
@@ -5985,6 +6052,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260530h"></script>
+<script src="app.js?v=20260530i"></script>
 </body>
 </html>

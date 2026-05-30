@@ -938,6 +938,73 @@ function _updateBackBtn(){
   if(btn) btn.classList.toggle('hidden', State.sectionHistory.length===0);
 }
 
+// ============================================
+// MENU LATERAL — grupos colapsáveis
+// ============================================
+const NAV_GROUPS = {
+  pessoas:     ['employees','documentos','comunicacao'],
+  ponto:       ['payroll','escalas','autorizacoes'],
+  pagamentos:  ['pagamentos','adiantamentos','aprovacoes','recibos'],
+  clt:         ['decimoterceiro','ferias','rescisao'],
+  operacao:    ['postos','contratos','contabilidade'],
+  sistema:     ['banco','users','configuracoes']
+};
+
+function _navGrpStateKey(){
+  const u = Auth.currentUser?.username || 'guest';
+  return 'drg_nav_groups_' + u;
+}
+
+function _loadNavGrpState(){
+  try { return JSON.parse(localStorage.getItem(_navGrpStateKey())||'{}'); } catch(_){ return {}; }
+}
+function _saveNavGrpState(state){
+  try { localStorage.setItem(_navGrpStateKey(), JSON.stringify(state)); } catch(_){ }
+}
+
+function toggleNavGroup(groupId){
+  const el = document.getElementById('nav-grp-'+groupId);
+  if(!el) return;
+  el.classList.toggle('collapsed');
+  const state = _loadNavGrpState();
+  state[groupId] = el.classList.contains('collapsed') ? 'closed' : 'open';
+  _saveNavGrpState(state);
+}
+
+// Aplica o estado salvo + esconde grupos que não têm nenhum filho visível.
+// Também marca o grupo que contém a seção ativa.
+function applyNavGroupsState(activeName){
+  const state = _loadNavGrpState();
+  Object.keys(NAV_GROUPS).forEach(gid => {
+    const grp = document.getElementById('nav-grp-'+gid);
+    if(!grp) return;
+    const filhos = NAV_GROUPS[gid];
+    // Conta filhos visíveis (li não-hidden)
+    let visiveis = 0;
+    filhos.forEach(secId => {
+      const li = document.getElementById('nav-'+secId+'-li');
+      // Itens sem -li (ex.: payroll é só <li> sem id-li) sempre contam como visíveis
+      if(!li || !li.classList.contains('hidden')) visiveis++;
+    });
+    if(visiveis === 0){
+      grp.classList.add('hidden');
+      return;
+    }
+    grp.classList.remove('hidden');
+    // Estado open/closed — primeira visita fica aberto (mostra tudo); depois respeita o salvo
+    const saved = state[gid];
+    const containsActive = filhos.includes(activeName);
+    if(containsActive){
+      grp.classList.remove('collapsed');
+      grp.classList.add('has-active');
+    } else {
+      grp.classList.remove('has-active');
+      if(saved === 'closed') grp.classList.add('collapsed');
+      else grp.classList.remove('collapsed');
+    }
+  });
+}
+
 function showSection(name){
   if(!Auth.currentUser) return;
   const mods=getUserModules(Auth.currentUser);
@@ -975,6 +1042,7 @@ function showSection(name){
   const navBtn=document.getElementById('nav-'+name);
   if(section) section.classList.add('active');
   if(navBtn)  navBtn.classList.add('active');
+  applyNavGroupsState(name);
   const titles={dashboard:'Dashboard',employees:'Colaboradores',payroll:'Folha de Ponto',escalas:'Escalas',
                 pagamentos:'Pagamentos',recibos:'Recibos Enviados',adiantamentos:'Adiantamentos',aprovacoes:'Aprovações de Pagamentos',decimoterceiro:'13º Salário',ferias:'Férias',rescisao:'Rescisões',
                 contabilidade:'Contabilidade',banco:'Banco de Dados',users:'Usuários & Acessos',postos:'Postos de Trabalho',contratos:'Contratos',comunicacao:'Comunicação',autorizacoes:'Autorizações de Ponto',documentos:'Documentos do Colaborador',configuracoes:'Configurações'};

@@ -6098,6 +6098,86 @@ async function pagarBeneficiosForcarPIX(){
   }
 }
 
+// PAGAMENTO MANUAL: registra o pagamento de benefícios feito FORA do sistema
+// (dinheiro/espécie, transferência manual, cheque etc.). Cria a solicitação já
+// com status='pago' (sem passar por Asaas/aprovação) e fica no histórico.
+// Mesma dedup do PIX: não duplica se já houver pendente OU pago para
+// o mesmo colaborador/período.
+async function marcarBeneficiosPagoManual(){
+  if(!getUserModules(Auth.currentUser).pagamentosLancar){
+    toast('Sem permissão para lançar pagamentos.','error'); return;
+  }
+  const chks=[...document.querySelectorAll('.benef-chk:checked')];
+  if(!chks.length){ toast('Marque ao menos um colaborador.','info'); return; }
+
+  // Mesmo período/comp das outras ações (dedup compartilhado)
+  const tab = _beneficioTabAtual || 'hoje';
+  const hojeISO = new Date().toISOString().substring(0,10);
+  let ini, fim, periodoLabel;
+  if(tab === 'mes'){
+    const d=new Date(); const cMes=d.getMonth()+1, cAno=d.getFullYear();
+    const per=_compPeriodo(cMes,cAno);
+    ini=per.deISO; fim=per.ateISO;
+    periodoLabel=`Competência ${MESES[cMes]}/${cAno} (${_compLabel(cMes,cAno)})`;
+  } else if(tab === 'hoje'){
+    ini=fim=hojeISO; periodoLabel=`dia ${new Date().toLocaleDateString('pt-BR')}`;
+  } else {
+    const s=_semanaDe(hojeISO); ini=s.inicio; fim=s.fim;
+    periodoLabel=`semana ${new Date(ini+'T12:00:00').toLocaleDateString('pt-BR')}–${new Date(fim+'T12:00:00').toLocaleDateString('pt-BR')}`;
+  }
+  const comp=`BEN_${ini}_${fim}`;
+
+  const totalGeral = chks.reduce((s,c)=>s+(parseFloat(c.dataset.valorTotal)||0),0);
+
+  const forma = prompt(`PAGAMENTO MANUAL — ${chks.length} colaborador(es) · ${fmtMoney(totalGeral)} (${periodoLabel})\n\nForma de pagamento (ex.: Dinheiro, Cheque, Transferência manual, Recibo):`, 'Dinheiro');
+  if(forma === null) return;
+  if(!forma.trim()){ toast('Forma de pagamento obrigatória.','warning'); return; }
+
+  const obs = (prompt(`Observação (opcional — ex.: nº recibo, motivo):`, '') || '').trim();
+
+  if(!confirm(`Confirmar: ${chks.length} colaborador(es) — ${fmtMoney(totalGeral)} marcados como PAGO MANUAL?\n\nForma: ${forma.trim()}\nObs.: ${obs||'—'}\n\n⚠️ Vai direto pra "pago" (sem passar por aprovação/Asaas/cartão). Use só pra registrar pagamento feito FORA do sistema.`)) return;
+
+  let ok=0, jaPend=0, jaPago=0, semValor=0, erros=0;
+  const u = Auth.currentUser || {};
+  const agora = new Date().toISOString();
+  for(const c of chks){
+    const emp=(State.employees||[]).find(e=>e.id===c.dataset.empId);
+    if(!emp){ erros++; continue; }
+    const valor=parseFloat(c.dataset.valorTotal)||0;
+    if(valor<=0){ semValor++; continue; }
+    const colSols=(State.solicitacoes||[]).filter(s=>s.employeeId===emp.id && s.competencia===comp);
+    if(colSols.some(s=>s.status==='pendente')){ jaPend++; continue; }
+    if(colSols.some(s=>s.status==='pago')){ jaPago++; continue; }
+    try{
+      const sol={
+        id: genId(),
+        employeeId: emp.id, employeeNome: emp.nome, payrollId: '',
+        valor, pixKey: '', keyType: '',
+        descricao: `Benefícios (PAGO MANUAL: ${forma.trim()}) ${periodoLabel} — ${emp.nome}${obs?` · ${obs}`:''}`.slice(0,500),
+        scheduleDate: hojeISO, competencia: comp, origem: 'beneficio-manual',
+        status: 'pago',
+        criadoPor: u.username||u.id||'', criadoPorNome: u.username||'', criadoEm: agora,
+        aprovadoPor: u.username||u.id||'', aprovadoPorNome: u.username||'', aprovadoEm: agora,
+        formaPgtoManual: forma.trim(), observacaoManual: obs, pagoEm: hojeISO,
+        asaasTransferId:'', asaasStatus:'pago-manual', motivoRecusa:'', erro:'',
+      };
+      await DB.save('solicitacoesPagamento', sol);
+      Auth.log('PAGAMENTO_MANUAL', null, `Benefícios MANUAL (${forma.trim()}) ${periodoLabel} | ${emp.nome} | R$ ${valor.toFixed(2)} | sol ${sol.id}`);
+      ok++;
+    }catch(e){ erros++; }
+  }
+  const partes=[`${ok} marcado(s) como PAGO MANUAL`];
+  if(semValor) partes.push(`${semValor} sem valor a pagar`);
+  if(jaPend) partes.push(`${jaPend} já pendente(s) — recuse a pendente antes`);
+  if(jaPago) partes.push(`${jaPago} já pago(s)`);
+  if(erros)  partes.push(`${erros} com erro`);
+  toast(partes.join(' · ') + '.', ok>0?'success':'warning');
+  if(ok>0){
+    closeModal('modal-beneficios-pagar');
+    if(typeof showSection==='function') showSection('aprovacoes');
+  }
+}
+
 // Estado do modal de detalhe (para os botões de export)
 let _beneficioDetalheCtx = null;
 

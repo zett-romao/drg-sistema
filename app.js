@@ -1044,7 +1044,7 @@ function showSection(name){
   if(navBtn)  navBtn.classList.add('active');
   applyNavGroupsState(name);
   const titles={dashboard:'Dashboard',employees:'Colaboradores',payroll:'Folha de Ponto',escalas:'Escalas',
-                pagamentos:'Pagamentos',recibos:'Recibos Enviados',adiantamentos:'Adiantamentos',aprovacoes:'Aprovações de Pagamentos',decimoterceiro:'13º Salário',ferias:'Férias',rescisao:'Rescisões',
+                pagamentos:'Pagamentos',beneficios:'Benefícios',recibos:'Recibos Enviados',adiantamentos:'Adiantamentos',aprovacoes:'Aprovações de Pagamentos',decimoterceiro:'13º Salário',ferias:'Férias',rescisao:'Rescisões',
                 contabilidade:'Contabilidade',banco:'Banco de Dados',users:'Usuários & Acessos',postos:'Postos de Trabalho',contratos:'Contratos',comunicacao:'Comunicação',autorizacoes:'Autorizações de Ponto',documentos:'Documentos do Colaborador',configuracoes:'Configurações'};
   document.getElementById('topbar-title').textContent=titles[name]||name;
   State.currentSection=name;
@@ -1053,6 +1053,7 @@ function showSection(name){
   if(name==='escalas')   renderEscalas();
   if(name==='dashboard') renderDashboard();
   if(name==='pagamentos')      { _applyModoBanners(State.empresa?.modoContabilidade||'ambas'); renderPagamentos(); }
+  if(name==='beneficios')      switchBeneficioTab(_beneficioTabAtual||'hoje');
   if(name==='recibos')         renderRecibosEnviados();
   if(name==='aprovacoes')      renderAprovacoes();
   if(name==='adiantamentos')   renderAdiantamentos();
@@ -1497,6 +1498,8 @@ function applyUserSession(user){
   if(btnHE) btnHE.classList.toggle('hidden', !(mods.aprovaHE || user.role==='master'));
   const pagLi=document.getElementById('nav-pagamentos-li');
   if(pagLi) pagLi.classList.toggle('hidden', !mods.pagamentos);
+  const benLi=document.getElementById('nav-beneficios-li');
+  if(benLi) benLi.classList.toggle('hidden', !mods.pagamentos);
   const recLi=document.getElementById('nav-recibos-li');
   if(recLi) recLi.classList.toggle('hidden', !mods.pagamentos);
   const adiLi=document.getElementById('nav-adiantamentos-li');
@@ -5768,23 +5771,12 @@ function _semanasTrabalhadas(dias, escala){
 // BENEFÍCIOS A PAGAR — UI (card no dash + modais)
 // ============================================
 let _beneficioTabAtual = 'hoje';
+let _beneficioCustomIni = '';
+let _beneficioCustomFim = '';
 
+// Entrada legada (dashboard tile / botões antigos): redireciona pra seção dedicada.
 function openBeneficiosPagar(){
-  _beneficioTabAtual = 'hoje';
-  // Ativa tab Hoje
-  document.querySelectorAll('.benef-tab-btn').forEach(b => {
-    if(b.dataset.tab === 'hoje'){
-      b.classList.add('active');
-      b.style.borderBottom = '3px solid #0288D1';
-      b.style.color = '#0288D1';
-    } else {
-      b.classList.remove('active');
-      b.style.borderBottom = '3px solid transparent';
-      b.style.color = 'var(--text-muted)';
-    }
-  });
-  renderBeneficiosLista();
-  document.getElementById('modal-beneficios-pagar').classList.remove('hidden');
+  if(typeof showSection==='function') showSection('beneficios');
 }
 
 function switchBeneficioTab(tab){
@@ -5800,6 +5792,28 @@ function switchBeneficioTab(tab){
       b.style.color = 'var(--text-muted)';
     }
   });
+  // Range de datas só aparece na aba "Personalizado".
+  const rng = document.getElementById('benef-custom-range');
+  if(rng) rng.style.display = (tab==='custom') ? 'flex' : 'none';
+  if(tab==='custom' && !_beneficioCustomIni){
+    // Default: últimos 7 dias até hoje, pra dar uma sugestão de partida.
+    const hoje = new Date(); const isoH = hoje.toISOString().substring(0,10);
+    const ant = new Date(hoje.getTime() - 6*86400000).toISOString().substring(0,10);
+    _beneficioCustomIni = ant; _beneficioCustomFim = isoH;
+    setVal('benef-custom-ini', ant); setVal('benef-custom-fim', isoH);
+  }
+  renderBeneficiosLista();
+}
+
+// Aplica o range personalizado escolhido nos inputs de data.
+function _benefAplicarCustom(){
+  const ini = val('benef-custom-ini');
+  const fim = val('benef-custom-fim');
+  if(!ini || !fim){ toast('Informe a data inicial E a final.','warning'); return; }
+  if(ini > fim){ toast('Data inicial maior que a final.','warning'); return; }
+  _beneficioCustomIni = ini;
+  _beneficioCustomFim = fim;
+  _beneficioTabAtual = 'custom';
   renderBeneficiosLista();
 }
 
@@ -5826,6 +5840,16 @@ function renderBeneficiosLista(){
     escopo = 'mes';
     const ultDiaPag = new Date(aPag, mPag, 0).toLocaleDateString('pt-BR');
     periodoLabel = `<strong>Pagar até ${ultDiaPag} — uso na Competência ${MESES[mUso]}/${aUso} (${_compLabel(mUso,aUso)})</strong>`;
+  } else if(tab === 'custom'){
+    if(!_beneficioCustomIni || !_beneficioCustomFim){
+      document.getElementById('benef-info').innerHTML = '<i class="fa-solid fa-circle-info"></i> Informe a data inicial E a final acima e clique <strong>Aplicar</strong>.';
+      document.getElementById('benef-lista').innerHTML = '';
+      _benefSelCount();
+      return;
+    }
+    ini = _beneficioCustomIni; fim = _beneficioCustomFim;
+    escopo = 'semana'; // mesma lógica de intervalo livre (conta por dia/jornada real)
+    periodoLabel = `<strong>Personalizado — ${fmt(ini)} a ${fmt(fim)}</strong>`;
   } else {
     const s = _semanaDe(hojeISO);
     ini = s.inicio; fim = s.fim;
@@ -6027,7 +6051,6 @@ async function pagarBeneficiosSelecionados(){
   if(erros)  partes.push(`${erros} com erro`);
   toast(partes.join(' · ') + (ok>0?'. Aprove em "Aprovações de Pagamentos" (2FA).':'.'), ok>0?'success':'warning');
   if(ok>0){
-    closeModal('modal-beneficios-pagar');
     if(typeof showSection==='function') showSection('aprovacoes');
   }
 }
@@ -6093,7 +6116,6 @@ async function pagarBeneficiosForcarPIX(){
   if(erros)  partes.push(`${erros} com erro`);
   toast(partes.join(' · ') + (ok>0?'. Aprove em "Aprovações de Pagamentos" (2FA). Não carregue o cartão depois.':'.'), ok>0?'success':'warning');
   if(ok>0){
-    closeModal('modal-beneficios-pagar');
     if(typeof showSection==='function') showSection('aprovacoes');
   }
 }
@@ -6173,7 +6195,6 @@ async function marcarBeneficiosPagoManual(){
   if(erros)  partes.push(`${erros} com erro`);
   toast(partes.join(' · ') + '.', ok>0?'success':'warning');
   if(ok>0){
-    closeModal('modal-beneficios-pagar');
     if(typeof showSection==='function') showSection('aprovacoes');
   }
 }

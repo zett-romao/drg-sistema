@@ -6213,8 +6213,13 @@ function renderBeneficiosLista(){
     `<div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap">` +
       `<span style="background:#E3F2FD;color:#1565C0;padding:3px 10px;border-radius:8px;font-weight:700"><i class="fa-solid fa-credit-card"></i> Carregar Cartão VT: ${fmtMoney(totalCartaoVT)}</span>` +
       `<span style="background:#FFF3E0;color:#E65100;padding:3px 10px;border-radius:8px;font-weight:700"><i class="fa-solid fa-credit-card"></i> Carregar Cartão VR: ${fmtMoney(totalCartaoVR)}</span>` +
-      (totalCartaoVA > 0 ? `<span style="background:#FCE4EC;color:#AD1457;padding:3px 10px;border-radius:8px;font-weight:700"><i class="fa-solid fa-credit-card"></i> Carregar Cartão VA: ${fmtMoney(totalCartaoVA)}</span>` : '') +
-      (totalBPAPagar > 0 ? `<span style="background:#FFF9C4;color:#F57F17;padding:3px 10px;border-radius:8px;font-weight:700"><i class="fa-solid fa-medal"></i> Boa Permanência: ${fmtMoney(totalBPAPagar)}</span>` : '') +
+      // VA — sempre visível. Em Hoje/Esta Semana/Personalizado-non-comp fica
+      // 0 porque VA é mensal (só apurado na aba 'Este Período'); o tooltip
+      // explica. Antes só renderizava quando > 0, sumindo da tela em outras
+      // abas e deixando o operador sem visibilidade do benefício VA.
+      `<span title="${totalCartaoVA>0?'Total do VA a carregar na operadora':'VA é apurado mensalmente — use a aba \\'Este Período\\' pra ver o valor'}" style="background:#FCE4EC;color:#AD1457;padding:3px 10px;border-radius:8px;font-weight:700${totalCartaoVA===0?';opacity:0.6':''}"><i class="fa-solid fa-credit-card"></i> Carregar Cartão VA: ${fmtMoney(totalCartaoVA)}${totalCartaoVA===0?' <small style="font-weight:500">(mensal · Este Período)</small>':''}</span>` +
+      // BP — idem; só apurado na competência (folha fechada + faltas=0).
+      `<span title="${totalBPAPagar>0?'Total da Boa Permanência a pagar (PIX por padrão)':'Boa Permanência é apurada no fechamento da competência — use a aba \\'Este Período\\''}" style="background:#FFF9C4;color:#F57F17;padding:3px 10px;border-radius:8px;font-weight:700${totalBPAPagar===0?';opacity:0.6':''}"><i class="fa-solid fa-medal"></i> Boa Permanência: ${fmtMoney(totalBPAPagar)}${totalBPAPagar===0?' <small style="font-weight:500">(competência · Este Período)</small>':''}</span>` +
       `<span style="background:#E8F5E9;color:#2E7D32;padding:3px 10px;border-radius:8px;font-weight:700"><i class="fa-brands fa-pix"></i> Pagar em Dinheiro (PIX): ${fmtMoney(totalDinheiro)}</span>` +
     `</div>`;
   const listEl = document.getElementById('benef-lista');

@@ -11499,14 +11499,25 @@ function renderAprovacoes(){
         acoes=`<span style="font-size:11px;color:#00695C">pago</span>${estornarBtn}`;
       }
     } else if(s.status==='estornado'){
+      const refazBtn = mods.pagamentosLancar
+        ? `<div style="margin-top:5px"><button class="btn btn-sm btn-outline" style="color:#1565C0;border-color:#90CAF9;font-size:11px;padding:3px 9px" onclick="refazerSolicitacao('${s.id}')" title="Cria uma NOVA solicitação pendente com os mesmos dados"><i class="fa-solid fa-arrows-rotate"></i> Refazer lançamento</button></div>`
+        : '';
       acoes=`<span style="font-size:11px;color:#E65100" title="${(s.motivoEstorno||'').replace(/"/g,'&quot;')}"><i class="fa-solid fa-rotate-left"></i> ${s.motivoEstorno||'estornado'}</span>`
-        + (s.estornadoEm?`<div style="font-size:10px;color:#aaa;margin-top:2px">por ${s.estornadoPorNome||'—'} · ${(s.estornadoEm||'').substring(0,10).split('-').reverse().join('/')}</div>`:'');
+        + (s.estornadoEm?`<div style="font-size:10px;color:#aaa;margin-top:2px">por ${s.estornadoPorNome||'—'} · ${(s.estornadoEm||'').substring(0,10).split('-').reverse().join('/')}</div>`:'')
+        + refazBtn;
     } else if(s.status==='recusado'){
-      acoes=`<span style="font-size:11px;color:#c62828">${(s.motivoRecusa||'recusado')}</span>`;
+      const refazBtn = mods.pagamentosLancar
+        ? `<div style="margin-top:5px"><button class="btn btn-sm btn-outline" style="color:#1565C0;border-color:#90CAF9;font-size:11px;padding:3px 9px" onclick="refazerSolicitacao('${s.id}')" title="Cria uma NOVA solicitação pendente com os mesmos dados"><i class="fa-solid fa-arrows-rotate"></i> Refazer lançamento</button></div>`
+        : '';
+      acoes=`<span style="font-size:11px;color:#c62828">${(s.motivoRecusa||'recusado')}</span>` + refazBtn;
     } else if(s.status==='erro'){
+      const refazBtn = mods.pagamentosLancar
+        ? `<button class="btn btn-sm btn-outline" style="color:#1565C0;border-color:#90CAF9;font-size:11px;padding:3px 9px;margin-left:4px" onclick="refazerSolicitacao('${s.id}')" title="Cria uma NOVA solicitação pendente (em vez de retentar a mesma)"><i class="fa-solid fa-arrows-rotate"></i> Refazer</button>`
+        : '';
       acoes = podeAprovar
         ? `<button class="btn btn-sm" style="background:#e65100;color:#fff;border-color:#e65100;margin-right:4px" onclick="openAprovarPagamento('${s.id}')" title="${(s.erro||'').replace(/"/g,'')}"><i class="fa-solid fa-rotate-right"></i> Tentar de novo</button>`
           + `<button class="btn btn-sm btn-outline" style="color:#c62828;border-color:#ef9a9a" onclick="recusarSolicitacao('${s.id}')" title="${(s.erro||'').replace(/"/g,'')}"><i class="fa-solid fa-ban"></i> Recusar</button>`
+          + refazBtn
         : `<span style="font-size:11px;color:#c62828">${s.erro||'erro'}</span>`;
     }
     return `<tr style="background:${bg}">
@@ -11637,6 +11648,43 @@ async function recusarSolicitacao(id){
     Auth.log('PAGAMENTO_RECUSADO',null,`${s.employeeNome} | R$ ${(s.valor||0).toFixed(2)} | ${motivo.trim()}`);
     toast('Solicitação recusada.','success');
   }catch(e){ toast('Erro ao recusar: '+e.message,'error'); }
+}
+
+// Cria uma NOVA solicitação pendente a partir de uma estornada/recusada/erro —
+// pra refazer o lançamento sem ter que voltar pra tela de origem (Benefícios,
+// Folha…). A original fica preservada (histórico). Bloqueia se já existir outra
+// solicitação pendente do mesmo colaborador no mesmo período.
+async function refazerSolicitacao(id){
+  if(!getUserModules(Auth.currentUser).pagamentosLancar){
+    toast('Você não tem permissão para lançar pagamentos.','error'); return;
+  }
+  const orig=(State.solicitacoes||[]).find(s=>s.id===id);
+  if(!orig){ toast('Solicitação não encontrada.','error'); return; }
+  if(!orig.pixKey || (orig.valor||0)<=0){ toast('Solicitação original sem chave PIX ou valor — não dá pra refazer.','error'); return; }
+  const jaPend=(State.solicitacoes||[]).some(s=>s.employeeId===orig.employeeId && s.competencia===orig.competencia && s.status==='pendente' && s.id!==orig.id);
+  if(jaPend){ toast(`Já existe uma solicitação PENDENTE para ${orig.employeeNome} neste período — aprove/recuse a existente antes.`,'warning'); return; }
+  const motivoOrig = orig.status==='estornado' ? (orig.motivoEstorno||'estornado')
+                    : orig.status==='recusado' ? (orig.motivoRecusa||'recusado')
+                    : (orig.erro||orig.status||'');
+  if(!confirm(`Refazer o lançamento de ${orig.employeeNome} — ${fmtMoney(orig.valor||0)}?\n\nOriginal: ${orig.status.toUpperCase()} (${motivoOrig})\n\nCria uma NOVA solicitação PENDENTE com os mesmos dados (mesma chave PIX). Vai pra "Aprovações" e o aprovador faz o 2FA.`)) return;
+  try{
+    const dtOrig=(orig.criadoEm||'').substring(0,10).split('-').reverse().join('/');
+    const novo=await _criarSolicitacaoPagamento({
+      employeeId:    orig.employeeId,
+      employeeNome:  orig.employeeNome,
+      payrollId:     orig.payrollId||'',
+      valor:         orig.valor||0,
+      pixKey:        orig.pixKey,
+      keyType:       orig.keyType||'',
+      descricao:     `[RE-LANÇAMENTO de ${dtOrig} — ${orig.status}] ${orig.descricao||''}`.slice(0,500),
+      scheduleDate:  new Date().toISOString().substring(0,10),
+      competencia:   orig.competencia||'',
+      origem:        orig.origem||'avulso',
+    });
+    Auth.log('PAGAMENTO_SOLICITADO',null,`RE-LANÇAMENTO ${orig.employeeNome} | R$ ${(orig.valor||0).toFixed(2)} | nova ${novo.id} (original ${orig.id} / ${orig.status})`);
+    toast(`Lançamento refeito — nova solicitação pendente criada. Vá em Aprovações p/ aprovar.`,'success');
+    renderAprovacoes();
+  }catch(e){ toast('Erro ao refazer: '+(e.message||e),'error'); }
 }
 
 // ============================================

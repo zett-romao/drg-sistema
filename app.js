@@ -7192,19 +7192,37 @@ function exportBeneficiosLista(formato, soSelecionados){
     if(!selIds.size){ toast('Marque ao menos um colaborador para imprimir os selecionados.','info'); return; }
   }
   const periodoLabelFull = soSelecionados ? `${periodoLabel} — selecionados` : periodoLabel;
+  // Detecta se é competência (Este Período OU Personalizado-com-comp) pra
+  // usar o cálculo Previsto (com VA + BP).
+  const tab = _beneficioTabAtual || 'hoje';
+  let _ctxMesExp = null;
+  if(tab === 'mes'){
+    const d = new Date();
+    const mPag = d.getMonth()+1, aPag = d.getFullYear();
+    let mUso = mPag+1, aUso = aPag;
+    if(mUso>12){ mUso=1; aUso++; }
+    _ctxMesExp = { mPag, aPag, mUso, aUso };
+  } else if(tab === 'custom'){
+    const cp = _compFromRange(_beneficioCustomIni, _beneficioCustomFim);
+    if(cp) _ctxMesExp = { mPag:cp.mPag, aPag:cp.aPag, mUso:cp.mPag, aUso:cp.aPag };
+  }
   const linhas = [];
   (State.employees||[])
     .filter(e => (e.status||'ativo') === 'ativo')
     .filter(e => !selIds || selIds.has(e.id))
     .forEach(e => {
-      const b = _calcBeneficiosColab(e, ini, fim, escopo);
+      const b = _ctxMesExp
+        ? _calcBeneficiosColabPrevisto(e, _ctxMesExp.mUso, _ctxMesExp.aUso, _ctxMesExp.mPag, _ctxMesExp.aPag)
+        : _calcBeneficiosColab(e, ini, fim, escopo);
       if(b.total > 0) linhas.push({ emp:e, b });
     });
   linhas.sort((a,b) => (a.emp.nome||'').localeCompare(b.emp.nome||''));
   if(!linhas.length){ toast('Nenhum benefício a exportar.','error'); return; }
   const totalVT = linhas.reduce((s,l)=>s+l.b.vtValor,0);
   const totalVR = linhas.reduce((s,l)=>s+l.b.vrValor,0);
-  const total   = totalVT + totalVR;
+  const totalVA = linhas.reduce((s,l)=>s+(l.b.vaValor||0),0);
+  const totalBP = linhas.reduce((s,l)=>s+(l.b.bpValor||0),0);
+  const total   = totalVT + totalVR + totalVA + totalBP;
   let rows = '';
   linhas.forEach(({emp, b}, idx) => {
     const posto = (emp.posto || '—');
@@ -7220,6 +7238,8 @@ function exportBeneficiosLista(formato, soSelecionados){
       <td style="text-align:center">${b.dias}</td>
       <td style="text-align:right">${benVT} ${fmtMoney(b.vtValor)}</td>
       <td style="text-align:right">${fmtMoney(b.vrValor)}</td>
+      <td style="text-align:right">${fmtMoney(b.vaValor||0)}</td>
+      <td style="text-align:right">${fmtMoney(b.bpValor||0)}</td>
       <td style="text-align:right;font-weight:700">${fmtMoney(b.total)}</td>
       <td style="font-family:monospace;font-size:11px;color:#00695C">${pix}</td>
     </tr>`;
@@ -7249,6 +7269,8 @@ function exportBeneficiosLista(formato, soSelecionados){
     <th style="text-align:center">Dias</th>
     <th style="text-align:right">VT/AM</th>
     <th style="text-align:right">VR</th>
+    <th style="text-align:right">VA</th>
+    <th style="text-align:right">B.Perm.</th>
     <th style="text-align:right">Total</th>
     <th>Chave PIX</th>
   </tr></thead>
@@ -7258,12 +7280,14 @@ function exportBeneficiosLista(formato, soSelecionados){
       <td colspan="6" style="text-align:right">TOTAIS</td>
       <td style="text-align:right">${fmtMoney(totalVT)}</td>
       <td style="text-align:right">${fmtMoney(totalVR)}</td>
+      <td style="text-align:right">${fmtMoney(totalVA)}</td>
+      <td style="text-align:right">${fmtMoney(totalBP)}</td>
       <td class="tot" style="text-align:right">${fmtMoney(total)}</td>
       <td></td>
     </tr>
   </tfoot>
 </table>
-<p style="margin-top:14px;font-size:11px;color:#555"><strong>Uso:</strong> esta planilha lista os colaboradores com benefícios a serem pagos manualmente (PIX, espécie ou cartão). Use a coluna "Chave PIX" para conferir o destinatário.</p>
+<p style="margin-top:14px;font-size:11px;color:#555"><strong>Uso:</strong> esta planilha lista os colaboradores com benefícios a serem pagos manualmente (PIX, espécie ou cartão). Use a coluna "Chave PIX" para conferir o destinatário. ${_ctxMesExp ? 'VA e Boa Permanência aparecem por serem benefícios mensais apurados nesta competência.' : 'VA e Boa Permanência são apurados na competência — use a aba "Este Período" pra incluí-los.'}</p>
 <p style="margin-top:18px;font-size:10px;color:#888;text-align:center">${_e('nomeEmpresa')} — Sistema DRG-Kronos 3.0 &middot; ${linhas.length} colaborador(es)</p>
 </body></html>`;
   _abrirJanelaExport(html, formato, `Beneficios_${soSelecionados?'selecionados':(_beneficioTabAtual||'hoje')}_${new Date().toISOString().substring(0,10)}`);

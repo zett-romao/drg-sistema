@@ -2016,9 +2016,11 @@
           <button class="btn btn-sm btn-outline" onclick="exportBeneficiosCanal('vt','print')" style="border-color:#1565C0;color:#1565C0;font-size:12px" title="Imprime só quem recebe VT no cartão (carregar na operadora)"><i class="fa-solid fa-bus"></i> Cartão VT</button>
           <button class="btn btn-sm btn-outline" onclick="exportBeneficiosCanal('vr','print')" style="border-color:#E65100;color:#E65100;font-size:12px" title="Imprime só quem recebe VR no cartão (inclui Boa Permanência)"><i class="fa-solid fa-utensils"></i> Cartão VR</button>
           <button class="btn btn-sm btn-outline" onclick="exportBeneficiosCanal('dinheiro','print')" style="border-color:#2E7D32;color:#2E7D32;font-size:12px" title="Imprime só quem recebe VT/VR em dinheiro (PIX)"><i class="fa-brands fa-pix"></i> Dinheiro/PIX</button>
+          <button class="btn btn-sm btn-outline" onclick="exportBeneficiosBP('print')" style="border-color:#F57F17;color:#F57F17;font-size:12px" title="Imprime DUAS listas: quem VAI RECEBER a Boa Permanência (com chave PIX) e quem PERDEU + motivo. Só funciona na aba 'Este Período'."><i class="fa-solid fa-medal"></i> B.Perm.</button>
           <button class="btn btn-sm btn-outline" onclick="exportBeneficiosCanal('vt','excel')" style="font-size:12px" title="Exporta Cartão VT em Excel"><i class="fa-solid fa-file-excel" style="color:#1B5E20"></i> VT .xls</button>
           <button class="btn btn-sm btn-outline" onclick="exportBeneficiosCanal('vr','excel')" style="font-size:12px" title="Exporta Cartão VR em Excel"><i class="fa-solid fa-file-excel" style="color:#1B5E20"></i> VR .xls</button>
           <button class="btn btn-sm btn-outline" onclick="exportBeneficiosCanal('dinheiro','excel')" style="font-size:12px" title="Exporta Dinheiro/PIX em Excel"><i class="fa-solid fa-file-excel" style="color:#1B5E20"></i> PIX .xls</button>
+          <button class="btn btn-sm btn-outline" onclick="exportBeneficiosBP('excel')" style="font-size:12px" title="Exporta Boa Permanência (recebe + perderam) em Excel. Só na aba 'Este Período'."><i class="fa-solid fa-file-excel" style="color:#1B5E20"></i> B.Perm. .xls</button>
         </div>
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
           <div style="position:relative;flex:1;max-width:360px">
@@ -6051,6 +6053,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260530bb"></script>
+<script src="app.js?v=20260530cc"></script>
 </body>
 </html>

@@ -6729,6 +6729,122 @@ function exportBeneficiosCanal(canal, formato){
   _abrirJanelaExport(html, formato, `Beneficios_${canal}_${new Date().toISOString().substring(0,10)}`);
 }
 
+// Listagem dedicada da Boa Permanência: gera UM documento com DUAS tabelas —
+//   1) Vão receber (chave PIX) ·  2) Perderam (motivo).
+// Só faz sentido na aba 'Este Período' (BP é apurada no fechamento da
+// competência). Em outras abas avisa e aborta.
+function exportBeneficiosBP(formato){
+  const tab = _beneficioTabAtual || 'hoje';
+  if(tab !== 'mes'){
+    toast('Boa Permanência só é apurada no fechamento da competência — use a aba "Este Período".','warning');
+    return;
+  }
+  const d = new Date();
+  const mPag = d.getMonth()+1, aPag = d.getFullYear();
+  let mUso = mPag+1, aUso = aPag;
+  if(mUso>12){ mUso=1; aUso++; }
+  const periodoLabel = `Competência ${MESES[mPag]}/${aPag} (${_compLabel(mPag,aPag)})`;
+  const elegiveis = [];
+  const perderam = [];
+  (State.employees||[])
+    .filter(e => (e.status||'ativo') === 'ativo')
+    .forEach(e => {
+      const b = _calcBeneficiosColabPrevisto(e, mUso, aUso, mPag, aPag);
+      if((b.bpValor||0) > 0){
+        elegiveis.push({ emp:e, b });
+      } else if(b.bpMotivo){
+        perderam.push({ emp:e, b, motivo:b.bpMotivo });
+      }
+    });
+  elegiveis.sort((a,b) => (a.emp.nome||'').localeCompare(b.emp.nome||''));
+  perderam.sort((a,b) => (a.emp.nome||'').localeCompare(b.emp.nome||''));
+  if(!elegiveis.length && !perderam.length){
+    toast('Não há colaboradores com Boa Permanência apurada neste período.','info'); return;
+  }
+  const total = elegiveis.reduce((s,l)=>s+(l.b.bpValor||0),0);
+  // Tabela 1 — Receberá
+  let rowsRecebe = '';
+  elegiveis.forEach(({emp, b}, idx) => {
+    const matr = emp.registro ? String(emp.registro).padStart(4,'0') : '—';
+    rowsRecebe += `<tr style="background:${idx%2?'#FFFDE7':'#fff'}">
+      <td style="text-align:center">${idx+1}</td>
+      <td style="text-align:center;font-weight:700">${matr}</td>
+      <td><strong>${emp.nome}</strong>${emp.setor?`<br><small style="color:#666">${emp.setor}</small>`:''}</td>
+      <td style="font-size:11px">${emp.posto||'—'}</td>
+      <td style="text-align:right;font-weight:700">${fmtMoney(b.bpValor||0)}</td>
+      <td style="font-family:monospace;font-size:11px;color:#00695C">${emp.chavePix||'—'}</td>
+    </tr>`;
+  });
+  // Tabela 2 — Perderam
+  let rowsPerdeu = '';
+  perderam.forEach(({emp, motivo}, idx) => {
+    const matr = emp.registro ? String(emp.registro).padStart(4,'0') : '—';
+    rowsPerdeu += `<tr style="background:${idx%2?'#FFEBEE':'#fff'}">
+      <td style="text-align:center">${idx+1}</td>
+      <td style="text-align:center;font-weight:700">${matr}</td>
+      <td><strong>${emp.nome}</strong>${emp.setor?`<br><small style="color:#666">${emp.setor}</small>`:''}</td>
+      <td style="font-size:11px">${emp.posto||'—'}</td>
+      <td style="font-size:11px;color:#C62828">${esc(motivo)}</td>
+    </tr>`;
+  });
+  const html = `<!DOCTYPE html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="UTF-8"><title>Boa Permanência — ${periodoLabel}</title>
+<style>
+  body{font-family:Arial,sans-serif;padding:16px;color:#212529;font-size:12px}
+  h1{color:#F57F17;font-size:18px;margin-bottom:4px}
+  h2{font-size:14px;margin:20px 0 6px}
+  h2.recebe{color:#2E7D32}
+  h2.perdeu{color:#C62828}
+  .info{font-size:11px;color:#666;margin-bottom:14px}
+  table{width:100%;border-collapse:collapse}
+  th.recebe{background:#2E7D32;color:#fff;padding:8px;text-align:left;font-size:11px}
+  th.perdeu{background:#C62828;color:#fff;padding:8px;text-align:left;font-size:11px}
+  td{padding:6px 8px;border-bottom:1px solid #DEE2E6}
+  tfoot td{background:#F1F5F9;font-weight:700}
+  @media print{ body{padding:8px} h1{font-size:14px} table{font-size:10px} }
+</style></head>
+<body>
+<h1><span style="color:#F57F17">★</span> ${_e('nomeEmpresa')} — Boa Permanência</h1>
+<p class="info"><strong>Período:</strong> ${periodoLabel} &middot; <strong>${elegiveis.length}</strong> recebe(m) &middot; <strong>${perderam.length}</strong> perdeu(eram) &middot; Gerado em ${new Date().toLocaleString('pt-BR')}</p>
+
+${elegiveis.length ? `
+<h2 class="recebe">✓ Vão receber a Boa Permanência (${elegiveis.length})</h2>
+<table>
+  <thead><tr>
+    <th class="recebe" style="text-align:center">#</th>
+    <th class="recebe" style="text-align:center">Matr.</th>
+    <th class="recebe">Colaborador</th>
+    <th class="recebe">Posto</th>
+    <th class="recebe" style="text-align:right">Valor</th>
+    <th class="recebe">Chave PIX</th>
+  </tr></thead>
+  <tbody>${rowsRecebe}</tbody>
+  <tfoot><tr>
+    <td colspan="4" style="text-align:right">TOTAL — Boa Permanência</td>
+    <td style="text-align:right;color:#2E7D32;font-size:14px">${fmtMoney(total)}</td>
+    <td></td>
+  </tr></tfoot>
+</table>
+` : '<p style="color:#666">Nenhum colaborador elegível à Boa Permanência neste período.</p>'}
+
+${perderam.length ? `
+<h2 class="perdeu">✗ Perderam a Boa Permanência (${perderam.length})</h2>
+<table>
+  <thead><tr>
+    <th class="perdeu" style="text-align:center">#</th>
+    <th class="perdeu" style="text-align:center">Matr.</th>
+    <th class="perdeu">Colaborador</th>
+    <th class="perdeu">Posto</th>
+    <th class="perdeu">Motivo</th>
+  </tr></thead>
+  <tbody>${rowsPerdeu}</tbody>
+</table>
+` : ''}
+
+<p style="margin-top:18px;font-size:10px;color:#888;text-align:center">${_e('nomeEmpresa')} — Sistema DRG-Kronos 3.0</p>
+</body></html>`;
+  _abrirJanelaExport(html, formato, `Beneficios_BoaPermanencia_${new Date().toISOString().substring(0,10)}`);
+}
+
 function exportBeneficiosLista(formato, soSelecionados){
   const { ini, fim, escopo, periodoLabel, periodoCol } = _benefPeriodoAtual();
   let selIds = null;

@@ -16279,6 +16279,12 @@ function _heMinDia(realDay, expectedDay, minContratados){
   const baseLiq = (expectedDay.entrada && expectedDay.saida) ? _liqMin(expectedDay) : minContratados;
   const excesso = realLiq - baseLiq;
   if(excesso <= 0) return 0;
+  // Súmula 366 TST: divergências dentro da tolerância (≤5min/batida e ≤10min/dia)
+  // NÃO contam — nem que tenham sido aprovadas numa sessão antiga. Sem isso,
+  // a folha pagava HE "fantasma" desalinhada com a revisão (que filtra a
+  // tolerância). Acima do limite, vale a decisão do gestor (aprovado/recusada).
+  const detec = _detectHEDivergencia(realDay, expectedDay);
+  if(!detec.precisaRevisao) return 0;
   return aprovado ? excesso : 0;
 }
 

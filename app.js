@@ -11205,6 +11205,104 @@ REGRAS IMPORTANTES:
   return _parseGeminiJson(text);
 }
 
+// ============================================
+// IA — Importação da CCT a partir de PDF/imagem
+// ============================================
+// Lê o PDF/imagem da CCT que o usuário anexou no modal e preenche os campos.
+async function processCctDoc(){
+  const inp = document.getElementById('cct-ia-file');
+  const file = inp?.files?.[0];
+  const status = document.getElementById('cct-ia-status');
+  if(!file){
+    if(status) status.innerHTML = '<span style="color:#c0392b"><i class="fa-solid fa-triangle-exclamation"></i> Selecione um PDF ou imagem da CCT primeiro.</span>';
+    return;
+  }
+  if(status) status.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Lendo o documento — pode levar 10–30 segundos…';
+  try {
+    const b64 = await new Promise((res,rej)=>{
+      const r = new FileReader();
+      r.onload = ()=>res(String(r.result).split(',')[1] || '');
+      r.onerror = ()=>rej(new Error('Falha ao ler o arquivo.'));
+      r.readAsDataURL(file);
+    });
+    const data = await callGeminiCct(b64, file.type || 'application/pdf');
+    const n = _preencherCctDoIA(data);
+    if(status) status.innerHTML = `<span style="color:#1B5E20"><i class="fa-solid fa-circle-check"></i> ${n} campo(s) preenchido(s). Confira os valores e clique em <strong>Salvar CCT</strong>.</span>`;
+  } catch(e){
+    console.error('processCctDoc', e);
+    if(status) status.innerHTML = '<span style="color:#c0392b"><i class="fa-solid fa-triangle-exclamation"></i> Erro: ' + ((e&&e.message)||e) + '</span>';
+  }
+}
+
+// Chamada ao Gemini (via Worker) com prompt focado em CCT brasileira.
+async function callGeminiCct(base64Data, mimeType){
+  const prompt = `Você é um sistema de leitura de Convenção Coletiva de Trabalho (CCT) brasileira. Analise o documento e extraia os valores mais importantes para gestão de folha de pagamento.
+
+Retorne SOMENTE um JSON válido (sem markdown, sem comentários, sem explicação) neste formato exato. Para cada campo que NÃO conseguir ler com certeza, use null. NUNCA invente nem adivinhe valores.
+
+{
+  "vigencia": "data de início da vigência no formato AAAA-MM-DD ou null",
+  "salarioBase": "salário-base mínimo da categoria em R$ (apenas número, ex: 1850.50) ou null",
+  "vtDiario": "valor diário do vale-transporte em R$ ou null",
+  "vrDiario": "valor diário do vale-refeição em R$ ou null",
+  "vaMensal": "valor mensal do vale-alimentação em R$ ou null",
+  "bonificacao": "valor da bonificação de Boa Permanência / Assiduidade (geralmente R$/mês) ou null",
+  "plrValorAnual": "valor anual da PLR (Participação nos Lucros e Resultados) em R$ ou null",
+  "percentualAdNoturno": "percentual de adicional noturno (geralmente 20) ou null",
+  "salarioMinimoNacional": "salário mínimo nacional vigente em R$ ou null",
+  "bancoValidadeMeses": "prazo em MESES para compensar horas do banco (geralmente 6 ou 12) ou null"
+}
+
+REGRAS:
+1. Valores monetários apenas como número (sem R$, sem pontos de milhar, ponto como separador decimal).
+2. Datas SEMPRE em AAAA-MM-DD. Se vier DD/MM/AAAA, converta.
+3. NÃO confunda salário-base da categoria com salário mínimo nacional.
+4. "Bonificação" / "Boa Permanência" / "Assiduidade" = bônus por NÃO faltar no mês. Não confunda com PLR.
+5. Retorne APENAS o JSON.`;
+
+  const resp = await fetch(GEMINI_PROXY_URL, {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ model: GEMINI_MODEL, prompt, mimeType, base64Data })
+  });
+  if(!resp.ok){
+    const err = await resp.json().catch(()=>({error:'Resposta inválida do servidor'}));
+    throw new Error(err.error?.message||err.error||'Erro na chamada Gemini via proxy');
+  }
+  const data = await resp.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  try { _registrarUsoIA('cct', data); } catch(_){}
+  return _parseGeminiJson(text);
+}
+
+// Preenche os campos do modal-cct com o JSON da IA. Retorna a contagem preenchida.
+function _preencherCctDoIA(d){
+  if(!d || typeof d !== 'object') return 0;
+  let n = 0;
+  const _setN = (id, v, decimals) => {
+    if(v == null || v === '') return;
+    const num = Number(v);
+    if(!isFinite(num)) return;
+    setVal(id, decimals!=null ? num.toFixed(decimals) : String(num));
+    n++;
+  };
+  if(d.vigencia){ setVal('cct-vigencia', d.vigencia); n++; }
+  _setN('cct-salario-base',      d.salarioBase,           2);
+  _setN('cct-vt-diario',         d.vtDiario,              2);
+  _setN('cct-vr-diario',         d.vrDiario,              2);
+  _setN('cct-va-mensal',         d.vaMensal,              2);
+  _setN('cct-bonificacao',       d.bonificacao,           2);
+  _setN('cct-adicional-noturno', d.percentualAdNoturno,   null);
+  _setN('cct-salario-minimo',    d.salarioMinimoNacional, 2);
+  _setN('cct-banco-validade',    d.bancoValidadeMeses,    null);
+  if(d.plrValorAnual != null){
+    setVal('cct-plr',       Number(d.plrValorAnual).toFixed(2));
+    setVal('cct-plr-anual', Number(d.plrValorAnual).toFixed(2));
+    n++;
+  }
+  return n;
+}
+
 // Lê todos os documentos selecionados, mescla os resultados e preenche o formulário
 async function processCadastroDocs(){
   if(!_cadastroDocs.length){ toast('Selecione ao menos um documento.','error'); return; }

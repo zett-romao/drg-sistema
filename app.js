@@ -5853,6 +5853,29 @@ function _benefLimparFiltroCanal(){
   renderBeneficiosLista();
 }
 
+// Dispatcher dos exports: lê os 2 dropdowns (tipo + formato) e chama a
+// função correta. Substitui os 4 botões antigos (Imprimir sel/lista/PDF/Excel)
+// por 2 caixas de seleção + 1 botão "Gerar" — mantém todos os fluxos:
+//   tipo: 'todos' (lista completa) | 'selecionados' | 'vt' | 'vr' | 'va'
+//       | 'dinheiro' | 'bp' (Boa Permanência — duas tabelas)
+//   formato: 'print' | 'pdf' | 'excel'
+function _benefExportarDispatch(){
+  const tipo    = (document.getElementById('benef-export-tipo')||{}).value    || 'todos';
+  const formato = (document.getElementById('benef-export-formato')||{}).value || 'print';
+  if(tipo === 'todos')           return exportBeneficiosLista(formato, false);
+  if(tipo === 'selecionados')    return exportBeneficiosLista(formato, true);
+  if(tipo === 'vt' || tipo === 'vr' || tipo === 'dinheiro') return exportBeneficiosCanal(tipo, formato);
+  if(tipo === 'va'){
+    // VA não tem export dedicado ainda — usa a lista completa (VA aparece como
+    // coluna lá) com o mesmo formato. Ainda assim avisa o usuário que essa é
+    // a melhor saída disponível hoje.
+    toast('Exportando lista completa — o cartão VA aparece como coluna no relatório.','info');
+    return exportBeneficiosLista(formato, false);
+  }
+  if(tipo === 'bp')              return exportBeneficiosBP(formato);
+  toast('Tipo de exportação inválido.','error');
+}
+
 // Troca a VIEW (visualização) ativa: 'aPagar' | 'pagos' | 'semBenef' | 'perderamBP'.
 // Cada view tem sua tabela e seus botões de exportação/pagamento.
 // Re-renderiza a lista E rola pra ela ficar visível (feedback de que mudou).

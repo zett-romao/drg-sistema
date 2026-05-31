@@ -7190,21 +7190,19 @@ ${perderam.length ? `
 }
 
 function exportBeneficiosLista(formato, soSelecionados){
-  const { ini, fim, escopo, periodoLabel, periodoCol } = _benefPeriodoAtual();
   let selIds = null;
   if(soSelecionados){
     selIds = new Set([...document.querySelectorAll('.benef-chk:checked')].map(c=>c.dataset.empId));
     if(!selIds.size){ toast('Marque ao menos um colaborador para imprimir os selecionados.','info'); return; }
   }
-  const periodoLabelFull = soSelecionados ? `${periodoLabel} — selecionados` : periodoLabel;
   // EXPORTAÇÃO SEMPRE USA O CÁLCULO DA COMPETÊNCIA (Previsto):
   //   - VT/VR pela escala projetada do mês de USO (próxima competência)
   //   - VA mensal fixo (com desconto se ≥3 faltas)
   //   - BP da folha do mês de PAGAMENTO (faltas=0 → recebe; falta → perdeu;
   //     folha não fechada → N/C)
-  // Desta forma TODOS os benefícios do colaborador aparecem na lista,
-  // independente da aba (Hoje/Semana/Período/Personalizado). A aba só
-  // determina o LABEL do período mostrado.
+  // O PERÍODO LEGAL é 26 do mês anterior → 25 do mês (competência fechada
+  // dia 25). NÃO pode ser semana de calendário. O label do relatório
+  // SEMPRE reflete essa competência, mesmo se aba é 'Hoje'/'Esta Semana'.
   const tab = _beneficioTabAtual || 'hoje';
   let mPag, aPag;
   // Para tab='custom' com competência exata → usa essa competência.
@@ -7227,6 +7225,15 @@ function exportBeneficiosLista(formato, soSelecionados){
     mUso = mPag+1; aUso = aPag;
     if(mUso>12){ mUso=1; aUso++; }
   }
+  // Label do período = competência LEGAL (26→25 — Art. da CLT/CCT vigente).
+  const fmtBr = iso => new Date(iso+'T12:00:00').toLocaleDateString('pt-BR');
+  // ini/fim: período da competência de USO (o que está sendo apurado).
+  const perUso = _compPeriodo(mUso, aUso);
+  const ini = perUso.deISO, fim = perUso.ateISO;
+  const escopo = 'mes';
+  const periodoCol = `${fmtBr(ini)} → ${fmtBr(fim)}`;
+  const periodoLabel = `Competência ${MESES[mUso]}/${aUso} — ${_compLabel(mUso, aUso)}`;
+  const periodoLabelFull = soSelecionados ? `${periodoLabel} — selecionados` : periodoLabel;
   const linhas = [];
   (State.employees||[])
     .filter(e => (e.status||'ativo') === 'ativo')

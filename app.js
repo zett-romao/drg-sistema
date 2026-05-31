@@ -17466,7 +17466,21 @@ function _getExpectedDay(emp, mes, ano, dia, ignoreAdmissao){
       const h = _escalaHorariosDia(emp, diaSem, lot);
       return { tipo:'trabalho', entrada:h.entrada, saida:h.saida, intIni:h.intIni, intFim:h.intFim };
     }
-    // sem âncora definida → cai no retorno genérico abaixo
+    // SEM ÂNCORA DEFINIDA → infere padrão alternado de qualquer forma. Antes
+    // caía no retorno genérico (trabalho TODO dia → inflava VT/VR a ~30 dias
+    // pra 12x36 quando o real é ~15). Agora usa dataAdmissao como âncora
+    // fallback (ou 1/1/2000 como neutra) e alterna trabalho/folga.
+    const fallbackAnchor = emp.dataAdmissao
+      ? new Date(emp.dataAdmissao+'T00:00:00')
+      : new Date(2000, 0, 1);
+    if(!isNaN(fallbackAnchor.getTime())){
+      const dAlvo = new Date(ano, mes-1, dia);
+      const diff = Math.round((dAlvo - fallbackAnchor) / 86400000);
+      const ehTrabFallback = ((((diff % 2) + 2) % 2) === 0);
+      if(!ehTrabFallback) return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
+      const h = _escalaHorariosDia(emp, diaSem, lot);
+      return { tipo:'trabalho', entrada:h.entrada, saida:h.saida, intIni:h.intIni, intFim:h.intFim };
+    }
   }
   // 6x1 Alternado: folga sáb↔dom alternando — projeta sob demanda
   if(lot.escala && lot.escala.startsWith('6x1ALT')){

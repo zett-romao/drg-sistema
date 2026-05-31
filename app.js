@@ -18893,6 +18893,15 @@ const HE_TOLERANCIA_DIA_MIN    = 10;
 // domingo folga (conta 1 dia/fds, dando os 6 dias da semana).
 let _fdsLivreCtxDias = null, _fdsLivreCtxEmp = null;
 function _ehFds6x1Livre(escala){ return typeof escala==='string' && escala.startsWith('6x1LIV'); }
+// Escalas CÍCLICAS (padrão derivado de âncora/ciclo, não de dia-da-semana fixo):
+// 12x36, 6x1 Alternado, 6x1B. Para elas NÃO se confia na escala salva antiga (que
+// foi gerada com âncora errada/bug de fronteira e "envenena" a apuração) — usa-se
+// sempre o ciclo determinístico. Decisão do usuário 2026-05-31. Override de dia
+// avulso continua com prioridade (tratado antes da escala salva). #ciclica-ignora-salva
+function _escalaCiclica(escala){
+  if(typeof escala!=='string') return false;
+  return escalaFamilia(escala)==='12x36' || escala.startsWith('6x1ALT') || escala==='6x1B';
+}
 function _fdsLivreFolhaDias(emp, ano, mes, dia){
   if(_fdsLivreCtxDias && _fdsLivreCtxEmp===emp.id) return _fdsLivreCtxDias;
   const comp=_competenciaDe(new Date(ano, mes-1, dia));
@@ -19067,7 +19076,7 @@ function _getExpectedDay(emp, mes, ano, dia, ignoreAdmissao){
   // (ex.: 26/04 domingo virou "trabalho" porque calculou como 26/05=terça). A
   // projeção determinística abaixo (weekday / ciclo 6x1 / âncora 12x36) é
   // comp-aware e correta; o override avulso (tratado acima) ainda vence. #fronteira-escala-salva
-  if(esc?.dias?.length && dia < 26 && !_ehFds6x1Livre(lot.escala)){
+  if(esc?.dias?.length && dia < 26 && !_ehFds6x1Livre(lot.escala) && !_escalaCiclica(lot.escala)){
     const d = esc.dias.find(x => x.dia===dia);
     if(d){
       const tipo = d.tipo || 'trabalho';
@@ -19561,7 +19570,7 @@ function _diaEmBrancoEhFalta(emp, mes, ano, dia, isWeekend, is12x36){
     if(!_r) deveriaTrabalhar = true;
     else if(_r.algumBatido) deveriaTrabalhar = false;
     else deveriaTrabalhar = (new Date(ano, mes-1, dia).getDay()===6);
-  } else if(escalaSalva && Array.isArray(escalaSalva.dias) && dia < 26){
+  } else if(escalaSalva && Array.isArray(escalaSalva.dias) && dia < 26 && !_escalaCiclica(_escDia)){
     const d = escalaSalva.dias.find(x => x.dia===dia);
     deveriaTrabalhar = !!(d && d.tipo!=='folga' && d.entrada);
   } else if(dia >= 26){

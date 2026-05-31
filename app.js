@@ -6425,11 +6425,15 @@ function renderBeneficiosLista(){
         <tbody>
           ${semBP.map(({emp, motivo}, i) => {
             const matr = emp.registro ? String(emp.registro).padStart(4,'0') : '—';
-            return `<tr style="background:${i%2?'#FFFDE7':'#fff'};cursor:pointer" onclick="openBeneficioDetalhe('${emp.id}')">
+            // Clica na linha → abre FOLHA DE PONTO do colab no mês de
+            // pagamento (mPag) pra conferir as faltas que causaram a perda da BP.
+            const _navMes = (_ctxMes && _ctxMes.mPag) || (new Date().getMonth()+1);
+            const _navAno = (_ctxMes && _ctxMes.aPag) || (new Date().getFullYear());
+            return `<tr style="background:${i%2?'#FFFDE7':'#fff'};cursor:pointer" onclick="openPayrollForEmployee('${emp.id}',{mes:${_navMes},ano:${_navAno}})">
               <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #FFF3E0;font-weight:700;color:var(--primary)">${matr}</td>
               <td style="padding:6px 8px;border-bottom:1px solid #FFF3E0"><strong style="color:#455A64">${emp.nome||'—'}</strong><br><small style="color:var(--text-muted)">${emp.setor||'—'}</small></td>
               <td style="padding:6px 8px;border-bottom:1px solid #FFF3E0;font-size:11px">${emp.posto||'—'}</td>
-              <td style="padding:6px 8px;border-bottom:1px solid #FFF3E0;color:#37474F"><i class="fa-solid fa-medal" style="color:#FF9800"></i> ${esc(motivo)}</td>
+              <td style="padding:6px 8px;border-bottom:1px solid #FFF3E0;color:#37474F"><i class="fa-solid fa-medal" style="color:#FF9800"></i> ${esc(motivo)} <i class="fa-solid fa-arrow-right" style="color:#9E9E9E;float:right"></i></td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -6463,11 +6467,13 @@ function renderBeneficiosLista(){
         <tbody>
           ${sem.map(({emp, motivo}, i) => {
             const matr = emp.registro ? String(emp.registro).padStart(4,'0') : '—';
-            return `<tr style="background:${i%2?'#FAFBFC':'#fff'};cursor:pointer" onclick="openBeneficioDetalhe('${emp.id}')">
+            // Clica na linha → abre o CADASTRO do colab (pra revisar VT/VR/VA
+            // zerados ou outro problema no cadastro que tirou ele do benefício).
+            return `<tr style="background:${i%2?'#FAFBFC':'#fff'};cursor:pointer" onclick="showSection('employees');setTimeout(function(){openEmployeeModal('${emp.id}')},150)">
               <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7;font-weight:700;color:var(--primary)">${matr}</td>
               <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7"><strong style="color:#455A64">${emp.nome||'—'}</strong><br><small style="color:var(--text-muted)">${emp.setor||'—'}</small></td>
               <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7;font-size:11px">${emp.posto||'—'}</td>
-              <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7;color:#37474F"><i class="fa-solid fa-circle-exclamation" style="color:#FF9800"></i> ${motivo}</td>
+              <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7;color:#37474F"><i class="fa-solid fa-circle-exclamation" style="color:#FF9800"></i> ${motivo} <i class="fa-solid fa-arrow-right" style="color:#9E9E9E;float:right"></i></td>
             </tr>`;
           }).join('')}
         </tbody>

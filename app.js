@@ -6760,9 +6760,12 @@ function renderBeneficiosLista(){
         <tbody>
           ${semBP.map(({emp, motivo}, i) => {
             const matr = emp.registro ? String(emp.registro).padStart(4,'0') : '—';
-            // Clica na linha → abre o CADASTRO/CONTRATO do colaborador (pedido do
-            // usuário 2026-05-31), pra conferir/ajustar escala, lotação etc.
-            return `<tr style="background:${i%2?'#FFFDE7':'#fff'};cursor:pointer" title="Abrir contrato de ${esc(emp.nome||'')}" onclick="showSection('employees');setTimeout(function(){openEmployeeModal('${emp.id}')},150)">
+            // Clica na linha → abre a FOLHA DE PONTO do colab na competência que
+            // está sendo tratada (mPag), pra conferir as faltas que causaram a
+            // perda da BP. (pedido do usuário 2026-05-31)
+            const _navMes = (_ctxMes && _ctxMes.mPag) || (new Date().getMonth()+1);
+            const _navAno = (_ctxMes && _ctxMes.aPag) || (new Date().getFullYear());
+            return `<tr style="background:${i%2?'#FFFDE7':'#fff'};cursor:pointer" title="Abrir folha de ponto de ${esc(emp.nome||'')}" onclick="openPayrollForEmployee('${emp.id}',{mes:${_navMes},ano:${_navAno}})">
               <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #FFF3E0;font-weight:700;color:var(--primary)">${matr}</td>
               <td style="padding:6px 8px;border-bottom:1px solid #FFF3E0"><strong style="color:#455A64">${emp.nome||'—'}</strong><br><small style="color:var(--text-muted)">${emp.setor||'—'}</small></td>
               <td style="padding:6px 8px;border-bottom:1px solid #FFF3E0;font-size:11px">${emp.posto||'—'}</td>

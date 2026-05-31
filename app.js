@@ -6290,7 +6290,7 @@ function _benefStatusColab(empId, comp){
 function renderBeneficiosLista(){
   const tab = _beneficioTabAtual || 'hoje';
   const hojeISO = new Date().toISOString().substring(0,10);
-  let ini, fim, escopo, periodoLabel;
+  let ini, fim, escopo, periodoLabel, seloIni=null, seloFim=null;
   const fmt = iso => new Date(iso+'T12:00:00').toLocaleDateString('pt-BR');
   if(tab === 'hoje'){
     ini = fim = hojeISO;
@@ -6308,6 +6308,11 @@ function renderBeneficiosLista(){
     const perUso = _compPeriodo(mUso, aUso);
     ini = perUso.deISO; fim = perUso.ateISO;
     escopo = 'mes';
+    // O SELO de pago é lido pela competência de PAGAMENTO (mPag) — a MESMA chave
+    // que confirmarPagoBenef grava — não pela de uso (ini/fim). Antes lia por uso
+    // e o selo nunca aparecia. #17
+    const perPag = _compPeriodo(mPag, aPag);
+    seloIni = perPag.deISO; seloFim = perPag.ateISO;
     const ultDiaPag = new Date(aPag, mPag, 0).toLocaleDateString('pt-BR');
     periodoLabel = `<strong>Pagar até ${ultDiaPag} — uso na Competência ${MESES[mUso]}/${aUso} (${_compLabel(mUso,aUso)})</strong>`;
   } else if(tab === 'custom'){
@@ -6326,6 +6331,8 @@ function renderBeneficiosLista(){
     escopo = 'semana';
     periodoLabel = `<strong>Esta semana — ${fmt(s.inicio)} a ${fmt(s.fim)}</strong>`;
   }
+  // Demais abas: a chave de pagamento usa o mesmo ini/fim do selo.
+  if(seloIni===null){ seloIni = ini; seloFim = fim; }
   // Coleta colaboradores ativos com algum dia trabalhado no período
   const linhas = [];
   // Colaboradores ativos que NÃO entram na lista principal (sem benefício a
@@ -6603,7 +6610,7 @@ function renderBeneficiosLista(){
       }
     }
     const _busca = `${emp.nome||''} ${matr} ${emp.setor||''} ${posto} ${stat?stat.status:''}`.replace(/"/g,'');
-    const _mpBadge = _benefMiniBadges(_benefPagoTipos(emp.id, ini, fim));
+    const _mpBadge = _benefMiniBadges(_benefPagoTipos(emp.id, seloIni, seloFim));
     html += `<tr style="background:${bg};cursor:pointer" data-busca="${_busca}" onclick="openBeneficioDetalhe('${emp.id}','${escopo}','${ini}','${fim}')">
       <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7" onclick="event.stopPropagation()"><input type="checkbox" class="benef-chk" data-emp-id="${emp.id}" data-valor="${b.valorDinheiro}" data-valor-total="${b.total}" data-dinheiro="${b.valorDinheiro>0?1:0}" data-nome="${(emp.nome||'').replace(/"/g,'&quot;')}" data-vt="${b.vtValor||0}" data-vr="${b.vrValor||0}" data-va="${b.vaValor||0}" data-vtc="${b.vtCanal||'cartao'}" data-vrc="${b.vrCanal||'cartao'}" data-vac="${b.vaCanal||'cartao'}" ${chkAttr || `title="${b.valorDinheiro>0?'Tem valor em dinheiro (PIX)':'No cartão — entra na impressão de selecionados; o PIX ignora (use Forçar PIX para contingência)'}"`} onchange="_benefSelCount()"></td>
       <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7;font-weight:700;color:var(--primary)">${matr}</td>

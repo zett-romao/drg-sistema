@@ -1649,6 +1649,9 @@
               <button class="btn btn-primary" onclick="verRelatorioPlanilhaHolerites()" title="Abre a planilha consolidada (1 linha por colaborador) para revisar. Marcados = só selecionados; senão, todos. No fim: exportar PDF/Excel e imprimir.">
                 <i class="fa-solid fa-table-list"></i> Ver Planilha
               </button>
+              <button class="btn btn-primary" onclick="enviarTodosHoleritesCompetencia()" style="background:#00897B;border-color:#00897B" title="Envia o HOLERITE (recibo) de cada folha FECHADA da competência pro app do colaborador conferir e ASSINAR (prazo 48h, depois vira aceito por silêncio).">
+                <i class="fa-solid fa-file-signature"></i> Enviar Holerites p/ Conferência
+              </button>
               <button class="btn btn-outline" id="btn-imprimir-selecionados-pag" onclick="printPagamentosSelecionados()" disabled style="border-color:#1B5E20;color:#1B5E20" title="Gera 1 Recibo Oficial (CLT/Portaria 671) por colaborador selecionado, com códigos MTE/SEFIP">
                 <i class="fa-solid fa-file-invoice-dollar"></i> Recibos Oficiais (selecionados) <span id="pag-sel-count" style="background:#1B5E20;color:#fff;border-radius:10px;padding:1px 6px;font-size:10px;display:none;margin-left:4px">0</span>
               </button>
@@ -2634,6 +2637,9 @@
         <button class="modal-tab" data-tab-id="tab-folhas-assinadas" onclick="switchTab('tab-folhas-assinadas');renderFolhasAssinadasColab()">
           <i class="fa-solid fa-file-signature"></i> Folhas Assinadas
         </button>
+        <button class="modal-tab" data-tab-id="tab-holerites-assinados" onclick="switchTab('tab-holerites-assinados');renderHoleritesAssinadosColab()">
+          <i class="fa-solid fa-file-invoice-dollar"></i> Holerites Assinados
+        </button>
         <button class="modal-tab" data-tab-id="tab-pagamentos" onclick="switchTab('tab-pagamentos')">
           <i class="fa-solid fa-money-bill-wave"></i> Pagamentos
         </button>
@@ -3479,6 +3485,17 @@
           Folhas de ponto que o colaborador conferiu e assinou (ou aceitou por silêncio após 48h sem ação) via app. Cada uma tem hash SHA-256 — assinatura eletrônica simples (MP 2.200-2/2001).
         </div>
         <div id="folhas-assinadas-list">
+          <div style="font-size:12px;color:#94a3b8;padding:8px 2px">Carregando...</div>
+        </div>
+      </div>
+
+      <!-- Tab: Holerites Assinados — recibos que o colab conferiu/assinou via app. -->
+      <div class="tab-pane" id="tab-holerites-assinados">
+        <div class="info-banner">
+          <i class="fa-solid fa-file-invoice-dollar"></i>
+          Holerites (recibos de pagamento) que o colaborador conferiu e assinou (ou aceitou por silêncio após 48h sem ação) via app. Cada um tem hash SHA-256 — assinatura eletrônica simples (MP 2.200-2/2001).
+        </div>
+        <div id="holerites-assinados-list">
           <div style="font-size:12px;color:#94a3b8;padding:8px 2px">Carregando...</div>
         </div>
       </div>
@@ -6110,6 +6127,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260531l-audit-medios"></script>
+<script src="app.js?v=20260531m-holerite-fase2"></script>
 </body>
 </html>

@@ -224,6 +224,11 @@
     📋 <span id="banner-folhas-count">0</span> folha(s) aguardando sua conferência — clique para abrir
   </div>
 
+  <!-- Banner: holerites (recibos) pendentes de conferência (aparece quando há) -->
+  <div id="banner-holerites-conferir" style="display:none;background:linear-gradient(90deg,#B2EBF2 0%,#80DEEA 100%);padding:12px 16px;cursor:pointer;border-bottom:2px solid #00838F;text-align:center;font-weight:600;color:#006064;font-size:14px" onclick="abrirInboxHolerites()">
+    💵 <span id="banner-holerites-count">0</span> holerite(s) aguardando sua conferência — clique para abrir
+  </div>
+
   <!-- Conteúdo com seções -->
   <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
 
@@ -1918,11 +1923,14 @@ function fecharInboxFolhas(){
 }
 
 let _confCurrentPayroll = null;
+let _confMode = 'folha';           // 'folha' | 'holerite' — qual fluxo de conferência está ativo
+let _holeritesInboxCache = [];
 async function abrirConferenciaFolha(payrollId){
   fecharInboxFolhas();
   const p = _foldasInboxCache.find(x => x.id === payrollId);
   if(!p){ alert('Folha não encontrada.'); return; }
   _confCurrentPayroll = p;
+  _confMode = 'folha';
   // Marca como "visualizada" se ainda era "pendente"
   if(p.envioConferencia?.status === 'pendente'){
     try{
@@ -1994,6 +2002,115 @@ function _renderConferenciaFolha(p){
     </div>
   `;
   document.getElementById('conferencia-folha-conteudo').innerHTML = html;
+}
+
+// ====================== HOLERITE → CONFERÊNCIA (Fase 2) ======================
+// Espelha o fluxo da folha, mas para o RECIBO. O gestor já gravou o HTML do
+// recibo em p.holeriteConferencia.reciboHtml — o colab só EXIBE e ASSINA.
+async function _carregarInboxHolerites(){
+  if(!currentEmp) return;
+  try{
+    const snap = await dbCol('payrolls').where('employeeId','==', currentEmp.id).get();
+    const items = [];
+    snap.forEach(doc => {
+      const p = { id: doc.id, ...doc.data() };
+      const st = p?.holeriteConferencia?.status;
+      if(st === 'pendente' || st === 'visualizada') items.push(p);
+    });
+    items.sort((a,b) => (b.holeriteConferencia?.enviadoEm||'').localeCompare(a.holeriteConferencia?.enviadoEm||''));
+    _holeritesInboxCache = items;
+    _atualizarBannerInboxHolerite();
+  }catch(e){ console.error('inbox holerites:', e); }
+}
+
+function _atualizarBannerInboxHolerite(){
+  const banner = document.getElementById('banner-holerites-conferir');
+  const cnt = document.getElementById('banner-holerites-count');
+  if(!banner || !cnt) return;
+  if(_holeritesInboxCache.length > 0){ cnt.textContent = _holeritesInboxCache.length; banner.style.display = 'block'; }
+  else banner.style.display = 'none';
+}
+
+function abrirInboxHolerites(){
+  const modal = document.getElementById('modal-holerites-inbox');
+  const lista = document.getElementById('inbox-holerites-lista');
+  if(!_holeritesInboxCache.length){
+    lista.innerHTML = '<div style="padding:20px;text-align:center;color:#999">Nenhum holerite pendente.</div>';
+  } else {
+    lista.innerHTML = _holeritesInboxCache.map(p => {
+      const mes = MESES_PT[p.mes]||'';
+      const env = p.holeriteConferencia || {};
+      const prazo = env.prazoExpiraEm ? new Date(env.prazoExpiraEm).toLocaleString('pt-BR') : '—';
+      const liq = env.liquido!=null ? ('R$ ' + (parseFloat(env.liquido)||0).toFixed(2).replace('.',',')) : '';
+      const stBadge = env.status === 'visualizada'
+        ? '<span style="background:#80DEEA;color:#006064;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700">VISTO</span>'
+        : '<span style="background:#FFCDD2;color:#C62828;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700">NOVO</span>';
+      return `<div onclick="abrirConferenciaHolerite('${p.id}')" style="padding:14px 16px;border-bottom:1px solid #eee;cursor:pointer;display:flex;justify-content:space-between;align-items:center;background:#fff">
+        <div>
+          <div style="font-weight:700;color:#1a1a2e;font-size:14px">${mes}/${p.ano} ${stBadge}</div>
+          <div style="font-size:11px;color:#888;margin-top:2px">Líquido: ${liq} · Prazo: ${prazo}</div>
+        </div>
+        <i style="color:#9E9E9E;font-size:18px">›</i>
+      </div>`;
+    }).join('');
+  }
+  modal.style.display = 'flex';
+}
+
+function fecharInboxHolerites(){ document.getElementById('modal-holerites-inbox').style.display = 'none'; }
+
+async function abrirConferenciaHolerite(payrollId){
+  fecharInboxHolerites();
+  const p = _holeritesInboxCache.find(x => x.id === payrollId);
+  if(!p){ alert('Holerite não encontrado.'); return; }
+  _confCurrentPayroll = p;
+  _confMode = 'holerite';
+  if(p.holeriteConferencia?.status === 'pendente'){
+    try{
+      const novo = { ...p.holeriteConferencia, status:'visualizada', visualizadoEm:new Date().toISOString() };
+      await dbCol('payrolls').doc(p.id).set({ holeriteConferencia: novo }, { merge:true });
+      p.holeriteConferencia = novo;
+    }catch(e){ console.error('marcar visto holerite:', e); }
+  }
+  document.getElementById('conferencia-holerite-conteudo').innerHTML = p.holeriteConferencia?.reciboHtml || '<p style="color:#999;text-align:center;padding:20px">Holerite indisponível.</p>';
+  document.getElementById('modal-conferencia-holerite').style.display = 'flex';
+}
+
+function fecharConferenciaHolerite(){
+  document.getElementById('modal-conferencia-holerite').style.display = 'none';
+  _confCurrentPayroll = null;
+  _confMode = 'folha';
+  _carregarInboxHolerites();
+}
+
+// HTML self-contained do HOLERITE ASSINADO = recibo (gravado pelo gestor) + caixa de assinatura.
+function _construirHtmlHoleriteAssinado(p, reciboHtml, hash, assinadoEm){
+  const dt = currentEmp || {};
+  const dtAssin = new Date(assinadoEm).toLocaleString('pt-BR');
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Holerite Assinado — ${dt.nome||''}</title>
+<style>
+  body{font-family:Arial,sans-serif;padding:24px;max-width:820px;margin:0 auto;color:#212529;font-size:13px}
+  .assinatura-box{margin-top:24px;background:#FFFDE7;border:2px solid #FFE082;border-radius:8px;padding:14px;font-size:11px;color:#5D4037}
+  .assinatura-box .label{font-weight:700;color:#E65100;font-size:12px;margin-bottom:6px}
+  .hash{font-family:monospace;font-size:10px;word-break:break-all;background:#fff;padding:6px;border-radius:4px;border:1px solid #FFE082;margin-top:4px}
+  .botoes{text-align:center;margin:20px 0;padding:14px;background:#F1F5F9;border-radius:8px}
+  .botoes button{background:#1565C0;color:#fff;padding:10px 18px;border:none;border-radius:6px;font-weight:700;cursor:pointer;font-size:13px;margin:0 4px}
+  @media print{.botoes{display:none}}
+</style></head><body>
+${reciboHtml}
+<div class="assinatura-box">
+  <div class="label">🔐 Assinatura Eletrônica Simples — MP 2.200-2/2001</div>
+  <div><strong>Assinado por:</strong> ${dt.nome||'—'} (CPF ${dt.cpf||'—'})</div>
+  <div><strong>Data/hora:</strong> ${dtAssin}</div>
+  <div><strong>Hash SHA-256:</strong></div>
+  <div class="hash">${hash}</div>
+  <div style="margin-top:6px;font-size:10px;color:#666;font-style:italic">A hash acima combina o conteúdo deste holerite + PIN do colaborador + IP de assinatura + identificador do dispositivo + timestamp. Qualquer alteração no conteúdo invalida a hash — comprova autenticidade.</div>
+</div>
+<div class="botoes">
+  <button onclick="window.print()">🖨️ Imprimir / Salvar PDF</button>
+  <button onclick="window.close()" style="background:#9E9E9E">✕ Fechar</button>
+</div>
+</body></html>`;
 }
 
 // Constrói o HTML da FOLHA ASSINADA — versão self-contained pra abrir em
@@ -2166,6 +2283,21 @@ async function confirmarAssinatura(){
     const ua = navigator.userAgent;
     const pinHash = await _sha256(pin + '|' + cpfClean);
     const ts = new Date().toISOString();
+    // --- HOLERITE: assina sobre o HTML do recibo gravado pelo gestor ---
+    if(_confMode === 'holerite'){
+      const reciboHtml = p.holeriteConferencia?.reciboHtml || '';
+      const hashInput = `${reciboHtml}|${pinHash}|${ip}|${ua}|${fingerprint}|${ts}`;
+      const hash = await _sha256(hashInput);
+      const htmlRender = _construirHtmlHoleriteAssinado(p, reciboHtml, hash, ts);
+      const assinatura = { hash, pinHash, ip, userAgent: ua, deviceFingerprint: fingerprint, htmlRender, assinadoEm: ts };
+      const envio = { ...(p.holeriteConferencia||{}), status:'assinada', assinadoEm: ts };
+      await dbCol('payrolls').doc(p.id).set({ holeriteConferencia: envio, holeriteAssinatura: assinatura }, { merge:true });
+      p.holeriteConferencia = envio; p.holeriteAssinatura = assinatura;
+      fecharModalPin();
+      fecharConferenciaHolerite();
+      alert('✅ Holerite assinado com sucesso!\n\nHash: ' + hash.substring(0,16) + '...\n\nObrigado pela conferência.');
+      return;
+    }
     // Snapshot do conteúdo: campos críticos da folha (não inclui o doc inteiro
     // pra hash ficar reproduzível mesmo se outros campos forem reordenados).
     const snapshot = {
@@ -2225,6 +2357,17 @@ async function confirmarContestar(){
   try{
     const p = _confCurrentPayroll;
     const ts = new Date().toISOString();
+    // --- HOLERITE: contestação grava nos campos próprios ---
+    if(_confMode === 'holerite'){
+      const envioH = { ...(p.holeriteConferencia||{}), status:'contestada', contestadoEm: ts };
+      const contestacaoH = { motivo, contestadoEm: ts };
+      await dbCol('payrolls').doc(p.id).set({ holeriteConferencia: envioH, holeriteContestacao: contestacaoH }, { merge:true });
+      p.holeriteConferencia = envioH; p.holeriteContestacao = contestacaoH;
+      fecharModalContestar();
+      fecharConferenciaHolerite();
+      alert('⚠️ Contestação enviada.\n\nO gestor foi notificado e vai revisar seu holerite. Aguarde o retorno.');
+      return;
+    }
     const envio = { ...(p.envioConferencia||{}), status:'contestada', contestadoEm: ts };
     const contestacao = { motivo, contestadoEm: ts };
     await dbCol('payrolls').doc(p.id).set({
@@ -2250,6 +2393,7 @@ const _origCarregarHome = carregarHome;
 window.carregarHome = async function(){
   await _origCarregarHome.apply(this, arguments);
   _carregarInboxFolhas();
+  _carregarInboxHolerites();
 };
 </script>
 
@@ -2276,6 +2420,32 @@ window.carregarHome = async function(){
       <button onclick="fecharConferenciaFolha()" style="background:none;border:none;font-size:24px;cursor:pointer;color:#888">×</button>
     </div>
     <div id="conferencia-folha-conteudo" style="overflow-y:auto;flex:1;padding:16px 20px"></div>
+    <div style="padding:14px;border-top:1px solid #E0E0E0;background:#FAFAFA;display:flex;gap:8px">
+      <button onclick="escolherContestar()" style="flex:1;background:#fff;color:#C62828;border:2px solid #C62828;padding:11px;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px">⚠️ Tenho objeção</button>
+      <button onclick="escolherConcordo()" style="flex:1;background:#2E7D32;color:#fff;border:none;padding:11px;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px">✅ Conferi e estou de acordo</button>
+    </div>
+  </div>
+</div>
+
+<!-- INBOX HOLERITES -->
+<div id="modal-holerites-inbox" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;align-items:center;justify-content:center;padding:20px">
+  <div style="background:#fff;border-radius:14px;max-width:480px;width:100%;max-height:80vh;display:flex;flex-direction:column;overflow:hidden">
+    <div style="padding:16px 20px;border-bottom:2px solid #80DEEA;background:#E0F7FA;display:flex;justify-content:space-between;align-items:center">
+      <div style="font-weight:700;color:#006064;font-size:16px">💵 Holerites para Conferir</div>
+      <button onclick="fecharInboxHolerites()" style="background:none;border:none;font-size:24px;cursor:pointer;color:#888">×</button>
+    </div>
+    <div id="inbox-holerites-lista" style="overflow-y:auto;flex:1"></div>
+  </div>
+</div>
+
+<!-- CONFERÊNCIA DO HOLERITE -->
+<div id="modal-conferencia-holerite" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;align-items:center;justify-content:center;padding:20px">
+  <div style="background:#fff;border-radius:14px;max-width:640px;width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">
+    <div style="padding:14px 20px;border-bottom:2px solid #00838F;background:#E0F7FA;display:flex;justify-content:space-between;align-items:center">
+      <div style="font-weight:700;color:#006064;font-size:16px">💵 Conferência do Holerite</div>
+      <button onclick="fecharConferenciaHolerite()" style="background:none;border:none;font-size:24px;cursor:pointer;color:#888">×</button>
+    </div>
+    <div id="conferencia-holerite-conteudo" style="overflow-y:auto;flex:1;padding:16px 20px;background:#fff"></div>
     <div style="padding:14px;border-top:1px solid #E0E0E0;background:#FAFAFA;display:flex;gap:8px">
       <button onclick="escolherContestar()" style="flex:1;background:#fff;color:#C62828;border:2px solid #C62828;padding:11px;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px">⚠️ Tenho objeção</button>
       <button onclick="escolherConcordo()" style="flex:1;background:#2E7D32;color:#fff;border:none;padding:11px;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px">✅ Conferi e estou de acordo</button>

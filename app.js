@@ -10389,6 +10389,178 @@ function verFolhaAssinada(payrollId){
   win.document.close();
 }
 
+// ============================================================================
+// HOLERITE → CONFERÊNCIA PELO COLABORADOR (Fase 2) — espelha o fluxo da FOLHA,
+// mas para o RECIBO/HOLERITE. Usa campos PRÓPRIOS no payroll
+// (holeriteConferencia / holeriteAssinatura / holeriteContestacao) pra não
+// colidir com a folha. O gestor grava o HTML do recibo no envio; o colaborador
+// só EXIBE e ASSINA (não recalcula nada). Prazo 48h → aceito por silêncio.
+// ============================================================================
+function _statusEnvioHolerite(p){
+  return p?.holeriteConferencia?.status || null;
+}
+
+// Envia UM holerite (de folha fechada) pro app do colaborador conferir/assinar.
+async function enviarHoleriteParaConferencia(payrollId){
+  if(Auth.currentUser?.role !== 'master' && !getUserModules(Auth.currentUser).folhaEnviar){
+    toast('Sem permissão pra enviar holerites pra conferência.','error'); return;
+  }
+  const p = State.payrolls.find(x => x.id === payrollId);
+  if(!p){ toast('Folha não encontrada.','error'); return; }
+  if(p.status !== 'fechada'){ toast('Folha precisa estar FECHADA pra enviar o holerite.','warning'); return; }
+  const emp = State.employees.find(e => e.id === p.employeeId);
+  if(!emp){ toast('Colaborador não encontrado.','error'); return; }
+  if(_statusEnvioHolerite(p) && _statusEnvioHolerite(p) !== 'pendente'){
+    if(!confirm(`Este holerite já foi ${_statusEnvioLabel(_statusEnvioHolerite(p)).txt.toLowerCase()}. Reenviar mesmo assim?`)) return;
+  }
+  const agora = new Date();
+  const prazo = new Date(agora.getTime() + _CONF_PRAZO_HORAS*60*60*1000);
+  const u = Auth.currentUser || {};
+  const r = _reciboOficialLinhas(emp, p);
+  const reciboHtml = _reciboOficialUmHTML(emp, p, p.mes, p.ano, {}); // snapshot do recibo (o colab só exibe isto)
+  const envio = {
+    enviadoEm: agora.toISOString(), enviadoPor: u.username||u.id||'', enviadoPorNome: u.username||'',
+    status: 'pendente', prazoExpiraEm: prazo.toISOString(),
+    visualizadoEm: null, assinadoEm: null, contestadoEm: null,
+    reciboHtml, liquido: r.liquido,
+  };
+  try{
+    await DB.merge('payrolls', payrollId, { holeriteConferencia: envio });
+    p.holeriteConferencia = envio;
+    Auth.log('HOLERITE_ENVIADO_CONFERENCIA', null, `${MESES[p.mes]}/${p.ano} — ${p.employeeId} (prazo ${prazo.toLocaleString('pt-BR')})`);
+    toast(`Holerite enviado — colab tem ${_CONF_PRAZO_HORAS}h pra conferir/assinar.`,'success');
+    if(typeof renderPagamentos==='function' && State.currentSection==='pagamentos') renderPagamentos();
+  }catch(e){ console.error(e); toast('Erro ao enviar holerite.','error'); }
+}
+
+// Envia TODOS os holerites das folhas fechadas da competência exibida (Pagamentos).
+async function enviarTodosHoleritesCompetencia(){
+  if(Auth.currentUser?.role !== 'master' && !getUserModules(Auth.currentUser).folhaEnviar){
+    toast('Sem permissão.','error'); return;
+  }
+  const mes = parseInt(val('pag-mes')||currentMes());
+  const ano = parseInt(val('pag-ano')||currentAno());
+  const fechadas = State.payrolls.filter(p => p.mes==mes && p.ano==ano && p.status==='fechada');
+  if(!fechadas.length){ toast(`Nenhuma folha fechada em ${MESES[mes]}/${ano}.`,'warning'); return; }
+  const naoEnviados = fechadas.filter(p => !_statusEnvioHolerite(p));
+  const jaEnviados  = fechadas.length - naoEnviados.length;
+  let alvos = naoEnviados;
+  if(jaEnviados > 0){
+    if(confirm(`${jaEnviados} holerite(s) JÁ enviados. Reenviar TODOS os ${fechadas.length}? Senão, mando só os ${naoEnviados.length} ainda não enviados.`)){
+      alvos = fechadas;
+    }
+  }
+  if(!alvos.length){ toast('Tudo já foi enviado. Nada a fazer.','info'); return; }
+  if(!confirm(`Enviar ${alvos.length} holerite(s) de ${MESES[mes]}/${ano} pra conferência dos colaboradores?\n\nPrazo: ${_CONF_PRAZO_HORAS} horas. Após isso, sem ação, vira "aceito por silêncio".`)) return;
+  const agora = new Date();
+  const prazo = new Date(agora.getTime() + _CONF_PRAZO_HORAS*60*60*1000);
+  const u = Auth.currentUser || {};
+  let ok=0, erros=0;
+  for(const p of alvos){
+    const emp = State.employees.find(e => e.id === p.employeeId);
+    if(!emp){ erros++; continue; }
+    try{
+      const r = _reciboOficialLinhas(emp, p);
+      const reciboHtml = _reciboOficialUmHTML(emp, p, p.mes, p.ano, {});
+      const envio = {
+        enviadoEm: agora.toISOString(), enviadoPor: u.username||u.id||'', enviadoPorNome: u.username||'',
+        status:'pendente', prazoExpiraEm: prazo.toISOString(),
+        visualizadoEm:null, assinadoEm:null, contestadoEm:null,
+        reciboHtml, liquido: r.liquido,
+      };
+      await DB.merge('payrolls', p.id, { holeriteConferencia: envio });
+      p.holeriteConferencia = envio;
+      ok++;
+    }catch(e){ console.error('envio holerite', p.id, e); erros++; }
+  }
+  Auth.log('HOLERITE_ENVIADO_CONFERENCIA_LOTE', null, `${MESES[mes]}/${ano} — ${ok} holerite(s)`);
+  toast(`${ok} holerite(s) enviado(s)${erros?` · ${erros} com erro`:''}. Colab tem ${_CONF_PRAZO_HORAS}h pra responder.`,'success');
+  if(typeof renderPagamentos==='function' && State.currentSection==='pagamentos') renderPagamentos();
+}
+
+// Job "aceito por silêncio" do HOLERITE (roda no carregamento do master, junto
+// com o da folha). Marca aceita_por_silencio os holerites pendentes/visualizados
+// cujo prazo já passou.
+async function _aceitarPorSilencioHoleriteJob(){
+  const agora = new Date();
+  const candidatas = (State.payrolls||[]).filter(p => {
+    const env = p.holeriteConferencia;
+    if(!env) return false;
+    if(env.status !== 'pendente' && env.status !== 'visualizada') return false;
+    if(!env.prazoExpiraEm) return false;
+    return new Date(env.prazoExpiraEm) <= agora;
+  });
+  if(!candidatas.length) return;
+  for(const p of candidatas){
+    const novo = { ...p.holeriteConferencia, status:'aceita_por_silencio', silencioEm: agora.toISOString() };
+    try{
+      await DB.merge('payrolls', p.id, { holeriteConferencia: novo });
+      p.holeriteConferencia = novo;
+    }catch(e){ console.error('silencio holerite', p.id, e); }
+  }
+  Auth.log('HOLERITE_SILENCIO', null, `${candidatas.length} holerite(s) aceitos por silêncio`);
+}
+
+// Aba "Holerites Assinados" no cadastro do colaborador (espelha Folhas Assinadas).
+function renderHoleritesAssinadosColab(){
+  const empId = State.editingEmployeeId || val('emp-id');
+  const container = document.getElementById('holerites-assinados-list');
+  if(!container) return;
+  if(!empId){ container.innerHTML = '<div style="font-size:12px;color:#94a3b8;padding:8px 2px">Salve o colaborador primeiro.</div>'; return; }
+  const lista = (State.payrolls||[]).filter(p => {
+    if(p.employeeId !== empId) return false;
+    const st = p?.holeriteConferencia?.status;
+    return st === 'assinada' || st === 'aceita_por_silencio' || st === 'contestada';
+  });
+  lista.sort((a,b)=> a.ano!==b.ano ? b.ano-a.ano : b.mes-a.mes);
+  if(!lista.length){
+    container.innerHTML = `<div class="empty-state small"><i class="fa-solid fa-file-invoice-dollar" style="font-size:32px;color:#cbd5e0"></i><p style="font-size:13px;margin-top:8px">Nenhum holerite foi enviado/assinado ainda.</p></div>`;
+    return;
+  }
+  container.innerHTML = lista.map(p => {
+    const st = p.holeriteConferencia?.status;
+    const stMap = {
+      'assinada':            { txt:'Assinado', cor:'#2E7D32', bg:'#E8F5E9', icon:'fa-circle-check' },
+      'aceita_por_silencio': { txt:'Aceito por silêncio', cor:'#558B2F', bg:'#F1F8E9', icon:'fa-clock-rotate-left' },
+      'contestada':          { txt:'Contestado', cor:'#C62828', bg:'#FFEBEE', icon:'fa-circle-xmark' },
+    };
+    const cfg = stMap[st] || stMap['assinada'];
+    const hash = p.holeriteAssinatura?.hash || '';
+    const hashTrunc = hash ? `${hash.substring(0,16)}…` : '—';
+    const enviado = p.holeriteConferencia?.enviadoEm ? new Date(p.holeriteConferencia.enviadoEm).toLocaleString('pt-BR') : '—';
+    const quando = p.holeriteConferencia?.assinadoEm ? new Date(p.holeriteConferencia.assinadoEm).toLocaleString('pt-BR')
+                 : p.holeriteConferencia?.silencioEm ? new Date(p.holeriteConferencia.silencioEm).toLocaleString('pt-BR')
+                 : p.holeriteConferencia?.contestadoEm ? new Date(p.holeriteConferencia.contestadoEm).toLocaleString('pt-BR') : '—';
+    const motivo = (st==='contestada' && p.holeriteContestacao?.motivo)
+      ? `<div style="background:#FFEBEE;color:#C62828;padding:8px 10px;border-radius:5px;font-size:11px;margin-top:6px"><strong>Motivo:</strong> ${esc(p.holeriteContestacao.motivo)}</div>` : '';
+    const btnVer = (st==='assinada' && p.holeriteAssinatura?.htmlRender)
+      ? `<button class="btn btn-sm btn-outline" onclick="verHoleriteAssinado('${p.id}')" style="font-size:11px"><i class="fa-solid fa-eye"></i> Ver holerite + hash</button>`
+      : (st==='aceita_por_silencio')
+        ? `<button class="btn btn-sm btn-outline" onclick="alert('Aceito por silêncio — sem assinatura digital, sem hash. Holerite registrado como conferido automaticamente após 48h sem ação.')" style="font-size:11px;opacity:0.7"><i class="fa-solid fa-clock"></i> Sem hash (silêncio)</button>` : '';
+    return `<div style="border:1px solid #e0e0e0;border-radius:8px;padding:12px 14px;margin-bottom:10px;background:#fafafa">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <div>
+          <div style="font-weight:700;color:#1a1a2e;font-size:14px">${MESES[p.mes]} / ${p.ano}</div>
+          <div style="font-size:11px;color:#888;margin-top:2px">Enviado: ${enviado} · ${cfg.txt}: ${quando}</div>
+        </div>
+        <span style="background:${cfg.bg};color:${cfg.cor};padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700"><i class="fa-solid ${cfg.icon}"></i> ${cfg.txt.toUpperCase()}</span>
+      </div>
+      <div style="margin-top:8px;font-family:monospace;font-size:11px;color:#666"><strong>Hash:</strong> ${hashTrunc}</div>
+      ${motivo}
+      <div style="margin-top:8px">${btnVer}</div>
+    </div>`;
+  }).join('');
+}
+
+function verHoleriteAssinado(payrollId){
+  const p = (State.payrolls||[]).find(x => x.id === payrollId);
+  if(!p || !p.holeriteAssinatura?.htmlRender){ toast('Holerite sem HTML render disponível.','warning'); return; }
+  const win = window.open('','_blank','width=900,height=900,scrollbars=yes');
+  if(!win){ toast('Pop-ups bloqueados — habilite pra ver o holerite.','error'); return; }
+  win.document.write(p.holeriteAssinatura.htmlRender);
+  win.document.close();
+}
+
 // Apura a Boa Permanência de uma folha SALVA no fechamento (sem o formulário).
 // Como a bonificação é BENEFÍCIO (pago no VR, fora do salário/impostos), só
 // precisa setar o campo `bonificacao` — não mexe em totalBruto/INSS/IRRF/líquido.
@@ -22868,6 +23040,7 @@ async function _carregarDadosPosLogin(){
     // Só master/usuário com permissão pode atualizar; outros leem só.
     if(Auth.currentUser?.role==='master' || getUserModules(Auth.currentUser).folhaEnviar){
       _aceitarPorSilencioJob().catch(e => console.error('silêncio job:', e));
+      _aceitarPorSilencioHoleriteJob().catch(e => console.error('silêncio holerite job:', e));
     }
   });
   // `users` NÃO tem listener — é coleção só-servidor; a lista vem do Worker

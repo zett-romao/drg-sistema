@@ -21913,22 +21913,27 @@ async function aplicarAjusteEscala(){
   const atuais = _collectEscalaDias(empId) || [];
   const mapaAtual = {}; atuais.forEach(d=>{ mapaAtual[d.dia]=d; });
   const mapaNovo  = {}; novoDias.forEach(d=>{ mapaNovo[d.dia]=d; });
-  // Monta o mês final:
+  // Monta a COMPETÊNCIA final (não mais mês de calendário):
   //  • dia com ponto real batido → sempre preservado
-  //  • 12x36 → diaX é a ÂNCORA do ciclo; reprojeta o mês inteiro
-  //  • 5x2/6x1 → mantém os dias anteriores ao corte (diaX)
+  //  • 12x36 → diaX é a ÂNCORA do ciclo; reprojeta a competência inteira
+  //  • 5x2/6x1 → mantém os dias anteriores ao corte (diaX), respeitando o
+  //    ordinal da competência (dias 26-31 são SEMPRE anteriores a 1-25)
   const protegidos = _diasProtegidosEscala(empId, mes, ano);
   const is12x36 = (fam === '12x36');
   let preservados = 0;
   const final = [];
-  for(let d=1; d<=dpm; d++){
+  const compDiasArr = _compDias(mes, ano);
+  for(const cd of compDiasArr){
+    const d = cd.dia;
     let manter;
     if(protegidos.has(d)){ manter = true; preservados++; }
     else if(is12x36)     { manter = false; }
-    else                 { manter = (d < diaX); }
-    final.push((manter && mapaAtual[d]) ? mapaAtual[d] : (mapaNovo[d] || mapaAtual[d]));
+    // Pra 5x2/6x1 com competência: ordinal correto (26-31 = previa do mês anterior)
+    else                 { manter = _compDiaOrd(d) < _compDiaOrd(diaX); }
+    const entry = (manter && mapaAtual[d]) ? mapaAtual[d] : (mapaNovo[d] || mapaAtual[d]);
+    if(entry) final.push(entry);
   }
-  card.querySelector('tbody').innerHTML = final.map(d=>_renderEscalaRow(d, fam)).join('');
+  card.querySelector('tbody').innerHTML = final.map(d=>_renderEscalaRow(d, fam, mes, ano)).join('');
   card.dataset.fam = fam;
   let cadastroAtualizado = false;
   if(updateCad){
@@ -21973,7 +21978,10 @@ function _collectEscalaDias(empId){
   const dias = [];
   rows.forEach(row => {
     const dia = parseInt(row.dataset.dia);
-    const ds = new Date(ano, mes-1, dia).getDay();
+    // diaSem usa a DATA REAL da competência (dia 26-31 = mês anterior).
+    // Antes usava new Date(ano, mes-1, dia) que dava errado pra dias 26-31.
+    const r = _compRealDate(mes, ano, dia);
+    const ds = new Date(r.ano, r.mes-1, r.dia).getDay();
     const tipo = row.dataset.tipo || 'trabalho';
     const obj = {
       dia, diaSem:ds, tipo,

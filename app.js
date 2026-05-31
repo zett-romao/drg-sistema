@@ -3702,10 +3702,16 @@ function calcFeriasModuloPreview(){
   const diasGozo=30-abonoDias;
   const abono=Math.round(salBase/30*abonoDias*100)/100;
   const salFruicao=Math.round(salBase*diasGozo/30*100)/100;
-  const terco=Math.round(salFruicao/3*100)/100;
+  // 1/3 constitucional incide sobre TODA a remuneração de férias (fruição + abono).
+  // Tributação (CLT/jurisprudência): abono pecuniário e o 1/3 sobre ele são ISENTOS
+  // de INSS/IRRF; a base é só a fruição + o 1/3 da fruição.
+  const tercoGozo=Math.round(salFruicao/3*100)/100;
+  const tercoAbono=Math.round(abono/3*100)/100;
+  const terco=Math.round((tercoGozo+tercoAbono)*100)/100;
   const totalBruto=Math.round((salFruicao+terco+abono)*100)/100;
-  const inss=calcINSS(salFruicao+terco);
-  const irrf=calcIRRF(salFruicao+terco,emp.dependentesIRRF||0,emp.pensaoAlimenticia||0,0,inss);
+  const baseTributavel=salFruicao+tercoGozo;
+  const inss=calcINSS(baseTributavel);
+  const irrf=calcIRRF(baseTributavel,emp.dependentesIRRF||0,emp.pensaoAlimenticia||0,0,inss);
   const totalLiq=Math.round((totalBruto-inss-irrf)*100)/100;
   const abonoBox=document.getElementById('fer-abono-box');
   if(abonoBox) abonoBox.classList.toggle('hidden',abonoDias===0);
@@ -5800,7 +5806,10 @@ function _resetPayrollFieldsOnly(){
 }
 
 function calcAdNoturno(salarioBase, dias){
-  return (salarioBase/220)*0.20*7*dias;
+  // CLT Art. 73 §1º: hora noturna reduzida = 52min30s. As 7h-relógio do turno
+  // noturno (22h-05h) equivalem a 8 horas noturnas reduzidas (7*60/52,5 = 8).
+  // Antes multiplicava por 7 (horas-relógio) → adicional ~12,5% a menor.
+  return (salarioBase/220)*0.20*(7*60/52.5)*dias;
 }
 
 // Conta os dias TRABALHADOS da competência cuja LOTAÇÃO vigente era noturna

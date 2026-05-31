@@ -1643,6 +1643,12 @@
               <button class="btn btn-success" onclick="printPagamentos()">
                 <i class="fa-solid fa-print"></i> Imprimir
               </button>
+              <button class="btn btn-primary" onclick="verRelatorioHolerites()" title="Abre os recibos para revisar antes de enviar. Marcados = só selecionados; senão, todos. No fim do relatório: exportar PDF/Excel e imprimir.">
+                <i class="fa-solid fa-eye"></i> Ver Recibos
+              </button>
+              <button class="btn btn-primary" onclick="verRelatorioPlanilhaHolerites()" title="Abre a planilha consolidada (1 linha por colaborador) para revisar. Marcados = só selecionados; senão, todos. No fim: exportar PDF/Excel e imprimir.">
+                <i class="fa-solid fa-table-list"></i> Ver Planilha
+              </button>
               <button class="btn btn-outline" id="btn-imprimir-selecionados-pag" onclick="printPagamentosSelecionados()" disabled style="border-color:#1B5E20;color:#1B5E20" title="Gera 1 Recibo Oficial (CLT/Portaria 671) por colaborador selecionado, com códigos MTE/SEFIP">
                 <i class="fa-solid fa-file-invoice-dollar"></i> Recibos Oficiais (selecionados) <span id="pag-sel-count" style="background:#1B5E20;color:#fff;border-radius:10px;padding:1px 6px;font-size:10px;display:none;margin-left:4px">0</span>
               </button>
@@ -6104,6 +6110,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260531i-reprojetar"></script>
+<script src="app.js?v=20260531j-holerite-relatorio"></script>
 </body>
 </html>

@@ -2879,6 +2879,115 @@ function printPagamentosSelecionados(){
   Auth.log && Auth.log('RECIBO_OFICIAL_GERADO_LOTE', null, `${itens.length} recibo(s) | ${String(mes).padStart(2,'0')}/${ano}${semFolha?` (${semFolha} sem folha)`:''}`);
 }
 
+// ============================================================================
+// FASE 1 — VISUALIZAR RELATÓRIO DE HOLERITES (revisar antes de enviar)
+// Abre um preview (recibos empilhados OU planilha consolidada) com a barra de
+// ações no rodapé (Imprimir/PDF · Excel · Fechar) via _abrirJanelaExport.
+// Respeita a seleção: se houver linhas marcadas na tabela de Pagamentos, mostra
+// só as selecionadas; senão, todas as folhas calculadas do período.
+// ============================================================================
+
+// Coleta { mes, ano, itens:[{emp,p}], semFolha, useSel } do período exibido.
+function _relatHoleritesColeta(){
+  const mes=parseInt(val('pag-mes')||currentMes());
+  const ano=parseInt(val('pag-ano')||currentAno());
+  const statusFilt=val('pag-status-filter')||'ativo';
+  const selIds=Array.from(document.querySelectorAll('#pag-tbody .pag-row-check:checked')).map(cb=>cb.dataset.empId);
+  const useSel=selIds.length>0;
+  const selSet=new Set(selIds);
+  let emps=_filtrarEmpsPorEscopo(State.employees).slice();
+  if(statusFilt!=='all') emps=emps.filter(e=>(e.status||'ativo')===statusFilt);
+  if(useSel) emps=emps.filter(e=>selSet.has(e.id));
+  emps.sort((a,b)=>a.nome.localeCompare(b.nome));
+  const folhaMap={};
+  State.payrolls.filter(p=>p.mes===mes&&p.ano===ano).forEach(p=>{ folhaMap[p.employeeId]=p; });
+  const itens=[]; let semFolha=0;
+  emps.forEach(e=>{ const p=folhaMap[e.id]; if(p) itens.push({emp:e,p}); else semFolha++; });
+  return { mes, ano, itens, semFolha, useSel };
+}
+
+// Relatório de RECIBOS (holerites individuais empilhados) — preview p/ revisão.
+function verRelatorioHolerites(){
+  const { mes, ano, itens, semFolha, useSel } = _relatHoleritesColeta();
+  if(!itens.length){ toast(useSel?'Nenhum dos selecionados tem folha calculada no período.':'Nenhuma folha calculada no período.','warning'); return; }
+  const html = _reciboOficialPaginaHTML(itens, mes, ano);
+  _abrirJanelaExport(html, 'pdf', `Recibos_${MESES[mes]}_${ano}${useSel?'_selecionados':''}`);
+  if(semFolha) toast(`${itens.length} recibo(s) no relatório · ${semFolha} sem folha (omitido).`,'info');
+}
+
+// Relatório de PLANILHA consolidada (1 linha por colaborador) — preview p/ revisão.
+function verRelatorioPlanilhaHolerites(){
+  const { mes, ano, itens, semFolha, useSel } = _relatHoleritesColeta();
+  if(!itens.length){ toast(useSel?'Nenhum dos selecionados tem folha calculada no período.':'Nenhuma folha calculada no período.','warning'); return; }
+  const html = _planilhaHoleritesHTML(itens, mes, ano, useSel);
+  _abrirJanelaExport(html, 'pdf', `Planilha_Holerites_${MESES[mes]}_${ano}${useSel?'_selecionados':''}`);
+  if(semFolha) toast(`${itens.length} colaborador(es) na planilha · ${semFolha} sem folha (omitido).`,'info');
+}
+
+// Monta o HTML da planilha consolidada (bruto/INSS/IRRF/Adiant./FGTS/líquido).
+function _planilhaHoleritesHTML(itens, mes, ano, useSel){
+  const _esc = s => String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' })[c]);
+  let tBruto=0,tINSS=0,tIRRF=0,tFGTS=0,tAdiant=0,tLiq=0;
+  const rows = itens.map((it,i)=>{
+    const e=it.emp, p=it.p;
+    const bruto=p.totalBruto||0, inss=p.inss||0, irrf=p.irrf||0, fgts=p.fgts||0;
+    const adiant=p.adiantamentoValor||p.adiantamento||0;
+    const liq=p.totalLiquidoFinal||p.remuneracao||0;
+    tBruto+=bruto; tINSS+=inss; tIRRF+=irrf; tFGTS+=fgts; tAdiant+=adiant; tLiq+=liq;
+    const stat=p.status==='fechada'?'Fechada':(p.status==='aberta'?'Aberta':'—');
+    return `<tr>
+      <td>${i+1}</td>
+      <td>${e.registro?String(e.registro).padStart(4,'0'):'—'}</td>
+      <td style="text-align:left">${_esc(e.nome)}</td>
+      <td style="text-align:left">${_esc(e.cargo||e.setor||'—')}</td>
+      <td class="r">${fmtMoney(e.salarioBase||0)}</td>
+      <td class="r">${fmtMoney(bruto)}</td>
+      <td class="r" style="color:#c0392b">${inss?'('+fmtMoney(inss)+')':'—'}</td>
+      <td class="r" style="color:#c0392b">${irrf?'('+fmtMoney(irrf)+')':'—'}</td>
+      <td class="r" style="color:#c0392b">${adiant?'('+fmtMoney(adiant)+')':'—'}</td>
+      <td class="r" style="color:#1565C0">${fgts?fmtMoney(fgts):'—'}</td>
+      <td class="r" style="font-weight:700;color:#1B5E20">${fmtMoney(liq)}</td>
+      <td>${stat}</td>
+    </tr>`;
+  }).join('');
+  const empNome = _e('nomeEmpresa') || _e('razaoSocial') || '';
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+    <title>Planilha de Holerites — ${MESES[mes]}/${ano}</title>
+    <style>
+      @page { size:A4 landscape; margin:10mm }
+      body { font-family:Arial,sans-serif; font-size:11px; color:#000; margin:0; padding:14px }
+      h2 { color:#1a3a6b; margin:0 0 4px }
+      .sub { color:#555; font-size:12px; margin-bottom:12px }
+      table { width:100%; border-collapse:collapse }
+      th,td { border:1px solid #ccc; padding:4px 6px; text-align:center }
+      th { background:#1a3a6b; color:#fff }
+      td.r { text-align:right }
+      tr:nth-child(even) td { background:#f5f7fb }
+      tfoot td { font-weight:700; background:#EEF4FF }
+      @media print { body{ -webkit-print-color-adjust:exact; print-color-adjust:exact } }
+    </style></head><body>
+    <h2>${_esc(empNome)} — Planilha de Holerites</h2>
+    <div class="sub">Competência ${MESES[mes]} / ${ano}${useSel?' · (somente selecionados)':''} · ${itens.length} colaborador(es) · Gerado em ${new Date().toLocaleString('pt-BR')}</div>
+    <table>
+      <thead><tr>
+        <th>#</th><th>Matr.</th><th>Colaborador</th><th>Cargo/Setor</th>
+        <th>Sal.Base</th><th>Bruto</th><th>INSS</th><th>IRRF</th><th>Adiant.</th><th>FGTS</th><th>Líquido</th><th>Status</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr>
+        <td colspan="5" style="text-align:right">TOTAIS</td>
+        <td class="r">${fmtMoney(tBruto)}</td>
+        <td class="r" style="color:#c0392b">(${fmtMoney(tINSS)})</td>
+        <td class="r" style="color:#c0392b">(${fmtMoney(tIRRF)})</td>
+        <td class="r" style="color:#c0392b">${tAdiant>0?'('+fmtMoney(tAdiant)+')':'—'}</td>
+        <td class="r" style="color:#1565C0">${fmtMoney(tFGTS)}</td>
+        <td class="r" style="color:#1B5E20">${fmtMoney(tLiq)}</td>
+        <td></td>
+      </tr></tfoot>
+    </table>
+    </body></html>`;
+}
+
 // ============================================
 // B2 — ENVIO DO RECIBO PRO APP DO COLABORADOR
 // Como o app de login do colaborador ainda não existe, o "envio" gera um

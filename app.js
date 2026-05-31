@@ -6328,6 +6328,17 @@ function _benefStatusColab(empId, comp){
   return null;
 }
 
+// Status do pagamento da BOA PERMANÊNCIA (origem 'beneficio-bp', chave BP_<ini>_<fim>)
+// — separado do status geral, senão a BP paga não reflete na lista. #audit-benef-4
+function _benefBPStatus(empId, ini, fim){
+  const comp = `BP_${ini}_${fim}`;
+  const sols = (State.solicitacoes||[]).filter(s => s.origem==='beneficio-bp' && s.employeeId===empId && s.competencia===comp);
+  if(!sols.length) return null;
+  if(sols.find(s=>s.status==='pago')) return 'pago';
+  if(sols.find(s=>s.status==='pendente')) return 'pendente';
+  return null; // recusado/estornado não bloqueia (refazer)
+}
+
 function renderBeneficiosLista(){
   const tab = _beneficioTabAtual || 'hoje';
   const hojeISO = new Date().toISOString().substring(0,10);
@@ -6417,7 +6428,7 @@ function renderBeneficiosLista(){
       // Boa Permanência perdida → entra na lista "Perderam BP" SOMENTE quando
       // a folha está FECHADA e o colab teve falta. Quando pendente (folha não
       // fechada ainda) é 'N/C' — não entra como perda, é "ainda não apurado".
-      if(_ctxMes && b.bpMotivo && (b.bpValor||0) === 0 && !b.bpPendente){
+      if(_ctxMes && b.bpPerdidaPorFalta){  // só quem PERDEU por falta (não 'CCT sem valor'). #audit-benef-9
         semBP.push({ emp:e, b, motivo: b.bpMotivo });
       }
       // Critério pra entrar na LISTA PRINCIPAL (a pagar):
@@ -6481,7 +6492,9 @@ function renderBeneficiosLista(){
   const totalVR    = linhas.reduce((s,l)=>s+l.b.vrValor,0);
   const totalVA    = linhas.reduce((s,l)=>s+(l.b.vaValor||0),0);
   const totalBP    = linhas.reduce((s,l)=>s+(l.b.bpValor||0),0);
-  const totalAPagar    = linhas.reduce((s,l)=>s + (isLiquidado(l.stat)?0:l.b.total), 0);
+  // Soma sobre linhasAPagar (já filtrada por canal quando há filtro) → bate com
+  // cntAPagar. Sem filtro = idêntico (linhasAPagar = a-pagar de todos). #audit-benef-10
+  const totalAPagar    = linhasAPagar.reduce((s,l)=>s + (isLiquidado(l.stat)?0:l.b.total), 0);
   const totalPago      = linhas.reduce((s,l)=>s + (l.stat && l.stat.status==='pago' ? (l.stat.sol.valor||0) : 0), 0);
   const totalPendente  = linhas.reduce((s,l)=>s + (l.stat && l.stat.status==='pendente' ? (l.stat.sol.valor||0) : 0), 0);
   // Totais por CANAL de pagamento — só do que AINDA falta pagar.
@@ -6492,7 +6505,7 @@ function renderBeneficiosLista(){
   const totalDinheiro = linhas.reduce((s,l)=>s + (isLiquidado(l.stat)?0:(l.b.valorDinheiro||0)),0);
   // Total da Boa Permanência ainda a pagar (independente do canal) — pra
   // dimensionar o card no header e o botão dedicado.
-  const totalBPAPagar = linhas.reduce((s,l)=>s + (isLiquidado(l.stat)?0:(l.b.bpValor||0)),0);
+  const totalBPAPagar = linhas.reduce((s,l)=>s + ((isLiquidado(l.stat) || _benefBPStatus(l.emp.id, seloIni, seloFim)) ? 0 : (l.b.bpValor||0)),0);
   const cntPago     = linhas.filter(l=>l.stat && l.stat.status==='pago').length;
   const cntPendente = linhas.filter(l=>l.stat && l.stat.status==='pendente').length;
   const cntAPagar   = linhasAPagar.length;
@@ -6530,7 +6543,9 @@ function renderBeneficiosLista(){
       bp:       { titulo:'Boa Permanência', icon:'fa-medal', cor:'#F57F17', bg:'#FFF9C4', exp:'bp' },
     }[_beneficioCanalFiltro] || null;
     if(!CFG) return '';
-    const totalFiltro = linhas.reduce((s,l)=>s + (
+    // Soma/conta sobre linhasAPagar (filtrada + sem pagos), igual à tabela — antes
+    // usava `linhas` (universo todo, inclui pagos), enganando o número. #audit-benef-13
+    const totalFiltro = linhasAPagar.reduce((s,l)=>s + (
       _beneficioCanalFiltro === 'vt' ? (l.b.valorCartaoVT||0) :
       _beneficioCanalFiltro === 'vr' ? (l.b.valorCartaoVR||0) :
       _beneficioCanalFiltro === 'dinheiro' ? (l.b.valorDinheiro||0) :
@@ -6542,7 +6557,7 @@ function renderBeneficiosLista(){
     const fnClose = ')';
     return `<div style="background:${CFG.bg};border:2px solid ${CFG.cor};padding:10px 14px;border-radius:6px;margin-bottom:10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <span style="font-weight:700;color:${CFG.cor};font-size:14px"><i class="fa-solid ${CFG.icon}"></i> Filtro: ${CFG.titulo}</span>
-      <span style="color:${CFG.cor};font-weight:600">${linhas.length} colaborador(es) &middot; ${fmtMoney(totalFiltro)}</span>
+      <span style="color:${CFG.cor};font-weight:600">${linhasAPagar.length} colaborador(es) &middot; ${fmtMoney(totalFiltro)}</span>
       <span style="flex:1"></span>
       <button class="btn btn-sm btn-outline" onclick="${expFn}'print'${fnClose}" style="border-color:${CFG.cor};color:${CFG.cor};font-size:12px"><i class="fa-solid fa-print"></i> Imprimir</button>
       <button class="btn btn-sm btn-outline" onclick="${expFn}'pdf'${fnClose}" style="border-color:#C62828;color:#C62828;font-size:12px"><i class="fa-solid fa-file-pdf"></i> PDF</button>
@@ -6654,6 +6669,7 @@ function renderBeneficiosLista(){
     }
     const _busca = `${emp.nome||''} ${matr} ${emp.setor||''} ${posto} ${stat?stat.status:''}`.replace(/"/g,'');
     const _mpBadge = _benefMiniBadges(_benefPagoTipos(emp.id, seloIni, seloFim));
+    const _bpPg = _benefBPStatus(emp.id, seloIni, seloFim); // status do pagamento da BP. #audit-benef-4
     html += `<tr style="background:${bg};cursor:pointer" data-busca="${_busca}" onclick="openBeneficioDetalhe('${emp.id}','${escopo}','${ini}','${fim}')">
       <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7" onclick="event.stopPropagation()"><input type="checkbox" class="benef-chk" data-emp-id="${emp.id}" data-valor="${b.valorDinheiro}" data-valor-total="${b.total}" data-dinheiro="${b.valorDinheiro>0?1:0}" data-nome="${(emp.nome||'').replace(/"/g,'&quot;')}" data-vt="${b.vtValor||0}" data-vr="${b.vrValor||0}" data-va="${b.vaValor||0}" data-vtc="${b.vtCanal||'cartao'}" data-vrc="${b.vrCanal||'cartao'}" data-vac="${b.vaCanal||'cartao'}" ${chkAttr || `title="${b.valorDinheiro>0?'Tem valor em dinheiro (PIX)':'No cartão — entra na impressão de selecionados; o PIX ignora (use Forçar PIX para contingência)'}"`} onchange="_benefSelCount()"></td>
       <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7;font-weight:700;color:var(--primary)">${matr}</td>
@@ -6663,7 +6679,7 @@ function renderBeneficiosLista(){
       <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap">${vtIcon} ${b.vtValor>0?`<span style="color:var(--text-muted);font-size:11px">${b.diasVt}d ·</span> ${fmtMoney(b.vtValor)}${b.descVT>0?` <small style="color:#C62828" title="Desconto de ${b.faltasInjAnterior||0} falta(s) inj. anterior">(-${fmtMoney(b.descVT)})</small>`:''} ${cBadge(b.vtCanal)}`:(b.descVT>0?`<small style="color:#C62828" title="${b.faltasInjAnterior||0} falta(s) consumiram o crédito">${b.diasVt}d · ${fmtMoney(b.vtCheio||0)} −${fmtMoney(b.descVT)}</small>`:'—')}</td>
       <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap"><i class="fa-solid fa-utensils" style="color:#ff8a65"></i> ${b.vrValor>0?`<span style="color:#ff8a65;font-size:11px">${b.diasVr}d ·</span> ${fmtMoney(b.vrValor)}${b.descVR>0?` <small style="color:#C62828" title="Desconto de ${b.faltasInjAnterior||0} falta(s) inj. anterior">(-${fmtMoney(b.descVR)})</small>`:''} ${cBadge(b.vrCanal)}`:(b.descVR>0?`<small style="color:#C62828" title="${b.faltasInjAnterior||0} falta(s) consumiram o crédito">${b.diasVr}d · ${fmtMoney(b.vrCheio||0)} −${fmtMoney(b.descVR)}</small>`:'—')}</td>
       <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap"><i class="fa-solid fa-basket-shopping" style="color:#AD1457"></i> ${(b.vaValor||0)>0?`${fmtMoney(b.vaValor)}${b.descVA>0?` <small style="color:#C62828" title="Desconto de ${b.faltasInjAnterior||0} falta(s) inj. — mensal">(-${fmtMoney(b.descVA)})</small>`:''} ${cBadge(b.vaCanal||'cartao')}`:((b.vaMensal||0)>0&&b.descVA>0?`<small style="color:#C62828" title="${b.faltasInjAnterior||0} falta(s) consumiram o VA">${fmtMoney(b.vaMensal||0)} −${fmtMoney(b.descVA)}</small>`:'—')}</td>
-      <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap"><i class="fa-solid fa-medal" style="color:#F57F17"></i> ${(b.bpValor||0)>0?`${fmtMoney(b.bpValor)} ${cBadge(b.bpCanal||'dinheiro')}`:(b.bpPendente?`<small style="color:#9E9E9E" title="Folha não fechada — Boa Permanência só apura no fechamento do mês">N/C <i class="fa-solid fa-clock" style="color:#9E9E9E"></i></small>`:(b.bpMotivo?`<small style="color:#C62828" title="${esc(b.bpMotivo)}">perdeu <i class="fa-solid fa-circle-info" style="color:#9E9E9E"></i></small>`:'—'))}</td>
+      <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap"><i class="fa-solid fa-medal" style="color:#F57F17"></i> ${(b.bpValor||0)>0?(_bpPg==='pago'?`<small style="color:#2E7D32" title="Boa Permanência já paga"><i class="fa-solid fa-circle-check"></i> PAGO</small>`:_bpPg==='pendente'?`<small style="color:#E65100" title="BP em aprovação (Aprovações)">PENDENTE</small>`:`${fmtMoney(b.bpValor)} ${cBadge(b.bpCanal||'dinheiro')}`):(b.bpMotivo?`<small style="color:#C62828" title="${esc(b.bpMotivo)}">perdeu <i class="fa-solid fa-circle-info" style="color:#9E9E9E"></i></small>`:'—')}</td>
       <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;font-weight:700;color:#0288D1">${fmtMoney(b.total)}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7;font-size:11px;font-family:monospace;color:#00695C">${pix}</td>
       <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7"><button class="btn-icon" onclick="event.stopPropagation();openBeneficioDetalhe('${emp.id}','${escopo}','${ini}','${fim}')" title="Ver planilha individual"><i class="fa-solid fa-clipboard-list" style="color:#0288D1"></i></button></td>
@@ -7566,8 +7582,9 @@ function openBeneficioDetalhe(empId, _ignEscopo, _ignIni, _ignFim){
     `<strong style="color:#00695C"><i class="fa-brands fa-pix"></i> Chave PIX:</strong> <span style="font-family:monospace">${pixDet}</span>`;
   const tbody = document.getElementById('benef-det-tbody');
   const linhas = [];
-  // VT/AM
-  if(b.vtTipo !== 'nao' && (emp.valorDiarioVt||0) > 0){
+  // VT/AM — mostra se há valor calculado (b.vtValor) OU base no cadastro. Com
+  // segmentação por transferência, b.vtValor>0 mesmo se a lotação atual zerou. #audit-benef-8
+  if(b.vtTipo !== 'nao' && ((b.vtValor||0) > 0 || (emp.valorDiarioVt||0) > 0)){
     let mult = 1, multLabel = '×1 dia';
     if(escopo === 'dia' && b.vtFreq === 'diario'){ mult = b.diasVt>0?1:0; multLabel = b.diasVt>0?'×1 dia':'(não trab.)'; }
     else if(b.vtFreq === 'semanal'){ mult = b.semanas; multLabel = `×${b.semanas} sem.`; }
@@ -7578,7 +7595,7 @@ function openBeneficioDetalhe(empId, _ignEscopo, _ignIni, _ignFim){
     linhas.push({ rotulo: ben, freq: freqLabel, base: emp.valorDiarioVt||0, multLabel, valor: b.vtValor||0, campoId: 'edit-vt', chkId: 'chk-vt' });
   }
   // VR
-  if((emp.valorDiarioVr||0) > 0){
+  if((b.vrValor||0) > 0 || (emp.valorDiarioVr||0) > 0){  // #audit-benef-8
     let mult = 1, multLabel = '×1 dia';
     if(escopo === 'dia' && b.vrFreq === 'diario'){ mult = b.diasVr>0?1:0; multLabel = `${b.diasVr>0?'×1 dia (>6h)':'(jornada ≤ 6h)'}`; }
     else if(b.vrFreq === 'semanal'){ mult = b.semanasVr; multLabel = `×${b.semanasVr} sem.`; }
@@ -7588,7 +7605,7 @@ function openBeneficioDetalhe(empId, _ignEscopo, _ignIni, _ignFim){
     linhas.push({ rotulo: 'VR — Vale Refeição', freq: freqLabel, base: emp.valorDiarioVr||0, multLabel, valor: b.vrValor||0, campoId: 'edit-vr', chkId: 'chk-vr' });
   }
   // VA — mensal fixo. Só apurado no escopo 'mes' (via Previsto).
-  if((emp.valorMensalVa||0) > 0){
+  if((b.vaValor||0) > 0 || (emp.valorMensalVa||0) > 0){  // #audit-benef-8
     const valor = b.vaValor||0;
     const multLabel = (escopo === 'mes') ? '×1 mês' : '(só no Período)';
     linhas.push({ rotulo: 'VA — Vale Alimentação', freq: 'Mensal', base: emp.valorMensalVa||0, multLabel, valor, campoId: 'edit-va', chkId: 'chk-va', desabilitado: (escopo !== 'mes') });
@@ -7685,6 +7702,14 @@ function _benefPeriodoAtual(){
     return { ini:per.deISO, fim:per.ateISO, escopo:'mes',
       periodoLabel:`Competência ${MESES[cMes]}/${cAno} — ${_compLabel(cMes,cAno)}`,
       periodoCol:`${fmt(per.deISO)} → ${fmt(per.ateISO)}` };
+  }
+  if(tab === 'custom' && _beneficioCustomIni && _beneficioCustomFim){
+    // Personalizado: usa o RANGE escolhido (não a semana atual). Se bate com uma
+    // competência (26→25), escopo 'mes' (Previsto) igual à lista. #audit-benef-6
+    const cp = _compFromRange(_beneficioCustomIni, _beneficioCustomFim);
+    return { ini:_beneficioCustomIni, fim:_beneficioCustomFim, escopo: cp ? 'mes' : 'semana',
+      periodoLabel:`Personalizado — ${fmt(_beneficioCustomIni)} a ${fmt(_beneficioCustomFim)}`,
+      periodoCol:`${fmt(_beneficioCustomIni)} → ${fmt(_beneficioCustomFim)}` };
   }
   const s = _semanaDe(hojeISO);
   return { ini:s.inicio, fim:s.fim, escopo:'semana',
@@ -7899,6 +7924,12 @@ function exportBeneficiosLista(formato, soSelecionados){
   if(soSelecionados){
     selIds = new Set([...document.querySelectorAll('.benef-chk:checked')].map(c=>c.dataset.empId));
     if(!selIds.size){ toast('Marque ao menos um colaborador para imprimir os selecionados.','info'); return; }
+  }
+  // A planilha é SEMPRE por competência (período legal 26→25). Nas abas Hoje/Semana
+  // isso diverge do valor curto mostrado na tela — avisa pra não confundir. #audit-benef-12
+  const _tabExp = _beneficioTabAtual || 'hoje';
+  if(_tabExp==='hoje' || _tabExp==='semana'){
+    if(!confirm(`A planilha de benefícios é sempre por COMPETÊNCIA (período legal 26→25), NÃO pelo ${_tabExp==='hoje'?'dia':'semana'} mostrado na tela — então os valores virão da competência inteira (maiores).\n\nPara conferir o dia/semana, use a exportação por canal. Gerar a planilha da competência mesmo assim?`)) return;
   }
   // EXPORTAÇÃO SEMPRE USA O CÁLCULO DA COMPETÊNCIA (Previsto):
   //   - VT/VR pela escala projetada do mês de USO (próxima competência)
@@ -8490,7 +8521,7 @@ function _calcBeneficiosColabPrevisto(emp, mUso, aUso, mPag, aPag){
   //   - Quando NÃO elegível, devolve bpValor=0 + bpMotivo p/ a lista "perdeu".
   const bpFromCct = (State.cct && State.cct.bonificacao) || 0;
   const sempreP   = !!empE.bonificacaoSemprePagar;
-  let bpValor = 0, bpMotivo = '', bpElegivel = false, bpPendente = false;
+  let bpValor = 0, bpMotivo = '', bpElegivel = false, bpPendente = false, bpPerdidaPorFalta = false;
   if(isentoBPonto || sempreP){
     bpValor = (payAtual && payAtual.bonificacao) || bpFromCct;
     bpElegivel = bpValor > 0;
@@ -8502,10 +8533,11 @@ function _calcBeneficiosColabPrevisto(emp, mUso, aUso, mPag, aPag){
       bpElegivel = bpValor > 0;
       if(!bpValor) bpMotivo = 'CCT sem valor de Boa Permanência configurado';
     } else {
-      // pendente = folha do mês AINDA NÃO FECHADA → N/C (não cabível ainda).
-      // só vira "perdeu" depois do fechamento E se tiver tido falta.
       bpPendente = !!_bp.pendente;
       bpMotivo   = _bp.motivo || 'Não elegível';
+      // Perdeu DE VERDADE (por falta) só quando não está pendente. Distingue de
+      // "elegível mas sem valor de CCT" (que NÃO é perda). #audit-benef-9
+      bpPerdidaPorFalta = !bpPendente;
     }
   }
   const vtValor = Math.max(0, vtCheio - descVT);
@@ -8528,7 +8560,7 @@ function _calcBeneficiosColabPrevisto(emp, mUso, aUso, mPag, aPag){
     vtTipo, vtFreq, vrFreq,
     vtCheio, vrCheio, vaCheio, vaMensal,
     descVT, descVR, descVA, faltasInjAnterior: faltasInj,
-    bpValor, bpMotivo, bpElegivel, bpFromCct, bpPendente,
+    bpValor, bpMotivo, bpElegivel, bpFromCct, bpPendente, bpPerdidaPorFalta,
     bonusVr: bpValor, // compat: chamadores antigos liam bonusVr (lia o mesmo conceito)
     vtValor, vrValor, vaValor,
     total,
@@ -10723,8 +10755,16 @@ function _apurarBonusFolha(p, emp, cct){
   if(!p || !emp) return null;
   const sempreP = !!emp.bonificacaoSemprePagar;
   const faltas  = (p.faltasInjustificadas||0)+(p.faltasJustificadas||0);
-  const bonusNew = (sempreP || faltas===0) ? ((cct && cct.bonificacao) || 0) : 0;
-  if(Math.abs((p.bonificacao||0) - bonusNew) < 0.005) return null; // sem mudança
+  const elegivel = sempreP || faltas===0;
+  if(!elegivel){
+    // Tem falta → perde a BP: zera (a menos que já esteja zerada).
+    return (Math.abs(p.bonificacao||0) < 0.005) ? null : { bonificacao: 0 };
+  }
+  // Elegível: PRESERVA um valor já lançado (>0) — pode ser ajuste manual do gestor.
+  // Só preenche pela CCT quando ainda não há valor. #audit-benef-7
+  if((p.bonificacao||0) > 0) return null;
+  const bonusNew = (cct && cct.bonificacao) || 0;
+  if(Math.abs((p.bonificacao||0) - bonusNew) < 0.005) return null;
   return { bonificacao: bonusNew };
 }
 

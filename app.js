@@ -3646,8 +3646,13 @@ function renderFeriasModulo(){
   if(!tbody) return;
   if(emps.length===0){ tbody.innerHTML='<tr><td colspan="8" style="text-align:center;padding:20px">Nenhum colaborador.</td></tr>'; return; }
 
-  const rows=emps.map((emp,i)=>{
-    const recs=recMap[emp.id]||[];
+  const _badge=status=>status==='gozadas'?'<span class="badge badge-success">Gozadas</span>':status==='agendadas'?'<span class="badge badge-warning">Agendadas</span>':'<span class="badge badge-muted">Pendente</span>';
+  const _periodoGozo=r=>(r.inicio&&r.fim)?`<div style="font-size:10px;color:var(--text-muted)">${formatDateBr(r.inicio)}–${formatDateBr(r.fim)}${(r.abonoDias||0)>0?` · +${r.abonoDias}d abono`:''}</div>`:'';
+  const rowsArr=[];
+  emps.forEach((emp,i)=>{
+    // Uma linha POR período de férias (férias fracionadas: 15+10+5). Antes só o
+    // último período aparecia — os demais sumiam da tela. #19
+    const recs=(recMap[emp.id]||[]).slice().sort((a,b)=>String(a.inicio||'').localeCompare(String(b.inicio||'')));
     const admissao=emp.dataAdmissao||'';
     let periodoAquis='—', direitoAno='—';
     if(admissao){
@@ -3661,24 +3666,30 @@ function renderFeriasModulo(){
         direitoAno=`${anoAdm+periodos}`;
       }
     }
-    const rec=recs.length>0?recs[recs.length-1]:{};
-    const status=rec.status||'pendente';
-    const badge=status==='gozadas'?'<span class="badge badge-success">Gozadas</span>':status==='agendadas'?'<span class="badge badge-warning">Agendadas</span>':'<span class="badge badge-muted">Pendente</span>';
-    return `<tr>
-      <td>${i+1}</td><td>${emp.registro||'—'}</td><td>${emp.nome}</td><td>${emp.cargo||emp.setor||'—'}</td>
-      <td style="font-size:11px">${periodoAquis}</td><td style="text-align:center">${direitoAno}</td>
-      <td>${badge}</td>
-      <td><button class="btn btn-sm btn-outline-primary" onclick="openFeriasModulo('${emp.id}')"><i class="fa-solid fa-pen-to-square"></i></button></td>
-    </tr>`;
+    const baseCols=`<td>${i+1}</td><td>${emp.registro||'—'}</td><td>${emp.nome}</td><td>${emp.cargo||emp.setor||'—'}</td><td style="font-size:11px">${periodoAquis}</td><td style="text-align:center">${direitoAno}</td>`;
+    const blankCols='<td></td><td></td><td></td><td></td><td></td><td></td>';
+    if(recs.length===0){
+      rowsArr.push(`<tr>${baseCols}<td>${_badge('pendente')}</td>
+        <td><button class="btn btn-sm btn-outline-primary" onclick="openFeriasModulo('${emp.id}')" title="Lançar férias"><i class="fa-solid fa-pen-to-square"></i></button></td></tr>`);
+    } else {
+      recs.forEach((r,ri)=>{
+        const addBtn=ri===recs.length-1?` <button class="btn btn-sm btn-outline-secondary" onclick="openFeriasModulo('${emp.id}')" title="Adicionar outro período (férias fracionadas)"><i class="fa-solid fa-plus"></i></button>`:'';
+        rowsArr.push(`<tr>${ri===0?baseCols:blankCols}
+          <td>${_badge(r.status||'pendente')}${_periodoGozo(r)}</td>
+          <td><button class="btn btn-sm btn-outline-primary" onclick="openFeriasModulo('${emp.id}','${r.id}')" title="Editar este período"><i class="fa-solid fa-pen-to-square"></i></button>${addBtn}</td></tr>`);
+      });
+    }
   });
-  tbody.innerHTML=rows.join('');
+  tbody.innerHTML=rowsArr.join('');
 }
 
-function openFeriasModulo(empId){
+function openFeriasModulo(empId, recId){
   const emp=State.employees.find(e=>e.id===empId); if(!emp) return;
   const ano=parseInt(val('fer-mod-ano')||currentAno());
   const recs=(State.ferias||[]).filter(r=>r.employeeId===empId&&r.ano===ano);
-  const rec=recs.length>0?recs[recs.length-1]:{};
+  // recId → edita o período específico; sem recId → NOVO período (campos limpos),
+  // pra permitir férias fracionadas (2-3 períodos no mesmo ano). #19
+  const rec = recId ? (recs.find(r=>String(r.id)===String(recId))||{}) : {};
   setVal('fer-modal-emp-id',empId);
   setVal('fer-modal-ano',ano);
   setVal('fer-modal-nome',emp.nome);

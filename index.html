@@ -3121,8 +3121,9 @@
             <span id="emp-cargo-hint" style="font-size:11px;color:#1565C0;margin-top:3px;display:block;min-height:14px"></span>
           </div>
           <div class="form-group form-group-sm">
-            <label><i class="fa-solid fa-hashtag" style="color:var(--primary)"></i> CBO</label>
-            <input type="text" id="emp-cbo" placeholder="Ex.: 517410" maxlength="7" title="Classificação Brasileira de Ocupações — código MTE (6 a 7 dígitos)">
+            <label><i class="fa-solid fa-hashtag" style="color:var(--primary)"></i> CBO <a href="#" onclick="_abrirBuscaCbo();return false" style="font-size:11px;font-weight:400;color:#1565C0;margin-left:6px" title="Buscar o código no site oficial do CBO">buscar no site ↗</a></label>
+            <input type="text" id="emp-cbo" placeholder="Ex.: 517410" maxlength="7" title="Preenchido automático pela função (tabela oficial embutida); conferível no site">
+            <span id="emp-cbo-hint" style="font-size:11px;color:#1565C0;margin-top:3px;display:block;min-height:14px"></span>
           </div>
         </div>
         <div class="form-row">
@@ -6142,6 +6143,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260531v-contrato-revisado"></script>
+<script src="app.js?v=20260531w-cbo-tabela"></script>
 </body>
 </html>

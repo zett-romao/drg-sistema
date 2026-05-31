@@ -18217,11 +18217,52 @@ function _populateCargoOptions(){
 // Quando o usuário escolhe/sai do campo Cargo no cadastro: se houver match na
 // CCT, sugere o salário base, mostra a observação (ex.: acúmulo) e — se o campo
 // salário estiver vazio — preenche automaticamente.
+// Tabela CBO embutida (códigos OFICIAIS verificados na fonte — MTE/CBO 2002) das
+// funções da operação. Auto-preenche o campo CBO pela função; cargos fora da lista
+// têm link pro site oficial. #cbo-tabela
+const CARGO_CBO = [
+  { cbo:'517410', titulo:'Porteiro de edifícios', termos:['porteiro','porteiro de edificio','porteiro de edificios','porteiro de predio','porteiro de condominio','porteiro condominio','controlador de acesso','controladora de acesso'] },
+  { cbo:'517405', titulo:'Porteiro (hotel)',       termos:['porteiro de hotel','porteiro hotel'] },
+  { cbo:'517420', titulo:'Vigia',                  termos:['vigia','vigia noturno','vigia diurno','vigia de obra'] },
+  { cbo:'517330', titulo:'Vigilante',              termos:['vigilante','vigilante patrimonial','agente de seguranca','agente de seguranca patrimonial'] },
+  { cbo:'517425', titulo:'Fiscal de loja',         termos:['fiscal de loja','fiscal de piso'] },
+  { cbo:'514120', titulo:'Zelador de edifício',    termos:['zelador','zeladora','zelador de edificio','zeladoria'] },
+  { cbo:'514320', titulo:'Faxineiro',              termos:['faxineiro','faxineira','auxiliar de limpeza','auxiliar de servicos gerais','auxiliar de servico geral','servicos gerais','servico geral','asg','servente','servente de limpeza','auxiliar de limpeza e conservacao','limpeza'] },
+];
+function _normCargo(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/\s+/g,' ').trim(); }
+function _buscarCboPorFuncao(cargo){
+  const n=_normCargo(cargo); if(!n) return null;
+  for(const c of CARGO_CBO){ if(c.termos.some(t=>t===n)) return c; }              // match exato
+  for(const c of CARGO_CBO){ if(c.termos.some(t=>n.includes(t)||t.includes(n))) return c; } // parcial
+  return null;
+}
+function _abrirBuscaCbo(){
+  const cargo=(val('emp-cargo')||'').trim();
+  window.open('https://www.google.com/search?q='+encodeURIComponent('CBO MTE '+(cargo||'')), '_blank');
+}
+// Auto-preenche o CBO pela função (não sobrescreve um código já digitado).
+function _autopreencherCbo(cargo){
+  const cboEl=document.getElementById('emp-cbo'); const cboHint=document.getElementById('emp-cbo-hint');
+  if(!cboEl) return;
+  const m=_buscarCboPorFuncao(cargo);
+  if(m){
+    if(!(cboEl.value||'').trim()){
+      cboEl.value=m.cbo;
+      if(cboHint) cboHint.innerHTML=`<i class="fa-solid fa-circle-check" style="color:#1B5E20"></i> CBO <strong>${m.cbo}</strong> — ${m.titulo} (da tabela oficial).`;
+    } else if((cboEl.value||'').replace(/\D/g,'')!==m.cbo){
+      if(cboHint) cboHint.innerHTML=`<i class="fa-solid fa-circle-info" style="color:#1565C0"></i> A tabela sugere <strong>${m.cbo}</strong> (${m.titulo}) para "${esc(cargo)}". <a href="#" onclick="document.getElementById('emp-cbo').value='${m.cbo}';this.parentElement.innerHTML='CBO aplicado.';return false" style="color:#1565C0">Aplicar</a>.`;
+    } else if(cboHint){ cboHint.innerHTML=`<i class="fa-solid fa-circle-check" style="color:#1B5E20"></i> CBO confere com a tabela (${m.titulo}).`; }
+  } else if(cboHint){
+    cboHint.innerHTML=`<i class="fa-solid fa-circle-info" style="color:#999"></i> Função fora da lista — <a href="#" onclick="_abrirBuscaCbo();return false" style="color:#1565C0">buscar no site oficial do CBO</a>.`;
+  }
+}
+
 function _onCargoChange(){
   const cargo = (val('emp-cargo')||'').trim();
   const hint = document.getElementById('emp-cargo-hint');
   if(hint) hint.textContent = '';
   if(!cargo) return;
+  _autopreencherCbo(cargo);  // CBO automático pela função (tabela oficial)
   const match = _cctBuscarFuncao(cargo);
   if(!match){
     if(hint) hint.innerHTML = '<i class="fa-solid fa-circle-info" style="color:#999"></i> Função não está na CCT — salário não será sugerido.';

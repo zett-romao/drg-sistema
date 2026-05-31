@@ -19146,6 +19146,7 @@ function calcResumoManual(){
   const ano=parseInt(val('payroll-ano'));
   const fam=emp?escalaFamilia(emp.escala||'5x2A'):'5x2';
   const is12x36=fam==='12x36';
+  const isentoR=!!(emp && emp.isentoPonto); // isento (CLT Art. 62): sem HE/atraso/revisão
   let minContratados=480;
   if(fam==='6x1') minContratados=440;
   else if(fam==='12x36') minContratados=660;
@@ -19174,17 +19175,24 @@ function calcResumoManual(){
       if(existingDay?.heReview) realDay.heReview=existingDay.heReview;
       const expectedDay=emp?_getExpectedDay(emp,rmes,rano,dia):null;
       const effLiq=_effectiveMinLiq(realDay,expectedDay,minContratados);
-      // Baseline da HE = jornada esperada do próprio colaborador no dia.
-      totalHEmin += _heMinDia(realDay, expectedDay, minContratados);
-      // Atraso automático: déficit do dia (trabalhou menos que o previsto), além da tolerância CLT (10min)
-      if(expectedDay && expectedDay.tipo!=='folga' && expectedDay.entrada && expectedDay.saida){
-        const faltaDia=_liqMin(expectedDay)-effLiq;
-        if(faltaDia>HE_TOLERANCIA_DIA_MIN) totalAtrasoMin+=faltaDia;
+      if(isentoR){
+        // Isento (CLT Art. 62 — cargo de confiança): não tem HE, atraso nem revisão.
+        // Limpa o badge do dia e NÃO conta pendência (senão o aviso "X dias com HE
+        // — revisar agora" aparece indevidamente p/ quem é isento).
+        _updateHEReviewBadge(card, {totalMin:0, motivos:[], precisaRevisao:false}, realDay.heReview);
+      } else {
+        // Baseline da HE = jornada esperada do próprio colaborador no dia.
+        totalHEmin += _heMinDia(realDay, expectedDay, minContratados);
+        // Atraso automático: déficit do dia (trabalhou menos que o previsto), além da tolerância CLT (10min)
+        if(expectedDay && expectedDay.tipo!=='folga' && expectedDay.entrada && expectedDay.saida){
+          const faltaDia=_liqMin(expectedDay)-effLiq;
+          if(faltaDia>HE_TOLERANCIA_DIA_MIN) totalAtrasoMin+=faltaDia;
+        }
+        const detec=_detectHEDivergencia(realDay,expectedDay);
+        const reviewStatus=realDay.heReview?.status||'pendente';
+        if(detec.precisaRevisao && reviewStatus==='pendente') pendentes++;
+        _updateHEReviewBadge(card,detec,realDay.heReview);
       }
-      const detec=_detectHEDivergencia(realDay,expectedDay);
-      const reviewStatus=realDay.heReview?.status||'pendente';
-      if(detec.precisaRevisao && reviewStatus==='pendente') pendentes++;
-      _updateHEReviewBadge(card,detec,realDay.heReview);
     } else if(!entrada&&!saida && _diaEmBrancoEhFalta(emp,rmes,rano,dia,isWeekend,is12x36)) faltas++;
   });
   const diasEl=document.getElementById('ponto-resumo-dias');
@@ -19214,7 +19222,7 @@ function calcResumoManual(){
 function _payrollTemPendente(payroll){
   if(!payroll || !payroll.pontoManualDias) return false;
   const emp = State.employees.find(e=>e.id===payroll.employeeId);
-  if(!emp) return false;
+  if(!emp || emp.isentoPonto) return false;  // isento (CLT Art. 62) não tem HE a revisar
   return payroll.pontoManualDias.some(d => {
     if(!d.entrada || !d.saida) return false;
     const exp = _getExpectedDayComp(emp, payroll.mes, payroll.ano, d.dia);

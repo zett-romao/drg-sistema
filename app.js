@@ -2640,13 +2640,21 @@ function _reciboOficialLinhas(emp, p){
   const heVal       = +p.horasExtrasValor||0;
   const heHoras     = +p.horasExtrasTotal||0;
   const hePerc      = parseInt(p.horasExtrasPerc||50);
+  const heCorrido   = +p.heCorridoValor||0;          // HE "hora corrida" — campo separado do motor (9613)
+  const heCorridoMin= +p.heCorridoMin||0;
   const ins         = +p.insalubridade||0;
   const acu         = +p.acumulo||0;
+  const outProv     = +p.outrosProventosTotal||0;    // prêmios / ajudas lançados no cadastro (9617)
   const inss        = +p.inss||0;
   const irrf        = +p.irrf||0;
   const fgts        = +p.fgts||0;
   const adiant      = +(p.adiantamentoValor||p.adiantamento||0);
   const vt          = +p.valeTransporte||0;
+  const descAtraso  = +p.descontoAtraso||0;          // desconto de atraso (9595) — o motor o subtrai no líquido
+  const descSaida   = +p.descontoSaida||0;           // desconto de saída no expediente (9626)
+  const plano       = +p.planoSaudeDesc||0;          // plano de saúde (9622)
+  const pensao      = +p.pensaoAlimenticiaDesc||0;   // pensão alimentícia (9623)
+  const outDesc     = +p.outrosDescontosTotal||0;    // outros descontos lançados (9618)
   const faltasNum   = +(p.faltas||0);
   const descFaltas  = Math.max(0, salBase - remuneracao);
   const grauInsal   = parseFloat(emp.insalubridade||0) || 20;
@@ -2659,23 +2667,36 @@ function _reciboOficialLinhas(emp, p){
     const nome = hePerc>=100 ? 'Horas Extras 100%' : 'Horas Extras 50%';
     linhas.push({cod:code, nome:nome, ref:heHoras.toFixed(2).replace('.',',')+' h', pr:heVal, de:0});
   }
+  if(heCorrido>0) linhas.push({cod:'0082', nome:'Horas Extras (Hora Corrida)', ref:heCorridoMin?heCorridoMin+' min':'—', pr:heCorrido, de:0});
   if(an>0) linhas.push({cod:'0066', nome:'Adicional Noturno 20%',  ref:'—',                                  pr:an,  de:0});
   if(ins>0) linhas.push({cod:'0099', nome:'Adicional Insalubridade '+grauInsal+'%', ref:grauInsal+'%',       pr:ins, de:0});
   if(acu>0) linhas.push({cod:'0103', nome:'Acúmulo de Função',     ref:'—',                                  pr:acu, de:0});
+  if(outProv>0) linhas.push({cod:'0150', nome:'Outros Proventos',  ref:'—',                                  pr:outProv, de:0});
 
   // Descontos
-  if(descFaltas>0) linhas.push({cod:'0950', nome:'Faltas / Atrasos',         ref:(faltasNum||0).toFixed(2).replace('.',',')+' d', pr:0, de:descFaltas});
+  if(descFaltas>0){
+    // faltasNum>0 → faltas reais; faltasNum==0 com desconto → salário proporcional (admissão/desligamento no meio do mês)
+    if(faltasNum>0) linhas.push({cod:'0950', nome:'Faltas',                  ref:faltasNum.toFixed(2).replace('.',',')+' d', pr:0, de:descFaltas});
+    else            linhas.push({cod:'0951', nome:'Salário Proporcional (dias não trabalhados)', ref:'—',  pr:0, de:descFaltas});
+  }
+  if(descAtraso>0) linhas.push({cod:'0952', nome:'Atrasos',                  ref:'—',                                              pr:0, de:descAtraso});
+  if(descSaida>0)  linhas.push({cod:'0953', nome:'Saídas no Expediente',     ref:'—',                                              pr:0, de:descSaida});
   if(adiant>0)     linhas.push({cod:'0905', nome:'Adiantamento Salarial',    ref:'40%',                                            pr:0, de:adiant});
   if(inss>0)       linhas.push({cod:'0900', nome:'INSS',                     ref:'—',                                              pr:0, de:inss});
   if(irrf>0)       linhas.push({cod:'0901', nome:'IRRF',                     ref:'—',                                              pr:0, de:irrf});
+  if(plano>0)      linhas.push({cod:'0920', nome:'Plano de Saúde',           ref:'—',                                              pr:0, de:plano});
+  if(pensao>0)     linhas.push({cod:'0930', nome:'Pensão Alimentícia',       ref:'—',                                              pr:0, de:pensao});
+  if(outDesc>0)    linhas.push({cod:'0960', nome:'Outros Descontos',         ref:'—',                                              pr:0, de:outDesc});
   if(vt>0)         linhas.push({cod:'0910', nome:'Vale Transporte',          ref:'6%',                                             pr:0, de:vt});
 
   const totalPr   = linhas.reduce((s,l)=>s+(l.pr||0), 0);
   const totalDe   = linhas.reduce((s,l)=>s+(l.de||0), 0);
   const liquido   = totalPr - totalDe;
-  const baseINSS  = Math.max(0, totalPr - descFaltas);  // proventos tributáveis (faltas já descontadas)
+  const baseINSS  = Math.max(0, totalPr - descFaltas);  // proventos tributáveis (faltas/proporcional já descontados; HE corrida e Outros Proventos já inclusos em totalPr)
   const baseFGTS  = baseINSS;
-  const baseIRRF  = Math.max(0, baseINSS - inss);
+  // Base IRRF espelha calcIRRF (8382-8386): bruto - INSS - (dependentes × dedução) - pensão. Plano de saúde NÃO entra na base neste sistema.
+  const dedDep    = (parseInt(emp.dependentesIRRF||0)||0) * (_pl().irrfDedDependente||0);
+  const baseIRRF  = Math.max(0, baseINSS - inss - dedDep - pensao);
   return { linhas, totalPr, totalDe, liquido, baseINSS, baseFGTS, baseIRRF, fgtsDepositado: fgts };
 }
 

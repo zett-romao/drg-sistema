@@ -8061,8 +8061,14 @@ function _abrirJanelaExport(html, formato, baseName){
 // BENEFÍCIOS A PAGAR — helpers
 // ============================================
 
-// Verifica se o colaborador está escalado/trabalha em uma data específica
-// Prioridade: Escala salva > Escala projetada > escala contratual (5x2/6x1/12x36)
+// Verifica se o colaborador está escalado/trabalha em uma data específica.
+// Delega ao _getExpectedDay (fonte única da verdade): trata override de folga
+// avulsa (#23), escala salva POR COMPETÊNCIA, lotação vigente na data —
+// transferências (#21) — e 12x36 com âncora de ciclo (#20). Antes resolvia por
+// conta própria e inflava a contagem (12x36 sem escala caía no `return true`,
+// ignorava override e lotação vigente). Agora a contagem do dashboard fica
+// alinhada ao cálculo de benefícios em R$ (_diasBeneficioNoIntervalo também usa
+// _getExpectedDay).
 function _colabTrabalhaNoDia(emp, dataISO){
   if(!emp) return false;
   const status = emp.status || 'ativo';
@@ -8070,31 +8076,8 @@ function _colabTrabalhaNoDia(emp, dataISO){
   const d = new Date(dataISO + 'T12:00:00');
   if(isNaN(d.getTime())) return false;
   const mes = d.getMonth()+1, ano = d.getFullYear(), dia = d.getDate();
-  // 1) Escala salva?
-  const esc = (State.escalas||[]).find(e => e.employeeId===emp.id && e.mes==mes && e.ano==ano);
-  if(esc?.dias?.length){
-    const sav = esc.dias.find(x => x.dia===dia);
-    if(sav) return sav.tipo === 'trabalho' || sav.tipo === 'corrido';
-  }
-  // 2) Ponto manual / batido? (a batida fica na folha da competência da data)
-  const comp = _competenciaDe(d);
-  const pay = (State.payrolls||[]).find(p => p.employeeId===emp.id && p.mes==comp.mes && p.ano==comp.ano);
-  if(pay?.pontoManualDias?.length){
-    const d2 = pay.pontoManualDias.find(x => x.dia===dia);
-    if(d2 && d2.entrada && d2.saida) return true;
-  }
-  // 3) Fallback por escala contratual
-  const _mod=_escalaModelo(emp.escala);
-  if(_mod){
-    const md=_modeloDiaTemplate(_mod, d);
-    return md.tipo==='trabalho'||md.tipo==='corrido';
-  }
-  const fam = escalaFamilia(emp.escala || '5x2A');
-  const ds = d.getDay();
-  if(fam === '5x2') return ds >= 1 && ds <= 5;
-  if(fam === '6x1') return ds !== 0;
-  // 12x36: sem dados anteriores não temos como saber — retorna true como aproximação
-  return true;
+  const exp = _getExpectedDay(emp, mes, ano, dia);
+  return !!(exp && exp.tipo !== 'folga' && exp.entrada);
 }
 
 // Lista colaboradores que trabalham em uma data específica
@@ -8174,7 +8157,9 @@ function _minutosLiqEsperados(exp){
   if(total < 0) total += 24*60;   // jornada noturna virando o dia
   if(exp.intIni && exp.intFim){
     let pausa = toMin(exp.intFim) - toMin(exp.intIni);
-    if(pausa < 0) pausa += 24*60;
+    // Só soma 24h se a JORNADA cruza a meia-noite; senão intFim<intIni é erro de
+    // digitação e não deve inflar a pausa (que zeraria a jornada e tiraria o VR). #22
+    if(pausa < 0) pausa = _shiftCrossesMidnight(exp.entrada, exp.saida) ? pausa + 24*60 : 0;
     total -= pausa;
   }
   return Math.max(0, total);
@@ -8303,8 +8288,13 @@ function _calcBeneficiosColabPrevisto(emp, mUso, aUso, mPag, aPag){
   // Isento NÃO sofre desconto (não tem falta controlada — CLT Art. 62).
   const payAtual = (State.payrolls||[]).find(p=>p.employeeId===empE.id&&p.mes==mPag&&p.ano==aPag);
   const faltasInj = isentoBPonto ? 0 : ((payAtual?.faltasInjustificadas)||0);
-  const descVT = Math.min(vtCheio, faltasInj * (empE.valorDiarioVt||0));
-  const descVR = Math.min(vrCheio, faltasInj * (empE.valorDiarioVr||0));
+  // Valor-dia EFETIVO derivado do próprio crédito — vale p/ freq diária E semanal
+  // (em 'semanal', valorDiarioVt representa a SEMANA inteira; usá-lo direto
+  // descontaria ~1 semana por falta). #16
+  const vtDiaEf = diasVt > 0 ? vtCheio/diasVt : 0;
+  const vrDiaEf = diasVr > 0 ? vrCheio/diasVr : 0;
+  const descVT = Math.min(vtCheio, faltasInj * vtDiaEf);
+  const descVR = Math.min(vrCheio, faltasInj * vrDiaEf);
   // VA — Vale Alimentação (mensal fixo). Regras (mesmas da folha):
   //   - Isento → integral, sem desconto (CLT Art. 62).
   //   - ≥3 faltas inj → desconta vaDia × faltas (cap em vaMensal).
@@ -8315,7 +8305,10 @@ function _calcBeneficiosColabPrevisto(emp, mUso, aUso, mPag, aPag){
     if(isentoBPonto){
       vaCheio = vaMensal; descVA = 0;
     } else if(faltasInj >= 3){
-      const vaDia = diasVt > 0 ? vaMensal/diasVt : 0;
+      // vaDia pelo nº de dias do mês das FALTAS (competência que fecha = mPag/aPag),
+      // não do mês de uso — espelha recalculate (vaMensal/diasPrevistos). #15
+      const diasFaltasMes = _diasPrevistosEscala(empE, mPag, aPag);
+      const vaDia = diasFaltasMes > 0 ? vaMensal/diasFaltasMes : 0;
       descVA = Math.min(vaMensal, vaDia * faltasInj);
     } // 0/1/2 faltas → integral
   } else {
@@ -9440,7 +9433,8 @@ function recalculate(){
     const atrasoEnc=numVal('payroll-desconto-atraso')||0;
     // Desconto de saídas durante o expediente (minutos ausentes não-abonados)
     const _saidaTot=_saidaTotais(val('payroll-employee'),_mesR,_anoR);
-    const descontoSaida=Math.round(_saidaTot.minutosDesc*valorMinuto*100)/100;
+    // Isento (CLT Art. 62) não sofre desconto de saída — igual ao atraso (9108). #12
+    const descontoSaida=isentoPonto?0:Math.round(_saidaTot.minutosDesc*valorMinuto*100)/100;
     setVal('payroll-saida-min', _saidaTot.minutos||'');
     setVal('payroll-desconto-saida', descontoSaida>0?descontoSaida.toFixed(2):'0.00');
     // VT/VR/VA são benefícios pagos à parte (vale/cartão) — NÃO entram no

@@ -14644,7 +14644,12 @@ function _calcRescisao(r){
   const adm=new Date(r.dataAdmissao+'T00:00:00');
   const dem=new Date(r.dataDemissao+'T00:00:00');
   if(isNaN(adm.getTime())||isNaN(dem.getTime())||dem<adm) return o;
-  o.anos=Math.floor((dem-adm)/(1000*60*60*24*365.25));
+  // Anos completos por CALENDÁRIO (mesma regra de _formatTempoServico). Dividir
+  // por 365,25 "comia" o ano cheio em aniversário exato (Lei 12.506/2011 — aviso).
+  { let _a=dem.getFullYear()-adm.getFullYear();
+    const _m=dem.getMonth()-adm.getMonth();
+    if(_m<0||(_m===0&&dem.getDate()<adm.getDate())) _a--;
+    o.anos=Math.max(0,_a); }
   o.tempoServico=_formatTempoServico(adm,dem);
   // Aviso prévio (dias)
   const avisoCheio=Math.min(pl.avisoMax, pl.avisoBase+pl.avisoPorAno*o.anos);
@@ -14654,8 +14659,12 @@ function _calcRescisao(r){
   const dataProj=new Date(dem);
   if(indeniza && o.avisoDias>0) dataProj.setDate(dataProj.getDate()+o.avisoDias);
   o.dataAfastamentoProj=`${dataProj.getFullYear()}-${String(dataProj.getMonth()+1).padStart(2,'0')}-${String(dataProj.getDate()).padStart(2,'0')}`;
-  // Saldo de salário
-  o.saldoSalario=(sal/30)*dem.getDate();
+  // Saldo de salário — dias do mês de desligamento efetivamente trabalhados.
+  // Se admitiu e demitiu no MESMO mês, conta do dia da admissão até o desligamento
+  // (inclusive), e não o mês corrido — senão pagaria dias anteriores à admissão.
+  const _mesmoMesAdm = adm.getFullYear()===dem.getFullYear() && adm.getMonth()===dem.getMonth();
+  const _diasSaldo = _mesmoMesAdm ? (dem.getDate()-adm.getDate()+1) : dem.getDate();
+  o.saldoSalario=(sal/30)*Math.max(0,_diasSaldo);
   // Aviso prévio indenizado (valor)
   if(indeniza && o.avisoDias>0) o.avisoValor=(sal/30)*o.avisoDias;
   // 13º proporcional (avos do ano-calendário até a data projetada)

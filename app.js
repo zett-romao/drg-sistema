@@ -6389,10 +6389,26 @@ function renderBeneficiosLista(){
     if(!semBP.length){
       html += `<div class="empty-state"><i class="fa-solid fa-circle-check" style="color:#1B5E20"></i><p>Nenhum colaborador perdeu Boa Permanência neste período.</p></div>`;
     } else {
+      // Botão admin (master-only) — recalcula faltasInjustificadas das folhas
+      // baseado no estado atual. Útil quando o backfill (12x36 sem âncora etc.)
+      // inflou as faltas e todo mundo aparece como "perdeu". Preserva faltas
+      // lançadas manualmente (faltasJustificadas).
+      const _isMaster = (Auth.currentUser?.role === 'master');
+      // Resolve a competência alvo (mPag) baseada na aba ativa
+      const _adminMes = (() => {
+        if(_ctxMes) return _ctxMes.mPag;
+        const d = new Date(); return d.getMonth()+1;
+      })();
+      const _adminAno = (() => {
+        if(_ctxMes) return _ctxMes.aPag;
+        const d = new Date(); return d.getFullYear();
+      })();
+      const _adminBtn = _isMaster ? `<button class="btn btn-sm btn-outline" onclick="setVal('payroll-mes',${_adminMes});setVal('payroll-ano',${_adminAno});recalcularFaltasCompetencia()" style="border-color:#1565C0;color:#1565C0;font-size:12px" title="ADMIN: Recalcula faltasInjustificadas das folhas dessa competência (preserva justificadas). Use quando o backfill inflou as faltas e todo mundo aparece como 'perdeu' BP."><i class="fa-solid fa-wrench"></i> Recalcular faltas (master)</button>` : '';
       html += `<div style="background:#FFFDE7;border:2px solid #FFE082;border-radius:8px;padding:10px 14px;margin-bottom:10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
         <span style="font-weight:700;color:#F57F17;font-size:14px"><i class="fa-solid fa-medal"></i> Perderam a Boa Permanência</span>
         <span style="color:#F57F17;font-weight:600">${semBP.length} colaborador(es)</span>
         <span style="flex:1"></span>
+        ${_adminBtn}
         <button class="btn btn-sm btn-outline" onclick="exportBeneficiosBP('print')" style="border-color:#F57F17;color:#F57F17;font-size:12px"><i class="fa-solid fa-print"></i> Imprimir</button>
         <button class="btn btn-sm btn-outline" onclick="exportBeneficiosBP('pdf')" style="border-color:#C62828;color:#C62828;font-size:12px"><i class="fa-solid fa-file-pdf"></i> PDF</button>
         <button class="btn btn-sm btn-outline" onclick="exportBeneficiosBP('excel')" style="font-size:12px"><i class="fa-solid fa-file-excel" style="color:#1B5E20"></i> Excel</button>
@@ -9680,6 +9696,54 @@ async function limparBackfillPeriodo(){
   }
   try{ Auth.log('LIMPAR_BACKFILL', null, `${MESES[mes]}/${ano} — ${nF} folha(s), ${nD} dia(s)`); }catch(_){}
   toast(`Limpeza concluída: ${nD} dia(s) de backfill removido(s) de ${nF} folha(s). Pode preencher o ponto manualmente.`, 'success');
+  if(val('payroll-employee')) onPayrollEmployeeChange();
+  try{ renderDashboard(); }catch(_){}
+}
+
+// ============================================
+// RECALCULAR FALTAS EM MASSA — corrige faltasInjustificadas inflado pelo
+// backfill (especialmente 12x36 sem âncora antes do fix de 2026-05-30).
+// Recomputa `faltasInjustificadas` baseado no estado ATUAL da folha:
+//   - Para cada dia previsto de trabalho (escala) sem ponto batido,
+//     conta como falta SE `_diaEmBrancoEhFalta` retornar true.
+// Preserva `faltasJustificadas` (lançadas manualmente pelo usuário).
+// Salva mesmo em folhas FECHADAS (admin-only, master-only).
+// Reset visível no BP — quem ficou em 0+0 vira elegível na próxima leitura.
+// ============================================
+async function recalcularFaltasCompetencia(){
+  if(Auth.currentUser?.role!=='master'){ toast('Apenas o usuário master pode rodar a recalculo.','error'); return; }
+  const mes=parseInt(val('payroll-mes')||currentMes());
+  const ano=parseInt(val('payroll-ano')||currentAno());
+  const afetadas=(State.payrolls||[]).filter(p=>p.mes==mes&&p.ano==ano);
+  if(!afetadas.length){ toast(`Nenhuma folha encontrada em ${MESES[mes]}/${ano}.`,'info'); return; }
+  if(!confirm(`Recalcular FALTAS INJUSTIFICADAS de ${afetadas.length} folha(s) da competência ${MESES[mes]}/${ano} (${_compLabel(mes,ano)})?\n\n• Recalcula com base no estado ATUAL da folha (dias batidos vs escala).\n• Preserva 'faltasJustificadas' (lançadas manualmente).\n• Roda mesmo em folhas FECHADAS.\n• Útil quando o backfill inflou as faltas (12x36 sem âncora, escala antiga errada etc.).\n\nDepois disso, quem tiver 0 falta volta a receber Boa Permanência.\n\nContinuar?`)) return;
+  let nAlteradas=0, nMantidas=0, nReduziu=0;
+  const compDias=_compDias(mes,ano);
+  for(const p of afetadas){
+    const emp=State.employees.find(e=>e.id===p.employeeId);
+    if(!emp) continue;
+    const dias = Array.isArray(p.pontoManualDias)? p.pontoManualDias : [];
+    const fam=escalaFamilia(emp.escala||'5x2A'); const is12=fam==='12x36';
+    let novasFaltas=0;
+    for(const cd of compDias){
+      const has=dias.find(x=>x.dia===cd.dia);
+      if(has && has.entrada && has.saida) continue;  // dia batido → não conta
+      const isWk=cd.diaSem===0||cd.diaSem===6;
+      if(_diaEmBrancoEhFalta(emp,cd.mes,cd.ano,cd.dia,isWk,is12)) novasFaltas++;
+    }
+    const antigas = p.faltasInjustificadas||0;
+    if(novasFaltas === antigas){ nMantidas++; continue; }
+    if(novasFaltas < antigas) nReduziu++;
+    const record={...p, faltasInjustificadas:novasFaltas, updatedAt:new Date().toISOString()};
+    try{
+      await DB.save('payrolls', _sanitizeForFirestore(record));
+      const ix=State.payrolls.findIndex(r=>r.id===record.id);
+      if(ix>=0) State.payrolls[ix]=record;
+      nAlteradas++;
+    }catch(e){ console.error('recalc faltas', emp.nome, e); }
+  }
+  try{ Auth.log('RECALC_FALTAS', null, `${MESES[mes]}/${ano} — ${nAlteradas} folha(s) alterada(s), ${nReduziu} com redução, ${nMantidas} sem mudança`); }catch(_){}
+  toast(`Recalculo concluído: ${nAlteradas} folha(s) alterada(s) (${nReduziu} com redução de faltas) · ${nMantidas} sem mudança. Reabra a tela de Benefícios pra ver o efeito na Boa Permanência.`, 'success');
   if(val('payroll-employee')) onPayrollEmployeeChange();
   try{ renderDashboard(); }catch(_){}
 }

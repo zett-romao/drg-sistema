@@ -9110,16 +9110,16 @@ let _fechandoFolha = false;
 function _boaPermanenciaElegivel(emp, mes, ano, totalFaltasLive){
   if(!emp) return {ok:false, motivo:''};
   const pay = (State.payrolls||[]).find(p=>p.employeeId===emp.id && p.mes==mes && p.ano==ano);
-  const fechada = pay?.status === 'fechada';
-  if(!fechada && !_fechandoFolha){
-    return {ok:false, motivo:'será apurada no fechamento do ponto do mês', pendente:true};
-  }
   let faltas = totalFaltasLive;
   if(faltas == null){
     faltas = ('faltasInjustificadas' in (pay||{}))
       ? ((pay.faltasInjustificadas||0)+(pay.faltasJustificadas||0))
       : ((pay && pay.faltas) || 0);
   }
+  // BP APARECE por padrão (boa permanência presumida) e SOME só quando há ≥1 falta
+  // — qualquer falta em qualquer transferência do mês perde o BP inteiro (não é
+  // proporcional). Decisão do usuário 2026-05-31: não espera o fechamento pra exibir
+  // (antes ficava 'N/C pendente' até fechar). #bp-aparece
   if(faltas > 0) return {ok:false, motivo:'faltas no mês — benefício perdido'};
   return {ok:true, motivo:''};
 }

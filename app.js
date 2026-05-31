@@ -6821,22 +6821,36 @@ function openBeneficioDetalhe(empId, _ignEscopo, _ignIni, _ignFim){
     if(!_beneficioCustomIni || !_beneficioCustomFim){
       toast('Defina a data inicial e final na aba Personalizado primeiro.','warning'); return;
     }
-    dataIni = _beneficioCustomIni; dataFim = _beneficioCustomFim; escopo = 'semana';
+    dataIni = _beneficioCustomIni; dataFim = _beneficioCustomFim;
+    // Se o range bate com uma competência (26→25), trata como 'mes' (histórica)
+    // p/ ativar VA e BP no modal. Senão, mantém 'semana' (apuração avulsa).
+    const _cp = _compFromRange(dataIni, dataFim);
+    escopo = _cp ? 'mes' : 'semana';
   } else if(tab === 'hoje'){
     dataIni = dataFim = hojeISO; escopo = 'dia';
   } else {
     const s = _semanaDe(hojeISO);
     dataIni = s.inicio; dataFim = s.fim; escopo = 'semana';
   }
-  // Para "Este Período" (prospectivo), usa o MESMO cálculo da lista (prev. pela escala
-  // + desconto de faltas anteriores) — senão modal e lista divergem.
+  // Para "Este Período" (prospectivo) E Personalizado-com-competência (histórica),
+  // usa o MESMO cálculo da lista (Previsto pela escala + desconto de faltas)
+  // p/ que VA e BP apareçam corretamente.
   let b;
   if(escopo === 'mes'){
-    const d = new Date(dataIni+'T12:00:00');
-    const _comp = _competenciaDe(d);
-    const mUso = _comp.mes, aUso = _comp.ano;
-    let mPag = mUso-1, aPag = aUso;
-    if(mPag<1){ mPag=12; aPag--; }
+    let mUso, aUso, mPag, aPag;
+    // Personalizado-com-comp → consulta histórica: mUso = mPag = competência alvo.
+    // 'Este Período' → prospectivo: mUso = mPag + 1 (próximo mês usa, paga em mPag).
+    if(tab === 'custom'){
+      const _cp = _compFromRange(dataIni, dataFim);
+      mUso = mPag = _cp.mPag;
+      aUso = aPag = _cp.aPag;
+    } else {
+      const d = new Date(dataIni+'T12:00:00');
+      const _comp = _competenciaDe(d);
+      mUso = _comp.mes; aUso = _comp.ano;
+      mPag = mUso-1; aPag = aUso;
+      if(mPag<1){ mPag=12; aPag--; }
+    }
     b = _calcBeneficiosColabPrevisto(emp, mUso, aUso, mPag, aPag);
   } else {
     b = _calcBeneficiosColab(emp, dataIni, dataFim, escopo);

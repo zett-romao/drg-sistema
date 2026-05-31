@@ -8293,7 +8293,7 @@ function _segBenefVaria(emp){
 // ao cálculo de valor único. Garante que a transferência não reduza o benefício
 // indevidamente — cada regra incide a partir da data informada. #benef-segmentado
 function _beneficioCheioSeg(emp, mUso, aUso, isento){
-  const vtTipo=emp.tipoTransporte||'vt', vtFreq=emp.vtFreq||'diario', vrFreq=emp.vrFreq||'diario';
+  const vtTipo=emp.tipoTransporte||'vt';
   const zp=n=>String(n).padStart(2,'0');
   let vtCheio=0, vrCheio=0, vaSum=0, diasVt=0, diasVr=0;
   const wkVt=new Set(), wkVr=new Set();
@@ -8304,22 +8304,28 @@ function _beneficioCheioSeg(emp, mUso, aUso, isento){
       const dow=new Date(cd.ano, cd.mes-1, cd.dia).getDay();
       ehVt = dow>=1 && dow<=5; ehVr = ehVt;             // isento (Art.62): dias úteis, integral
     } else {
-      const exp=_getExpectedDay(emp, cd.mes, cd.ano, cd.dia);
+      // ignoreAdmissao=true: conta o MÊS CHEIO, igual ao caminho não-segmentado
+      // (_diasPrevistosEscala/_diasPrevistosComVR) — senão admitido no meio do mês
+      // teria nº de dias diferente só por haver transferência. #audit-hoje-2
+      const exp=_getExpectedDay(emp, cd.mes, cd.ano, cd.dia, true);
       ehVt = !!(exp && exp.tipo!=='folga' && exp.entrada);
       ehVr = ehVt && _minutosLiqEsperados(exp) > 360;  // VR só em jornada > 6h
     }
     if(!ehVt && !ehVr) continue;
     const lot=_lotacaoEm(emp, iso);
+    // Frequência POR SEGMENTO (a do dia), não a do topo do colaborador (que é a do
+    // último período) — senão o trecho anterior soma com a frequência nova. #audit-hoje-1
+    const vtFreqDia = lot.vtFreq||'diario', vrFreqDia = lot.vrFreq||'diario';
     if(ehVt){
       diasVt++; vaSum += (+lot.valorMensalVa||0);
       if(vtTipo!=='nao'){
-        if(vtFreq==='semanal'){ const wk=_semanaDe(iso).inicio; if(!wkVt.has(wk)){ wkVt.add(wk); vtCheio += (+lot.valorDiarioVt||0); } }
+        if(vtFreqDia==='semanal'){ const wk=_semanaDe(iso).inicio; if(!wkVt.has(wk)){ wkVt.add(wk); vtCheio += (+lot.valorDiarioVt||0); } }
         else vtCheio += (+lot.valorDiarioVt||0);
       }
     }
     if(ehVr){
       diasVr++;
-      if(vrFreq==='semanal'){ const wk=_semanaDe(iso).inicio; if(!wkVr.has(wk)){ wkVr.add(wk); vrCheio += (+lot.valorDiarioVr||0); } }
+      if(vrFreqDia==='semanal'){ const wk=_semanaDe(iso).inicio; if(!wkVr.has(wk)){ wkVr.add(wk); vrCheio += (+lot.valorDiarioVr||0); } }
       else vrCheio += (+lot.valorDiarioVr||0);
     }
   }
@@ -19178,15 +19184,20 @@ function _diaEmBrancoEhFalta(emp, mes, ano, dia, isWeekend, is12x36){
   // viram falta/folga indevida).
   const _compEsc = _competenciaDe(new Date(ano, mes-1, dia));
   const escalaSalva = (State.escalas||[]).find(e => e.employeeId===emp.id && e.mes==_compEsc.mes && e.ano==_compEsc.ano);
+  // Escala VIGENTE na data (lotação/transferência) — MESMA fonte do _getExpectedDay,
+  // senão a apuração de falta (emp.escala) e a projeção (lot.escala) discordam num
+  // 6x1/12x36 com transferência. #audit-hoje-5
+  const _lotDia = _lotacaoEm(emp, _ymdOv);
+  const _escDia = (_lotDia && _lotDia.escala) || emp.escala || '5x2A';
+  const _is12x36Dia = escalaFamilia(_escDia)==='12x36';
   if(escalaSalva && Array.isArray(escalaSalva.dias)){
     const d = escalaSalva.dias.find(x => x.dia===dia);
     deveriaTrabalhar = !!(d && d.tipo!=='folga' && d.entrada);
-  } else if(is12x36){
+  } else if(_is12x36Dia){
     // 12x36 sem escala salva → usa a âncora do ciclo informada no cadastro
     deveriaTrabalhar = (_ciclo12x36EhTrabalho(emp, ano, mes, dia) === true);
-  } else if(emp.escala && (emp.escala.startsWith('6x1ALT') || emp.escala==='6x1B')){
-    // 6x1 Alternado / 6x1B → ciclo deslizante 6x1 (6 trabalho + 1 folga,
-    // ancorado na última folga conhecida; garante máx 6 dias seguidos).
+  } else if(_escDia.startsWith('6x1ALT') || _escDia==='6x1B'){
+    // 6x1 Alternado / 6x1B → ciclo deslizante 6x1 (máx 6 dias seguidos).
     deveriaTrabalhar = !_ehFolga6x1Ciclo(emp, ano, mes, dia);
   } else {
     deveriaTrabalhar = !isWeekend;
@@ -19928,6 +19939,9 @@ function _obsDiaSemBatida(emp, mes, ano, cd, d, isWknd, is12x36){
   if(_admP && !isNaN(_admP.getTime()) && new Date(cd.ano, cd.mes-1, d) < _admP){
     return { txt:'—', cor:'#9E9E9E' }; // antes da admissão: não era colaborador ainda
   }
+  // Isento de jornada (CLT Art.62): não bate ponto, não tem falta — dia sem batida
+  // não pode aparecer como "Falta" na folha impressa. #audit-hoje-7
+  if(emp.isentoPonto) return { txt:'—', cor:'#9E9E9E' };
   const exp = _getExpectedDayComp(emp, mes, ano, d);
   const ehTrabalho = !!(exp && exp.tipo!=='folga' && exp.entrada);
   if(!ehTrabalho) return { txt:'Folga', cor:'#7e22ce' };
@@ -21590,7 +21604,10 @@ function _anchor6x1Folga(emp){
     .sort((a,b)=>(b.ano-a.ano)||(b.mes-a.mes));
   for(const e of escs){
     let ultima=null; // dias em ordem cronológica da competência (26..31,1..25): pega a ÚLTIMA folga
-    for(const d of e.dias){ if(d && (d.tipo==='folga' || (!d.entrada && !d.saida))) ultima=d; }
+    // Só conta como folga o tipo EXPLÍCITO 'folga'. Um dia 'trabalho'/'corrido' salvo
+    // sem horário NÃO é folga (o _getExpectedDay usa horário contratual) — senão a
+    // âncora cairia num dia de trabalho e deslocaria todo o ciclo. #audit-hoje-6
+    for(const d of e.dias){ if(d && (d.tipo==='folga' || (d.tipo!=='trabalho' && d.tipo!=='corrido' && !d.entrada && !d.saida))) ultima=d; }
     if(ultima){
       const real=_compRealDate(e.mes, e.ano, ultima.dia);
       const d=new Date(real.ano, real.mes-1, real.dia);
@@ -22456,8 +22473,7 @@ async function aplicarAjusteEscala(){
   const empId = _ajustarEscalaEmpId;
   const emp = (State.employees||[]).find(e=>e.id===empId);
   if(!emp){ toast('Colaborador não encontrado.','error'); return; }
-  const card = document.querySelector(`.escala-card[data-emp-id="${empId}"]`);
-  if(!card){ toast('Card da escala não encontrado — feche e reabra a tela.','error'); return; }
+  // (não depende mais da grade do card — opera só sobre emp.escala + DB. #audit-hoje-8)
   const mes = parseInt(document.getElementById('escala-mes').value);
   const ano = parseInt(document.getElementById('escala-ano').value);
   const novaEscala = document.getElementById('ajustar-escala-tipo').value;
@@ -22477,7 +22493,11 @@ async function aplicarAjusteEscala(){
   emp.escala = novaEscala;
   if(fam === '12x36'){
     const _zpA = n=>String(n).padStart(2,'0');
-    emp.ciclo12x36Inicio = `${ano}-${_zpA(mes)}-${_zpA(diaX)}`; // âncora do ciclo
+    // diaX é dia da COMPETÊNCIA (26-31 = mês anterior); a âncora é DATA REAL de
+    // calendário. Converte antes, senão dias 26-31 ancoram o ciclo ~1 mês à frente
+    // e invertem trabalho/folga o mês todo. #audit-hoje-3
+    const _r = _compRealDate(mes, ano, diaX);
+    emp.ciclo12x36Inicio = `${_r.ano}-${_zpA(_r.mes)}-${_zpA(_r.dia)}`;
     if(novaEscala.startsWith('12x36-')) emp.turnoNoturno = _escala12x36Noturna(novaEscala);
   }
   if(updateCad){

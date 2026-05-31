@@ -5919,7 +5919,7 @@ function _escala12x36Noturna(escala){
 // ESCALA_HORARIOS_DEFAULT (entrada/saida e, se tiver, intIni/intFim) + nos
 // <select> de escala (index.html).
 function _escalaFixa(escala){
-  return typeof escala==='string' && (escala.startsWith('12x36-') || escala==='6x1ALT-0900-1720' || escala==='6x1ALT-0800-1620' || escala==='6x1ALT-0800-1700-S16' || escala==='6x1ALT-0700-1600-S11' || escala==='6x1LIV-0800-1700-S16' || escala==='6x1LIV-0700-1600-S11');
+  return typeof escala==='string' && (escala.startsWith('12x36-') || escala==='6x1ALT-0900-1720' || escala==='6x1ALT-0800-1620' || escala==='6x1ALT-0800-1700-S16' || escala==='6x1ALT-0700-1600-S11' || escala==='6x1LIV-0800-1700-S16' || escala==='6x1LIV-0700-1600-S11' || escala==='6x1LIV-0900-1720');
 }
 
 // Retorna o modelo de escala customizado (escala no formato m_{id}) ou null
@@ -5973,6 +5973,7 @@ function escalaLabel(escala){
     '6x1ALT-0700-1600-S11':'6x1 Alternado (Seg–Sex 07–16 / Sáb-Dom 07–11)',
     '6x1LIV-0800-1700-S16':'6x1 FDS Livre (Seg–Sex 08–17 / Sáb OU Dom 08–16)',
     '6x1LIV-0700-1600-S11':'6x1 FDS Livre (Seg–Sex 07–16 / Sáb OU Dom 07–11)',
+    '6x1LIV-0900-1720':'6x1 FDS Livre (09h–17h20)',
     '12x36':'12x36',
     '12x36-07-19':'12x36 (07h–19h)',
     '12x36-06-18':'12x36 (06h–18h)',
@@ -21829,7 +21830,9 @@ const ESCALA_HORARIOS_DEFAULT = {
   // 6x1 FIM DE SEMANA LIVRE: mesmos horários das variantes acima, mas o dia de
   // folga do fds NÃO é fixo/alternado — ela trabalha sáb OU dom (qualquer um vale).
   '6x1LIV-0800-1700-S16': { entrada:'08:00', saida:'17:00', intIni:'12:00', intFim:'13:00' },
-  '6x1LIV-0700-1600-S11': { entrada:'07:00', saida:'16:00', intIni:'12:00', intFim:'13:00' }
+  '6x1LIV-0700-1600-S11': { entrada:'07:00', saida:'16:00', intIni:'12:00', intFim:'13:00' },
+  // FDS livre 09:00-17:20 (fim de semana com o MESMO horário do dia útil, sem encurtar).
+  '6x1LIV-0900-1720': { entrada:'09:00', saida:'17:20', intIni:'12:00', intFim:'13:00' }
 };
 
 // Retorna horários default para um colaborador num dia da semana específico

@@ -13198,6 +13198,107 @@ async function removerOverrideEscala(overrideId){
   }catch(e){ toast('Erro: '+(e.message||e),'error'); }
 }
 
+// ── Troca de plantão — lança os 4 dias avulsos (folga/trabalho espelhados) ──
+// Duas pessoas trocam: quem cedeu o dia FOLGA nele; quem cobriu TRABALHA nele
+// (com o horário do dono original do dia). Resolve o "falta por troca" sem
+// gambiarra — usa o mesmo override (prioridade máxima) já existente.
+function _horarioPlantaoDia(emp, dateStr){
+  // Horário esperado do DONO do dia (o plantão que será coberto). Cai no
+  // contratual da lotação vigente se a projeção não devolver horário.
+  const p = (dateStr||'').split('-').map(Number);
+  const exp = (p.length===3) ? _getExpectedDay(emp, p[1], p[0], p[2], true) : null;
+  if(exp && exp.entrada) return { entrada:exp.entrada, saida:exp.saida||'', refIni:exp.intIni||'', refFim:exp.intFim||'' };
+  const lot = _lotacaoEm(emp, dateStr);
+  return {
+    entrada: lot.horarioEntrada||'', saida: lot.horarioSaida||'',
+    refIni: lot.semRefeicao?'':(lot.horarioRefIni||''), refFim: lot.semRefeicao?'':(lot.horarioRefFim||'')
+  };
+}
+
+function abrirTrocaPlantao(empIdPre){
+  const ativos = (State.employees||[]).filter(e=>(e.status||'ativo')==='ativo')
+    .sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+  const opts = ativos.map(e=>`<option value="${e.id}">${e.nome}${e.registro?` (${String(e.registro).padStart(4,'0')})`:''}</option>`).join('');
+  const selA=document.getElementById('troca-a'), selB=document.getElementById('troca-b');
+  selA.innerHTML = `<option value="">— selecione —</option>`+opts;
+  selB.innerHTML = `<option value="">— selecione —</option>`+opts;
+  const pre = empIdPre || val('emp-id') || val('payroll-employee') || '';
+  selA.value = pre || '';
+  setVal('troca-b',''); setVal('troca-dia-a',''); setVal('troca-dia-b',''); setVal('troca-obs','');
+  selA.onchange=_trocaPlantaoResumo; selB.onchange=_trocaPlantaoResumo;
+  document.getElementById('troca-dia-a').onchange=_trocaPlantaoResumo;
+  document.getElementById('troca-dia-b').onchange=_trocaPlantaoResumo;
+  _trocaPlantaoResumo();
+  document.getElementById('modal-troca-plantao').classList.remove('hidden');
+}
+
+function _trocaPlantaoResumo(){
+  const el=document.getElementById('troca-resumo'); if(!el) return;
+  const A=(State.employees||[]).find(e=>e.id===val('troca-a'));
+  const B=(State.employees||[]).find(e=>e.id===val('troca-b'));
+  const dA=val('troca-dia-a'), dB=val('troca-dia-b');
+  if(!A||!B||!dA||!dB){
+    el.innerHTML='<span style="color:#888"><i class="fa-solid fa-arrow-up"></i> Preencha os dois colaboradores e os dois dias para ver o resumo da troca.</span>';
+    return;
+  }
+  if(A.id===B.id){ el.innerHTML='<span style="color:#C62828">Selecione colaboradores diferentes.</span>'; return; }
+  const nA=(A.nome||'').split(' ')[0], nB=(B.nome||'').split(' ')[0];
+  const F='<span style="color:#7e22ce;font-weight:700">FOLGA</span>', T='<span style="color:#1B5E20;font-weight:700">TRABALHA</span>';
+  el.innerHTML =
+    `<div><i class="fa-solid fa-user" style="color:#6D28D9"></i> <strong>${nA}</strong>: ${F} em ${_fmtDtBr(dA)} &middot; ${T} em ${_fmtDtBr(dB)}</div>`+
+    `<div><i class="fa-solid fa-user" style="color:#6D28D9"></i> <strong>${nB}</strong>: ${T} em ${_fmtDtBr(dA)} &middot; ${F} em ${_fmtDtBr(dB)}</div>`;
+}
+
+async function salvarTrocaPlantao(){
+  const A=(State.employees||[]).find(e=>e.id===val('troca-a'));
+  const B=(State.employees||[]).find(e=>e.id===val('troca-b'));
+  const dA=val('troca-dia-a'), dB=val('troca-dia-b');
+  const obs=(val('troca-obs')||'').trim();
+  if(!A||!B){ toast('Selecione os dois colaboradores.','warning'); return; }
+  if(A.id===B.id){ toast('Selecione colaboradores diferentes.','warning'); return; }
+  if(!dA||!dB){ toast('Informe os dois dias da troca.','warning'); return; }
+  if(dA===dB){ toast('Os dois dias da troca devem ser diferentes.','warning'); return; }
+  const quem=(Auth.currentUser&&(Auth.currentUser.username||Auth.currentUser.id))||'—';
+  const nowISO=new Date().toISOString();
+  const obsBase = obs || `Troca de plantão: ${(A.nome||'').split(' ')[0]} ↔ ${(B.nome||'').split(' ')[0]}`;
+  // Horário do dono original de cada dia (o plantão que está sendo coberto).
+  const hDiaA=_horarioPlantaoDia(A, dA);  // dia dA é da A → quem cobre usa o horário de A
+  const hDiaB=_horarioPlantaoDia(B, dB);  // dia dB é da B → quem cobre usa o horário de B
+  // 4 lançamentos: A folga em dA / trabalha em dB ; B trabalha em dA / folga em dB.
+  const lancamentos=[
+    { emp:A, data:dA, tipo:'folga',     hor:null  },
+    { emp:A, data:dB, tipo:'diferente', hor:hDiaB },
+    { emp:B, data:dA, tipo:'diferente', hor:hDiaA },
+    { emp:B, data:dB, tipo:'folga',     hor:null  },
+  ];
+  const conflitos=[];
+  for(const l of lancamentos){
+    const ja=(l.emp.overridesHorario||[]).find(o=>o.data===l.data);
+    if(ja) conflitos.push(`${l.emp.nome} em ${_fmtDtBr(l.data)}`);
+  }
+  if(conflitos.length && !confirm(`Já existe dia avulso em:\n• ${conflitos.join('\n• ')}\n\nSubstituir pelos lançamentos da troca?`)) return;
+  for(const l of lancamentos){
+    const novo={
+      id: genId(), data:l.data, tipo:l.tipo,
+      horarioEntrada: l.hor?l.hor.entrada:'', horarioSaida: l.hor?l.hor.saida:'',
+      horarioRefIni:  l.hor?l.hor.refIni:'',  horarioRefFim: l.hor?l.hor.refFim:'',
+      observacao: obsBase, criadoEm: nowISO, criadoPorNome: quem, updatedAt: nowISO,
+      trocaPlantao: true,
+    };
+    l.emp.overridesHorario=(l.emp.overridesHorario||[]).filter(o=>o.data!==l.data);
+    l.emp.overridesHorario.push(novo);
+  }
+  try{
+    await DB.merge('employees', A.id, { overridesHorario:A.overridesHorario, updatedAt:nowISO });
+    await DB.merge('employees', B.id, { overridesHorario:B.overridesHorario, updatedAt:nowISO });
+    try{ Auth.log('TROCA_PLANTAO', null, `${A.nome} ${dA} ↔ ${dB} ${B.nome}`); }catch(_){}
+    closeModal('modal-troca-plantao');
+    toast('Troca registrada — 4 dias avulsos lançados. Rode "Recalcular faltas" da competência p/ atualizar.','success');
+    const cur=val('emp-id');
+    if(cur===A.id||cur===B.id) renderHorariosTab(cur);
+  }catch(e){ toast('Erro ao salvar a troca: '+(e.message||e),'error'); }
+}
+
 // Mini-modal flutuante reutilizavel (igual ao de stats)
 function _showFloatingModal(titulo, htmlConteudo){
   const old = document.getElementById('modal-floating-disc');

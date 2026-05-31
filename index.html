@@ -3276,7 +3276,10 @@
               <strong style="font-size:14px;color:var(--text)"><i class="fa-solid fa-calendar-day" style="color:#E65100"></i> Dias avulsos (overrides)</strong>
               <div style="font-size:11px;color:#888;margin-top:2px">Para um único dia (ex.: plantão noturno excepcional). Tem prioridade sobre o período.</div>
             </div>
-            <button type="button" class="btn btn-sm" style="font-size:12px;background:#E65100;color:#fff;border-color:#E65100" onclick="abrirNovoOverrideEscala()"><i class="fa-solid fa-plus"></i> Novo dia avulso</button>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <button type="button" class="btn btn-sm" style="font-size:12px;background:#6D28D9;color:#fff;border-color:#6D28D9" onclick="abrirTrocaPlantao()"><i class="fa-solid fa-right-left"></i> Troca de plantão</button>
+              <button type="button" class="btn btn-sm" style="font-size:12px;background:#E65100;color:#fff;border-color:#E65100" onclick="abrirNovoOverrideEscala()"><i class="fa-solid fa-plus"></i> Novo dia avulso</button>
+            </div>
           </div>
           <div id="hor-overrides-list">
             <div class="empty-state small"><i class="fa-solid fa-calendar"></i><p>Salve o colaborador para cadastrar dias avulsos</p></div>
@@ -4874,10 +4877,13 @@
       <button class="modal-close" onclick="closeModal('modal-ponto-manual')"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <div class="modal-body" style="padding:16px;max-height:70vh;overflow-y:auto">
-      <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px">
-        <i class="fa-solid fa-circle-info"></i>
-        Preencha Entrada e Saída dos dias trabalhados. Dias úteis sem preenchimento = falta. Sáb/Dom vazios = folga.
-      </p>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+        <p style="font-size:12px;color:var(--text-muted);margin:0;flex:1;min-width:240px">
+          <i class="fa-solid fa-circle-info"></i>
+          Preencha Entrada e Saída dos dias trabalhados. Dias úteis sem preenchimento = falta. Sáb/Dom vazios = folga.
+        </p>
+        <button type="button" class="btn btn-sm" style="font-size:12px;background:#6D28D9;color:#fff;border-color:#6D28D9;white-space:nowrap" onclick="abrirTrocaPlantao()" title="Trocou de dia com outra pessoa? Lança a folga/trabalho nas duas, sem virar falta."><i class="fa-solid fa-right-left"></i> Troca de plantão</button>
+      </div>
       <div id="ponto-manual-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:6px"></div>
       <div id="ponto-manual-resumo" style="margin-top:14px;padding:12px;background:var(--primary-light);border-radius:8px;display:none;flex-direction:column;gap:8px">
         <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center">
@@ -6085,6 +6091,55 @@
   </div>
 </div>
 
+<!-- ===== TROCA DE PLANTÃO ===== -->
+<div class="modal-overlay hidden" id="modal-troca-plantao" onclick="closeModal('modal-troca-plantao', event)">
+  <div class="modal-dialog">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-right-left" style="color:#6D28D9"></i> Troca de plantão</h3>
+      <button class="modal-close" onclick="closeModal('modal-troca-plantao')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="info-banner" style="background:#F5F3FF;border-color:#DDD6FE;color:#5B21B6;margin-bottom:12px">
+        <i class="fa-solid fa-circle-info"></i>
+        Duas pessoas trocam de dia. Em um clique o sistema lança os <strong>dias avulsos</strong> nas duas: quem cedeu o dia <strong>folga</strong> nele; quem cobriu <strong>trabalha</strong> nele (com o horário do plantão). Sem falta, sem hora extra indevida.
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Colaborador 1 <span class="required">*</span></label>
+          <select id="troca-a"></select>
+        </div>
+        <div class="form-group">
+          <label>Dia do Colaborador 1 que foi trocado <span class="required">*</span></label>
+          <input type="date" id="troca-dia-a">
+          <div style="font-size:11px;color:#888;margin-top:2px">Ele(a) <strong>folga</strong> nesse dia; o Colaborador 2 cobre.</div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Colaborador 2 <span class="required">*</span></label>
+          <select id="troca-b"></select>
+        </div>
+        <div class="form-group">
+          <label>Dia do Colaborador 2 que foi trocado <span class="required">*</span></label>
+          <input type="date" id="troca-dia-b">
+          <div style="font-size:11px;color:#888;margin-top:2px">Ele(a) <strong>folga</strong> nesse dia; o Colaborador 1 cobre.</div>
+        </div>
+      </div>
+      <div id="troca-resumo" style="background:#FAFAFA;border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:13px;line-height:1.7;margin:4px 0 12px"></div>
+      <div class="form-row">
+        <div class="form-group" style="grid-column:1 / -1">
+          <label>Motivo / observação</label>
+          <input type="text" id="troca-obs" maxlength="200" placeholder="Ex.: Troca acordada entre as colaboradoras">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-troca-plantao')">Cancelar</button>
+      <button class="btn btn-primary" style="background:#6D28D9;border-color:#6D28D9" onclick="salvarTrocaPlantao()"><i class="fa-solid fa-right-left"></i> Registrar troca</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
@@ -6143,6 +6198,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260531z2-fronteira-folga"></script>
+<script src="app.js?v=20260531z3-troca-plantao"></script>
 </body>
 </html>

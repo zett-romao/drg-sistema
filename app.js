@@ -7197,29 +7197,45 @@ function exportBeneficiosLista(formato, soSelecionados){
     if(!selIds.size){ toast('Marque ao menos um colaborador para imprimir os selecionados.','info'); return; }
   }
   const periodoLabelFull = soSelecionados ? `${periodoLabel} — selecionados` : periodoLabel;
-  // Detecta se é competência (Este Período OU Personalizado-com-comp) pra
-  // usar o cálculo Previsto (com VA + BP).
+  // EXPORTAÇÃO SEMPRE USA O CÁLCULO DA COMPETÊNCIA (Previsto):
+  //   - VT/VR pela escala projetada do mês de USO (próxima competência)
+  //   - VA mensal fixo (com desconto se ≥3 faltas)
+  //   - BP da folha do mês de PAGAMENTO (faltas=0 → recebe; falta → perdeu;
+  //     folha não fechada → N/C)
+  // Desta forma TODOS os benefícios do colaborador aparecem na lista,
+  // independente da aba (Hoje/Semana/Período/Personalizado). A aba só
+  // determina o LABEL do período mostrado.
   const tab = _beneficioTabAtual || 'hoje';
-  let _ctxMesExp = null;
-  if(tab === 'mes'){
-    const d = new Date();
-    const mPag = d.getMonth()+1, aPag = d.getFullYear();
-    let mUso = mPag+1, aUso = aPag;
-    if(mUso>12){ mUso=1; aUso++; }
-    _ctxMesExp = { mPag, aPag, mUso, aUso };
-  } else if(tab === 'custom'){
+  let mPag, aPag;
+  // Para tab='custom' com competência exata → usa essa competência.
+  // Senão usa a competência ATUAL (o mês de calendário corrente).
+  if(tab === 'custom'){
     const cp = _compFromRange(_beneficioCustomIni, _beneficioCustomFim);
-    if(cp) _ctxMesExp = { mPag:cp.mPag, aPag:cp.aPag, mUso:cp.mPag, aUso:cp.aPag };
+    if(cp){ mPag = cp.mPag; aPag = cp.aPag; }
+  }
+  if(!mPag){
+    const d = new Date();
+    mPag = d.getMonth()+1; aPag = d.getFullYear();
+  }
+  // Para "Este Período" → mUso = mPag+1 (próximo mês). Para histórica/custom-comp → mUso = mPag.
+  // Para outras abas → assumimos prospectivo (próximo mês).
+  let mUso, aUso;
+  const isHistorica = (tab === 'custom' && _compFromRange(_beneficioCustomIni, _beneficioCustomFim));
+  if(isHistorica){
+    mUso = mPag; aUso = aPag;
+  } else {
+    mUso = mPag+1; aUso = aPag;
+    if(mUso>12){ mUso=1; aUso++; }
   }
   const linhas = [];
   (State.employees||[])
     .filter(e => (e.status||'ativo') === 'ativo')
     .filter(e => !selIds || selIds.has(e.id))
     .forEach(e => {
-      const b = _ctxMesExp
-        ? _calcBeneficiosColabPrevisto(e, _ctxMesExp.mUso, _ctxMesExp.aUso, _ctxMesExp.mPag, _ctxMesExp.aPag)
-        : _calcBeneficiosColab(e, ini, fim, escopo);
-      if(b.total > 0) linhas.push({ emp:e, b });
+      const b = _calcBeneficiosColabPrevisto(e, mUso, aUso, mPag, aPag);
+      // Inclui linhas com algum valor OU motivo de BP perdida/pendente,
+      // pra ter transparência total no relatório.
+      if(b.total > 0 || b.bpMotivo) linhas.push({ emp:e, b });
     });
   linhas.sort((a,b) => (a.emp.nome||'').localeCompare(b.emp.nome||''));
   if(!linhas.length){ toast('Nenhum benefício a exportar.','error'); return; }
@@ -7292,7 +7308,7 @@ function exportBeneficiosLista(formato, soSelecionados){
     </tr>
   </tfoot>
 </table>
-<p style="margin-top:14px;font-size:11px;color:#555"><strong>Uso:</strong> esta planilha lista os colaboradores com benefícios a serem pagos manualmente (PIX, espécie ou cartão). Use a coluna "Chave PIX" para conferir o destinatário. ${_ctxMesExp ? 'VA e Boa Permanência aparecem por serem benefícios mensais apurados nesta competência.' : 'VA e Boa Permanência são apurados na competência — use a aba "Este Período" pra incluí-los.'}</p>
+<p style="margin-top:14px;font-size:11px;color:#555"><strong>Uso:</strong> esta planilha lista os colaboradores com benefícios a serem pagos manualmente (PIX, espécie ou cartão). Use a coluna "Chave PIX" para conferir o destinatário. VA e Boa Permanência são calculados pela competência ${MESES[mPag]}/${aPag} (apuração mensal). BP marcada como <strong>N/C</strong> = folha do mês ainda não fechada; <strong>"perdeu"</strong> = colab teve falta no mês.</p>
 <p style="margin-top:18px;font-size:10px;color:#888;text-align:center">${_e('nomeEmpresa')} — Sistema DRG-Kronos 3.0 &middot; ${linhas.length} colaborador(es)</p>
 </body></html>`;
   _abrirJanelaExport(html, formato, `Beneficios_${soSelecionados?'selecionados':(_beneficioTabAtual||'hoje')}_${new Date().toISOString().substring(0,10)}`);

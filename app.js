@@ -6361,6 +6361,8 @@ function renderBeneficiosLista(){
       `<span title="${totalBPAPagar>0?'Total da Boa Permanência a pagar (PIX por padrão)':'Boa Permanência é apurada no fechamento da competência — use a aba Este Período'}" style="background:#FFF9C4;color:#F57F17;padding:3px 10px;border-radius:8px;font-weight:700${totalBPAPagar===0?';opacity:0.6':''}"><i class="fa-solid fa-medal"></i> Boa Permanência: ${fmtMoney(totalBPAPagar)}${totalBPAPagar===0?' <small style="font-weight:500">(competência · Este Período)</small>':''}</span>` +
       `<span style="background:#E8F5E9;color:#2E7D32;padding:3px 10px;border-radius:8px;font-weight:700"><i class="fa-brands fa-pix"></i> Pagar em Dinheiro (PIX): ${fmtMoney(totalDinheiro)}</span>` +
     `</div>`;
+  // Etapa 3 (2026-05-31): banner + botão Fechar/Reabrir Competência.
+  _benefRenderFecharControle(_ctxMes);
   const listEl = document.getElementById('benef-lista');
   // Decide qual lista vai pra tabela principal com base na VIEW ativa.
   // semBenef e perderamBP usam tabelas dedicadas (rendering próprio mais abaixo).
@@ -6627,6 +6629,7 @@ async function pagarBeneficiosSelecionados(){
   }
   const chks=[...document.querySelectorAll('.benef-chk:checked')];
   if(!chks.length){ toast('Marque ao menos um colaborador com valor em dinheiro.','info'); return; }
+  if(_benefBloqueadoSeFechada()) return;
 
   // Período/competência da aba atual (descrição + dedup)
   const tab = _beneficioTabAtual || 'hoje';
@@ -6696,6 +6699,7 @@ async function pagarBeneficiosForcarPIX(){
   }
   const chks=[...document.querySelectorAll('.benef-chk:checked')];
   if(!chks.length){ toast('Marque ao menos um colaborador.','info'); return; }
+  if(_benefBloqueadoSeFechada()) return;
 
   // Mesma lógica de período da função normal (dedup compartilhado).
   const tab = _beneficioTabAtual || 'hoje';
@@ -6786,6 +6790,7 @@ async function pagarBoaPermanencia(){
   const per=_compPeriodo(cMes,cAno);
   const ini=per.deISO, fim=per.ateISO;
   const periodoLabel=`Competência ${MESES[cMes]}/${cAno} (${_compLabel(cMes,cAno)})`;
+  if(_benefBloqueadoSeFechada()) return;
   const comp=`BP_${ini}_${fim}`;   // chave SEPARADA das outras (BEN_)
 
   // Pega bpValor real de cada colaborador (não confia só em data-valor-total)
@@ -6959,6 +6964,7 @@ function _abrirModalPagoBenef(chks){
   if(!getUserModules(Auth.currentUser).pagamentosLancar){
     toast('Você não tem permissão para lançar pagamentos.','error'); return;
   }
+  if(_benefBloqueadoSeFechada()) return;
   chks = (chks && chks.length) ? chks : [...document.querySelectorAll('.benef-chk:checked')];
   if(!chks.length){ toast('Marque ao menos um colaborador na lista.','info'); return; }
 
@@ -7102,6 +7108,7 @@ async function confirmarPagoBenef(){
 }
 
 async function desfazerPagoBenef(solId){
+  if(_benefBloqueadoSeFechada()) return;
   const sol = (State.solicitacoes||[]).find(s=>s.id===solId);
   if(!sol){ toast('Lançamento não encontrado.','error'); return; }
   if(!confirm(`Desfazer o registro de ${(sol.beneficioTipo||'').toUpperCase()} pago de ${sol.employeeNome||'colaborador'}? Ele volta a aparecer como a pagar.`)) return;
@@ -7111,6 +7118,131 @@ async function desfazerPagoBenef(solId){
     toast('Registro desfeito.','success');
     if(typeof renderBeneficiosLista==='function') renderBeneficiosLista();
   }catch(e){ console.error(e); toast('Erro ao desfazer.','error'); }
+}
+
+// ============================================================================
+// FECHAR / REABRIR COMPETÊNCIA (benefícios) — Etapa 3 (2026-05-31)
+// Trava os pagamentos de uma competência (somente-leitura) depois que tudo foi
+// pago. Guardado em `configuracoes` (doc benef_fechada_{mes}_{ano}) — mesma
+// mecânica do fechamento da folha; 'configuracoes' é sempre gravável.
+// ============================================================================
+let _benefFechadasCache = {};    // `${mes}_${ano}` -> conf (objeto do Firestore) | null
+let _benefFechadasLoading = {};  // dedup de carga assíncrona
+
+function _benefCompKeyAtual(ctx){ return ctx ? `${ctx.mPag}_${ctx.aPag}` : null; }
+
+// Retorna a conf de fechamento da competência exibida SE estiver fechada (cache).
+function _benefCompetenciaFechada(ctx){
+  const k = _benefCompKeyAtual(ctx);
+  if(!k) return null;
+  const c = _benefFechadasCache[k];
+  return (c && c.fechada) ? c : null;
+}
+
+// Carrega (1x) o estado de fechamento da competência e re-renderiza ao chegar.
+function _benefCarregarFechada(key, cb){
+  if(_benefFechadasLoading[key]) return;
+  _benefFechadasLoading[key] = true;
+  DB.getDoc('configuracoes', `benef_fechada_${key}`).then(doc=>{
+    _benefFechadasCache[key] = doc || null;
+    _benefFechadasLoading[key] = false;
+    if(cb) cb();
+  }).catch(e=>{ console.warn('benef fechada load', e); _benefFechadasLoading[key]=false; });
+}
+
+// Quem pode fechar/reabrir: quem lança pagamentos, ou master.
+function _benefPodeGerirFecho(){
+  return (Auth.currentUser && Auth.currentUser.role==='master')
+      || getUserModules(Auth.currentUser).pagamentosLancar;
+}
+
+// Injeta o banner + botão (Fechar/Reabrir) no rodapé do bloco benef-info.
+// Só quando a aba representa uma COMPETÊNCIA (Este Período ou Personalizado 26→25).
+function _benefRenderFecharControle(ctx){
+  const host = document.getElementById('benef-info');
+  if(!host) return;
+  const key = _benefCompKeyAtual(ctx);
+  if(!key) return; // Hoje/Esta Semana: não é competência → sem fechar
+  if(!(key in _benefFechadasCache)){
+    _benefCarregarFechada(key, ()=>{ if(State.currentSection==='beneficios') renderBeneficiosLista(); });
+    return;
+  }
+  const conf = _benefFechadasCache[key];
+  const fechada = !!(conf && conf.fechada);
+  const podeGerir = _benefPodeGerirFecho();
+  const m = parseInt(key.split('_')[0]), a = key.split('_')[1];
+  const compLbl = `${MESES[m]}/${a}`;
+  let html;
+  if(fechada){
+    const dt = conf.fechadaEm ? new Date(conf.fechadaEm).toLocaleDateString('pt-BR') : '';
+    html = `<div style="margin-top:8px;background:#E8EAF6;border:1px solid #C5CAE9;border-radius:8px;padding:8px 12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span style="background:#5C6BC0;color:#fff;padding:3px 10px;border-radius:10px;font-size:12px;font-weight:700"><i class="fa-solid fa-lock"></i> COMPETÊNCIA FECHADA</span>
+      <span style="font-size:12px;color:#3949AB">${compLbl} travada para pagamentos${dt?` · fechada em ${dt}`:''}${conf.fechadaPor?` por ${esc(conf.fechadaPor)}`:''}.</span>
+      <span style="flex:1"></span>
+      ${podeGerir?`<button class="btn btn-sm" onclick="reabrirCompetenciaBenef('${key}')" style="background:#fff;border:1px solid #5C6BC0;color:#5C6BC0;font-size:12px;font-weight:700"><i class="fa-solid fa-lock-open"></i> Reabrir</button>`:''}
+    </div>`;
+  } else {
+    html = `<div style="margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span style="background:#E8F5E9;color:#2E7D32;padding:3px 10px;border-radius:10px;font-size:12px;font-weight:700"><i class="fa-solid fa-lock-open"></i> Competência aberta</span>
+      <span style="flex:1"></span>
+      ${podeGerir?`<button class="btn btn-sm" onclick="fecharCompetenciaBenef('${key}')" style="background:#5C6BC0;color:#fff;border:none;font-size:12px;font-weight:700" title="Trava os pagamentos de ${compLbl} (somente leitura). Dá pra reabrir depois."><i class="fa-solid fa-lock"></i> Fechar Competência</button>`:''}
+    </div>`;
+  }
+  host.insertAdjacentHTML('beforeend', html);
+}
+
+async function fecharCompetenciaBenef(key){
+  if(!_benefPodeGerirFecho()){ toast('Sem permissão para fechar a competência.','error'); return; }
+  const m = parseInt(key.split('_')[0]), a = key.split('_')[1];
+  const compLbl = `${MESES[m]}/${a}`;
+  if(!confirm(`Fechar a competência ${compLbl}?\n\nDepois de fechada, os pagamentos de benefícios ficam TRAVADOS (somente leitura). Você pode reabrir quando quiser.`)) return;
+  const conf = { fechada:true, mes:m, ano:parseInt(a),
+    fechadaEm:new Date().toISOString(), fechadaPor:(Auth.currentUser?.username||Auth.currentUser?.nome||'—'),
+    reabertaEm:'', reabertaPor:'' };
+  try{
+    await DB.saveDoc('configuracoes', `benef_fechada_${key}`, conf, true);
+    _benefFechadasCache[key] = conf;
+    Auth.log('BENEF_COMPETENCIA_FECHADA', null, `Competência ${compLbl} fechada (benefícios)`);
+    toast(`Competência ${compLbl} fechada (travada).`,'success');
+    renderBeneficiosLista();
+  }catch(e){ console.error(e); toast('Erro ao fechar competência.','error'); }
+}
+
+async function reabrirCompetenciaBenef(key){
+  if(!_benefPodeGerirFecho()){ toast('Sem permissão para reabrir a competência.','error'); return; }
+  const m = parseInt(key.split('_')[0]), a = key.split('_')[1];
+  const compLbl = `${MESES[m]}/${a}`;
+  if(!confirm(`Reabrir a competência ${compLbl}? Os pagamentos voltam a poder ser lançados/alterados.`)) return;
+  const atual = _benefFechadasCache[key] || {};
+  const conf = { ...atual, fechada:false, mes:m, ano:parseInt(a),
+    reabertaEm:new Date().toISOString(), reabertaPor:(Auth.currentUser?.username||Auth.currentUser?.nome||'—') };
+  try{
+    await DB.saveDoc('configuracoes', `benef_fechada_${key}`, conf, true);
+    _benefFechadasCache[key] = conf;
+    Auth.log('BENEF_COMPETENCIA_REABERTA', null, `Competência ${compLbl} reaberta (benefícios)`);
+    toast(`Competência ${compLbl} reaberta.`,'success');
+    renderBeneficiosLista();
+  }catch(e){ console.error(e); toast('Erro ao reabrir competência.','error'); }
+}
+
+// Guard central das ações de pagamento: true (e avisa) se a competência
+// atualmente exibida está FECHADA. Usado por todos os botões de pagar/desfazer.
+function _benefBloqueadoSeFechada(){
+  const tab = _beneficioTabAtual || 'hoje';
+  let ctx = null;
+  if(tab === 'mes'){
+    const d=new Date(); ctx={ mPag:d.getMonth()+1, aPag:d.getFullYear() };
+  } else if(tab === 'custom'){
+    const cp = _compFromRange(_beneficioCustomIni, _beneficioCustomFim);
+    if(cp) ctx={ mPag:cp.mPag, aPag:cp.aPag };
+  }
+  const c = _benefCompetenciaFechada(ctx);
+  if(c){
+    const compLbl = ctx ? `${MESES[ctx.mPag]}/${ctx.aPag}` : 'selecionada';
+    toast(`Competência ${compLbl} está FECHADA. Reabra antes de lançar ou alterar pagamentos.`,'warning');
+    return true;
+  }
+  return false;
 }
 
 // Estado do modal de detalhe (para os botões de export)

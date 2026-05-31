@@ -19854,6 +19854,24 @@ async function applyPontoManual(){
 }
 
 // ============================================
+// Obs de um dia SEM batida na folha IMPRESSA. Antes era um binário Falta/Folga,
+// então um dia de trabalho FUTURO numa competência em andamento aparecia como
+// "Folga" — errado (ex.: 6x1 com o mês inteiro "folga"). Agora distingue 4 casos
+// pela ESCALA real (comp-aware). Retorna { txt, cor }.
+function _obsDiaSemBatida(emp, mes, ano, cd, d, isWknd, is12x36){
+  const _admP = emp.dataAdmissao ? new Date(emp.dataAdmissao+'T00:00:00') : null;
+  if(_admP && !isNaN(_admP.getTime()) && new Date(cd.ano, cd.mes-1, d) < _admP){
+    return { txt:'—', cor:'#9E9E9E' }; // antes da admissão: não era colaborador ainda
+  }
+  const exp = _getExpectedDayComp(emp, mes, ano, d);
+  const ehTrabalho = !!(exp && exp.tipo!=='folga' && exp.entrada);
+  if(!ehTrabalho) return { txt:'Folga', cor:'#7e22ce' };
+  // Dia de trabalho sem batida: FALTA se já passou; A CUMPRIR se ainda é futuro
+  // (plantão não cumprido numa competência em andamento — não é folga nem falta).
+  if(_diaEmBrancoEhFalta(emp, cd.mes, cd.ano, d, isWknd, is12x36)) return { txt:'Falta', cor:'#C62828' };
+  return { txt:'A cumprir', cor:'#1565C0' };
+}
+
 // PRÉVIA PARCIAL — calcula em memória, imprime, restaura o formulário
 // ============================================
 function printPreviewParcial(){
@@ -20085,17 +20103,10 @@ function printFolhaPonto(isPreview=false){
     // Sufixo (+1) para saída/intFim cross-midnight em turno noturno
     const saidaDisplay=_shiftCrossesMidnight(entrada,saida)?`${saida} <span style="color:#FB8C00;font-size:9px">(+1)</span>`:saida;
     const intFimDisplay=_intervaloCrossesMidnight(intIni,intFim,entrada,saida)?`${intFim} <span style="color:#FB8C00;font-size:9px">(+1)</span>`:intFim;
-    let obsdia='';
+    let obsdia='', obscor='#E65100';
     if(!entrada&&!saida){
-      // Antes da admissão não é falta nem folga (não era colaborador ainda).
-      const _admP = emp.dataAdmissao ? new Date(emp.dataAdmissao+'T00:00:00') : null;
-      if(_admP && !isNaN(_admP.getTime()) && new Date(cd.ano, cd.mes-1, d) < _admP){
-        obsdia='—';
-      } else {
-        // Usa a regra real da escala (admissão/escala-aware) em vez do chute
-        // "fim de semana = folga, resto = falta". Respeita 6x1 alternado/12x36.
-        obsdia = _diaEmBrancoEhFalta(emp, cd.mes, cd.ano, d, isWknd, is12x36) ? 'Falta' : 'Folga';
-      }
+      const _ods=_obsDiaSemBatida(emp, mes, ano, cd, d, isWknd, is12x36);
+      obsdia=_ods.txt; obscor=_ods.cor;
     }
     const rowBg=isWknd?'background:#F8F9FA;color:#999':'';
     tabelaDias+=`<tr style="${rowBg}">
@@ -20106,7 +20117,7 @@ function printFolhaPonto(isPreview=false){
       <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${intIni}</td>
       <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${intFimDisplay}</td>
       <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6;font-weight:${horasLiq?'600':'400'}">${horasLiq}</td>
-      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6;color:#E65100">${obsdia}</td>
+      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6;color:${obscor}">${obsdia}</td>
     </tr>`;
   }
 
@@ -20348,17 +20359,10 @@ function _buildFolhaHtmlFromRecord(emp, p){
     // Sufixo (+1) para saída/intFim cross-midnight em turno noturno
     const saidaDisplay=_shiftCrossesMidnight(entrada,saida)?`${saida} <span style="color:#FB8C00;font-size:9px">(+1)</span>`:saida;
     const intFimDisplay=_intervaloCrossesMidnight(intIni,intFim,entrada,saida)?`${intFim} <span style="color:#FB8C00;font-size:9px">(+1)</span>`:intFim;
-    let obsdia='';
+    let obsdia='', obscor='#E65100';
     if(!entrada&&!saida){
-      // Antes da admissão não é falta nem folga (não era colaborador ainda).
-      const _admP = emp.dataAdmissao ? new Date(emp.dataAdmissao+'T00:00:00') : null;
-      if(_admP && !isNaN(_admP.getTime()) && new Date(cd.ano, cd.mes-1, d) < _admP){
-        obsdia='—';
-      } else {
-        // Usa a regra real da escala (admissão/escala-aware) em vez do chute
-        // "fim de semana = folga, resto = falta". Respeita 6x1 alternado/12x36.
-        obsdia = _diaEmBrancoEhFalta(emp, cd.mes, cd.ano, d, isWknd, is12x36) ? 'Falta' : 'Folga';
-      }
+      const _ods=_obsDiaSemBatida(emp, mes, ano, cd, d, isWknd, is12x36);
+      obsdia=_ods.txt; obscor=_ods.cor;
     }
     const rowBg=isWknd?'background:#F8F9FA;color:#999':'';
     tabelaDias+=`<tr style="${rowBg}">
@@ -20369,7 +20373,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
       <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${intIni}</td>
       <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${intFimDisplay}</td>
       <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6;font-weight:${horasLiq?'600':'400'}">${horasLiq}</td>
-      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6;color:#E65100">${obsdia}</td>
+      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6;color:${obscor}">${obsdia}</td>
     </tr>`;
   }
 

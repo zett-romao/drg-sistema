@@ -6403,7 +6403,7 @@ function renderBeneficiosLista(){
         if(_ctxMes) return _ctxMes.aPag;
         const d = new Date(); return d.getFullYear();
       })();
-      const _adminBtn = _isMaster ? `<button class="btn btn-sm btn-outline" onclick="setVal('payroll-mes',${_adminMes});setVal('payroll-ano',${_adminAno});recalcularFaltasCompetencia()" style="border-color:#1565C0;color:#1565C0;font-size:12px" title="ADMIN: Recalcula faltasInjustificadas das folhas dessa competência (preserva justificadas). Use quando o backfill inflou as faltas e todo mundo aparece como 'perdeu' BP."><i class="fa-solid fa-wrench"></i> Recalcular faltas (master)</button>` : '';
+      const _adminBtn = _isMaster ? `<button class="btn btn-sm" onclick="recalcularFaltasCompetencia(${_adminMes},${_adminAno})" style="background:#1565C0;color:#fff;border:none;font-size:12px;font-weight:700" title="ADMIN: Recalcula faltasInjustificadas das folhas dessa competência (preserva justificadas). Use quando o backfill inflou as faltas e todo mundo aparece como 'perdeu' BP."><i class="fa-solid fa-wrench"></i> Recalcular faltas (master)</button>` : '';
       html += `<div style="background:#FFFDE7;border:2px solid #FFE082;border-radius:8px;padding:10px 14px;margin-bottom:10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
         <span style="font-weight:700;color:#F57F17;font-size:14px"><i class="fa-solid fa-medal"></i> Perderam a Boa Permanência</span>
         <span style="color:#F57F17;font-weight:600">${semBP.length} colaborador(es)</span>
@@ -9965,12 +9965,24 @@ async function limparBackfillPeriodo(){
 // Salva mesmo em folhas FECHADAS (admin-only, master-only).
 // Reset visível no BP — quem ficou em 0+0 vira elegível na próxima leitura.
 // ============================================
-async function recalcularFaltasCompetencia(){
-  if(Auth.currentUser?.role!=='master'){ toast('Apenas o usuário master pode rodar a recalculo.','error'); return; }
-  const mes=parseInt(val('payroll-mes')||currentMes());
-  const ano=parseInt(val('payroll-ano')||currentAno());
+async function recalcularFaltasCompetencia(mesArg, anoArg){
+  // Feedback IMEDIATO no clique — pra confirmar que a função foi chamada.
+  // (antes ficava silencioso até o confirm, dando impressão de 'não funciona')
+  toast('Iniciando recalculo de faltas...','info');
+  console.log('[recalcularFaltasCompetencia] iniciado', { mesArg, anoArg, user: Auth.currentUser?.username, role: Auth.currentUser?.role });
+  if(Auth.currentUser?.role!=='master'){ toast('Apenas o usuário master pode rodar o recalculo.','error'); return; }
+  // Aceita mes/ano via argumento OU lê dos inputs OU usa o currentMes/Ano.
+  // Argumentos têm prioridade pra evitar bug quando chamado de fora da tela
+  // de Folha de Ponto (Benefícios, p.ex.) onde os inputs não existem.
+  let mes = parseInt(mesArg || val('payroll-mes') || currentMes());
+  let ano = parseInt(anoArg || val('payroll-ano') || currentAno());
+  console.log('[recalcularFaltasCompetencia] competência alvo:', mes, ano);
   const afetadas=(State.payrolls||[]).filter(p=>p.mes==mes&&p.ano==ano);
-  if(!afetadas.length){ toast(`Nenhuma folha encontrada em ${MESES[mes]}/${ano}.`,'info'); return; }
+  console.log('[recalcularFaltasCompetencia] folhas encontradas:', afetadas.length);
+  if(!afetadas.length){
+    toast(`Nenhuma folha encontrada em ${MESES[mes]}/${ano}. Verifique se a competência tem folhas salvas.`,'warning');
+    return;
+  }
   if(!confirm(`Recalcular FALTAS INJUSTIFICADAS de ${afetadas.length} folha(s) da competência ${MESES[mes]}/${ano} (${_compLabel(mes,ano)})?\n\n• Recalcula com base no estado ATUAL da folha (dias batidos vs escala).\n• Preserva 'faltasJustificadas' (lançadas manualmente).\n• Roda mesmo em folhas FECHADAS.\n• Útil quando o backfill inflou as faltas (12x36 sem âncora, escala antiga errada etc.).\n\nDepois disso, quem tiver 0 falta volta a receber Boa Permanência.\n\nContinuar?`)) return;
   let nAlteradas=0, nMantidas=0, nReduziu=0;
   const compDias=_compDias(mes,ano);

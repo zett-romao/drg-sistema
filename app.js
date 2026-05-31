@@ -7398,30 +7398,55 @@ ${obs?`<div style="background:#FFF9E6;padding:10px;border-left:3px solid #F59E0B
 
 // Abre nova janela com HTML para imprimir/PDF, ou dispara download .xls
 function _abrirJanelaExport(html, formato, baseName){
-  if(formato === 'excel'){
-    // Gera arquivo .xls (Excel abre HTML como planilha)
-    const blob = new Blob(['﻿' + html], { type: 'application/vnd.ms-excel;charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${baseName||'export'}.xls`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-    toast('Planilha .xls gerada!', 'success');
-    return;
-  }
-  if(formato === 'pdf'){
+  const safeName = (baseName||'export').replace(/[^a-zA-Z0-9_\-]/g,'_');
+  // 'print' = caminho rápido (imprime direto). PDF/Excel abrem PREVIEW com
+  // botões no fim do documento — usuário VÊ antes de decidir o que fazer.
+  if(formato === 'print'){
     const win = window.open('','_blank','width=900,height=700');
-    if(!win){ toast('Permita pop-ups para gerar o PDF.','error'); return; }
+    if(!win){ toast('Permita pop-ups para imprimir.','error'); return; }
     win.document.write(html + '<scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt>');
     win.document.close();
-    toast('Use "Salvar como PDF" na janela de impressão.', 'info');
     return;
   }
-  // print
-  const win = window.open('','_blank','width=900,height=700');
-  if(!win){ toast('Permita pop-ups para imprimir.','error'); return; }
-  win.document.write(html + '<scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt>');
+  // PDF / Excel → preview window com barra de ações no rodapé.
+  // data-noprint="1" oculta a barra na hora de imprimir/salvar PDF.
+  // O botão "Baixar Excel" gera o .xls a partir do HTML da PRÓPRIA janela
+  // (sem depender do app pai — funciona mesmo se a aba principal for fechada).
+  const actionBar = `<div data-noprint="1" style="text-align:center;margin:40px 0 20px;padding:18px;background:#F1F5F9;border-top:2px solid #CFD8DC;page-break-inside:avoid">
+    <p style="margin:0 0 12px;font-size:12px;color:#37474F">📋 <strong>Opções de ação</strong> — escolha como salvar/imprimir o documento:</p>
+    <button onclick="window.print()" style="background:#1565C0;color:#fff;padding:10px 22px;border:none;border-radius:5px;margin:0 6px;cursor:pointer;font-size:13px;font-weight:600">🖨 Imprimir / Salvar PDF</button>
+    <button id="btn-baixar-xls" style="background:#1B5E20;color:#fff;padding:10px 22px;border:none;border-radius:5px;margin:0 6px;cursor:pointer;font-size:13px;font-weight:600">📗 Baixar Excel (.xls)</button>
+    <button onclick="window.close()" style="background:#9E9E9E;color:#fff;padding:10px 22px;border:none;border-radius:5px;margin:0 6px;cursor:pointer;font-size:13px;font-weight:600">✕ Fechar</button>
+  </div>
+  <style>@media print{[data-noprint="1"]{display:none !important}}</style>
+  <scr` + `ipt>
+    document.addEventListener('DOMContentLoaded', function(){
+      var btn = document.getElementById('btn-baixar-xls');
+      if(btn) btn.addEventListener('click', function(){
+        var body = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">' + document.documentElement.innerHTML + '</html>';
+        // Remove a barra de ações do conteúdo exportado pro Excel.
+        body = body.replace(/<div data-noprint="1"[\\s\\S]*?<\\/div>/g, '');
+        var blob = new Blob(['\\ufeff' + body], { type: 'application/vnd.ms-excel;charset=utf-8' });
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = '${safeName}.xls';
+        a.click();
+        URL.revokeObjectURL(a.href);
+      });
+    });
+  </scr` + `ipt>`;
+  const htmlComAcoes = html.replace(/<\/body>/i, actionBar + '</body>');
+  const win = window.open('','_blank','width=1000,height=800');
+  if(!win){ toast('Permita pop-ups para abrir o documento.','error'); return; }
+  win.document.write(htmlComAcoes);
   win.document.close();
+  // Se o usuário pediu Excel, dispara o download AUTOMÁTICO depois de abrir
+  // o preview (assim ele tem o arquivo E o preview ao mesmo tempo).
+  if(formato === 'excel'){
+    setTimeout(() => {
+      try { win.document.getElementById('btn-baixar-xls')?.click(); } catch(_){}
+    }, 400);
+  }
 }
 
 // ============================================

@@ -2030,7 +2030,10 @@ function renderDashboard(){
     p.pontoManualDias.forEach(d => {
       if(!d.entrada || !d.saida) return;
       const exp = _getExpectedDayComp(emp, p.mes, p.ano, d.dia);
-      if(!exp || !exp.entrada) return;
+      // NÃO pula folga: _detectHEDivergencia é a fonte única (folga trabalhada =
+      // HE pendente). O '!exp.entrada' descartava folga e dessincronizava do
+      // badge do card. #he-folga-consistencia
+      if(!exp) return;
       const detec = _detectHEDivergencia(d, exp);
       if(detec.precisaRevisao && (d.heReview?.status||'pendente')==='pendente'){
         heRevisaoDias++;
@@ -19692,7 +19695,7 @@ function _payrollTemPendente(payroll){
   return payroll.pontoManualDias.some(d => {
     if(!d.entrada || !d.saida) return false;
     const exp = _getExpectedDayComp(emp, payroll.mes, payroll.ano, d.dia);
-    if(!exp || !exp.entrada) return false;
+    if(!exp) return false; // folga NÃO é pulada — _detectHEDivergencia trata folga trabalhada. #he-folga-consistencia
     const detec = _detectHEDivergencia(d, exp);
     return detec.precisaRevisao && (d.heReview?.status||'pendente')==='pendente';
   });
@@ -19729,7 +19732,10 @@ function _getPendentesHEList(mes, ano){
     p.pontoManualDias.forEach(d => {
       if(!d.entrada || !d.saida) return;
       const exp = _getExpectedDayComp(emp, p.mes, p.ano, d.dia);
-      if(!exp || !exp.entrada) return;
+      // NÃO pula folga: _detectHEDivergencia é a fonte única (folga trabalhada =
+      // HE pendente). O '!exp.entrada' descartava folga e dessincronizava do
+      // badge do card. #he-folga-consistencia
+      if(!exp) return;
       const detec = _detectHEDivergencia(d, exp);
       if(detec.precisaRevisao && (d.heReview?.status||'pendente')==='pendente'){
         nDias++;
@@ -19858,7 +19864,7 @@ async function openHEReview(){
   dias.forEach(d => {
     if(!d.entrada || !d.saida) return;
     const expected = _getExpectedDayComp(emp, mes, ano, d.dia);
-    if(!expected || !expected.entrada) return;
+    if(!expected) return; // folga NÃO é pulada — _detectHEDivergencia trata folga trabalhada. #he-folga-consistencia
     const detec = _detectHEDivergencia(d, expected);
     if(!detec.precisaRevisao) return;
     linhas.push({ d, expected, detec });

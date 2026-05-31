@@ -219,6 +219,11 @@
     </button>
   </div>
 
+  <!-- Banner: folhas pendentes de conferência (aparece quando há) -->
+  <div id="banner-folhas-conferir" style="display:none;background:linear-gradient(90deg,#FFF59D 0%,#FFE082 100%);padding:12px 16px;cursor:pointer;border-bottom:2px solid #F57F17;text-align:center;font-weight:600;color:#E65100;font-size:14px" onclick="abrirInboxFolhas()">
+    📋 <span id="banner-folhas-count">0</span> folha(s) aguardando sua conferência — clique para abrir
+  </div>
+
   <!-- Conteúdo com seções -->
   <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
 
@@ -456,7 +461,7 @@
 // ─── VERSÃO DO APP DO COLABORADOR ─────────────────────────────────────────────
 // Bumpe SEMPRE em conjunto com o CACHE do ponto-sw.js e o ?v= do firebase-config.
 // Formato: AA.MM.DD + letra (a, b, c...) — alinhado com o nome do cache.
-const PONTO_VERSION = '25.05.28a';
+const PONTO_VERSION = '25.05.31a-conferencia';
 // Exibe a versão no rodapé (script roda após o DOM, então o elemento já existe)
 (function _setVersionTag(){
   const t = document.getElementById('app-version-tag');
@@ -1843,6 +1848,378 @@ function doLogout() {
   document.getElementById('login-pin').value = '';
   _atualizarBadgeAvisos(0);
 }
+
+// ============================================
+// CONFERÊNCIA DE FOLHA DE PONTO (Fase 1 — colab side)
+// Master envia folha → aqui o colab vê → assina c/ PIN OU contesta.
+// Hash SHA-256 = JSON(conteúdo + pinHash + ip + ua + fingerprint + timestamp)
+// 48h sem ação = aceita por silêncio (marcado por job no painel master).
+// ============================================
+const MESES_PT = ['','Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+let _foldasInboxCache = [];
+
+async function _carregarInboxFolhas(){
+  if(!currentEmp) return;
+  try{
+    const snap = await dbCol('payrolls').where('employeeId','==', currentEmp.id).get();
+    const items = [];
+    snap.forEach(doc => {
+      const p = { id: doc.id, ...doc.data() };
+      const st = p?.envioConferencia?.status;
+      // Inclui pendentes (não vistas), visualizadas (vistas mas não assinadas),
+      // e contestadas (mostra como status). Já assinadas/silêncio ficam no histórico.
+      if(st === 'pendente' || st === 'visualizada') items.push(p);
+    });
+    items.sort((a,b) => (b.envioConferencia?.enviadoEm||'').localeCompare(a.envioConferencia?.enviadoEm||''));
+    _foldasInboxCache = items;
+    _atualizarBannerInbox();
+  }catch(e){ console.error('inbox folhas:', e); }
+}
+
+function _atualizarBannerInbox(){
+  const banner = document.getElementById('banner-folhas-conferir');
+  const cnt = document.getElementById('banner-folhas-count');
+  if(!banner || !cnt) return;
+  if(_foldasInboxCache.length > 0){
+    cnt.textContent = _foldasInboxCache.length;
+    banner.style.display = 'block';
+  } else {
+    banner.style.display = 'none';
+  }
+}
+
+function abrirInboxFolhas(){
+  const modal = document.getElementById('modal-folhas-inbox');
+  const lista = document.getElementById('inbox-folhas-lista');
+  if(!_foldasInboxCache.length){
+    lista.innerHTML = '<div style="padding:20px;text-align:center;color:#999">Nenhuma folha pendente.</div>';
+  } else {
+    lista.innerHTML = _foldasInboxCache.map(p => {
+      const mes = MESES_PT[p.mes]||'';
+      const env = p.envioConferencia || {};
+      const prazo = env.prazoExpiraEm ? new Date(env.prazoExpiraEm).toLocaleString('pt-BR') : '—';
+      const stBadge = env.status === 'visualizada'
+        ? '<span style="background:#FFE082;color:#E65100;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700">VISTA</span>'
+        : '<span style="background:#FFCDD2;color:#C62828;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700">NOVA</span>';
+      return `<div onclick="abrirConferenciaFolha('${p.id}')" style="padding:14px 16px;border-bottom:1px solid #eee;cursor:pointer;display:flex;justify-content:space-between;align-items:center;background:#fff">
+        <div>
+          <div style="font-weight:700;color:#1a1a2e;font-size:14px">${mes}/${p.ano} ${stBadge}</div>
+          <div style="font-size:11px;color:#888;margin-top:2px">Prazo: ${prazo}</div>
+        </div>
+        <i style="color:#9E9E9E;font-size:18px">›</i>
+      </div>`;
+    }).join('');
+  }
+  modal.style.display = 'flex';
+}
+
+function fecharInboxFolhas(){
+  document.getElementById('modal-folhas-inbox').style.display = 'none';
+}
+
+let _confCurrentPayroll = null;
+async function abrirConferenciaFolha(payrollId){
+  fecharInboxFolhas();
+  const p = _foldasInboxCache.find(x => x.id === payrollId);
+  if(!p){ alert('Folha não encontrada.'); return; }
+  _confCurrentPayroll = p;
+  // Marca como "visualizada" se ainda era "pendente"
+  if(p.envioConferencia?.status === 'pendente'){
+    try{
+      const novo = { ...p.envioConferencia, status:'visualizada', visualizadoEm:new Date().toISOString() };
+      await dbCol('payrolls').doc(p.id).set({ envioConferencia: novo }, { merge:true });
+      p.envioConferencia = novo;
+    }catch(e){ console.error('marcar vista:', e); }
+  }
+  _renderConferenciaFolha(p);
+  document.getElementById('modal-conferencia-folha').style.display = 'flex';
+}
+
+function fecharConferenciaFolha(){
+  document.getElementById('modal-conferencia-folha').style.display = 'none';
+  _confCurrentPayroll = null;
+  _carregarInboxFolhas(); // atualiza banner
+}
+
+function _renderConferenciaFolha(p){
+  const mes = MESES_PT[p.mes]||'';
+  const fmt = v => 'R$ ' + (parseFloat(v)||0).toFixed(2).replace('.',',');
+  const dias = Array.isArray(p.pontoManualDias) ? p.pontoManualDias : [];
+  const dt = currentEmp || {};
+  const totFaltasInj = p.faltasInjustificadas||0;
+  const totFaltasJust = p.faltasJustificadas||0;
+  const diasTrab = p.diasTrabalhados||0;
+  const heHoras = p.horasExtrasTotal||0;
+  // Render simplificado dos dias batidos (mostra só os 5 primeiros + total)
+  const linhasDias = dias.filter(d => d && (d.entrada||d.saida)).slice(0,8).map(d => {
+    const dStr = String(d.dia).padStart(2,'0');
+    return `<tr><td style="padding:4px 6px">${dStr}</td><td style="padding:4px 6px">${d.entrada||'—'}</td><td style="padding:4px 6px">${d.intIni||'—'}</td><td style="padding:4px 6px">${d.intFim||'—'}</td><td style="padding:4px 6px">${d.saida||'—'}</td></tr>`;
+  }).join('');
+  const html = `
+    <div style="background:#F1F5F9;padding:12px;border-radius:8px;margin-bottom:14px">
+      <div style="font-size:11px;color:#666;font-weight:700;margin-bottom:4px">COMPETÊNCIA</div>
+      <div style="font-size:18px;font-weight:700;color:#1a1a2e">${mes} / ${p.ano}</div>
+    </div>
+    <div style="font-size:13px;line-height:1.7;color:#37474F">
+      <div><strong>Colaborador:</strong> ${dt.nome || '—'}</div>
+      <div><strong>CPF:</strong> ${dt.cpf || '—'}</div>
+      <div><strong>Cargo:</strong> ${dt.cargo || '—'}</div>
+      <div><strong>Posto:</strong> ${dt.posto || '—'}</div>
+    </div>
+    <hr style="margin:14px 0;border:none;border-top:1px solid #E0E0E0">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;font-size:13px">
+      <div style="background:#E8F5E9;padding:10px;border-radius:6px"><strong>Dias trabalhados</strong><div style="font-size:18px;font-weight:700;color:#2E7D32;margin-top:2px">${diasTrab}</div></div>
+      <div style="background:#FFF3E0;padding:10px;border-radius:6px"><strong>Faltas inj.</strong><div style="font-size:18px;font-weight:700;color:#E65100;margin-top:2px">${totFaltasInj}</div></div>
+      <div style="background:#FFEBEE;padding:10px;border-radius:6px"><strong>Faltas just.</strong><div style="font-size:18px;font-weight:700;color:#C62828;margin-top:2px">${totFaltasJust}</div></div>
+      <div style="background:#E3F2FD;padding:10px;border-radius:6px"><strong>Horas extras</strong><div style="font-size:18px;font-weight:700;color:#1565C0;margin-top:2px">${heHoras}h</div></div>
+    </div>
+    <div style="margin-bottom:10px;font-weight:700;font-size:13px;color:#1a1a2e">Primeiros dias do mês:</div>
+    <div style="overflow-x:auto;border:1px solid #E0E0E0;border-radius:6px;margin-bottom:14px">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;background:#fff">
+        <thead><tr style="background:#F5F7FB">
+          <th style="padding:6px;text-align:left">Dia</th><th style="padding:6px">Entrada</th><th style="padding:6px">Int. Ini</th><th style="padding:6px">Int. Fim</th><th style="padding:6px">Saída</th>
+        </tr></thead>
+        <tbody>${linhasDias || '<tr><td colspan="5" style="padding:10px;text-align:center;color:#999">Nenhum dia batido.</td></tr>'}</tbody>
+      </table>
+    </div>
+    <div style="background:#E1F5FE;padding:12px;border-radius:6px;font-size:13px;color:#01579B">
+      <div><strong>Remuneração:</strong> ${fmt(p.remuneracao)}</div>
+      <div><strong>Vale Transporte:</strong> ${fmt(p.valeTransporte)}</div>
+      <div><strong>Vale Refeição:</strong> ${fmt(p.valeRefeicao)}</div>
+      <div><strong>Vale Alimentação:</strong> ${fmt(p.valeAlimentacaoLiquido||p.valeAlimentacaoTotal)}</div>
+      <div><strong>Horas Extras (R$):</strong> ${fmt(p.horasExtrasValor)}</div>
+      <div><strong>Bonificação (B.Perm.):</strong> ${fmt(p.bonificacao)}</div>
+      <hr style="margin:8px 0;border:none;border-top:1px dashed #B3E5FC">
+      <div style="font-size:15px;font-weight:700">Total Líquido: ${fmt(p.totalLiquido || p.totalBruto)}</div>
+    </div>
+  `;
+  document.getElementById('conferencia-folha-conteudo').innerHTML = html;
+}
+
+// Ações: Concordo OU Contestar
+function escolherConcordo(){
+  // Mostra modal PIN
+  document.getElementById('modal-pin-assinatura').style.display = 'flex';
+  document.getElementById('pin-assinatura-input').value = '';
+  document.getElementById('pin-assinatura-erro').style.display = 'none';
+  setTimeout(() => document.getElementById('pin-assinatura-input').focus(), 100);
+}
+
+function escolherContestar(){
+  document.getElementById('modal-contestar').style.display = 'flex';
+  document.getElementById('contestar-motivo').value = '';
+  document.getElementById('contestar-erro').style.display = 'none';
+  setTimeout(() => document.getElementById('contestar-motivo').focus(), 100);
+}
+
+function fecharModalPin(){ document.getElementById('modal-pin-assinatura').style.display = 'none'; }
+function fecharModalContestar(){ document.getElementById('modal-contestar').style.display = 'none'; }
+
+// Helpers — IP, fingerprint, hash
+async function _obterIP(){
+  try{
+    const r = await fetch('https://api.ipify.org?format=json', { cache:'no-store' });
+    const j = await r.json();
+    return j.ip || '';
+  }catch(_){ return ''; }
+}
+
+function _deviceFingerprint(){
+  // Combinação simples de propriedades estáveis do dispositivo. Não é
+  // fingerprinting agressivo — só o suficiente pra reconhecer "mesmo aparelho".
+  const parts = [
+    navigator.userAgent,
+    screen.width + 'x' + screen.height,
+    new Date().getTimezoneOffset(),
+    navigator.language,
+    navigator.hardwareConcurrency || 0,
+    navigator.platform || ''
+  ].join('|');
+  return _sha256Sync(parts).then ? null : null; // placeholder — uso o async abaixo
+}
+
+async function _sha256(str){
+  const enc = new TextEncoder().encode(str);
+  const buf = await crypto.subtle.digest('SHA-256', enc);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+async function _gerarFingerprint(){
+  const parts = [
+    navigator.userAgent,
+    screen.width + 'x' + screen.height,
+    new Date().getTimezoneOffset(),
+    navigator.language,
+    navigator.hardwareConcurrency || 0,
+    navigator.platform || ''
+  ].join('|');
+  return _sha256(parts);
+}
+
+async function confirmarAssinatura(){
+  const pinInput = document.getElementById('pin-assinatura-input');
+  const erro = document.getElementById('pin-assinatura-erro');
+  const pin = (pinInput.value||'').trim();
+  if(!/^\d{4}$/.test(pin)){
+    erro.textContent = 'PIN deve ter 4 dígitos.';
+    erro.style.display = 'block'; return;
+  }
+  const cpfClean = (currentEmp?.cpf || '').replace(/\D/g,'');
+  const pinEsperado = cpfClean.slice(-4);
+  if(pin !== pinEsperado){
+    erro.textContent = 'PIN incorreto. Use os 4 últimos dígitos do seu CPF.';
+    erro.style.display = 'block'; return;
+  }
+  const btn = document.getElementById('btn-confirmar-assinatura');
+  btn.disabled = true; btn.textContent = 'Assinando...';
+  try{
+    const p = _confCurrentPayroll;
+    const ip = await _obterIP();
+    const fingerprint = await _gerarFingerprint();
+    const ua = navigator.userAgent;
+    const pinHash = await _sha256(pin + '|' + cpfClean);
+    const ts = new Date().toISOString();
+    // Snapshot do conteúdo: campos críticos da folha (não inclui o doc inteiro
+    // pra hash ficar reproduzível mesmo se outros campos forem reordenados).
+    const snapshot = {
+      employeeId: p.employeeId,
+      mes: p.mes, ano: p.ano,
+      diasTrabalhados: p.diasTrabalhados,
+      faltasInjustificadas: p.faltasInjustificadas,
+      faltasJustificadas: p.faltasJustificadas,
+      horasExtrasTotal: p.horasExtrasTotal,
+      horasExtrasValor: p.horasExtrasValor,
+      remuneracao: p.remuneracao,
+      valeTransporte: p.valeTransporte,
+      valeRefeicao: p.valeRefeicao,
+      valeAlimentacaoLiquido: p.valeAlimentacaoLiquido,
+      bonificacao: p.bonificacao,
+      totalLiquido: p.totalLiquido,
+    };
+    const conteudoHash = JSON.stringify(snapshot);
+    const hashInput = `${conteudoHash}|${pinHash}|${ip}|${ua}|${fingerprint}|${ts}`;
+    const hash = await _sha256(hashInput);
+    const assinatura = {
+      hash, pinHash, ip, userAgent: ua, deviceFingerprint: fingerprint,
+      snapshotJson: conteudoHash, assinadoEm: ts
+    };
+    const envio = { ...(p.envioConferencia||{}), status:'assinada', assinadoEm: ts };
+    await dbCol('payrolls').doc(p.id).set({
+      envioConferencia: envio,
+      assinatura
+    }, { merge:true });
+    p.envioConferencia = envio;
+    p.assinatura = assinatura;
+    fecharModalPin();
+    fecharConferenciaFolha();
+    alert('✅ Folha assinada com sucesso!\n\nHash: ' + hash.substring(0,16) + '...\n\nObrigado pela conferência.');
+  }catch(e){
+    console.error('assinar:', e);
+    erro.textContent = 'Erro ao assinar. Tente novamente.';
+    erro.style.display = 'block';
+  }finally{
+    btn.disabled = false; btn.textContent = '✅ Confirmar Assinatura';
+  }
+}
+
+async function confirmarContestar(){
+  const txt = document.getElementById('contestar-motivo');
+  const erro = document.getElementById('contestar-erro');
+  const motivo = (txt.value||'').trim();
+  if(motivo.length < 20){
+    erro.textContent = `Motivo precisa ter pelo menos 20 caracteres (atual: ${motivo.length}).`;
+    erro.style.display = 'block'; return;
+  }
+  const btn = document.getElementById('btn-confirmar-contestar');
+  btn.disabled = true; btn.textContent = 'Enviando...';
+  try{
+    const p = _confCurrentPayroll;
+    const ts = new Date().toISOString();
+    const envio = { ...(p.envioConferencia||{}), status:'contestada', contestadoEm: ts };
+    const contestacao = { motivo, contestadoEm: ts };
+    await dbCol('payrolls').doc(p.id).set({
+      envioConferencia: envio,
+      contestacao
+    }, { merge:true });
+    p.envioConferencia = envio;
+    p.contestacao = contestacao;
+    fecharModalContestar();
+    fecharConferenciaFolha();
+    alert('⚠️ Contestação enviada.\n\nO gestor foi notificado e vai revisar sua folha. Aguarde o retorno.');
+  }catch(e){
+    console.error('contestar:', e);
+    erro.textContent = 'Erro ao enviar. Tente novamente.';
+    erro.style.display = 'block';
+  }finally{
+    btn.disabled = false; btn.textContent = '⚠️ Enviar Contestação';
+  }
+}
+
+// Hook no carregarHome — carrega inbox sempre que entra na home
+const _origCarregarHome = carregarHome;
+window.carregarHome = async function(){
+  await _origCarregarHome.apply(this, arguments);
+  _carregarInboxFolhas();
+};
 </script>
+
+<!-- ============================== -->
+<!-- MODAIS DE CONFERÊNCIA DE FOLHA -->
+<!-- ============================== -->
+
+<!-- INBOX -->
+<div id="modal-folhas-inbox" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;align-items:center;justify-content:center;padding:20px">
+  <div style="background:#fff;border-radius:14px;max-width:480px;width:100%;max-height:80vh;display:flex;flex-direction:column;overflow:hidden">
+    <div style="padding:16px 20px;border-bottom:2px solid #FFE082;background:#FFF8E1;display:flex;justify-content:space-between;align-items:center">
+      <div style="font-weight:700;color:#E65100;font-size:16px">📋 Folhas para Conferir</div>
+      <button onclick="fecharInboxFolhas()" style="background:none;border:none;font-size:24px;cursor:pointer;color:#888">×</button>
+    </div>
+    <div id="inbox-folhas-lista" style="overflow-y:auto;flex:1"></div>
+  </div>
+</div>
+
+<!-- CONFERÊNCIA DA FOLHA -->
+<div id="modal-conferencia-folha" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;align-items:center;justify-content:center;padding:20px">
+  <div style="background:#fff;border-radius:14px;max-width:560px;width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">
+    <div style="padding:14px 20px;border-bottom:2px solid #0288D1;background:#E1F5FE;display:flex;justify-content:space-between;align-items:center">
+      <div style="font-weight:700;color:#01579B;font-size:16px">📄 Conferência da Folha</div>
+      <button onclick="fecharConferenciaFolha()" style="background:none;border:none;font-size:24px;cursor:pointer;color:#888">×</button>
+    </div>
+    <div id="conferencia-folha-conteudo" style="overflow-y:auto;flex:1;padding:16px 20px"></div>
+    <div style="padding:14px;border-top:1px solid #E0E0E0;background:#FAFAFA;display:flex;gap:8px">
+      <button onclick="escolherContestar()" style="flex:1;background:#fff;color:#C62828;border:2px solid #C62828;padding:11px;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px">⚠️ Tenho objeção</button>
+      <button onclick="escolherConcordo()" style="flex:1;background:#2E7D32;color:#fff;border:none;padding:11px;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px">✅ Conferi e estou de acordo</button>
+    </div>
+  </div>
+</div>
+
+<!-- PIN PARA ASSINATURA -->
+<div id="modal-pin-assinatura" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:10000;align-items:center;justify-content:center;padding:20px">
+  <div style="background:#fff;border-radius:14px;max-width:360px;width:100%;padding:24px">
+    <div style="font-weight:700;color:#2E7D32;font-size:17px;margin-bottom:8px">🔐 Confirmar com PIN</div>
+    <div style="font-size:13px;color:#666;margin-bottom:14px">Para assinar eletronicamente esta folha, digite seu PIN de 4 dígitos (4 últimos do seu CPF).</div>
+    <input id="pin-assinatura-input" type="password" inputmode="numeric" maxlength="4" placeholder="● ● ● ●" style="width:100%;padding:14px;border:2px solid #2E7D32;border-radius:8px;font-size:24px;text-align:center;letter-spacing:8px;font-family:monospace;margin-bottom:8px">
+    <div id="pin-assinatura-erro" style="display:none;color:#C62828;font-size:12px;margin-bottom:8px"></div>
+    <div style="display:flex;gap:8px;margin-top:6px">
+      <button onclick="fecharModalPin()" style="flex:1;background:#fff;color:#666;border:1px solid #ccc;padding:10px;border-radius:6px;cursor:pointer;font-weight:600">Cancelar</button>
+      <button id="btn-confirmar-assinatura" onclick="confirmarAssinatura()" style="flex:1;background:#2E7D32;color:#fff;border:none;padding:10px;border-radius:6px;cursor:pointer;font-weight:700">✅ Confirmar Assinatura</button>
+    </div>
+  </div>
+</div>
+
+<!-- CONTESTAR -->
+<div id="modal-contestar" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:10000;align-items:center;justify-content:center;padding:20px">
+  <div style="background:#fff;border-radius:14px;max-width:440px;width:100%;padding:24px">
+    <div style="font-weight:700;color:#C62828;font-size:17px;margin-bottom:8px">⚠️ Tenho objeção</div>
+    <div style="font-size:13px;color:#666;margin-bottom:14px">Descreva o motivo da contestação. Mínimo 20 caracteres. O gestor vai revisar e te dar retorno.</div>
+    <textarea id="contestar-motivo" rows="5" placeholder="Ex.: No dia 14 entrei às 18h, não 19h. Pode rever?" style="width:100%;padding:12px;border:2px solid #C62828;border-radius:8px;font-size:14px;font-family:inherit;resize:vertical;box-sizing:border-box"></textarea>
+    <div id="contestar-erro" style="display:none;color:#C62828;font-size:12px;margin-top:6px"></div>
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button onclick="fecharModalContestar()" style="flex:1;background:#fff;color:#666;border:1px solid #ccc;padding:10px;border-radius:6px;cursor:pointer;font-weight:600">Cancelar</button>
+      <button id="btn-confirmar-contestar" onclick="confirmarContestar()" style="flex:1;background:#C62828;color:#fff;border:none;padding:10px;border-radius:6px;cursor:pointer;font-weight:700">⚠️ Enviar Contestação</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>

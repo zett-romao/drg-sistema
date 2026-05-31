@@ -18926,7 +18926,13 @@ function _getExpectedDay(emp, mes, ano, dia, ignoreAdmissao){
   //    lê a escala do mês errado (e o dia da semana não bate).
   const _compEsc = _competenciaDe(new Date(ano, mes-1, dia));
   const esc = (State.escalas||[]).find(e => e.employeeId===emp.id && e.mes==_compEsc.mes && e.ano==_compEsc.ano);
-  if(esc?.dias?.length){
+  // Dias de FRONTEIRA (26–31, que pertencem ao mês ANTERIOR ao rótulo da
+  // competência) NÃO confiam na escala salva antiga: muitas foram geradas com o
+  // bug de fronteira #9 e gravaram esses dias pelo dia-da-semana do mês ERRADO
+  // (ex.: 26/04 domingo virou "trabalho" porque calculou como 26/05=terça). A
+  // projeção determinística abaixo (weekday / ciclo 6x1 / âncora 12x36) é
+  // comp-aware e correta; o override avulso (tratado acima) ainda vence. #fronteira-escala-salva
+  if(esc?.dias?.length && dia < 26){
     const d = esc.dias.find(x => x.dia===dia);
     if(d){
       const tipo = d.tipo || 'trabalho';
@@ -19399,9 +19405,16 @@ function _diaEmBrancoEhFalta(emp, mes, ano, dia, isWeekend, is12x36){
   const _lotDia = _lotacaoEm(emp, _ymdOv);
   const _escDia = (_lotDia && _lotDia.escala) || emp.escala || '5x2A';
   const _is12x36Dia = escalaFamilia(_escDia)==='12x36';
-  if(escalaSalva && Array.isArray(escalaSalva.dias)){
+  if(escalaSalva && Array.isArray(escalaSalva.dias) && dia < 26){
     const d = escalaSalva.dias.find(x => x.dia===dia);
     deveriaTrabalhar = !!(d && d.tipo!=='folga' && d.entrada);
+  } else if(dia >= 26){
+    // Dia de FRONTEIRA (26–31): não confia na escala salva antiga (bug #9
+    // gravado nos dados). Delega à projeção determinística do _getExpectedDay
+    // — mesma fonte, comp-aware — em vez do ramo weekday (que trataria sábado
+    // do 6x1 como folga). #fronteira-escala-salva
+    const _exp = _getExpectedDay(emp, mes, ano, dia, true);
+    deveriaTrabalhar = !!(_exp && _exp.tipo!=='folga' && _exp.entrada);
   } else if(_is12x36Dia){
     // 12x36 sem escala salva → usa a âncora do ciclo informada no cadastro
     deveriaTrabalhar = (_ciclo12x36EhTrabalho(emp, ano, mes, dia) === true);

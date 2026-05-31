@@ -9,6 +9,8 @@ DRGlobal_autobackup_*.json
 
 # Pasta de trabalho do Claude Code (não faz parte do projeto)
 .claude/
+# Log interno de ações do Claude (anotações de trabalho — repo é público)
+CLAUDE_LOG.md
 
 # Arquivos de IDE / editor
 .vscode/

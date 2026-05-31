@@ -6376,7 +6376,15 @@ function renderBeneficiosLista(){
     }
     ini = _beneficioCustomIni; fim = _beneficioCustomFim;
     escopo = 'semana'; // mesma lógica de intervalo livre (conta por dia/jornada real)
-    periodoLabel = `<strong>Personalizado — ${fmt(ini)} a ${fmt(fim)}</strong>`;
+    // Se o range bate EXATAMENTE com uma competência (26→25), o cálculo é
+    // prospectivo (mUso = mPag+1) — então o rótulo deixa claro o mês de USO.
+    const _cpLbl = _compFromRange(_beneficioCustomIni, _beneficioCustomFim);
+    if(_cpLbl){
+      let _mu=_cpLbl.mPag+1, _au=_cpLbl.aPag; if(_mu>12){ _mu=1; _au++; }
+      periodoLabel = `<strong>Competência ${MESES[_cpLbl.mPag]}/${_cpLbl.aPag} — benefício p/ uso em ${MESES[_mu]}/${_au}</strong> <span style="font-weight:400;color:var(--text-muted)">(desconto: faltas de ${MESES[_cpLbl.mPag]})</span>`;
+    } else {
+      periodoLabel = `<strong>Personalizado — ${fmt(ini)} a ${fmt(fim)}</strong>`;
+    }
   } else {
     const s = _semanaDe(hojeISO);
     ini = s.inicio; fim = s.fim;
@@ -6409,9 +6417,12 @@ function renderBeneficiosLista(){
   } else if(tab === 'custom'){
     const cp = _compFromRange(_beneficioCustomIni, _beneficioCustomFim);
     if(cp){
-      // Consulta histórica: mUso = mPag (a folha que está sendo apurada). BP
-      // vem da própria folha; faltas idem.
-      _ctxMes = { mPag: cp.mPag, aPag: cp.aPag, mUso: cp.mPag, aUso: cp.aPag };
+      // PROSPECTIVO (igual 'Este Período', decisão do usuário 2026-05-31):
+      // carregar a competência projeta o USO do mês SEGUINTE; o desconto por
+      // faltas vem da própria competência carregada (mPag). 'Pago no fecho de
+      // mPag, usado em mPag+1.'
+      let _mu=cp.mPag+1, _au=cp.aPag; if(_mu>12){ _mu=1; _au++; }
+      _ctxMes = { mPag: cp.mPag, aPag: cp.aPag, mUso: _mu, aUso: _au };
     }
   }
   // Chave de competência (mesma usada por pagar*/dedup). Pra cada colaborador,
@@ -7048,7 +7059,7 @@ async function pagarBoaPermanencia(){
 
   // Pega bpValor real de cada colaborador (não confia só em data-valor-total)
   const cMesPag=cMes, aMesPag=cAno;
-  let mUso = (tab === 'custom') ? cMes : cMes+1;  // histórica: mUso=mPag; corrente: mUso=mPag+1
+  let mUso = cMes+1;  // prospectivo: carregar competência projeta o USO do mês seguinte
   let aUso = cAno;
   if(mUso>12){ mUso=1; aUso=cAno+1; }
   const itens = [];
@@ -7543,22 +7554,21 @@ function openBeneficioDetalhe(empId, _ignEscopo, _ignIni, _ignFim){
   // usa o MESMO cálculo da lista (Previsto pela escala + desconto de faltas)
   // p/ que VA e BP apareçam corretamente.
   let b;
+  let _uMes=null,_uAno=null,_pMes=null,_pAno=null;  // mês de USO (projeta) e de PAGAMENTO (faltas descontam)
   if(escopo === 'mes'){
-    let mUso, aUso, mPag, aPag;
-    // Personalizado-com-comp → consulta histórica: mUso = mPag = competência alvo.
-    // 'Este Período' → prospectivo: mUso = mPag + 1 (próximo mês usa, paga em mPag).
+    // PROSPECTIVO em ambos os casos (decisão do usuário 2026-05-31): a competência
+    // que fecha (mPag) paga o USO do mês SEGUINTE (mPag+1); faltas de mPag descontam.
     if(tab === 'custom'){
       const _cp = _compFromRange(dataIni, dataFim);
-      mUso = mPag = _cp.mPag;
-      aUso = aPag = _cp.aPag;
+      _pMes = _cp.mPag; _pAno = _cp.aPag;
+      _uMes = _pMes+1; _uAno = _pAno; if(_uMes>12){ _uMes=1; _uAno++; }
     } else {
       const d = new Date(dataIni+'T12:00:00');
       const _comp = _competenciaDe(d);
-      mUso = _comp.mes; aUso = _comp.ano;
-      mPag = mUso-1; aPag = aUso;
-      if(mPag<1){ mPag=12; aPag--; }
+      _uMes = _comp.mes; _uAno = _comp.ano;
+      _pMes = _uMes-1; _pAno = _uAno; if(_pMes<1){ _pMes=12; _pAno--; }
     }
-    b = _calcBeneficiosColabPrevisto(emp, mUso, aUso, mPag, aPag);
+    b = _calcBeneficiosColabPrevisto(emp, _uMes, _uAno, _pMes, _pAno);
   } else {
     b = _calcBeneficiosColab(emp, dataIni, dataFim, escopo);
   }
@@ -7567,8 +7577,21 @@ function openBeneficioDetalhe(empId, _ignEscopo, _ignIni, _ignFim){
   const periodoLabel = (escopo === 'dia')
     ? `Hoje — ${fmt(dataIni)}`
     : (escopo === 'mes')
-      ? `Competência (26→25) — ${fmt(dataIni)} a ${fmt(dataFim)}`
+      ? `Competência ${MESES[_pMes]}/${_pAno} — uso em ${MESES[_uMes]}/${_uAno}`
       : `Período — ${fmt(dataIni)} a ${fmt(dataFim)}`;
+  // Visibilidade pedida (2026-05-31): mostra o mês de USO e os dias projetados
+  // que geraram o crédito, mais o mês cujas faltas descontam.
+  let usoInfo='';
+  if(escopo==='mes' && _uMes){
+    const _dl=_diasPrevistosEscalaLista(emp, _uMes, _uAno);
+    const _diasStr = _dl.length ? _dl.map(d=>zp(d.dia)).join(', ') : '—';
+    usoInfo =
+      `<div style="background:#E8F5E9;border-left:4px solid #2E7D32;border-radius:6px;padding:8px 12px;margin:8px 0 2px;font-size:12px;color:#1B5E20;line-height:1.6">`+
+      `<i class="fa-solid fa-arrow-trend-up"></i> <strong>Benefício para USO em ${MESES[_uMes]}/${_uAno}</strong> — projetado pela escala do contrato (não pelo ponto batido).<br>`+
+      `<strong>Dias projetados (${_dl.length}):</strong> ${_diasStr}<br>`+
+      `<span style="color:#558B2F"><i class="fa-solid fa-circle-minus"></i> Desconto por <strong>faltas da competência ${MESES[_pMes]}/${_pAno}</strong> (o mês que está fechando).</span>`+
+      `</div>`;
+  }
   document.getElementById('benef-det-nome').textContent = emp.nome;
   const matr = emp.registro ? String(emp.registro).padStart(4,'0') : '—';
   const pixDet = emp.chavePix || '—';
@@ -7579,7 +7602,8 @@ function openBeneficioDetalhe(empId, _ignEscopo, _ignIni, _ignFim){
     `<strong>Escala:</strong> ${escalaLabel(emp.escala||'5x2A')}${emp.turnoNoturno?' (Noturno)':''}<br>` +
     `<strong>Dias — VT:</strong> ${b.diasVt} &nbsp;|&nbsp; <strong>VR (jornada &gt; 6h):</strong> <span style="color:#E65100">${b.diasVr}</span>` +
     `${b.semanas>0?` &nbsp;|&nbsp; <strong>Semanas:</strong> ${b.semanas}`:''}<br>` +
-    `<strong style="color:#00695C"><i class="fa-brands fa-pix"></i> Chave PIX:</strong> <span style="font-family:monospace">${pixDet}</span>`;
+    `<strong style="color:#00695C"><i class="fa-brands fa-pix"></i> Chave PIX:</strong> <span style="font-family:monospace">${pixDet}</span>` +
+    usoInfo;
   const tbody = document.getElementById('benef-det-tbody');
   const linhas = [];
   // VT/AM — mostra se há valor calculado (b.vtValor) OU base no cadastro. Com
@@ -7814,7 +7838,7 @@ function exportBeneficiosBP(formato){
     toast('Boa Permanência só é apurada por competência — use a aba "Este Período" ou Personalizado com range 26→25.','warning');
     return;
   }
-  let mUso = (tab === 'custom') ? mPag : mPag+1;   // histórica: mUso=mPag
+  let mUso = mPag+1;   // prospectivo: USO no mês seguinte ao da competência (mPag)
   let aUso = aPag;
   if(mUso>12){ mUso=1; aUso++; }
   const periodoLabel = `Competência ${MESES[mPag]}/${aPag} (${_compLabel(mPag,aPag)})`;
@@ -7951,16 +7975,10 @@ function exportBeneficiosLista(formato, soSelecionados){
     const d = new Date();
     mPag = d.getMonth()+1; aPag = d.getFullYear();
   }
-  // Para "Este Período" → mUso = mPag+1 (próximo mês). Para histórica/custom-comp → mUso = mPag.
-  // Para outras abas → assumimos prospectivo (próximo mês).
-  let mUso, aUso;
-  const isHistorica = (tab === 'custom' && _compFromRange(_beneficioCustomIni, _beneficioCustomFim));
-  if(isHistorica){
-    mUso = mPag; aUso = aPag;
-  } else {
-    mUso = mPag+1; aUso = aPag;
-    if(mUso>12){ mUso=1; aUso++; }
-  }
+  // SEMPRE prospectivo (decisão do usuário 2026-05-31): carregar a competência
+  // projeta o USO do mês seguinte (mPag+1); o desconto por faltas vem de mPag.
+  let mUso = mPag+1, aUso = aPag;
+  if(mUso>12){ mUso=1; aUso++; }
   // Label do período = competência LEGAL (26→25 — Art. da CLT/CCT vigente).
   const fmtBr = iso => new Date(iso+'T12:00:00').toLocaleDateString('pt-BR');
   // ini/fim: período da competência de USO (o que está sendo apurado).
@@ -7968,7 +7986,7 @@ function exportBeneficiosLista(formato, soSelecionados){
   const ini = perUso.deISO, fim = perUso.ateISO;
   const escopo = 'mes';
   const periodoCol = `${fmtBr(ini)} → ${fmtBr(fim)}`;
-  const periodoLabel = `Competência ${MESES[mUso]}/${aUso} — ${_compLabel(mUso, aUso)}`;
+  const periodoLabel = `Benefícios p/ uso em ${MESES[mUso]}/${aUso} (${_compLabel(mUso, aUso)}) — desconto: faltas de ${MESES[mPag]}/${aPag}`;
   const periodoLabelFull = soSelecionados ? `${periodoLabel} — selecionados` : periodoLabel;
   const linhas = [];
   (State.employees||[])
@@ -9206,6 +9224,26 @@ function _diasPrevistosComVR(emp, mes, ano){
     if(exp && exp.tipo!=='folga' && exp.entrada && _liqMin(exp) > 360) n++;
   }
   return n;
+}
+
+// Lista as DATAS previstas pela escala no mês de USO — pra mostrar ao gestor
+// EXATAMENTE quais dias geraram o crédito do benefício (visibilidade pedida
+// 2026-05-31). Espelha _diasPrevistosEscala/_diasPrevistosComVR. Para isento
+// (Art.62) lista dias úteis (seg–sex), igual ao cálculo. Retorna {dia,mes,ano,vr}.
+function _diasPrevistosEscalaLista(emp, mes, ano){
+  if(!emp) return [];
+  const out=[];
+  const isento = !!emp.isentoPonto;
+  for(const d of _compDias(mes, ano)){
+    if(isento){
+      const dow=new Date(d.ano, d.mes-1, d.dia).getDay();
+      if(dow>=1 && dow<=5) out.push({ dia:d.dia, mes:d.mes, ano:d.ano, vr:true });
+    } else {
+      const exp=_getExpectedDay(emp, d.mes, d.ano, d.dia, true);
+      if(exp && exp.tipo!=='folga' && exp.entrada) out.push({ dia:d.dia, mes:d.mes, ano:d.ano, vr:_liqMin(exp)>360 });
+    }
+  }
+  return out;
 }
 
 // Dias úteis (seg–sex) da COMPETÊNCIA (26→25) — fallback de benefícios pra

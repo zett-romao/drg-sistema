@@ -1990,7 +1990,7 @@ function _renderConferenciaFolha(p){
       <div><strong>Horas Extras (R$):</strong> ${fmt(p.horasExtrasValor)}</div>
       <div><strong>Bonificação (B.Perm.):</strong> ${fmt(p.bonificacao)}</div>
       <hr style="margin:8px 0;border:none;border-top:1px dashed #B3E5FC">
-      <div style="font-size:15px;font-weight:700">Total Líquido: ${fmt(p.totalLiquido || p.totalBruto)}</div>
+      <div style="font-size:15px;font-weight:700">Total Líquido: ${fmt(p.totalLiquidoFinal || p.totalLiquido || p.remuneracao)}</div>
     </div>
   `;
   document.getElementById('conferencia-folha-conteudo').innerHTML = html;
@@ -2179,9 +2179,9 @@ async function confirmarAssinatura(){
       remuneracao: p.remuneracao,
       valeTransporte: p.valeTransporte,
       valeRefeicao: p.valeRefeicao,
-      valeAlimentacaoLiquido: p.valeAlimentacaoLiquido,
+      valeAlimentacaoLiquido: (p.valeAlimentacaoLiquido || p.valeAlimentacaoTotal || 0),
       bonificacao: p.bonificacao,
-      totalLiquido: p.totalLiquido,
+      totalLiquido: (p.totalLiquidoFinal || p.totalLiquido || p.remuneracao || 0),
     };
     const conteudoHash = JSON.stringify(snapshot);
     const hashInput = `${conteudoHash}|${pinHash}|${ip}|${ua}|${fingerprint}|${ts}`;

@@ -6950,6 +6950,17 @@ async function pagarBoaPermanencia(){
   const chks=[...document.querySelectorAll('.benef-chk:checked')];
   if(!chks.length){ toast('Marque ao menos um colaborador.','info'); return; }
 
+  // Aviso: o BP aparece por presunção de boa permanência (some só com falta), então
+  // pode ser pago ANTES do fechamento. Se houver folha não fechada entre os
+  // selecionados, lembrar que uma falta lançada depois NÃO desconta o BP já pago. #bp-aparece
+  const _bpAbertas = chks.filter(c => {
+    const p = (State.payrolls||[]).find(x => x.employeeId===c.dataset.empId && x.mes==cMes && x.ano==cAno);
+    return !p || p.status !== 'fechada';
+  });
+  if(_bpAbertas.length){
+    if(!confirm(`⚠️ ${_bpAbertas.length} colaborador(es) com a folha de ${MESES[cMes]}/${cAno} AINDA NÃO FECHADA.\n\nO BP aparece por presunção de boa permanência. Se for registrada uma FALTA depois, o BP pago agora fica A MAIS (não há desconto automático de BP).\n\nRecomendado: pagar o BP só após fechar a folha (faltas confirmadas).\n\nPagar mesmo assim?`)) return;
+  }
+
   const hojeISO = new Date().toISOString().substring(0,10);
   const per=_compPeriodo(cMes,cAno);
   const ini=per.deISO, fim=per.ateISO;

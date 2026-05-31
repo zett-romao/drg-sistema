@@ -18382,8 +18382,12 @@ function _getExpectedDay(emp, mes, ano, dia, ignoreAdmissao){
       intFim:  lot.semRefeicao ? '' : (ov.horarioRefFim || '')
     };
   }
-  // 1) Tenta escala salva
-  const esc = (State.escalas||[]).find(e => e.employeeId===emp.id && e.mes==mes && e.ano==ano);
+  // 1) Tenta escala salva. As escalas são gravadas keyed pela COMPETÊNCIA (26→25),
+  //    não pelo mês de calendário. Um dia 26-31 pertence ao mês real ANTERIOR, mas
+  //    sua escala está sob a competência seguinte — converte antes de buscar, senão
+  //    lê a escala do mês errado (e o dia da semana não bate).
+  const _compEsc = _competenciaDe(new Date(ano, mes-1, dia));
+  const esc = (State.escalas||[]).find(e => e.employeeId===emp.id && e.mes==_compEsc.mes && e.ano==_compEsc.ano);
   if(esc?.dias?.length){
     const d = esc.dias.find(x => x.dia===dia);
     if(d){
@@ -18845,7 +18849,11 @@ function _diaEmBrancoEhFalta(emp, mes, ano, dia, isWeekend, is12x36){
   const _ov = (emp.overridesHorario||[]).find(o => o.data === _ymdOv);
   if(_ov && _ov.tipo === 'folga') return false;
   let deveriaTrabalhar;
-  const escalaSalva = (State.escalas||[]).find(e => e.employeeId===emp.id && e.mes==mes && e.ano==ano);
+  // Escala salva é keyed pela COMPETÊNCIA (26→25); converte a data real do dia pra
+  // competência antes de buscar (senão dias 26-31 leem a escala do mês errado e
+  // viram falta/folga indevida).
+  const _compEsc = _competenciaDe(new Date(ano, mes-1, dia));
+  const escalaSalva = (State.escalas||[]).find(e => e.employeeId===emp.id && e.mes==_compEsc.mes && e.ano==_compEsc.ano);
   if(escalaSalva && Array.isArray(escalaSalva.dias)){
     const d = escalaSalva.dias.find(x => x.dia===dia);
     deveriaTrabalhar = !!(d && d.tipo!=='folga' && d.entrada);

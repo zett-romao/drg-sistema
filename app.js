@@ -2236,11 +2236,18 @@ function renderPayrollStats(){
   `;
 }
 
-function showPayrollStatDetail(fieldKey, label, color){
-  const mes=currentMes(), ano=currentAno();
+function showPayrollStatDetail(fieldKey, label, color, mesArg, anoArg){
+  const mes=(mesArg!=null)?mesArg:currentMes(), ano=(anoArg!=null)?anoArg:currentAno();
   const payThisMonth=State.payrolls.filter(p=>p.mes==mes&&p.ano==ano);
   let items=[];
-  if(fieldKey==='_all'){
+  if(fieldKey==='_semfolha'){
+    // Colaboradores ATIVOS sem folha lançada no mês — respeita o escopo do usuário.
+    const have=new Set(payThisMonth.map(p=>p.employeeId));
+    items=_filtrarEmpsPorEscopo(State.employees)
+      .filter(e=>(e.status||'ativo')==='ativo' && !have.has(e.id))
+      .map(e=>({empId:e.id,nome:e.nome,setor:e.posto||e.setor||'—',value:0,valueLabel:'Sem folha'}))
+      .sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+  } else if(fieldKey==='_all'){
     items=payThisMonth.map(p=>{
       const emp=State.employees.find(e=>e.id===p.employeeId); if(!emp) return null;
       return {empId:p.employeeId,nome:emp.nome,setor:emp.setor||'—',value:p.remuneracao||0,valueLabel:fmtMoney(p.remuneracao||0)};
@@ -2427,15 +2434,15 @@ function renderPagamentos(){
         <div class="stat-icon" style="background:rgba(27,94,32,0.1)"><i class="fa-solid fa-sack-dollar" style="color:var(--success)"></i></div>
         <div class="stat-info"><div class="stat-label">Total da Folha</div><div class="stat-value" style="color:var(--success)">${fmtMoney(tLiquido)}</div></div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card" style="cursor:pointer" onclick="showPayrollStatDetail('inss','Total INSS','#c0392b',${mes},${ano})">
         <div class="stat-icon" style="background:rgba(192,57,43,0.1)"><i class="fa-solid fa-building-columns" style="color:#c0392b"></i></div>
         <div class="stat-info"><div class="stat-label">Total INSS</div><div class="stat-value" style="color:#c0392b">${fmtMoney(tINSS)}</div></div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card" style="cursor:pointer" onclick="showPayrollStatDetail('irrf','Total IRRF','#c0392b',${mes},${ano})">
         <div class="stat-icon" style="background:rgba(192,57,43,0.1)"><i class="fa-solid fa-file-invoice" style="color:#c0392b"></i></div>
         <div class="stat-info"><div class="stat-label">Total IRRF</div><div class="stat-value" style="color:#c0392b">${fmtMoney(tIRRF)}</div></div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card" style="cursor:pointer" onclick="showPayrollStatDetail('fgts','FGTS Empregador','#1565C0',${mes},${ano})">
         <div class="stat-icon" style="background:rgba(21,101,192,0.1)"><i class="fa-solid fa-piggy-bank" style="color:#1565C0"></i></div>
         <div class="stat-info"><div class="stat-label">FGTS Empregador</div><div class="stat-value" style="color:#1565C0">${fmtMoney(tFGTS)}</div></div>
       </div>
@@ -2443,7 +2450,7 @@ function renderPagamentos(){
         <div class="stat-icon" style="background:rgba(27,94,32,0.1)"><i class="fa-solid fa-circle-check" style="color:var(--success)"></i></div>
         <div class="stat-info"><div class="stat-label">Com Holerite</div><div class="stat-value" style="color:var(--success)">${comFolha}</div></div>
       </div>
-      <div class="stat-card" style="cursor:pointer" onclick="${scrollToTable}">
+      <div class="stat-card" style="cursor:pointer" onclick="showPayrollStatDetail('_semfolha','Sem Holerite','#c0392b',${mes},${ano})">
         <div class="stat-icon" style="background:rgba(239,83,80,0.1)"><i class="fa-solid fa-circle-xmark" style="color:var(--danger)"></i></div>
         <div class="stat-info"><div class="stat-label">Sem Holerite</div><div class="stat-value" style="color:${semFolhaCount>0?'var(--danger)':'#999'}">${semFolhaCount}</div></div>
       </div>

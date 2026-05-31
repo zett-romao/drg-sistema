@@ -6536,15 +6536,17 @@ function renderBeneficiosLista(){
       _beneficioCanalFiltro === 'dinheiro' ? (l.b.valorDinheiro||0) :
       _beneficioCanalFiltro === 'bp' ? (l.b.bpValor||0) : 0
     ), 0);
-    const expFn = _beneficioCanalFiltro === 'bp' ? 'exportBeneficiosBP' : `exportBeneficiosCanal('${CFG.exp}',`;
-    const fnClose = _beneficioCanalFiltro === 'bp' ? '' : ')';
+    // #audit-benef-11: monta a chamada VÁLIDA — exportBeneficiosBP('print') ou
+    // exportBeneficiosCanal('vt','print'). Antes faltava/sobrava parêntese (JS quebrado).
+    const expFn = _beneficioCanalFiltro === 'bp' ? 'exportBeneficiosBP(' : `exportBeneficiosCanal('${CFG.exp}',`;
+    const fnClose = ')';
     return `<div style="background:${CFG.bg};border:2px solid ${CFG.cor};padding:10px 14px;border-radius:6px;margin-bottom:10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <span style="font-weight:700;color:${CFG.cor};font-size:14px"><i class="fa-solid ${CFG.icon}"></i> Filtro: ${CFG.titulo}</span>
       <span style="color:${CFG.cor};font-weight:600">${linhas.length} colaborador(es) &middot; ${fmtMoney(totalFiltro)}</span>
       <span style="flex:1"></span>
-      <button class="btn btn-sm btn-outline" onclick="${expFn}'print'${fnClose})" style="border-color:${CFG.cor};color:${CFG.cor};font-size:12px"><i class="fa-solid fa-print"></i> Imprimir</button>
-      <button class="btn btn-sm btn-outline" onclick="${expFn}'pdf'${fnClose})" style="border-color:#C62828;color:#C62828;font-size:12px"><i class="fa-solid fa-file-pdf"></i> PDF</button>
-      <button class="btn btn-sm btn-outline" onclick="${expFn}'excel'${fnClose})" style="font-size:12px"><i class="fa-solid fa-file-excel" style="color:#1B5E20"></i> Excel</button>
+      <button class="btn btn-sm btn-outline" onclick="${expFn}'print'${fnClose}" style="border-color:${CFG.cor};color:${CFG.cor};font-size:12px"><i class="fa-solid fa-print"></i> Imprimir</button>
+      <button class="btn btn-sm btn-outline" onclick="${expFn}'pdf'${fnClose}" style="border-color:#C62828;color:#C62828;font-size:12px"><i class="fa-solid fa-file-pdf"></i> PDF</button>
+      <button class="btn btn-sm btn-outline" onclick="${expFn}'excel'${fnClose}" style="font-size:12px"><i class="fa-solid fa-file-excel" style="color:#1B5E20"></i> Excel</button>
       <button class="btn btn-sm btn-outline" onclick="_benefLimparFiltroCanal()" style="border-color:#9E9E9E;color:#616161;font-size:12px"><i class="fa-solid fa-xmark"></i> Limpar</button>
     </div>`;
   })();
@@ -6848,6 +6850,12 @@ async function pagarBeneficiosSelecionados(){
     periodoLabel=`Competência ${MESES[cMes]}/${cAno} (${_compLabel(cMes,cAno)})`;
   } else if(tab === 'hoje'){
     ini=fim=hojeISO; periodoLabel=`dia ${new Date().toLocaleDateString('pt-BR')}`;
+  } else if(tab === 'custom'){
+    // Personalizado: usa o range escolhido (não a semana atual), pra a chave de
+    // dedup/selo casar com _benefCompKey('custom') e não pagar de novo. #audit-benef-3
+    if(!_beneficioCustomIni || !_beneficioCustomFim){ toast('Defina o período Personalizado primeiro.','warning'); return; }
+    ini=_beneficioCustomIni; fim=_beneficioCustomFim;
+    periodoLabel=`Personalizado ${new Date(ini+'T12:00:00').toLocaleDateString('pt-BR')}–${new Date(fim+'T12:00:00').toLocaleDateString('pt-BR')}`;
   } else {
     const s=_semanaDe(hojeISO); ini=s.inicio; fim=s.fim;
     periodoLabel=`semana ${new Date(ini+'T12:00:00').toLocaleDateString('pt-BR')}–${new Date(fim+'T12:00:00').toLocaleDateString('pt-BR')}`;
@@ -6917,6 +6925,12 @@ async function pagarBeneficiosForcarPIX(){
     periodoLabel=`Competência ${MESES[cMes]}/${cAno} (${_compLabel(cMes,cAno)})`;
   } else if(tab === 'hoje'){
     ini=fim=hojeISO; periodoLabel=`dia ${new Date().toLocaleDateString('pt-BR')}`;
+  } else if(tab === 'custom'){
+    // Personalizado: usa o range escolhido (não a semana atual), pra a chave de
+    // dedup/selo casar com _benefCompKey('custom') e não pagar de novo. #audit-benef-3
+    if(!_beneficioCustomIni || !_beneficioCustomFim){ toast('Defina o período Personalizado primeiro.','warning'); return; }
+    ini=_beneficioCustomIni; fim=_beneficioCustomFim;
+    periodoLabel=`Personalizado ${new Date(ini+'T12:00:00').toLocaleDateString('pt-BR')}–${new Date(fim+'T12:00:00').toLocaleDateString('pt-BR')}`;
   } else {
     const s=_semanaDe(hojeISO); ini=s.inicio; fim=s.fim;
     periodoLabel=`semana ${new Date(ini+'T12:00:00').toLocaleDateString('pt-BR')}–${new Date(fim+'T12:00:00').toLocaleDateString('pt-BR')}`;
@@ -6930,7 +6944,14 @@ async function pagarBeneficiosForcarPIX(){
   for(const c of chks){
     const emp=(State.employees||[]).find(e=>e.id===c.dataset.empId);
     if(!emp){ erros++; continue; }
-    const valor=parseFloat(c.dataset.valorTotal)||0;  // TOTAL (cartão + dinheiro)
+    // Subtrai o que já foi pago no fluxo POR BENEFÍCIO (selos VT/VR/VA) — senão
+    // Forçar PIX (valor TOTAL) paga de novo o que já foi pago no cartão. #audit-benef-2
+    const _mpPg=_benefPagoTipos(emp.id, ini, fim);
+    let valor=parseFloat(c.dataset.valorTotal)||0;  // TOTAL (cartão + dinheiro)
+    if(_mpPg.vt) valor-=parseFloat(c.dataset.vt)||0;
+    if(_mpPg.vr) valor-=parseFloat(c.dataset.vr)||0;
+    if(_mpPg.va) valor-=parseFloat(c.dataset.va)||0;
+    valor=Math.max(0, Math.round(valor*100)/100);
     if(valor<=0){ semValor++; continue; }
     const pixKey=(emp.chavePix||'').trim();
     if(!pixKey){ semPix++; continue; }
@@ -7085,6 +7106,12 @@ async function marcarBeneficiosPagoManual(){
     periodoLabel=`Competência ${MESES[cMes]}/${cAno} (${_compLabel(cMes,cAno)})`;
   } else if(tab === 'hoje'){
     ini=fim=hojeISO; periodoLabel=`dia ${new Date().toLocaleDateString('pt-BR')}`;
+  } else if(tab === 'custom'){
+    // Personalizado: usa o range escolhido (não a semana atual), pra a chave de
+    // dedup/selo casar com _benefCompKey('custom') e não pagar de novo. #audit-benef-3
+    if(!_beneficioCustomIni || !_beneficioCustomFim){ toast('Defina o período Personalizado primeiro.','warning'); return; }
+    ini=_beneficioCustomIni; fim=_beneficioCustomFim;
+    periodoLabel=`Personalizado ${new Date(ini+'T12:00:00').toLocaleDateString('pt-BR')}–${new Date(fim+'T12:00:00').toLocaleDateString('pt-BR')}`;
   } else {
     const s=_semanaDe(hojeISO); ini=s.inicio; fim=s.fim;
     periodoLabel=`semana ${new Date(ini+'T12:00:00').toLocaleDateString('pt-BR')}–${new Date(fim+'T12:00:00').toLocaleDateString('pt-BR')}`;
@@ -8348,7 +8375,9 @@ function _beneficioCheioSeg(emp, mUso, aUso, isento){
   const vtTipo=emp.tipoTransporte||'vt';
   const zp=n=>String(n).padStart(2,'0');
   let vtCheio=0, vrCheio=0, vaSum=0, diasVt=0, diasVr=0;
-  const wkVt=new Set(), wkVr=new Set();
+  // freq SEMANAL: acumula dias por VALOR distinto; nº de semanas = _semanasTrabalhadas
+  // (mesma regra do caminho valor-único → idêntico quando 1 segmento). #audit-benef-5
+  const vtSemDias={}, vrSemDias={};
   for(const cd of _compDias(mUso, aUso)){
     const iso=`${cd.ano}-${zp(cd.mes)}-${zp(cd.dia)}`;
     let ehVt, ehVr;
@@ -8371,16 +8400,21 @@ function _beneficioCheioSeg(emp, mUso, aUso, isento){
     if(ehVt){
       diasVt++; vaSum += (+lot.valorMensalVa||0);
       if(vtTipo!=='nao'){
-        if(vtFreqDia==='semanal'){ const wk=_semanaDe(iso).inicio; if(!wkVt.has(wk)){ wkVt.add(wk); vtCheio += (+lot.valorDiarioVt||0); } }
+        if(vtFreqDia==='semanal'){ const v=+lot.valorDiarioVt||0; vtSemDias[v]=(vtSemDias[v]||0)+1; }
         else vtCheio += (+lot.valorDiarioVt||0);
       }
     }
     if(ehVr){
       diasVr++;
-      if(vrFreqDia==='semanal'){ const wk=_semanaDe(iso).inicio; if(!wkVr.has(wk)){ wkVr.add(wk); vrCheio += (+lot.valorDiarioVr||0); } }
+      if(vrFreqDia==='semanal'){ const v=+lot.valorDiarioVr||0; vrSemDias[v]=(vrSemDias[v]||0)+1; }
       else vrCheio += (+lot.valorDiarioVr||0);
     }
   }
+  // freq SEMANAL: nº de semanas por valor distinto via _semanasTrabalhadas (igual ao
+  // valor-único; com 1 segmento dá exatamente valorSemanal × semanas). #audit-benef-5
+  const _escSem=emp.escala||'5x2A';
+  for(const v in vtSemDias) vtCheio += _semanasTrabalhadas(vtSemDias[v], _escSem) * Number(v);
+  for(const v in vrSemDias) vrCheio += _semanasTrabalhadas(vrSemDias[v], _escSem) * Number(v);
   const vaMensal = diasVt>0 ? Math.round((vaSum/diasVt)*100)/100 : (+emp.valorMensalVa||0);
   return { vtCheio:Math.round(vtCheio*100)/100, vrCheio:Math.round(vrCheio*100)/100, vaMensal, diasVt, diasVr };
 }
@@ -8477,7 +8511,10 @@ function _calcBeneficiosColabPrevisto(emp, mUso, aUso, mPag, aPag){
   const vtValor = Math.max(0, vtCheio - descVT);
   const vrValor = Math.max(0, vrCheio - descVR);   // SEM somar BP aqui
   const vaValor = Math.max(0, vaCheio - descVA);
-  const total = vtValor + vrValor + vaValor + bpValor;
+  // BP NÃO entra no total/valorDinheiro dos botões gerais (Pagar PIX/Forçar PIX) —
+  // é pago SÓ pelo botão dedicado "Boa Permanência" (chave BP_). Senão paga em
+  // dobro (geral quita via dinheiro + botão BP de novo). #audit-benef-1
+  const total = vtValor + vrValor + vaValor;
   const vtCanal = empE.vtCanal || 'cartao';
   const vrCanal = empE.vrCanal || 'cartao';
   // VA segue o canal do VR por padrão (mesmo cartão alimentação no mercado).
@@ -8500,7 +8537,8 @@ function _calcBeneficiosColabPrevisto(emp, mUso, aUso, mPag, aPag){
     valorCartaoVR: (vrCanal === 'cartao') ? vrValor : 0,
     valorCartaoVA: (vaCanal === 'cartao') ? vaValor : 0,
     valorCartaoBP: (bpCanal === 'cartao') ? bpValor : 0,
-    valorDinheiro: (vtCanal === 'dinheiro' ? vtValor : 0) + (vrCanal === 'dinheiro' ? vrValor : 0) + (vaCanal === 'dinheiro' ? vaValor : 0) + (bpCanal === 'dinheiro' ? bpValor : 0)
+    // BP fora do valorDinheiro (pago só pelo botão dedicado "Boa Permanência"). #audit-benef-1
+    valorDinheiro: (vtCanal === 'dinheiro' ? vtValor : 0) + (vrCanal === 'dinheiro' ? vrValor : 0) + (vaCanal === 'dinheiro' ? vaValor : 0)
   };
 }
 

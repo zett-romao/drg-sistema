@@ -9756,12 +9756,33 @@ function _fmtHoras(h){
   return n>0 ? minutesToStr(n) : '0h';
 }
 
-// Saldo total de horas do colaborador (créditos - débitos)
-function bancoSaldo(empId){
+// Percorre os créditos em FIFO por validade (débitos consomem os mais próximos de
+// expirar primeiro) e separa o que ainda é COMPENSÁVEL do que já VENCEU. Horas
+// vencidas não podem mais abater jornada — viram HE a pagar (decisão do usuário). #14
+function _bancoFifoStatus(empId){
   const movs=(State.bancoHoras||[]).filter(b=>b.employeeId===empId);
-  const cr=movs.filter(m=>m.tipo==='credito').reduce((s,m)=>s+(parseFloat(m.horas)||0),0);
-  const db=movs.filter(m=>m.tipo==='debito').reduce((s,m)=>s+(parseFloat(m.horas)||0),0);
-  return cr-db;
+  const creditos=movs.filter(m=>m.tipo==='credito'&&(parseFloat(m.horas)||0)>0)
+    .map(m=>({horas:parseFloat(m.horas)||0, validade:(m.validade||m.data||'')}))
+    .sort((a,b)=>String(a.validade).localeCompare(String(b.validade)));
+  let debito=movs.filter(m=>m.tipo==='debito').reduce((s,m)=>s+(parseFloat(m.horas)||0),0);
+  const hojeISO=new Date().toISOString().substring(0,10);
+  let saldoValido=0, horasVencidas=0;
+  for(const c of creditos){
+    let rem=c.horas;
+    if(debito>0){ const use=Math.min(rem,debito); rem-=use; debito-=use; }
+    if(rem>0.0001){
+      if(c.validade && c.validade < hojeISO) horasVencidas+=rem; // crédito já passou da validade e não foi compensado
+      else saldoValido+=rem;
+    }
+  }
+  const r=x=>Math.round(x*1e6)/1e6;
+  return { saldoValido:r(saldoValido), horasVencidas:r(horasVencidas) };
+}
+
+// Saldo COMPENSÁVEL (exclui créditos vencidos — esses viram HE a pagar e não
+// abatem mais jornada). Antes somava tudo, inclusive horas já expiradas. #14
+function bancoSaldo(empId){
+  return _bancoFifoStatus(empId).saldoValido;
 }
 
 // FIFO: débitos consomem os créditos mais antigos. Retorna o crédito vivo
@@ -9829,6 +9850,15 @@ function renderBancoHoras(){
     .slice().sort((a,b)=>(b.data||'').localeCompare(a.data||''));
   const saldo=bancoSaldo(empId);
   const exp=bancoProximaExpiracao(empId);
+  const _fifo=_bancoFifoStatus(empId);
+  const _empBH=State.employees.find(e=>e.id===empId)||{};
+  const _bhHePerc=50; // alíquota padrão de HE para horas de banco vencidas
+  const _bhVencValor=_fifo.horasVencidas>0 ? Math.round(_fifo.horasVencidas*((parseFloat(_empBH.salarioBase||0))/220)*(1+_bhHePerc/100)*100)/100 : 0;
+  const vencCard=_fifo.horasVencidas>0.0001 ? `<div style="flex:1;min-width:200px;background:#FFF8E1;border:1px solid #FFE082;border-left:4px solid #E65100;border-radius:8px;padding:10px 12px">
+      <div style="font-size:11px;color:#E65100;text-transform:uppercase;letter-spacing:.5px">Vencidas — pagar como HE (${_bhHePerc}%)</div>
+      <div style="font-size:18px;font-weight:700;color:#E65100">${_fmtHoras(_fifo.horasVencidas)} · ${fmtMoney(_bhVencValor)}</div>
+      <button class="btn btn-sm" style="margin-top:6px;background:#E65100;color:#fff;border:none" onclick="pagarHorasVencidasHE('${empId}')"><i class="fa-solid fa-money-bill-wave"></i> Lançar pagamento de HE</button>
+    </div>` : '';
   const hoje=new Date(); hoje.setHours(0,0,0,0);
   // Card de próxima expiração
   let expCard;
@@ -9853,7 +9883,8 @@ function renderBancoHoras(){
       <div style="font-size:11px;color:#607D8B;text-transform:uppercase;letter-spacing:.5px">Saldo atual</div>
       <div style="font-size:22px;font-weight:700;color:#00695C">${_fmtHoras(saldo)}</div>
     </div>
-    ${expCard}`;
+    ${expCard}
+    ${vencCard}`;
   // Extrato
   if(!movs.length){
     document.getElementById('bh-extrato').innerHTML=`<div class="empty-state small"><i class="fa-solid fa-piggy-bank"></i><p>Nenhum lançamento no banco de horas</p></div>`;
@@ -9912,6 +9943,50 @@ async function addBancoDebito(){
     renderBancoHoras();
   } catch(e){ toast('Erro ao lançar baixa: '+(e?.message||e),'error'); }
 }
+
+// Paga as horas de banco VENCIDAS como HORA EXTRA. Baixa as horas do banco
+// (débito origem 'vencido') e cria uma solicitação de pagamento PENDENTE que vai
+// para Aprovações (PIX/2FA) — reusa o fluxo padrão, sem caminho paralelo. #14
+async function pagarHorasVencidasHE(empId){
+  if(!getUserModules(Auth.currentUser).pagamentosLancar){ toast('Você não tem permissão para lançar pagamentos.','error'); return; }
+  const emp=State.employees.find(e=>e.id===empId); if(!emp){ toast('Colaborador não encontrado.','error'); return; }
+  const { horasVencidas }=_bancoFifoStatus(empId);
+  if(!(horasVencidas>0.0001)){ toast('Não há horas vencidas a pagar.','info'); return; }
+  const salBase=parseFloat(emp.salarioBase||0);
+  const hePerc=50; // alíquota padrão de HE (CCT pode prever outra — confirmar)
+  const valorHora=salBase/220;
+  const valor=Math.round(horasVencidas*valorHora*(1+hePerc/100)*100)/100;
+  const hojeISO=new Date().toISOString().substring(0,10);
+  document.getElementById('confirm-message').innerHTML=`Pagar <strong>${_fmtHoras(horasVencidas)}</strong> de banco de horas VENCIDAS como hora extra (${hePerc}%) para <strong>${esc(emp.nome||'')}</strong>?<br><br>`+
+    `Valor: <strong>${fmtMoney(valor)}</strong> &nbsp;<span style="font-size:12px;color:#607D8B">(${_fmtHoras(horasVencidas)} × ${fmtMoney(valorHora)}/h × ${(1+hePerc/100).toFixed(2).replace('.',',')})</span><br><br>`+
+    `Isso baixa as horas do banco e cria uma solicitação de pagamento <strong>pendente em Aprovações</strong>.`;
+  const btn=document.getElementById('confirm-ok-btn');
+  btn.innerHTML='<i class="fa-solid fa-money-bill-wave"></i> Lançar HE';
+  btn.onclick=async()=>{
+    btn.onclick=null;
+    try{
+      // 1) Baixa as horas vencidas do banco (FIFO consome justamente os créditos expirados).
+      await DB.save('bancoHoras', {
+        id:genId(), employeeId:empId, tipo:'debito', horas:horasVencidas, data:hojeISO,
+        origem:'vencido', observacao:`Vencidas pagas como HE ${hePerc}% — ${fmtMoney(valor)}`,
+        createdAt:new Date().toISOString(), updatedAt:new Date().toISOString()
+      });
+      // 2) Solicitação de pagamento → Aprovações (PIX/2FA).
+      await _criarSolicitacaoPagamento({
+        employeeId:empId, employeeNome:emp.nome||'', valor,
+        pixKey:emp.chavePix||'', keyType:'CPF',
+        descricao:`HE de banco de horas vencidas — ${_fmtHoras(horasVencidas)} × ${hePerc}%`,
+        scheduleDate:hojeISO, competencia:`BHVENC_${hojeISO}`, origem:'banco-he-vencida'
+      });
+      Auth.log('BANCO_HORAS_HE_VENCIDA', null, `${emp.nome} — ${_fmtHoras(horasVencidas)} pagas como HE (${fmtMoney(valor)})`);
+      closeModal('modal-confirm');
+      renderBancoHoras();
+      toast('HE vencida lançada e enviada para Aprovações.','success');
+    }catch(e){ toast('Erro ao lançar: '+(e?.message||e),'error'); console.error(e); }
+  };
+  document.getElementById('modal-confirm').classList.remove('hidden');
+}
+
 function removeBancoLancamento(id){
   const m=(State.bancoHoras||[]).find(b=>b.id===id);
   if(!m) return;

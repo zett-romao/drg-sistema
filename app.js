@@ -21924,13 +21924,16 @@ function _renderEscalasCards(){
     return true;
   }).sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
 
+  const _bannerInfo = `<div style="background:#E1F5FE;border:1px solid #B3E5FC;border-left:4px solid #0277BD;border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:13px;color:#01579B;line-height:1.5">
+    <i class="fa-solid fa-circle-info"></i> <strong>Tela informativa.</strong> A escala mostrada é a <strong>efetiva do contrato</strong> (cadastro + transferências, cruzada com o ponto). Para <strong>mudar a escala</strong> de alguém use <strong>Ajustar escala</strong> (ou Transferência no cadastro). Para uma <strong>exceção de um dia</strong> (troca de plantão, folga remanejada) use o <strong>override de dia avulso</strong> na Folha de Ponto. A edição dia-a-dia aqui foi descontinuada.
+  </div>`;
   const container = document.getElementById('escalas-container');
   if(!container) return;
   if(!filtered.length){
-    container.innerHTML = '<div class="empty-state"><i class="fa-solid fa-filter-circle-xmark"></i><p>Nenhum colaborador encontrado com os filtros atuais</p></div>';
+    container.innerHTML = _bannerInfo + '<div class="empty-state"><i class="fa-solid fa-filter-circle-xmark"></i><p>Nenhum colaborador encontrado com os filtros atuais</p></div>';
     return;
   }
-  container.innerHTML = filtered.map(emp => _renderEscalaCard(emp, mes, ano)).join('');
+  container.innerHTML = _bannerInfo + filtered.map(emp => _renderEscalaCard(emp, mes, ano)).join('');
 }
 
 function _renderEscalaCard(emp, mes, ano){
@@ -21954,8 +21957,8 @@ function _renderEscalaCard(emp, mes, ano){
     ? '<span style="background:#FFEBEE;color:#C62828;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px" title="Trabalha sozinho — sem horário de refeição"><i class="fa-solid fa-ban"></i> Sem refeição</span>'
     : '';
   const projBadge = isProjetada
-    ? '<span style="background:#FFF3E0;color:#E65100;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px"><i class="fa-solid fa-wand-magic-sparkles"></i> Projetada — não salva</span>'
-    : '<span style="background:#E8F5E9;color:#1B5E20;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px"><i class="fa-solid fa-check"></i> Salva</span>';
+    ? '<span style="background:#E1F5FE;color:#0277BD;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px" title="Escala efetiva derivada do contrato (cadastro + transferências)"><i class="fa-solid fa-file-contract"></i> Do contrato</span>'
+    : '<span style="background:#ECEFF1;color:#546E7A;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px" title="Escala que foi salva manualmente nesta competência (histórico)"><i class="fa-solid fa-clock-rotate-left"></i> Salva (histórico)</span>';
   const rowsHtml = dias.map(d => _renderEscalaRow(d, fam, mes, ano)).join('');
   return `<div class="card escala-card" data-emp-id="${emp.id}" data-fam="${fam}" style="margin-bottom:16px">
     <div class="card-body" style="padding:14px 18px">
@@ -21965,10 +21968,7 @@ function _renderEscalaCard(emp, mes, ano){
           <div style="font-size:12px;color:var(--text-muted);margin-top:2px"><i class="fa-solid fa-building"></i> ${posto} &middot; <i class="fa-solid fa-sitemap"></i> ${setor} &middot; <strong>${escalaLabel(emp.escala||'5x2A')}</strong></div>
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
-          ${emp.semRefeicao?'':`<button class="btn btn-secondary" onclick="openBulkRefeicao('${emp.id}')" title="Atualizar horário de refeição em massa"><i class="fa-solid fa-utensils" style="color:#F59E0B"></i> Refeição em massa</button>`}
-          <button class="btn btn-secondary" onclick="openAjustarEscala('${emp.id}')" title="Trocar a escala ou reprojetar o ciclo de trabalho"><i class="fa-solid fa-gear" style="color:var(--primary)"></i> Ajustar escala</button>
-          <button class="btn btn-secondary" onclick="resetEscala('${emp.id}')" title="Reprojetar (descarta alterações)"><i class="fa-solid fa-rotate-left"></i> Reprojetar</button>
-          <button class="btn btn-primary" onclick="saveEscala('${emp.id}')"><i class="fa-solid fa-floppy-disk"></i> Salvar</button>
+          <button class="btn btn-secondary" onclick="openAjustarEscala('${emp.id}')" title="Trocar a escala contratual do colaborador (5x2, 6x1, 12x36...)"><i class="fa-solid fa-gear" style="color:var(--primary)"></i> Ajustar escala</button>
         </div>
       </div>
       <div style="overflow-x:auto">
@@ -22069,44 +22069,33 @@ function cancelCorridoPerc(){
 }
 
 function _renderEscalaRow(d, fam, compMes, compAno){
+  // SOMENTE LEITURA (Fase 1 — tela informativa): mostra a escala EFETIVA, sem
+  // edição. Mudança de escala = Transferência no contrato; exceção de 1 dia =
+  // override de dia avulso na Folha de Ponto.
   const sem = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][d.diaSem];
-  // Cores: 12x36 = duas cores suaves alternadas; demais = sáb/dom diferenciados
   let bg = '#fff';
   if(fam==='12x36'){
     bg = (d.tipo==='trabalho' || d.tipo==='corrido') ? '#E3F2FD' : '#FFF8E1';
   } else {
-    if(d.diaSem===0)      bg = '#FFEBEE'; // domingo — rosa suave
-    else if(d.diaSem===6) bg = '#FFF9C4'; // sábado — amarelo suave
+    if(d.diaSem===0)      bg = '#FFEBEE';
+    else if(d.diaSem===6) bg = '#FFF9C4';
   }
-  const revisao = d.revisao ? ' <span title="Revisar manualmente — sem dados anteriores" style="color:#E65100">⚠</span>' : '';
-  // Opacidades por tipo:
-  //   trabalho → todos visíveis (1)
-  //   corrido  → entrada/saída visíveis, refeição esmaecida (.4)
-  //   folga    → todos esmaecidos (.55) mas editáveis
-  const opEnt = (d.tipo==='folga') ? 'opacity:.55' : '';
-  const opSai = (d.tipo==='folga') ? 'opacity:.55' : '';
-  const opRef = (d.tipo==='folga') ? 'opacity:.55' : (d.tipo==='corrido' ? 'opacity:.4' : '');
-  const tipoTitle = 'Clique para alternar: Trabalho → Corrido (hora corrida, sem refeição) → Folga';
-  const hePercAttr = (d.tipo==='corrido' && d.hePercDia) ? `data-he-perc="${d.hePercDia}"` : '';
-  // Label da célula do dia: DD/MM, deixando claro a qual mês pertence dentro
-  // da competência (26→25). Dias 26-31 são do mês anterior; 1-25 do mês atual.
+  const isFolga = d.tipo==='folga';
+  const op = isFolga ? 'opacity:.5' : (d.tipo==='corrido' ? 'opacity:.7' : '');
   let labelDia = String(d.dia).padStart(2,'0');
   if(compMes != null && compAno != null){
     const r = _compRealDate(compMes, compAno, d.dia);
     labelDia = `${String(r.dia).padStart(2,'0')}/${String(r.mes).padStart(2,'0')}`;
   }
-  // Para 12x36 o número do dia é clicável: define a âncora do ciclo
-  const diaCell = (fam==='12x36')
-    ? `<td onclick="_escala12x36Anchor(this)" style="padding:4px 6px;text-align:center;border:1px solid var(--border);font-weight:700;cursor:pointer;color:var(--primary);text-decoration:underline;font-size:11px" title="Clique para iniciar o ciclo 12x36 de trabalho neste dia">${labelDia}${revisao}</td>`
-    : `<td style="padding:4px 6px;text-align:center;border:1px solid var(--border);font-weight:700;font-size:11px">${labelDia}${revisao}</td>`;
-  return `<tr style="background:${bg}" data-dia="${d.dia}" data-tipo="${d.tipo||'trabalho'}" ${hePercAttr}>
-    ${diaCell}
+  const cel = v => `<td style="padding:4px 6px;text-align:center;border:1px solid var(--border);font-size:11px;${op}">${v || '—'}</td>`;
+  return `<tr style="background:${bg}">
+    <td style="padding:4px 6px;text-align:center;border:1px solid var(--border);font-weight:700;font-size:11px">${labelDia}</td>
     <td style="padding:4px 6px;text-align:center;border:1px solid var(--border);font-size:11px">${sem}</td>
-    <td style="padding:4px 6px;text-align:center;border:1px solid var(--border)"><span class="esc-tipo-cell" onclick="toggleEscalaTipo(this)" style="cursor:pointer" title="${tipoTitle}">${_escalaTipoBadge(d.tipo, d.hePercDia)}</span></td>
-    <td style="padding:2px;border:1px solid var(--border)"><input type="time" class="esc-entrada" value="${d.entrada||''}" style="width:100%;${opEnt}" onchange="onEscalaCellEdit(this)"></td>
-    <td style="padding:2px;border:1px solid var(--border)"><input type="time" class="esc-int-ini" value="${d.intIni||''}" style="width:100%;${opRef}" onchange="onEscalaCellEdit(this)"></td>
-    <td style="padding:2px;border:1px solid var(--border)"><input type="time" class="esc-int-fim" value="${d.intFim||''}" style="width:100%;${opRef}" onchange="onEscalaCellEdit(this)"></td>
-    <td style="padding:2px;border:1px solid var(--border)"><input type="time" class="esc-saida" value="${d.saida||''}" style="width:100%;${opSai}" onchange="onEscalaCellEdit(this)"></td>
+    <td style="padding:4px 6px;text-align:center;border:1px solid var(--border)">${_escalaTipoBadge(d.tipo, d.hePercDia)}</td>
+    ${cel(isFolga?'':d.entrada)}
+    ${cel(isFolga?'':d.intIni)}
+    ${cel(isFolga?'':d.intFim)}
+    ${cel(isFolga?'':d.saida)}
   </tr>`;
 }
 
@@ -22357,79 +22346,44 @@ async function aplicarAjusteEscala(){
   // (que sobrou da escala anterior) e a projeção sai com os horários antigos.
   // Se o gestor quer manter horário customizado, desmarca o checkbox.
   const def = ESCALA_HORARIOS_DEFAULT[novaEscala] || ESCALA_HORARIOS_DEFAULT['5x2A'];
-  const tempEmp  = updateCad
-    ? { ...emp, escala: novaEscala, horarioEntrada: def.entrada, horarioSaida: def.saida, horarioRefIni: '', horarioRefFim: '' }
-    : { ...emp, escala: novaEscala };
   const fam = escalaFamilia(novaEscala);
-  let novoDias;
+  // MODELO INFORMATIVO (Fase 1): "Ajustar escala" muda a escala CONTRATUAL do
+  // colaborador (fonte única) — NÃO grava mais uma grade por competência. A
+  // projeção passa a refletir a nova escala automaticamente. Mudança a partir do
+  // meio do mês → use Transferência de escala no cadastro; 12x36 grava a âncora.
+  emp.escala = novaEscala;
   if(fam === '12x36'){
-    // Para 12x36, "a partir do dia X" é a ÂNCORA do ciclo: o dia X vira trabalho
-    // e a alternância flui a partir dele (nos dois sentidos). A escala reprojetada
-    // vira a referência → grava a âncora no cadastro (desvinculada do 1º dia de
-    // trabalho; pode mudar no meio do contrato).
-    novoDias = _projectEscala12x36(tempEmp, mes, ano, null, diaX);
     const _zpA = n=>String(n).padStart(2,'0');
-    emp.ciclo12x36Inicio = `${ano}-${_zpA(mes)}-${_zpA(diaX)}`;
-  } else {
-    novoDias = _projectEscala(tempEmp, mes, ano, _getPrevMonthDias(empId, mes, ano));
+    emp.ciclo12x36Inicio = `${ano}-${_zpA(mes)}-${_zpA(diaX)}`; // âncora do ciclo
+    if(novaEscala.startsWith('12x36-')) emp.turnoNoturno = _escala12x36Noturna(novaEscala);
   }
-  // Estado atual do card
-  const atuais = _collectEscalaDias(empId) || [];
-  const mapaAtual = {}; atuais.forEach(d=>{ mapaAtual[d.dia]=d; });
-  const mapaNovo  = {}; novoDias.forEach(d=>{ mapaNovo[d.dia]=d; });
-  // Monta a COMPETÊNCIA final (não mais mês de calendário):
-  //  • dia com ponto real batido → sempre preservado
-  //  • 12x36 → diaX é a ÂNCORA do ciclo; reprojeta a competência inteira
-  //  • 5x2/6x1 → mantém os dias anteriores ao corte (diaX), respeitando o
-  //    ordinal da competência (dias 26-31 são SEMPRE anteriores a 1-25)
-  const protegidos = _diasProtegidosEscala(empId, mes, ano);
-  const is12x36 = (fam === '12x36');
-  let preservados = 0;
-  const final = [];
-  const compDiasArr = _compDias(mes, ano);
-  for(const cd of compDiasArr){
-    const d = cd.dia;
-    let manter;
-    if(protegidos.has(d)){ manter = true; preservados++; }
-    else if(is12x36)     { manter = false; }
-    // Pra 5x2/6x1 com competência: ordinal correto (26-31 = previa do mês anterior)
-    else                 { manter = _compDiaOrd(d) < _compDiaOrd(diaX); }
-    const entry = (manter && mapaAtual[d]) ? mapaAtual[d] : (mapaNovo[d] || mapaAtual[d]);
-    if(entry) final.push(entry);
-  }
-  card.querySelector('tbody').innerHTML = final.map(d=>_renderEscalaRow(d, fam, mes, ano)).join('');
-  card.dataset.fam = fam;
-  let cadastroAtualizado = false;
   if(updateCad){
-    emp.escala = novaEscala;
+    // "Trocar horários para o padrão da nova escala" (senão mantém os do cadastro).
     emp.horarioEntrada = def.entrada;
     emp.horarioSaida   = def.saida;
-    // Variante fixa do sistema crava a refeição (def.intIni/intFim); as demais
-    // limpam pra `_escalaHorariosDia` usar o default sensato (12-13 / 00-01 noturno).
     emp.horarioRefIni  = _escalaFixa(novaEscala) ? (def.intIni||'') : '';
     emp.horarioRefFim  = _escalaFixa(novaEscala) ? (def.intFim||'') : '';
-    if(novaEscala.startsWith('12x36-')) emp.turnoNoturno = _escala12x36Noturna(novaEscala);
-    emp.updatedAt      = new Date().toISOString();
-    try {
-      await DB.save('employees', emp);
-      cadastroAtualizado = true;
-    } catch (e) {
-      console.error('Erro ao atualizar cadastro:', e);
-      toast('Escala reprojetada, mas FALHOU ao salvar o cadastro: ' + (e.message || e), 'error');
-    }
-  } else if(fam === '12x36'){
-    // Mesmo sem "troca definitiva", persiste a ÂNCORA do ciclo no cadastro: a
-    // escala reprojetada na tela é a referência, o cadastro acompanha sozinho.
-    emp.updatedAt = new Date().toISOString();
-    try { await DB.save('employees', emp); }
-    catch(e){ console.error('Erro ao gravar âncora 12x36 no cadastro:', e); }
   }
-  await saveEscala(empId, true); // salva direto — a folha passa a usar a escala nova
+  emp.updatedAt = new Date().toISOString();
+  try {
+    await DB.save('employees', emp);
+  } catch (e) {
+    console.error('Erro ao salvar cadastro:', e);
+    toast('Falhou ao salvar a escala no cadastro: ' + (e.message || e), 'error'); return;
+  }
+  // Remove a escala SALVA desta competência (se houver) — sem isso ela venceria a
+  // projeção e o "Ajustar" não surtiria efeito aqui. Só esta competência; as
+  // batidas reais ficam na folha (não se perdem).
+  const _savedEsc = (State.escalas||[]).find(e=>e && e.employeeId===empId && e.mes==mes && e.ano==ano);
+  if(_savedEsc){
+    try { await DB.remove('escalas', _savedEsc.id); State.escalas=(State.escalas||[]).filter(e=>e.id!==_savedEsc.id); }
+    catch(e){ console.error('remover escala salva (ajuste):', e); }
+  }
   closeModal('modal-ajustar-escala');
-  const partes = [];
-  partes.push(`Escala reprojetada para ${escalaLabel(novaEscala)}${diaX>1?` a partir do dia ${String(diaX).padStart(2,'0')}`:''}`);
-  if (cadastroAtualizado) partes.push(`cadastro atualizado: entrada ${def.entrada} / saída ${def.saida}`);
-  if (preservados)        partes.push(`${preservados} dia(s) já trabalhado(s) preservado(s)`);
+  _renderEscalasCards(); // re-renderiza a tela já com a nova projeção (do contrato)
+  const partes = [`Escala alterada para ${escalaLabel(novaEscala)} no cadastro`];
+  if(fam==='12x36') partes.push(`ciclo ancorado em ${String(diaX).padStart(2,'0')}/${String(mes).padStart(2,'0')}`);
+  if(updateCad)     partes.push(`horários: entrada ${def.entrada} / saída ${def.saida}`);
   toast(partes.join(' · ') + '.', 'success');
 }
 

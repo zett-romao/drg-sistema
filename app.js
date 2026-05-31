@@ -20532,6 +20532,8 @@ function printFolhaPonto(isPreview=false){
   const vrTotal=numVal('payroll-vr-total')||0;
   const vaLiquido=numVal('payroll-va-liquido')||0;
   const bonificacao=numVal('payroll-bonus')||0;
+  const _vrDiaDet=numVal('payroll-vr-dia')||(emp.valorDiarioVr||0);
+  const _vtDiaDet=numVal('payroll-vt-dia')||(emp.valorDiarioVt||0);
   const heTotalHoras=numVal('payroll-he-total')||0;
   const heTotal=heTotalHoras>0?minutesToStr(Math.round(heTotalHoras*60)):'0';
   const heValor=numVal('payroll-he-valor')||0;
@@ -20725,11 +20727,11 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
     ${(vtTotal>0||vrTotal>0||vaLiquido>0||bonificacao>0)?`
     <div style="margin-top:8px;background:#E3F2FD;border:1px solid #90CAF9;border-radius:4px;padding:8px;font-size:10px">
       <div style="font-weight:700;color:#1565C0;margin-bottom:4px">Benefícios <span style="font-weight:400">— pagos à parte (vale/cartão), não somam no líquido</span></div>
-      ${vtTotal>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Vale Transporte</span><span>${fmtMoney(vtTotal)}</span></div>`:''}
-      ${vrTotal>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Vale Refeição</span><span>${fmtMoney(vrTotal)}</span></div>`:''}
+      ${vtTotal>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Vale Transporte${_benefDetalhe(vtTotal,_vtDiaDet,emp.vtFreq)}</span><span>${fmtMoney(vtTotal)}</span></div>`:''}
+      ${vrTotal>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Vale Refeição${_benefDetalhe(vrTotal,_vrDiaDet,emp.vrFreq)}</span><span>${fmtMoney(vrTotal)}</span></div>`:''}
       ${bonificacao>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Boa Permanência <small style="color:#1565C0">(no VR)</small></span><span>${fmtMoney(bonificacao)}</span></div>`:''}
       ${(vrTotal>0||bonificacao>0)?`<div style="display:flex;justify-content:space-between;padding:3px 0;border-top:1px dashed #90CAF9;margin-top:2px;font-weight:700;color:#1565C0"><span>VR Total a creditar</span><span>${fmtMoney(vrTotal+bonificacao)}</span></div>`:''}
-      ${vaLiquido>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Vale Alimentação</span><span>${fmtMoney(vaLiquido)}</span></div>`:''}
+      ${vaLiquido>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Vale Alimentação <small style="font-weight:400;color:#5472a8">(mensal, líquido de faltas)</small></span><span>${fmtMoney(vaLiquido)}</span></div>`:''}
     </div>`:''}
   </div>
 </div>`}
@@ -20758,6 +20760,17 @@ ${isPreview ? '<scr'+'ipt>document.title="Pré-via (rascunho) — não impressa"
   win.document.close();
 }
 
+// Detalhe "(N dias × R$X)" ao lado de VT/VR na folha — deixa explícito que o
+// benefício é pelos DIAS TRABALHADOS (faltou = não ganha o do dia). Pedido do
+// usuário 2026-05-31. Para freq semanal mostra "semana(s)".
+function _benefDetalhe(total, perDia, freq){
+  if(!(total>0) || !(perDia>0)) return '';
+  const n = Math.round(total/perDia);
+  if(n<=0) return '';
+  const unid = (freq==='semanal') ? 'sem.' : 'dia(s)';
+  return ` <small style="font-weight:400;color:#5472a8">(${n} ${unid} trabalhado(s) × ${fmtMoney(perDia)})</small>`;
+}
+
 // ============================================
 // EXPORTAR TODAS AS FOLHAS EM PDF (lote)
 // ============================================
@@ -20778,6 +20791,8 @@ function _buildFolhaHtmlFromRecord(emp, p){
   const vrTotal         = p.valeRefeicao||0;
   const vaLiquido       = p.valeAlimentacaoLiquido||0;
   const bonificacao     = p.bonificacao||0;
+  const _vrDiaDet       = (p.vrDia!=null && p.vrDia!=='') ? Number(p.vrDia) : (emp.valorDiarioVr||0);
+  const _vtDiaDet       = (emp.valorDiarioVt||0);
   const heValor         = p.horasExtrasValor||0;
   const heTotalHoras    = p.horasExtrasTotal||0;
   const hePerc          = p.horasExtrasPerc||50;
@@ -20988,11 +21003,11 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
     ${(vtTotal>0||vrTotal>0||vaLiquido>0||bonificacao>0)?`
     <div style="margin-top:8px;background:#E3F2FD;border:1px solid #90CAF9;border-radius:4px;padding:8px;font-size:10px">
       <div style="font-weight:700;color:#1565C0;margin-bottom:4px">Benefícios <span style="font-weight:400">— pagos à parte (vale/cartão), não somam no líquido</span></div>
-      ${vtTotal>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Vale Transporte</span><span>${fmtMoney(vtTotal)}</span></div>`:''}
-      ${vrTotal>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Vale Refeição</span><span>${fmtMoney(vrTotal)}</span></div>`:''}
+      ${vtTotal>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Vale Transporte${_benefDetalhe(vtTotal,_vtDiaDet,emp.vtFreq)}</span><span>${fmtMoney(vtTotal)}</span></div>`:''}
+      ${vrTotal>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Vale Refeição${_benefDetalhe(vrTotal,_vrDiaDet,emp.vrFreq)}</span><span>${fmtMoney(vrTotal)}</span></div>`:''}
       ${bonificacao>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Boa Permanência <small style="color:#1565C0">(no VR)</small></span><span>${fmtMoney(bonificacao)}</span></div>`:''}
       ${(vrTotal>0||bonificacao>0)?`<div style="display:flex;justify-content:space-between;padding:3px 0;border-top:1px dashed #90CAF9;margin-top:2px;font-weight:700;color:#1565C0"><span>VR Total a creditar</span><span>${fmtMoney(vrTotal+bonificacao)}</span></div>`:''}
-      ${vaLiquido>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Vale Alimentação</span><span>${fmtMoney(vaLiquido)}</span></div>`:''}
+      ${vaLiquido>0?`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Vale Alimentação <small style="font-weight:400;color:#5472a8">(mensal, líquido de faltas)</small></span><span>${fmtMoney(vaLiquido)}</span></div>`:''}
     </div>`:''}
   </div>
 </div>`}

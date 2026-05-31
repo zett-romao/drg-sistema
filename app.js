@@ -20145,20 +20145,20 @@ function _getPrevMonthDias(empId, mes, ano){
   return null;
 }
 
-// Projeta a escala completa de um colaborador para um mês
+// Projeta a escala completa de um colaborador para a COMPETÊNCIA (26→25)
 // Projeta a escala de um modelo customizado (padrão semanal)
 function _projectEscalaModelo(emp, mes, ano, modelo){
   const dias=[];
-  const dpm=new Date(ano, mes, 0).getDate();
-  for(let d=1; d<=dpm; d++){
-    const dObj=new Date(ano, mes-1, d);
-    const ds=dObj.getDay();
+  // Itera pela competência: dias 26-fimMesAnterior + dias 1-25 do mes/ano.
+  for(const cd of _compDias(mes, ano)){
+    const dObj=new Date(cd.ano, cd.mes-1, cd.dia);
+    const ds=cd.diaSem;
     const md=_modeloDiaTemplate(modelo, dObj);
     const tipo=md.tipo||'folga';
     const h=(tipo!=='folga')
       ? {entrada:md.entrada||'', intIni:md.intIni||'', intFim:md.intFim||'', saida:md.saida||''}
       : {entrada:'',intIni:'',intFim:'',saida:''};
-    dias.push({dia:d, diaSem:ds, tipo, ...h});
+    dias.push({dia:cd.dia, diaSem:ds, tipo, ...h});
   }
   return dias;
 }
@@ -20179,25 +20179,24 @@ function _projectEscala(emp, mes, ano, prevDias){
 
 function _projectEscala5x2(emp, mes, ano){
   const dias = [];
-  const dpm = new Date(ano, mes, 0).getDate();
-  for(let d=1; d<=dpm; d++){
-    const ds = new Date(ano, mes-1, d).getDay();
+  // Itera competência (26→25), não mês de calendário
+  for(const cd of _compDias(mes, ano)){
+    const ds = cd.diaSem;
     const isWknd = ds===0 || ds===6;
     const tipo = isWknd ? 'folga' : 'trabalho';
     const h = (tipo==='trabalho') ? _escalaHorariosDia(emp, ds) : {entrada:'',intIni:'',intFim:'',saida:''};
-    dias.push({ dia:d, diaSem:ds, tipo, ...h });
+    dias.push({ dia:cd.dia, diaSem:ds, tipo, ...h });
   }
   return dias;
 }
 
 function _projectEscala6x1AC(emp, mes, ano){
   const dias = [];
-  const dpm = new Date(ano, mes, 0).getDate();
-  for(let d=1; d<=dpm; d++){
-    const ds = new Date(ano, mes-1, d).getDay();
+  for(const cd of _compDias(mes, ano)){
+    const ds = cd.diaSem;
     const tipo = (ds===0) ? 'folga' : 'trabalho';
     const h = (tipo==='trabalho') ? _escalaHorariosDia(emp, ds) : {entrada:'',intIni:'',intFim:'',saida:''};
-    dias.push({ dia:d, diaSem:ds, tipo, ...h });
+    dias.push({ dia:cd.dia, diaSem:ds, tipo, ...h });
   }
   return dias;
 }
@@ -20226,42 +20225,51 @@ function _6x1ALTEhFolga(emp, ano, mes, dia){
 
 function _projectEscala6x1ALT(emp, mes, ano){
   const dias = [];
-  const dpm = new Date(ano, mes, 0).getDate();
-  for(let d=1; d<=dpm; d++){
-    const ds = new Date(ano, mes-1, d).getDay();
-    const tipo = _6x1ALTEhFolga(emp, ano, mes, d) ? 'folga' : 'trabalho';
+  for(const cd of _compDias(mes, ano)){
+    const ds = cd.diaSem;
+    const tipo = _6x1ALTEhFolga(emp, cd.ano, cd.mes, cd.dia) ? 'folga' : 'trabalho';
     const h = (tipo==='trabalho') ? _escalaHorariosDia(emp, ds) : {entrada:'',intIni:'',intFim:'',saida:''};
-    dias.push({ dia:d, diaSem:ds, tipo, ...h });
+    dias.push({ dia:cd.dia, diaSem:ds, tipo, ...h });
   }
   return dias;
 }
 
-// 6x1B: folga rotativa (1 dia folga a cada 7). Detecta âncora do mês anterior
+// 6x1B: folga rotativa (1 dia folga a cada 7). Detecta âncora pela última
+// folga do bloco anterior (competência anterior). Usa datas REAIS pra alinhar
+// o ciclo de 7 dias com a competência (26→25).
 function _projectEscala6x1B(emp, mes, ano, prevDias){
   const dias = [];
-  const dpm = new Date(ano, mes, 0).getDate();
-  let primeiraFolga = null;
+  // Acha a última folga em prevDias e converte pra data real (data anchor).
+  let anchorDate = null;
   if(prevDias && prevDias.length){
     const sorted = [...prevDias].sort((a,b)=>b.dia-a.dia);
     const lastFolga = sorted.find(d => d.tipo==='folga' || (!d.entrada && !d.saida));
     if(lastFolga){
-      const prevDpm = new Date(ano, mes-1, 0).getDate();
-      const offsetEnd = prevDpm - lastFolga.dia;
-      // Próxima folga: 7 dias após a última, contando do dia 1 do mês atual
-      primeiraFolga = (7 - (offsetEnd % 7));
-      if(primeiraFolga > dpm) primeiraFolga = null;
+      // prevDias é da competência mes-1/ano. Resolve a data real do dia.
+      let pMes = mes - 1, pAno = ano; if(pMes < 1){ pMes = 12; pAno = ano - 1; }
+      const real = _compRealDate(pMes, pAno, lastFolga.dia);
+      anchorDate = new Date(real.ano, real.mes-1, real.dia);
     }
   }
-  const folgaSet = new Set();
-  if(primeiraFolga !== null){
-    for(let d=primeiraFolga; d<=dpm; d+=7) folgaSet.add(d);
+  const folgaTimestamps = new Set();
+  if(anchorDate){
+    // Marca as próximas folgas (a cada 7 dias) até o fim da competência.
+    const fimComp = _compDias(mes, ano);
+    const fimReal = fimComp.length ? new Date(fimComp[fimComp.length-1].ano, fimComp[fimComp.length-1].mes-1, fimComp[fimComp.length-1].dia) : null;
+    const cur = new Date(anchorDate);
+    cur.setDate(cur.getDate() + 7);
+    while(fimReal && cur <= fimReal){
+      folgaTimestamps.add(cur.getTime());
+      cur.setDate(cur.getDate() + 7);
+    }
   }
-  for(let d=1; d<=dpm; d++){
-    const ds = new Date(ano, mes-1, d).getDay();
-    const tipo = folgaSet.has(d) ? 'folga' : 'trabalho';
+  for(const cd of _compDias(mes, ano)){
+    const ds = cd.diaSem;
+    const realT = new Date(cd.ano, cd.mes-1, cd.dia).getTime();
+    const tipo = folgaTimestamps.has(realT) ? 'folga' : 'trabalho';
     const h = (tipo==='trabalho') ? _escalaHorariosDia(emp, ds) : {entrada:'',intIni:'',intFim:'',saida:''};
-    const obj = { dia:d, diaSem:ds, tipo, ...h };
-    if(primeiraFolga === null) obj.revisao = true; // marcar para revisão manual
+    const obj = { dia:cd.dia, diaSem:ds, tipo, ...h };
+    if(!anchorDate) obj.revisao = true; // marcar para revisão manual
     dias.push(obj);
   }
   return dias;
@@ -20272,41 +20280,65 @@ function _projectEscala6x1B(emp, mes, ano, prevDias){
 // (ciclo12x36Inicio) > detecção pelo mês anterior > dia 1.
 function _projectEscala12x36(emp, mes, ano, prevDias, anchorOverride){
   const dias = [];
-  const dpm = new Date(ano, mes, 0).getDate();
   const temAncoraCad = !anchorOverride && !!(emp && emp.ciclo12x36Inicio);
-  let anchor = anchorOverride || 1;
+  // anchorDate = data REAL de início do ciclo (paridade trabalho).
+  // Prioridade: override > emp.ciclo12x36Inicio > último trabalho do bloco
+  // anterior > dataAdmissao > primeira data da competência.
+  let anchorDate = null;
   let noPrev = false;
-  if(!anchorOverride && !temAncoraCad){
-    let lastWork = null;
-    if(prevDias && prevDias.length){
-      const sorted = [...prevDias].sort((a,b)=>b.dia-a.dia);
-      const lw = sorted.find(d => d.tipo==='trabalho' || (d.entrada && d.saida));
-      if(lw) lastWork = lw.dia;
+  if(anchorOverride){
+    // anchorOverride é um dia-da-competência (1..25 ou 26..31). Resolve real.
+    const real = _compRealDate(mes, ano, anchorOverride);
+    anchorDate = new Date(real.ano, real.mes-1, real.dia);
+  } else if(temAncoraCad){
+    const d = new Date(emp.ciclo12x36Inicio + 'T00:00:00');
+    if(!isNaN(d.getTime())) anchorDate = d;
+  }
+  if(!anchorDate && prevDias && prevDias.length){
+    const sorted = [...prevDias].sort((a,b)=>b.dia-a.dia);
+    const lw = sorted.find(d => d.tipo==='trabalho' || (d.entrada && d.saida));
+    if(lw){
+      let pMes = mes - 1, pAno = ano; if(pMes < 1){ pMes = 12; pAno = ano - 1; }
+      const real = _compRealDate(pMes, pAno, lw.dia);
+      anchorDate = new Date(real.ano, real.mes-1, real.dia);
     }
-    if(lastWork !== null){
-      const prevDpm = new Date(ano, mes-1, 0).getDate();
-      // lastWork = offset 0 (trabalho). Par = trabalho, ímpar = folga.
-      anchor = (((prevDpm - lastWork) + 1) % 2 === 0) ? 1 : 2;
+  }
+  if(!anchorDate){
+    // Sem nenhuma referência: usa dataAdmissao OU 1º dia da competência.
+    const _adm = emp && emp.dataAdmissao ? new Date(emp.dataAdmissao+'T00:00:00') : null;
+    if(_adm && !isNaN(_adm.getTime())){
+      anchorDate = _adm;
     } else {
-      anchor = 1;
+      const compDs = _compDias(mes, ano);
+      if(compDs.length){
+        const c0 = compDs[0];
+        anchorDate = new Date(c0.ano, c0.mes-1, c0.dia);
+      }
       noPrev = true;
     }
   }
-  for(let d=1; d<=dpm; d++){
-    const ds = new Date(ano, mes-1, d).getDay();
+  for(const cd of _compDias(mes, ano)){
+    const ds = cd.diaSem;
     let tipo;
-    const ehCad = temAncoraCad ? _ciclo12x36EhTrabalho(emp, ano, mes, d) : null;
-    if(ehCad !== null){
-      tipo = ehCad ? 'trabalho' : 'folga';
-    } else if(temAncoraCad){
-      // Tem âncora no cadastro e o dia é ANTERIOR ao início do ciclo:
-      // o colaborador ainda não estava na escala → folga (não pode virar HE).
-      tipo = 'folga';
+    if(temAncoraCad){
+      const ehCad = _ciclo12x36EhTrabalho(emp, cd.ano, cd.mes, cd.dia);
+      if(ehCad === null){
+        // Dia anterior ao início do ciclo cadastrado: colab ainda não estava
+        // na escala → folga (não pode virar HE).
+        tipo = 'folga';
+      } else {
+        tipo = ehCad ? 'trabalho' : 'folga';
+      }
+    } else if(anchorDate){
+      const realDate = new Date(cd.ano, cd.mes-1, cd.dia);
+      const diff = Math.round((realDate - anchorDate) / 86400000);
+      const ehTrab = ((((diff % 2) + 2) % 2) === 0);
+      tipo = ehTrab ? 'trabalho' : 'folga';
     } else {
-      tipo = ((d - anchor) % 2 === 0) ? 'trabalho' : 'folga';
+      tipo = 'folga';
     }
     const h = (tipo==='trabalho') ? _escalaHorariosDia(emp, ds) : {entrada:'',intIni:'',intFim:'',saida:''};
-    const obj = { dia:d, diaSem:ds, tipo, ...h };
+    const obj = { dia:cd.dia, diaSem:ds, tipo, ...h };
     if(noPrev) obj.revisao = true;
     dias.push(obj);
   }
@@ -20654,7 +20686,7 @@ function _renderEscalaCard(emp, mes, ano){
   const projBadge = isProjetada
     ? '<span style="background:#FFF3E0;color:#E65100;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px"><i class="fa-solid fa-wand-magic-sparkles"></i> Projetada — não salva</span>'
     : '<span style="background:#E8F5E9;color:#1B5E20;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px"><i class="fa-solid fa-check"></i> Salva</span>';
-  const rowsHtml = dias.map(d => _renderEscalaRow(d, fam)).join('');
+  const rowsHtml = dias.map(d => _renderEscalaRow(d, fam, mes, ano)).join('');
   return `<div class="card escala-card" data-emp-id="${emp.id}" data-fam="${fam}" style="margin-bottom:16px">
     <div class="card-body" style="padding:14px 18px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
@@ -20766,7 +20798,7 @@ function cancelCorridoPerc(){
   _previousTipoBeforeCorrido = null;
 }
 
-function _renderEscalaRow(d, fam){
+function _renderEscalaRow(d, fam, compMes, compAno){
   const sem = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][d.diaSem];
   // Cores: 12x36 = duas cores suaves alternadas; demais = sáb/dom diferenciados
   let bg = '#fff';
@@ -20786,10 +20818,17 @@ function _renderEscalaRow(d, fam){
   const opRef = (d.tipo==='folga') ? 'opacity:.55' : (d.tipo==='corrido' ? 'opacity:.4' : '');
   const tipoTitle = 'Clique para alternar: Trabalho → Corrido (hora corrida, sem refeição) → Folga';
   const hePercAttr = (d.tipo==='corrido' && d.hePercDia) ? `data-he-perc="${d.hePercDia}"` : '';
+  // Label da célula do dia: DD/MM, deixando claro a qual mês pertence dentro
+  // da competência (26→25). Dias 26-31 são do mês anterior; 1-25 do mês atual.
+  let labelDia = String(d.dia).padStart(2,'0');
+  if(compMes != null && compAno != null){
+    const r = _compRealDate(compMes, compAno, d.dia);
+    labelDia = `${String(r.dia).padStart(2,'0')}/${String(r.mes).padStart(2,'0')}`;
+  }
   // Para 12x36 o número do dia é clicável: define a âncora do ciclo
   const diaCell = (fam==='12x36')
-    ? `<td onclick="_escala12x36Anchor(this)" style="padding:4px 6px;text-align:center;border:1px solid var(--border);font-weight:700;cursor:pointer;color:var(--primary);text-decoration:underline" title="Clique para iniciar o ciclo 12x36 de trabalho neste dia">${String(d.dia).padStart(2,'0')}${revisao}</td>`
-    : `<td style="padding:4px 6px;text-align:center;border:1px solid var(--border);font-weight:700">${String(d.dia).padStart(2,'0')}${revisao}</td>`;
+    ? `<td onclick="_escala12x36Anchor(this)" style="padding:4px 6px;text-align:center;border:1px solid var(--border);font-weight:700;cursor:pointer;color:var(--primary);text-decoration:underline;font-size:11px" title="Clique para iniciar o ciclo 12x36 de trabalho neste dia">${labelDia}${revisao}</td>`
+    : `<td style="padding:4px 6px;text-align:center;border:1px solid var(--border);font-weight:700;font-size:11px">${labelDia}${revisao}</td>`;
   return `<tr style="background:${bg}" data-dia="${d.dia}" data-tipo="${d.tipo||'trabalho'}" ${hePercAttr}>
     ${diaCell}
     <td style="padding:4px 6px;text-align:center;border:1px solid var(--border);font-size:11px">${sem}</td>

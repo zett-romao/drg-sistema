@@ -18699,9 +18699,10 @@ function _getExpectedDay(emp, mes, ano, dia, ignoreAdmissao){
       return { tipo:'trabalho', entrada:h.entrada, saida:h.saida, intIni:h.intIni, intFim:h.intFim };
     }
   }
-  // 6x1 Alternado: folga sáb↔dom alternando — projeta sob demanda
-  if(lot.escala && lot.escala.startsWith('6x1ALT')){
-    if(_6x1ALTEhFolga(emp, ano, mes, dia)) return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
+  // 6x1 Alternado / 6x1B rotativo: ciclo deslizante 6x1 (6 trabalho + 1 folga),
+  // ancorado na última folga conhecida — garante no máximo 6 dias seguidos.
+  if(lot.escala && (lot.escala.startsWith('6x1ALT') || lot.escala==='6x1B')){
+    if(_ehFolga6x1Ciclo(emp, ano, mes, dia)) return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
     const h = _escalaHorariosDia(emp, diaSem, lot);
     return { tipo:'trabalho', entrada:h.entrada, saida:h.saida, intIni:h.intIni, intFim:h.intFim };
   }
@@ -19119,10 +19120,10 @@ function _diaEmBrancoEhFalta(emp, mes, ano, dia, isWeekend, is12x36){
   } else if(is12x36){
     // 12x36 sem escala salva → usa a âncora do ciclo informada no cadastro
     deveriaTrabalhar = (_ciclo12x36EhTrabalho(emp, ano, mes, dia) === true);
-  } else if(emp.escala && emp.escala.startsWith('6x1ALT')){
-    // 6x1 Alternado sem escala salva → seg-sex trabalha; fim de semana segue a
-    // alternância (um dia trabalha, o outro folga).
-    deveriaTrabalhar = !_6x1ALTEhFolga(emp, ano, mes, dia);
+  } else if(emp.escala && (emp.escala.startsWith('6x1ALT') || emp.escala==='6x1B')){
+    // 6x1 Alternado / 6x1B → ciclo deslizante 6x1 (6 trabalho + 1 folga,
+    // ancorado na última folga conhecida; garante máx 6 dias seguidos).
+    deveriaTrabalhar = !_ehFolga6x1Ciclo(emp, ano, mes, dia);
   } else {
     deveriaTrabalhar = !isWeekend;
   }
@@ -21454,6 +21455,42 @@ function _6x1ALTEhFolga(emp, ano, mes, dia){
   const primeiraIsSab = (emp.alternadaPrimeiraFolga || 'dom') === 'sab';
   const sabFolgaNestaSemana = (par === 0) ? primeiraIsSab : !primeiraIsSab;
   return sabFolgaNestaSemana ? (diaSem === 6) : (diaSem === 0);
+}
+
+// Âncora do ciclo 6x1 = uma FOLGA conhecida do colaborador (define a "fase" do
+// ciclo de 7 dias). Deriva automaticamente: campo explícito > última folga de
+// escala salva (mais recente) > data de admissão. Retorna um Date ou null.
+function _anchor6x1Folga(emp){
+  if(!emp) return null;
+  if(emp.folga6x1Ref){ const d=new Date(emp.folga6x1Ref+'T00:00:00'); if(!isNaN(d.getTime())) return d; }
+  const escs=(State.escalas||[]).filter(e=>e && e.employeeId===emp.id && Array.isArray(e.dias))
+    .sort((a,b)=>(b.ano-a.ano)||(b.mes-a.mes));
+  for(const e of escs){
+    let ultima=null; // dias em ordem cronológica da competência (26..31,1..25): pega a ÚLTIMA folga
+    for(const d of e.dias){ if(d && (d.tipo==='folga' || (!d.entrada && !d.saida))) ultima=d; }
+    if(ultima){
+      const real=_compRealDate(e.mes, e.ano, ultima.dia);
+      const d=new Date(real.ano, real.mes-1, real.dia);
+      if(!isNaN(d.getTime())) return d;
+    }
+  }
+  if(emp.dataAdmissao){ const d=new Date(emp.dataAdmissao+'T00:00:00'); if(!isNaN(d.getTime())) return d; }
+  return null;
+}
+
+// Ciclo 6x1 DESLIZANTE: 6 dias de trabalho + 1 de folga, repetindo a cada 7 dias
+// a partir da âncora (uma folga conhecida). Garante SEMPRE no máximo 6 dias
+// seguidos de trabalho (definição legal do 6x1). Unifica 6x1 Alternado e 6x1B
+// rotativo num só motor. Sem âncora → cai no comportamento antigo (segurança).
+function _ehFolga6x1Ciclo(emp, ano, mes, dia){
+  const anchor=_anchor6x1Folga(emp);
+  if(!anchor){
+    return (emp.escala||'').startsWith('6x1ALT')
+      ? _6x1ALTEhFolga(emp, ano, mes, dia)
+      : (new Date(ano, mes-1, dia).getDay()===0);
+  }
+  const diff=Math.round((new Date(ano, mes-1, dia) - anchor)/86400000);
+  return ((((diff % 7) + 7) % 7) === 0);
 }
 
 function _projectEscala6x1ALT(emp, mes, ano){

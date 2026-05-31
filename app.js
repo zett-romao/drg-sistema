@@ -9408,6 +9408,36 @@ async function _updatePainelFechamento(mes,ano){
     } else { infoFechado.style.display='none'; }
   }
 
+  // Botão "Enviar p/ Conferência" + sumário de status (visível só p/ master
+  // OU usuários com permissão folhaEnviar; só aparece com folhas fechadas).
+  const btnEnviar = document.getElementById('btn-enviar-conferencia');
+  const envioStatus = document.getElementById('fechamento-envio-status');
+  if(btnEnviar){
+    const folhasFechadas = State.payrolls.filter(p=>p.mes==mes&&p.ano==ano&&p.status==='fechada');
+    const podeEnviar = Auth.currentUser?.role==='master' || getUserModules(Auth.currentUser).folhaEnviar;
+    btnEnviar.style.display = (folhasFechadas.length>0 && podeEnviar) ? 'inline-flex' : 'none';
+    if(envioStatus){
+      if(folhasFechadas.length>0 && podeEnviar){
+        const cnt = { pendente:0, visualizada:0, assinada:0, contestada:0, aceita_por_silencio:0, naoEnviada:0 };
+        folhasFechadas.forEach(p => {
+          const st = _statusEnvioConf(p);
+          if(!st) cnt.naoEnviada++;
+          else cnt[st] = (cnt[st]||0) + 1;
+        });
+        const partes = [];
+        if(cnt.naoEnviada) partes.push(`<span style="color:#9E9E9E"><i class="fa-solid fa-paper-plane"></i> ${cnt.naoEnviada} não enviada(s)</span>`);
+        if(cnt.pendente) partes.push(`<span style="color:#0288D1"><i class="fa-solid fa-paper-plane"></i> ${cnt.pendente} aguardando</span>`);
+        if(cnt.visualizada) partes.push(`<span style="color:#F57F17"><i class="fa-solid fa-eye"></i> ${cnt.visualizada} vista(s)</span>`);
+        if(cnt.assinada) partes.push(`<span style="color:#2E7D32"><i class="fa-solid fa-circle-check"></i> ${cnt.assinada} assinada(s)</span>`);
+        if(cnt.contestada) partes.push(`<span style="color:#C62828"><i class="fa-solid fa-circle-xmark"></i> ${cnt.contestada} contestada(s)</span>`);
+        if(cnt.aceita_por_silencio) partes.push(`<span style="color:#558B2F"><i class="fa-solid fa-clock-rotate-left"></i> ${cnt.aceita_por_silencio} silêncio</span>`);
+        envioStatus.innerHTML = partes.length ? partes.join(' · ') : '';
+      } else {
+        envioStatus.innerHTML = '';
+      }
+    }
+  }
+
   // Auto-fechamento: se hoje >= data de fechamento e não foi fechado ainda.
   // Suspenso após reabertura manual (conf.autoFecharSuspenso) — senão "Reabrir
   // Todas" seria desfeito na hora, já que hoje já passou do dia 25.
@@ -9470,6 +9500,148 @@ async function reabrirPeriodo(){
     _updatePainelFechamento(mes,ano);
     _updateFolhaStatusBadge();
   }catch(e){ toast('Erro ao reabrir período.','error'); console.error(e); }
+}
+
+// ============================================
+// FOLHA → CONFERÊNCIA PELO COLABORADOR (Fase 1)
+// ============================================
+// Após fechar a folha do mês, o master ENVIA a folha pro app do colab.
+// O colab vê no inbox (banner), abre a planilha, e:
+//   - Concorda: digita PIN → gera HASH SHA-256 do conteúdo+PIN+IP+UA+device
+//     → folha vira 'assinada'
+//   - Contesta: escreve motivo (mín. 20 chars) → master é notificado
+//   - Não age em 48h → vira 'aceita_por_silencio' (job no carregamento)
+// Hash = SHA-256(JSON.stringify({conteudo, pinHash, ip, ua, device, ts}))
+// Validade jurídica: assinatura eletrônica simples (MP 2.200-2/2001).
+// ============================================
+
+// Prazo padrão pra conferência (decisão usuário 2026-05-30): 48 horas.
+const _CONF_PRAZO_HORAS = 48;
+
+function _statusEnvioConf(p){
+  // Retorna o status atual do envio:
+  //   null       → ainda não enviada
+  //   'pendente' → enviada, colab não abriu
+  //   'visualizada' → colab abriu, ainda não decidiu
+  //   'assinada' | 'contestada' | 'aceita_por_silencio'
+  return p?.envioConferencia?.status || null;
+}
+
+function _statusEnvioLabel(status){
+  const map = {
+    null: { txt:'Não enviada', cor:'#9E9E9E', bg:'#F5F5F5', icon:'fa-paper-plane' },
+    'pendente': { txt:'Enviada — aguardando', cor:'#0288D1', bg:'#E1F5FE', icon:'fa-paper-plane' },
+    'visualizada': { txt:'Visualizada', cor:'#F57F17', bg:'#FFF9C4', icon:'fa-eye' },
+    'assinada': { txt:'Assinada', cor:'#2E7D32', bg:'#E8F5E9', icon:'fa-circle-check' },
+    'contestada': { txt:'Contestada', cor:'#C62828', bg:'#FFEBEE', icon:'fa-circle-xmark' },
+    'aceita_por_silencio': { txt:'Aceita por silêncio (48h)', cor:'#558B2F', bg:'#F1F8E9', icon:'fa-clock-rotate-left' },
+  };
+  return map[status] || map[null];
+}
+
+// Envia UMA folha (já fechada) para o app do colaborador conferir.
+// Prazo: 48h a partir do envio. Após isso job marca aceita_por_silencio.
+async function enviarFolhaParaConferencia(payrollId){
+  if(Auth.currentUser?.role !== 'master' && !getUserModules(Auth.currentUser).folhaEnviar){
+    toast('Sem permissão pra enviar folhas pra conferência.','error'); return;
+  }
+  const p = State.payrolls.find(x => x.id === payrollId);
+  if(!p){ toast('Folha não encontrada.','error'); return; }
+  if(p.status !== 'fechada'){ toast('Folha precisa estar FECHADA pra enviar pra conferência.','warning'); return; }
+  if(_statusEnvioConf(p) && _statusEnvioConf(p) !== 'pendente'){
+    if(!confirm(`Esta folha já foi ${_statusEnvioLabel(_statusEnvioConf(p)).txt.toLowerCase()}. Reenviar mesmo assim?`)) return;
+  }
+  const agora = new Date();
+  const prazo = new Date(agora.getTime() + _CONF_PRAZO_HORAS*60*60*1000);
+  const u = Auth.currentUser || {};
+  const envio = {
+    enviadoEm: agora.toISOString(),
+    enviadoPor: u.username || u.id || '',
+    enviadoPorNome: u.username || '',
+    status: 'pendente',
+    prazoExpiraEm: prazo.toISOString(),
+    visualizadoEm: null,
+    assinadoEm: null,
+    contestadoEm: null,
+  };
+  try{
+    await DB.merge('payrolls', payrollId, { envioConferencia: envio });
+    p.envioConferencia = envio;
+    Auth.log('FOLHA_ENVIADA_CONFERENCIA', null, `${MESES[p.mes]}/${p.ano} — ${p.employeeId} (prazo ${prazo.toLocaleString('pt-BR')})`);
+    toast(`Folha enviada — colab tem ${_CONF_PRAZO_HORAS}h pra conferir.`,'success');
+    _updatePainelFechamento(p.mes, p.ano);
+  }catch(e){ console.error(e); toast('Erro ao enviar.','error'); }
+}
+
+// Envia TODAS as folhas fechadas da competência atual pra conferência.
+// Pula as que já foram enviadas (a menos que confirme reenviar).
+async function enviarTodasFolhasCompetencia(){
+  if(Auth.currentUser?.role !== 'master' && !getUserModules(Auth.currentUser).folhaEnviar){
+    toast('Sem permissão.','error'); return;
+  }
+  const mes = parseInt(val('payroll-mes')||currentMes());
+  const ano = parseInt(val('payroll-ano')||currentAno());
+  const fechadas = State.payrolls.filter(p => p.mes==mes && p.ano==ano && p.status==='fechada');
+  if(!fechadas.length){ toast(`Nenhuma folha fechada em ${MESES[mes]}/${ano}.`,'warning'); return; }
+  const naoEnviadas = fechadas.filter(p => !_statusEnvioConf(p));
+  const jaEnviadas  = fechadas.length - naoEnviadas.length;
+  let alvos = naoEnviadas;
+  if(jaEnviadas > 0){
+    if(confirm(`${jaEnviadas} folha(s) JÁ enviadas. Reenviar TODAS as ${fechadas.length} folhas? Senão, mando só as ${naoEnviadas.length} ainda não enviadas.`)){
+      alvos = fechadas;
+    }
+  }
+  if(!alvos.length){ toast('Tudo já foi enviado. Nada a fazer.','info'); return; }
+  if(!confirm(`Enviar ${alvos.length} folha(s) de ${MESES[mes]}/${ano} pra conferência dos colaboradores?\n\nPrazo: ${_CONF_PRAZO_HORAS} horas. Após isso, sem ação, vira "aceita por silêncio".`)) return;
+  const agora = new Date();
+  const prazo = new Date(agora.getTime() + _CONF_PRAZO_HORAS*60*60*1000);
+  const u = Auth.currentUser || {};
+  let ok = 0, erros = 0;
+  for(const p of alvos){
+    const envio = {
+      enviadoEm: agora.toISOString(),
+      enviadoPor: u.username || u.id || '',
+      enviadoPorNome: u.username || '',
+      status: 'pendente',
+      prazoExpiraEm: prazo.toISOString(),
+      visualizadoEm: null,
+      assinadoEm: null,
+      contestadoEm: null,
+    };
+    try{
+      await DB.merge('payrolls', p.id, { envioConferencia: envio });
+      p.envioConferencia = envio;
+      ok++;
+    }catch(e){ console.error('envio folha', p.id, e); erros++; }
+  }
+  Auth.log('FOLHA_ENVIADA_CONFERENCIA_LOTE', null, `${MESES[mes]}/${ano} — ${ok} folha(s)`);
+  toast(`${ok} folha(s) enviada(s) pra conferência${erros?` · ${erros} com erro`:''}. Colab tem ${_CONF_PRAZO_HORAS}h pra responder.`,'success');
+  _updatePainelFechamento(mes, ano);
+}
+
+// Job "Aceito por silêncio": roda no carregamento do master. Marca como
+// 'aceita_por_silencio' as folhas com status='pendente' ou 'visualizada' cujo
+// prazoExpiraEm já passou.
+async function _aceitarPorSilencioJob(){
+  const agora = new Date();
+  const candidatas = (State.payrolls||[]).filter(p => {
+    const env = p.envioConferencia;
+    if(!env) return false;
+    if(env.status !== 'pendente' && env.status !== 'visualizada') return false;
+    if(!env.prazoExpiraEm) return false;
+    return new Date(env.prazoExpiraEm) <= agora;
+  });
+  if(!candidatas.length) return;
+  for(const p of candidatas){
+    const novo = { ...p.envioConferencia, status: 'aceita_por_silencio', silencioEm: agora.toISOString() };
+    try{
+      await DB.merge('payrolls', p.id, { envioConferencia: novo });
+      p.envioConferencia = novo;
+    }catch(e){ console.error('silencio', p.id, e); }
+  }
+  if(candidatas.length){
+    Auth.log('FOLHA_SILENCIO', null, `${candidatas.length} folha(s) aceitas por silêncio`);
+  }
 }
 
 // Apura a Boa Permanência de uma folha SALVA no fechamento (sem o formulário).
@@ -21488,6 +21660,7 @@ const MODULOS_LABELS={
   pagamentos:      'Pagamentos',
   pagamentosLancar:  'Lançar Pagamentos (solicitar)',
   pagamentosAprovar: 'Aprovar Pagamentos (autorizar PIX)',
+  folhaEnviar:       'Enviar folha p/ conferência do colaborador',
   decimoterceiro:  '13º Salário',
   ferias:          'Férias',
   rescisao:        'Rescisões',
@@ -21889,6 +22062,12 @@ async function _carregarDadosPosLogin(){
     if(State.currentSection==='payroll') renderPayrollHistory(val('payroll-employee'));
     if(State.currentSection==='dashboard') renderDashboard();
     updateDbInfo();
+    // Job 'Aceito por silêncio': roda toda vez que payrolls são atualizados.
+    // Marca como 'aceita_por_silencio' folhas cujo prazo de 48h passou.
+    // Só master/usuário com permissão pode atualizar; outros leem só.
+    if(Auth.currentUser?.role==='master' || getUserModules(Auth.currentUser).folhaEnviar){
+      _aceitarPorSilencioJob().catch(e => console.error('silêncio job:', e));
+    }
   });
   // `users` NÃO tem listener — é coleção só-servidor; a lista vem do Worker
   // (loadUsersFromWorker) sob demanda ao abrir a tela de Usuários.

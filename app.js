@@ -21081,8 +21081,27 @@ function renderHistoricoLotacao(emp){
   const el=document.getElementById('historico-lotacao-list'); if(!el) return;
   const hist=(emp?.historicoLotacao||[]).slice().sort((a,b)=>(b.dataInicio||'').localeCompare(a.dataInicio||''));
   if(!hist.length){ el.innerHTML=''; return; }
-  el.innerHTML=`<div style="font-size:12px;color:var(--text-muted);margin:0 0 4px"><i class="fa-solid fa-timeline"></i> Linha do tempo de lotação (aplicada no cálculo por data):</div>
-    <table class="report-table" style="font-size:12px;margin-bottom:10px">
+  // Mostra a regra COMPLETA de cada período — tudo que incide a partir da data:
+  // posto/função/escala/turno/salário + adicionais + BENEFÍCIOS (VT/VR/VA). Assim o
+  // contrato é a fonte única visível: trabalhista E benefícios, segmentados por data.
+  const _bn=v=>(v!=null && v!=='' && !isNaN(parseFloat(v))) ? fmtMoney(v) : '—';
+  // Projeção dos benefícios do PRÓXIMO mês — o cruzamento da escala do contrato com
+  // os dias do mês de uso (o que será pago, antes de descontos por falta). Mostra
+  // no contrato que o benefício sai da escala, não da folha de ponto. #benef-segmentado
+  let _projHtml='';
+  try{
+    const _hm=new Date().getMonth()+1, _ha=new Date().getFullYear();
+    let _mu=_hm+1, _au=_ha; if(_mu>12){_mu=1;_au++;}
+    const _b=_calcBeneficiosColabPrevisto(emp, _mu, _au, _hm, _ha);
+    const _tot=(_b.vtCheio||0)+(_b.vrCheio||0)+(_b.vaCheio||0);
+    _projHtml=`<div style="background:#E1F5FE;border-left:4px solid #0277BD;border-radius:6px;padding:8px 12px;font-size:12px;color:#01579B;margin-bottom:10px">
+      <i class="fa-solid fa-arrow-trend-up"></i> <strong>Benefícios do próximo mês (projetados pela escala do contrato):</strong>
+      ${_b.diasVt||0} dia(s) previsto(s) · VT ${fmtMoney(_b.vtCheio||0)} · VR ${fmtMoney(_b.vrCheio||0)} · VA ${fmtMoney(_b.vaCheio||0)} = <strong>${fmtMoney(_tot)}</strong>
+      <span style="font-size:11px;color:#0277BD">(antes de descontos por falta · BP à parte)</span>
+    </div>`;
+  }catch(_){}
+  el.innerHTML=_projHtml+`<div style="font-size:12px;color:var(--text-muted);margin:0 0 4px"><i class="fa-solid fa-timeline"></i> Linha do tempo de lotação — cada regra vale <strong>a partir da data</strong> (aplicada no cálculo trabalhista <strong>e</strong> nos benefícios):</div>
+    <div style="overflow-x:auto"><table class="report-table" style="font-size:12px;margin-bottom:10px;min-width:820px">
       <thead><tr>
         <th style="background:#5C6BC0">A partir de</th>
         <th style="background:#5C6BC0">Posto</th>
@@ -21090,21 +21109,29 @@ function renderHistoricoLotacao(emp){
         <th style="background:#5C6BC0">Escala</th>
         <th style="background:#5C6BC0">Turno</th>
         <th style="background:#5C6BC0">Salário</th>
+        <th style="background:#5C6BC0">Adicionais</th>
+        <th style="background:#5C6BC0">Benefícios <small style="font-weight:400">(VT/dia · VR/dia · VA/mês)</small></th>
         <th style="background:#5C6BC0"></th>
       </tr></thead>
       <tbody>
-      ${hist.map(h=>`<tr>
-        <td><strong>${formatDateBr(h.dataInicio)}</strong></td>
-        <td>${h.posto||'—'}</td>
-        <td>${h.cargo||'—'}</td>
-        <td>${h.escala||'—'}</td>
-        <td>${h.turnoNoturno?'<span style="color:#5C6BC0;font-weight:600">Noturno</span>':'Diurno'}</td>
-        <td>${fmtMoney(h.salarioBase||0)}</td>
-        <td><button class="btn-icon btn-danger-icon" title="Remover este período"
-          onclick="removeHistoricoLotacao('${h.id}')"><i class="fa-solid fa-trash"></i></button></td>
-      </tr>`).join('')}
+      ${hist.map(h=>{
+        const adic=[h.insalubridade?`Insal. ${h.insalubridade}%`:'', h.acumuloFuncao?'Acúmulo +20%':''].filter(Boolean).join(' · ')||'—';
+        const benef=`VT ${_bn(h.valorDiarioVt)} · VR ${_bn(h.valorDiarioVr)} · VA ${_bn(h.valorMensalVa)}`;
+        return `<tr>
+          <td><strong>${formatDateBr(h.dataInicio)}</strong></td>
+          <td>${h.posto||'—'}</td>
+          <td>${h.cargo||'—'}</td>
+          <td>${h.escala||'—'}</td>
+          <td>${h.turnoNoturno?'<span style="color:#5C6BC0;font-weight:600">Noturno</span>':'Diurno'}</td>
+          <td>${fmtMoney(h.salarioBase||0)}</td>
+          <td style="font-size:11px">${adic}</td>
+          <td style="font-size:11px;white-space:nowrap">${benef}</td>
+          <td><button class="btn-icon btn-danger-icon" title="Remover este período"
+            onclick="removeHistoricoLotacao('${h.id}')"><i class="fa-solid fa-trash"></i></button></td>
+        </tr>`;
+      }).join('')}
       </tbody>
-    </table>`;
+    </table></div>`;
 }
 
 async function removeHistoricoLotacao(id){

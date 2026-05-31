@@ -1996,6 +1996,93 @@ function _renderConferenciaFolha(p){
   document.getElementById('conferencia-folha-conteudo').innerHTML = html;
 }
 
+// Constrói o HTML da FOLHA ASSINADA — versão self-contained pra abrir em
+// qualquer browser depois (master vê no cadastro do colab; pode salvar PDF
+// via Imprimir). Inclui hash, data, dados do colab — assinatura eletrônica
+// no rodapé. NÃO inclui pinHash em texto puro (só o hash final).
+function _construirHtmlFolhaAssinada(p, snapshot, hash, assinadoEm){
+  const mes = MESES_PT[p.mes]||'';
+  const fmt = v => 'R$ ' + (parseFloat(v)||0).toFixed(2).replace('.',',');
+  const dt = currentEmp || {};
+  const compIni = `26/${String(p.mes-1>0?p.mes-1:12).padStart(2,'0')}/${p.mes-1>0?p.ano:p.ano-1}`;
+  const compFim = `25/${String(p.mes).padStart(2,'0')}/${p.ano}`;
+  const dias = Array.isArray(p.pontoManualDias) ? p.pontoManualDias : [];
+  const linhasDias = dias.filter(d => d && (d.entrada||d.saida)).map(d => {
+    return `<tr><td>${String(d.dia).padStart(2,'0')}</td><td>${d.entrada||'—'}</td><td>${d.intIni||'—'}</td><td>${d.intFim||'—'}</td><td>${d.saida||'—'}</td></tr>`;
+  }).join('');
+  const dtAssin = new Date(assinadoEm).toLocaleString('pt-BR');
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Folha Assinada — ${dt.nome||''} — ${mes}/${p.ano}</title>
+<style>
+  body{font-family:Arial,sans-serif;padding:24px;color:#212529;font-size:13px;max-width:780px;margin:0 auto}
+  h1{color:#0288D1;font-size:20px;margin-bottom:6px;border-bottom:2px solid #0288D1;padding-bottom:6px}
+  h2{color:#1a3a6b;font-size:15px;margin:18px 0 6px}
+  .info{font-size:12px;background:#F1F5FF;padding:12px;border-radius:6px;margin-bottom:12px;line-height:1.7}
+  .info strong{color:#0D47A1}
+  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
+  .cell{padding:10px;border-radius:6px;text-align:center}
+  .cell.b1{background:#E8F5E9;color:#2E7D32}
+  .cell.b2{background:#FFF3E0;color:#E65100}
+  .cell.b3{background:#FFEBEE;color:#C62828}
+  .cell.b4{background:#E3F2FD;color:#1565C0}
+  .cell-val{font-size:20px;font-weight:700;margin-top:2px}
+  table{width:100%;border-collapse:collapse;margin-bottom:12px}
+  th{background:#0288D1;color:#fff;padding:8px;text-align:left;font-size:12px}
+  td{padding:6px 8px;border-bottom:1px solid #DEE2E6;font-size:12px}
+  .resumo{background:#E1F5FE;padding:14px;border-radius:6px}
+  .resumo .row{display:flex;justify-content:space-between;padding:3px 0}
+  .resumo .total{border-top:2px dashed #B3E5FC;margin-top:10px;padding-top:10px;font-size:16px;font-weight:700;color:#01579B}
+  .assinatura-box{margin-top:30px;background:#FFFDE7;border:2px solid #FFE082;border-radius:8px;padding:14px;font-size:11px;color:#5D4037}
+  .assinatura-box .label{font-weight:700;color:#E65100;font-size:12px;margin-bottom:6px}
+  .hash{font-family:monospace;font-size:10px;word-break:break-all;background:#fff;padding:6px;border-radius:4px;border:1px solid #FFE082;margin-top:4px}
+  .botoes{text-align:center;margin:20px 0;padding:14px;background:#F1F5F9;border-radius:8px}
+  .botoes button{background:#1565C0;color:#fff;padding:10px 18px;border:none;border-radius:6px;font-weight:700;cursor:pointer;font-size:13px;margin:0 4px}
+  @media print{.botoes{display:none}}
+</style></head>
+<body>
+<h1>📄 Folha de Ponto Assinada Eletronicamente</h1>
+<div class="info">
+  <div><strong>Colaborador:</strong> ${dt.nome||'—'}</div>
+  <div><strong>CPF:</strong> ${dt.cpf||'—'} &middot; <strong>Cargo:</strong> ${dt.cargo||'—'}</div>
+  <div><strong>Posto:</strong> ${dt.posto||'—'}</div>
+  <div><strong>Competência:</strong> ${mes} / ${p.ano} (${compIni} → ${compFim})</div>
+</div>
+<h2>Resumo do mês</h2>
+<div class="grid4">
+  <div class="cell b1"><div>Dias trabalhados</div><div class="cell-val">${snapshot.diasTrabalhados||0}</div></div>
+  <div class="cell b2"><div>Faltas inj.</div><div class="cell-val">${snapshot.faltasInjustificadas||0}</div></div>
+  <div class="cell b3"><div>Faltas just.</div><div class="cell-val">${snapshot.faltasJustificadas||0}</div></div>
+  <div class="cell b4"><div>Horas extras</div><div class="cell-val">${snapshot.horasExtrasTotal||0}h</div></div>
+</div>
+<h2>Dias batidos</h2>
+<table>
+  <thead><tr><th>Dia</th><th>Entrada</th><th>Int. Ini</th><th>Int. Fim</th><th>Saída</th></tr></thead>
+  <tbody>${linhasDias || '<tr><td colspan="5" style="text-align:center;color:#999">Sem batidas no período.</td></tr>'}</tbody>
+</table>
+<h2>Resumo financeiro</h2>
+<div class="resumo">
+  <div class="row"><span>Remuneração</span><span>${fmt(snapshot.remuneracao)}</span></div>
+  <div class="row"><span>Vale Transporte</span><span>${fmt(snapshot.valeTransporte)}</span></div>
+  <div class="row"><span>Vale Refeição</span><span>${fmt(snapshot.valeRefeicao)}</span></div>
+  <div class="row"><span>Vale Alimentação</span><span>${fmt(snapshot.valeAlimentacaoLiquido)}</span></div>
+  <div class="row"><span>Horas Extras (R$)</span><span>${fmt(snapshot.horasExtrasValor)}</span></div>
+  <div class="row"><span>Bonificação (B. Permanência)</span><span>${fmt(snapshot.bonificacao)}</span></div>
+  <div class="row total"><span>Total Líquido</span><span>${fmt(snapshot.totalLiquido)}</span></div>
+</div>
+<div class="assinatura-box">
+  <div class="label">🔐 Assinatura Eletrônica Simples — MP 2.200-2/2001</div>
+  <div><strong>Assinado por:</strong> ${dt.nome||'—'} (CPF ${dt.cpf||'—'})</div>
+  <div><strong>Data/hora:</strong> ${dtAssin}</div>
+  <div><strong>Hash SHA-256:</strong></div>
+  <div class="hash">${hash}</div>
+  <div style="margin-top:6px;font-size:10px;color:#666;font-style:italic">A hash acima foi gerada combinando o conteúdo desta folha + PIN do colaborador + IP de assinatura + identificador do dispositivo + timestamp. Qualquer alteração no conteúdo invalida a hash — comprova autenticidade.</div>
+</div>
+<div class="botoes">
+  <button onclick="window.print()">🖨️ Imprimir / Salvar PDF</button>
+  <button onclick="window.close()" style="background:#9E9E9E">✕ Fechar</button>
+</div>
+</body></html>`;
+}
+
 // Ações: Concordo OU Contestar
 function escolherConcordo(){
   // Mostra modal PIN
@@ -2099,9 +2186,12 @@ async function confirmarAssinatura(){
     const conteudoHash = JSON.stringify(snapshot);
     const hashInput = `${conteudoHash}|${pinHash}|${ip}|${ua}|${fingerprint}|${ts}`;
     const hash = await _sha256(hashInput);
+    // HTML render da folha assinada — preservado pra exibição/auditoria.
+    // Não inclui o pinHash em texto puro (só o hash final), por segurança.
+    const htmlRender = _construirHtmlFolhaAssinada(p, snapshot, hash, ts);
     const assinatura = {
       hash, pinHash, ip, userAgent: ua, deviceFingerprint: fingerprint,
-      snapshotJson: conteudoHash, assinadoEm: ts
+      snapshotJson: conteudoHash, htmlRender, assinadoEm: ts
     };
     const envio = { ...(p.envioConferencia||{}), status:'assinada', assinadoEm: ts };
     await dbCol('payrolls').doc(p.id).set({

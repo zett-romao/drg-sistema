@@ -9644,6 +9644,83 @@ async function _aceitarPorSilencioJob(){
   }
 }
 
+// Renderiza a lista de FOLHAS ASSINADAS do colaborador no modal cadastro.
+// Chamada quando o usuário clica na aba "Folhas Assinadas". Mostra cada folha
+// com badge de status (assinada/silêncio/contestada), hash truncado, datas,
+// e botão "Ver" que abre o HTML render numa nova janela.
+function renderFolhasAssinadasColab(){
+  const empId = State.editingEmployeeId || val('emp-id');
+  const container = document.getElementById('folhas-assinadas-list');
+  if(!container) return;
+  if(!empId){
+    container.innerHTML = '<div style="font-size:12px;color:#94a3b8;padding:8px 2px">Salve o colaborador primeiro.</div>';
+    return;
+  }
+  const folhas = (State.payrolls||[]).filter(p => {
+    if(p.employeeId !== empId) return false;
+    const st = p?.envioConferencia?.status;
+    // Inclui também contestadas no histórico (com badge diferente)
+    return st === 'assinada' || st === 'aceita_por_silencio' || st === 'contestada';
+  });
+  folhas.sort((a,b) => {
+    if(a.ano !== b.ano) return b.ano - a.ano;
+    return b.mes - a.mes;
+  });
+  if(!folhas.length){
+    container.innerHTML = `<div class="empty-state small"><i class="fa-solid fa-file-signature" style="font-size:32px;color:#cbd5e0"></i><p style="font-size:13px;margin-top:8px">Nenhuma folha foi enviada/assinada ainda.</p></div>`;
+    return;
+  }
+  container.innerHTML = folhas.map(p => {
+    const st = p.envioConferencia?.status;
+    const stMap = {
+      'assinada':            { txt:'Assinada', cor:'#2E7D32', bg:'#E8F5E9', icon:'fa-circle-check' },
+      'aceita_por_silencio': { txt:'Aceita por silêncio', cor:'#558B2F', bg:'#F1F8E9', icon:'fa-clock-rotate-left' },
+      'contestada':          { txt:'Contestada', cor:'#C62828', bg:'#FFEBEE', icon:'fa-circle-xmark' },
+    };
+    const cfg = stMap[st] || stMap['assinada'];
+    const hash = p.assinatura?.hash || '';
+    const hashTrunc = hash ? `${hash.substring(0,16)}…` : '—';
+    const enviado = p.envioConferencia?.enviadoEm ? new Date(p.envioConferencia.enviadoEm).toLocaleString('pt-BR') : '—';
+    const assinado = p.envioConferencia?.assinadoEm ? new Date(p.envioConferencia.assinadoEm).toLocaleString('pt-BR')
+                   : p.envioConferencia?.silencioEm ? new Date(p.envioConferencia.silencioEm).toLocaleString('pt-BR')
+                   : p.envioConferencia?.contestadoEm ? new Date(p.envioConferencia.contestadoEm).toLocaleString('pt-BR')
+                   : '—';
+    const motivoContest = (st === 'contestada' && p.contestacao?.motivo)
+      ? `<div style="background:#FFEBEE;color:#C62828;padding:8px 10px;border-radius:5px;font-size:11px;margin-top:6px"><strong>Motivo:</strong> ${esc(p.contestacao.motivo)}</div>`
+      : '';
+    const btnVer = (st === 'assinada' && p.assinatura?.htmlRender)
+      ? `<button class="btn btn-sm btn-outline" onclick="verFolhaAssinada('${p.id}')" style="font-size:11px"><i class="fa-solid fa-eye"></i> Ver folha + hash</button>`
+      : (st === 'aceita_por_silencio')
+        ? `<button class="btn btn-sm btn-outline" onclick="alert('Aceita por silêncio — sem assinatura digital, sem hash. Folha registrada como conferida automaticamente após 48h sem ação.')" style="font-size:11px;opacity:0.7"><i class="fa-solid fa-clock"></i> Sem hash (silêncio)</button>`
+        : '';
+    return `<div style="border:1px solid #e0e0e0;border-radius:8px;padding:12px 14px;margin-bottom:10px;background:#fafafa">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <div>
+          <div style="font-weight:700;color:#1a1a2e;font-size:14px">${MESES[p.mes]} / ${p.ano}</div>
+          <div style="font-size:11px;color:#888;margin-top:2px">Enviada: ${enviado} · ${cfg.txt}: ${assinado}</div>
+        </div>
+        <span style="background:${cfg.bg};color:${cfg.cor};padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700"><i class="fa-solid ${cfg.icon}"></i> ${cfg.txt.toUpperCase()}</span>
+      </div>
+      <div style="margin-top:8px;font-family:monospace;font-size:11px;color:#666"><strong>Hash:</strong> ${hashTrunc}</div>
+      ${motivoContest}
+      <div style="margin-top:8px">${btnVer}</div>
+    </div>`;
+  }).join('');
+}
+
+// Abre a folha assinada numa nova janela renderizada a partir do htmlRender
+// salvo no momento da assinatura. Inclui hash + botão imprimir/PDF.
+function verFolhaAssinada(payrollId){
+  const p = (State.payrolls||[]).find(x => x.id === payrollId);
+  if(!p || !p.assinatura?.htmlRender){
+    toast('Folha sem HTML render disponível.','warning'); return;
+  }
+  const win = window.open('','_blank','width=900,height=900,scrollbars=yes');
+  if(!win){ toast('Pop-ups bloqueados — habilite pra ver a folha.','error'); return; }
+  win.document.write(p.assinatura.htmlRender);
+  win.document.close();
+}
+
 // Apura a Boa Permanência de uma folha SALVA no fechamento (sem o formulário).
 // Como a bonificação é BENEFÍCIO (pago no VR, fora do salário/impostos), só
 // precisa setar o campo `bonificacao` — não mexe em totalBruto/INSS/IRRF/líquido.

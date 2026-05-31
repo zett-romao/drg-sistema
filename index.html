@@ -2612,6 +2612,9 @@
         <button class="modal-tab" data-tab-id="tab-documentos" onclick="switchTab('tab-documentos')">
           <i class="fa-solid fa-folder-open"></i> Documentos
         </button>
+        <button class="modal-tab" data-tab-id="tab-folhas-assinadas" onclick="switchTab('tab-folhas-assinadas');renderFolhasAssinadasColab()">
+          <i class="fa-solid fa-file-signature"></i> Folhas Assinadas
+        </button>
         <button class="modal-tab" data-tab-id="tab-pagamentos" onclick="switchTab('tab-pagamentos')">
           <i class="fa-solid fa-money-bill-wave"></i> Pagamentos
         </button>
@@ -3446,6 +3449,18 @@
             <i class="fa-solid fa-folder-open"></i>
             <p>Nenhum documento enviado</p>
           </div>
+        </div>
+      </div>
+
+      <!-- Tab: Folhas Assinadas — folhas de ponto que o colab conferiu/assinou
+           via app, ou que viraram "aceita por silêncio" após 48h. -->
+      <div class="tab-pane" id="tab-folhas-assinadas">
+        <div class="info-banner">
+          <i class="fa-solid fa-file-signature"></i>
+          Folhas de ponto que o colaborador conferiu e assinou (ou aceitou por silêncio após 48h sem ação) via app. Cada uma tem hash SHA-256 — assinatura eletrônica simples (MP 2.200-2/2001).
+        </div>
+        <div id="folhas-assinadas-list">
+          <div style="font-size:12px;color:#94a3b8;padding:8px 2px">Carregando...</div>
         </div>
       </div>
 
@@ -6076,6 +6091,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260531a"></script>
+<script src="app.js?v=20260531b"></script>
 </body>
 </html>

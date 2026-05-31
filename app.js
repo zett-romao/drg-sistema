@@ -4824,8 +4824,23 @@ function renderEmployeeTable(){
   const isLicenca = State.employeeFilter === 'licenca-maternidade';
   const podeAvulso = !!getUserModules(Auth.currentUser).pagamentosLancar;
   const podeComunicar = !!getUserModules(Auth.currentUser).employees || Auth.currentUser?.role === 'master';
+  const podeRevisar = !!getUserModules(Auth.currentUser).revisarContrato; // master ou autorizado
   tbody.innerHTML=list.map((e)=>{
     const celularLimpo=(e.celular||'').replace(/\D/g,'');
+    // Selo "contrato revisado" (só conferência — não trava nada). Só quem tem
+    // permissão revisarContrato pode marcar/desmarcar. Guarda quem revisou + quando.
+    const _rev=e.contratoRevisado;
+    let revCell;
+    if(_rev && _rev.em){
+      const _tt=`Revisado por ${(_rev.porNome||_rev.por||'—')} em ${new Date(_rev.em).toLocaleDateString('pt-BR')}`;
+      revCell = podeRevisar
+        ? `<span onclick="toggleContratoRevisado('${e.id}')" title="${_tt} · clique para DESMARCAR" style="cursor:pointer;color:#2E7D32;font-size:17px"><i class="fa-solid fa-square-check"></i></span>`
+        : `<span title="${_tt}" style="color:#2E7D32;font-size:17px"><i class="fa-solid fa-square-check"></i></span>`;
+    } else {
+      revCell = podeRevisar
+        ? `<span onclick="toggleContratoRevisado('${e.id}')" title="Marcar contrato como REVISADO" style="cursor:pointer;color:#9E9E9E;font-size:17px"><i class="fa-regular fa-square"></i></span>`
+        : `<span title="Sem permissão para revisar contratos" style="color:#CFD8DC;font-size:17px"><i class="fa-regular fa-square"></i></span>`;
+    }
     const whatsBtn=celularLimpo?`<button class="btn-icon btn-whatsapp-icon" onclick="openWhatsApp('${celularLimpo}','${e.nome.split(' ')[0]}')" title="WhatsApp"><i class="fa-brands fa-whatsapp"></i></button>`:'';
     const nomeSafe=(e.nome||'').replace(/"/g,'&quot;');
     const postoSafe=(e.posto||'').replace(/"/g,'&quot;');
@@ -4837,6 +4852,7 @@ function renderEmployeeTable(){
       </div></td>
       <td>${statusBadge(e.status)}</td>
       <td style="max-width:300px"><span style="font-size:12px;color:var(--text-muted);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${postoSafe}">${e.posto||'—'}</span></td>
+      <td onclick="event.stopPropagation()" style="text-align:center">${revCell}</td>
       <td onclick="event.stopPropagation()"><div class="actions-cell">
         ${whatsBtn}
         <button class="btn-icon btn-primary-icon" onclick="openPayrollForEmployee('${e.id}')" title="Lançar Folha"><i class="fa-solid fa-file-invoice-dollar"></i></button>
@@ -4847,6 +4863,31 @@ function renderEmployeeTable(){
       </div></td>
     </tr>`;
   }).join('');
+}
+
+// Selo "contrato revisado" — só conferência (não trava nada). Marca/desmarca com
+// registro de quem revisou e quando. Gated pela permissão revisarContrato. #contrato-revisado
+async function toggleContratoRevisado(empId){
+  if(!getUserModules(Auth.currentUser).revisarContrato){
+    toast('Você não tem permissão para revisar contratos.','error'); return;
+  }
+  const emp=(State.employees||[]).find(e=>e.id===empId);
+  if(!emp){ toast('Colaborador não encontrado.','error'); return; }
+  const u=Auth.currentUser||{};
+  const jaRev=!!(emp.contratoRevisado && emp.contratoRevisado.em);
+  if(jaRev){
+    if(!confirm(`Desmarcar a revisão do contrato de ${emp.nome}?\n(revisado por ${emp.contratoRevisado.porNome||emp.contratoRevisado.por||'—'})`)) return;
+    emp.contratoRevisado = null;
+  } else {
+    emp.contratoRevisado = { por: u.username||u.id||'', porNome: u.username||u.nome||'', em: new Date().toISOString() };
+  }
+  emp.updatedAt=new Date().toISOString();
+  try{
+    await DB.merge('employees', empId, { contratoRevisado: emp.contratoRevisado, updatedAt: emp.updatedAt });
+    try{ Auth.log && Auth.log(jaRev?'CONTRATO_REVISAO_REMOVIDA':'CONTRATO_REVISADO', null, emp.nome); }catch(_){}
+    renderEmployeeTable();
+    toast(jaRev?'Revisão removida.':`Contrato de ${(emp.nome||'').split(' ')[0]} marcado como revisado.`,'success');
+  }catch(e){ console.error('toggleContratoRevisado',e); toast('Erro ao salvar.','error'); }
 }
 
 function onDemissaoChange(){
@@ -22808,7 +22849,7 @@ const MODULOS_LABELS={
 // Retorna os módulos permitidos para o usuário
 function getUserModules(user){
   if(!user) return {};
-  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,escalas:true,criarEscalas:true,aprovaHE:true,reports:true,pagamentos:true,pagamentosLancar:true,pagamentosAprovar:true,decimoterceiro:true,ferias:true,rescisao:true,contabilidade:true,postos:true,contratos:true,users:true,log:true,comunicacao:true,comunicacoesApagar:true,disciplinaApagar:true,autorizarPonto:true};
+  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,escalas:true,criarEscalas:true,aprovaHE:true,reports:true,pagamentos:true,pagamentosLancar:true,pagamentosAprovar:true,decimoterceiro:true,ferias:true,rescisao:true,contabilidade:true,postos:true,contratos:true,users:true,log:true,comunicacao:true,comunicacoesApagar:true,disciplinaApagar:true,autorizarPonto:true,revisarContrato:true};
   if(user.role==='operador') return {dashboard:true,employees:false,payroll:true,escalas:true,criarEscalas:false,aprovaHE:false,reports:true,pagamentos:true,pagamentosLancar:false,pagamentosAprovar:false,decimoterceiro:true,ferias:true,rescisao:false,contabilidade:true,postos:false,contratos:false,users:false,log:!!user.showLog};
   if(user.role&&user.role.startsWith('p_')){
     const perfilId=user.role.replace('p_','');

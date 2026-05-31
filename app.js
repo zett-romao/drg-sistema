@@ -254,6 +254,20 @@ const State = {
 // CONFIGURAÇÃO DA EMPRESA
 // ============================================
 function _e(field){ return (State.empresa&&State.empresa[field]) || EMPRESA_DEFAULTS[field] || ''; }
+
+// HTML escape — pra usar em template literals que recebem dados de usuário
+// (motivos de contestação, nomes, etc.). Evita XSS + quebras de markup.
+// Algumas funções já têm um `esc` LOCAL (CSV escape, attr escape) — esses
+// continuam funcionando porque sombreiam o global.
+function esc(s){
+  if(s==null) return '';
+  return String(s)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}
 // Linha de endereço/contato da empresa para os documentos impressos
 function _empresaEnderecoLinha(){
   const e=State.empresa||{};

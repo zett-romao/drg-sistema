@@ -832,6 +832,19 @@ function _competenciaDe(date){
   if(d>=26){ let cm=m+1, cy=y; if(cm>12){ cm=1; cy=y+1; } return {mes:cm, ano:cy}; }
   return {mes:m, ano:y};
 }
+// Competência VIGENTE = a que está sendo apurada AGORA (em curso).
+// Regra: hoje >= 26 → próximo mês; hoje <= 25 → mês atual.
+// Ex.: 31/05/2026 → Junho/2026 (26/05→25/06). É o período que o operador
+// olha por padrão. NÃO é o último fechado (que é 'histórica').
+function competenciaVigente(){ return _competenciaDe(new Date()); }
+// Estado do período em relação à vigente: 'vigente' | 'historica' | 'futura'.
+function statusCompetencia(mes, ano){
+  const v = competenciaVigente();
+  if(parseInt(mes)===v.mes && parseInt(ano)===v.ano) return 'vigente';
+  // Compara cronologicamente (ano*100+mes)
+  const num = (m,a) => parseInt(a)*100 + parseInt(m);
+  return num(mes,ano) < num(v.mes,v.ano) ? 'historica' : 'futura';
+}
 // Label legível do período (ex.: "26/04 → 25/05").
 function _compLabel(mes, ano){
   const p=_compPeriodo(mes, ano);
@@ -5454,12 +5467,81 @@ function initPayrollSection(){
   }
   _populatePayrollEmployees();
   const mesEl=document.getElementById('payroll-mes');
-  mesEl.value=mesEl.value||currentMes();
-  document.getElementById('payroll-ano').value=document.getElementById('payroll-ano').value||currentAno();
-  const mes=parseInt(mesEl.value), ano=parseInt(document.getElementById('payroll-ano').value);
+  const anoEl=document.getElementById('payroll-ano');
+  // Default = COMPETÊNCIA VIGENTE (período em curso, 26→25). Antes usava
+  // currentMes() (mês de calendário) — confuso pq folha fecha dia 25.
+  // Só aplica o default se os campos estão vazios (preserva navegação).
+  const vig = competenciaVigente();
+  if(!mesEl.value) mesEl.value = vig.mes;
+  if(!anoEl.value) anoEl.value = vig.ano;
+  const mes=parseInt(mesEl.value), ano=parseInt(anoEl.value);
   _autoFillPeriodoDates(mes,ano);
   _updatePainelFechamento(mes,ano);
+  _renderBadgeStatusPeriodo(mes,ano);
   if(currentId) onPayrollEmployeeChange();
+}
+
+// Renderiza o BADGE de status do período (vigente / histórica / futura)
+// próximo ao label "Fechamento do Período". Sinaliza visualmente se o
+// usuário está olhando o agora ou um período passado/futuro.
+function _renderBadgeStatusPeriodo(mes, ano){
+  const el = document.getElementById('badge-status-periodo');
+  if(!el) return;
+  const st = statusCompetencia(mes, ano);
+  const CFG = {
+    'vigente':   { txt:'PERÍODO VIGENTE',  bg:'#2E7D32', icon:'fa-circle-dot' },
+    'historica': { txt:'HISTÓRICO',         bg:'#9E9E9E', icon:'fa-clock-rotate-left' },
+    'futura':    { txt:'FUTURO',            bg:'#F57C00', icon:'fa-forward' },
+  }[st];
+  el.innerHTML = `<span style="background:${CFG.bg};color:#fff;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700;display:inline-flex;align-items:center;gap:5px"><i class="fa-solid ${CFG.icon}"></i> ${CFG.txt}</span>`;
+  // Botão "Voltar pra Vigente" só aparece se NÃO está vigente
+  const btnVigente = document.getElementById('btn-voltar-vigente');
+  if(btnVigente){
+    btnVigente.style.display = (st === 'vigente') ? 'none' : 'inline-flex';
+  }
+}
+
+// Volta a folha pra competência VIGENTE (atual em curso). Reseta dropdowns e
+// recarrega os painéis. Também limpa o checkbox de "consultar passadas".
+function voltarParaCompetenciaVigente(){
+  const vig = competenciaVigente();
+  setVal('payroll-mes', String(vig.mes));
+  setVal('payroll-ano', String(vig.ano));
+  // Trava dropdowns de novo (volta pro modo padrão)
+  const chk = document.getElementById('chk-consultar-passadas');
+  if(chk){ chk.checked = false; _togglePeriodoNavegacao(false); }
+  onPayrollPeriodoChange();
+  toast(`Voltei pro período vigente: ${MESES[vig.mes]}/${vig.ano}`,'success');
+}
+
+// Liga/desliga a navegação entre competências (dropdowns Mês/Ano).
+// Por padrão TRAVADO no período vigente (segurança contra trocar sem querer).
+// Master pode destravar via checkbox quando precisa consultar histórico/futuro.
+function _togglePeriodoNavegacao(habilitado){
+  const mesEl = document.getElementById('payroll-mes');
+  const anoEl = document.getElementById('payroll-ano');
+  if(mesEl) mesEl.disabled = !habilitado;
+  if(anoEl) anoEl.disabled = !habilitado;
+  // Visual: ícone do checkbox vira "cadeado aberto" vs "fechado" via swap
+  const lbl = document.querySelector('label[for="chk-consultar-passadas"] i');
+  if(lbl){
+    lbl.classList.remove('fa-unlock-keyhole','fa-lock');
+    lbl.classList.add(habilitado ? 'fa-unlock-keyhole' : 'fa-lock');
+    lbl.style.color = habilitado ? '#2E7D32' : '#9E9E9E';
+  }
+}
+
+// Avança UMA competência (chamado pelo botão "Avançar pro próximo período"
+// que aparece após fechar todas as folhas de uma competência).
+function avancarParaProximaCompetencia(){
+  const mesAtual = parseInt(val('payroll-mes')||currentMes());
+  const anoAtual = parseInt(val('payroll-ano')||currentAno());
+  let novoMes = mesAtual + 1, novoAno = anoAtual;
+  if(novoMes > 12){ novoMes = 1; novoAno++; }
+  setVal('payroll-mes', String(novoMes));
+  setVal('payroll-ano', String(novoAno));
+  onPayrollPeriodoChange();
+  toast(`Avançando para ${MESES[novoMes]}/${novoAno}`,'success');
 }
 
 // Retorna a lista de informações básicas que faltam no cadastro do
@@ -6362,10 +6444,11 @@ function renderBeneficiosLista(){
       }
     }
     const _busca = `${emp.nome||''} ${matr} ${emp.setor||''} ${posto} ${stat?stat.status:''}`.replace(/"/g,'');
+    const _mpBadge = _benefMiniBadges(_benefPagoTipos(emp.id, ini, fim));
     html += `<tr style="background:${bg};cursor:pointer" data-busca="${_busca}" onclick="openBeneficioDetalhe('${emp.id}','${escopo}','${ini}','${fim}')">
-      <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7" onclick="event.stopPropagation()"><input type="checkbox" class="benef-chk" data-emp-id="${emp.id}" data-valor="${b.valorDinheiro}" data-valor-total="${b.total}" data-dinheiro="${b.valorDinheiro>0?1:0}" ${chkAttr || `title="${b.valorDinheiro>0?'Tem valor em dinheiro (PIX)':'No cartão — entra na impressão de selecionados; o PIX ignora (use Forçar PIX para contingência)'}"`} onchange="_benefSelCount()"></td>
+      <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7" onclick="event.stopPropagation()"><input type="checkbox" class="benef-chk" data-emp-id="${emp.id}" data-valor="${b.valorDinheiro}" data-valor-total="${b.total}" data-dinheiro="${b.valorDinheiro>0?1:0}" data-nome="${(emp.nome||'').replace(/"/g,'&quot;')}" data-vt="${b.vtValor||0}" data-vr="${b.vrValor||0}" data-va="${b.vaValor||0}" data-vtc="${b.vtCanal||'cartao'}" data-vrc="${b.vrCanal||'cartao'}" data-vac="${b.vaCanal||'cartao'}" ${chkAttr || `title="${b.valorDinheiro>0?'Tem valor em dinheiro (PIX)':'No cartão — entra na impressão de selecionados; o PIX ignora (use Forçar PIX para contingência)'}"`} onchange="_benefSelCount()"></td>
       <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7;font-weight:700;color:var(--primary)">${matr}</td>
-      <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7"><strong style="color:var(--primary)">${emp.nome}</strong><br><small style="color:var(--text-muted)">${emp.setor||'—'}</small>${statusBadge}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7"><strong style="color:var(--primary)">${emp.nome}</strong><br><small style="color:var(--text-muted)">${emp.setor||'—'}</small>${statusBadge}${_mpBadge}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7;font-size:11px">${posto}</td>
       <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7;font-size:11px">${periodoCol}</td>
       <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap">${vtIcon} ${b.vtValor>0?`<span style="color:var(--text-muted);font-size:11px">${b.diasVt}d ·</span> ${fmtMoney(b.vtValor)}${b.descVT>0?` <small style="color:#C62828" title="Desconto de ${b.faltasInjAnterior||0} falta(s) inj. anterior">(-${fmtMoney(b.descVT)})</small>`:''} ${cBadge(b.vtCanal)}`:(b.descVT>0?`<small style="color:#C62828" title="${b.faltasInjAnterior||0} falta(s) consumiram o crédito">${b.diasVt}d · ${fmtMoney(b.vtCheio||0)} −${fmtMoney(b.descVT)}</small>`:'—')}</td>
@@ -6765,6 +6848,10 @@ async function marcarBeneficiosPagoManual(){
   }
   const chks=[...document.querySelectorAll('.benef-chk:checked')];
   if(!chks.length){ toast('Marque ao menos um colaborador.','info'); return; }
+  // NOVO (2026-05-31): "Pago Manual" agora abre o registro POR BENEFÍCIO
+  // (VT/VR/VA, cada um com data e plataforma). O bloco abaixo é o fluxo
+  // antigo (pessoa inteira de uma vez) — mantido como legado, não executa.
+  return _abrirModalPagoBenef(chks);
 
   // Mesmo período/comp das outras ações (dedup compartilhado)
   const tab = _beneficioTabAtual || 'hoje';
@@ -6831,6 +6918,199 @@ async function marcarBeneficiosPagoManual(){
   if(ok>0){
     if(typeof showSection==='function') showSection('aprovacoes');
   }
+}
+
+// ============================================================================
+// REGISTRO DE PAGAMENTO POR BENEFÍCIO (VT/VR/VA) — fluxo manual (2026-05-31)
+// O usuário paga cada benefício na plataforma própria (cartão) ou em dinheiro
+// e REGISTRA aqui o que já pagou. NÃO dispara PIX/Asaas. Cada benefício é um
+// registro independente, com chave de competência SEPARADA (BENVT_/BENVR_/
+// BENVA_) pra não colidir com o dedup do fluxo PIX antigo (BEN_/beneficio).
+// ============================================================================
+let _pbCtx = null;
+
+// Pagamentos manuais POR BENEFÍCIO já registrados (status 'pago') do
+// colaborador nessa competência. Retorna {vt, vr, va} = solicitação ou null.
+function _benefPagoTipos(empId, ini, fim){
+  const sols = State.solicitacoes || [];
+  const find = tipo => sols.find(s =>
+    s.origem==='beneficio-manual' && s.beneficioTipo===tipo &&
+    s.employeeId===empId && s.status==='pago' &&
+    s.competencia===`BEN${tipo.toUpperCase()}_${ini}_${fim}`);
+  return { vt: find('vt'), vr: find('vr'), va: find('va') };
+}
+
+// Mini-selos verdes (VT/VR/VA) na linha — mostram o que JÁ foi pago + a data.
+// Clique no selo desfaz o lançamento.
+function _benefMiniBadges(mp){
+  const chip = (label, sol) => {
+    if(!sol) return '';
+    const dt = (sol.pagoEm||'').slice(0,10);
+    const dtBr = dt ? new Date(dt+'T12:00:00').toLocaleDateString('pt-BR') : '';
+    const plat = sol.plataforma ? ' · '+esc(sol.plataforma) : '';
+    return `<span onclick="event.stopPropagation();desfazerPagoBenef('${sol.id}')" title="${label} pago${dtBr?(' em '+dtBr):''}${plat} — clique para DESFAZER" style="cursor:pointer;background:#E8F5E9;color:#2E7D32;font-size:9px;padding:1px 5px;border-radius:6px;font-weight:700;margin-right:3px;vertical-align:middle"><i class="fa-solid fa-circle-check"></i> ${label}${dtBr?(' '+dtBr):''}</span>`;
+  };
+  const s = chip('VT',mp.vt)+chip('VR',mp.vr)+chip('VA',mp.va);
+  return s ? `<div style="margin-top:3px">${s}</div>` : '';
+}
+
+// Abre a janela de registro de pagamento já realizado, por benefício.
+function _abrirModalPagoBenef(chks){
+  if(!getUserModules(Auth.currentUser).pagamentosLancar){
+    toast('Você não tem permissão para lançar pagamentos.','error'); return;
+  }
+  chks = (chks && chks.length) ? chks : [...document.querySelectorAll('.benef-chk:checked')];
+  if(!chks.length){ toast('Marque ao menos um colaborador na lista.','info'); return; }
+
+  // Mesmo período/competência das outras ações (dedup compartilhado por benefício)
+  const tab = _beneficioTabAtual || 'hoje';
+  const hojeISO = new Date().toISOString().substring(0,10);
+  let ini, fim, periodoLabel;
+  if(tab === 'mes'){
+    const d=new Date(); const cMes=d.getMonth()+1, cAno=d.getFullYear();
+    const per=_compPeriodo(cMes,cAno);
+    ini=per.deISO; fim=per.ateISO;
+    periodoLabel=`Competência ${MESES[cMes]}/${cAno} (${_compLabel(cMes,cAno)})`;
+  } else if(tab === 'custom'){
+    if(!_beneficioCustomIni || !_beneficioCustomFim){ toast('Defina o período Personalizado primeiro.','warning'); return; }
+    ini=_beneficioCustomIni; fim=_beneficioCustomFim;
+    periodoLabel=`Personalizado ${new Date(ini+'T12:00:00').toLocaleDateString('pt-BR')}–${new Date(fim+'T12:00:00').toLocaleDateString('pt-BR')}`;
+  } else if(tab === 'hoje'){
+    ini=fim=hojeISO; periodoLabel=`dia ${new Date().toLocaleDateString('pt-BR')}`;
+  } else {
+    const s=_semanaDe(hojeISO); ini=s.inicio; fim=s.fim;
+    periodoLabel=`semana ${new Date(ini+'T12:00:00').toLocaleDateString('pt-BR')}–${new Date(fim+'T12:00:00').toLocaleDateString('pt-BR')}`;
+  }
+  _pbCtx = { ini, fim, periodoLabel };
+
+  const TIPOS = [ {k:'vt',lbl:'VT'}, {k:'vr',lbl:'VR'}, {k:'va',lbl:'VA'} ];
+  let linhas = '', countBenef = 0;
+  chks.forEach(c => {
+    const empId = c.dataset.empId;
+    const nome  = c.dataset.nome || '—';
+    const mp = _benefPagoTipos(empId, ini, fim);
+    let cells = '';
+    TIPOS.forEach(t => {
+      const val = parseFloat(c.dataset[t.k]) || 0;
+      const canal = c.dataset[t.k+'c'] || 'cartao';
+      if(val <= 0) return;
+      const jaSol = mp[t.k];
+      const platDefault = canal==='dinheiro' ? 'Dinheiro/PIX' : `Cartão ${t.lbl}`;
+      if(jaSol){
+        const dt=(jaSol.pagoEm||'').slice(0,10);
+        const dtBr=dt?new Date(dt+'T12:00:00').toLocaleDateString('pt-BR'):'';
+        cells += `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-top:1px solid #F0F0F0;opacity:.7">
+          <span style="width:46px;font-weight:700;color:#2E7D32">${t.lbl}</span>
+          <span style="flex:1;color:#2E7D32"><i class="fa-solid fa-circle-check"></i> Já registrado${dtBr?(' em '+dtBr):''}</span>
+          <span style="font-weight:700;white-space:nowrap">${fmtMoney(val)}</span>
+        </div>`;
+      } else {
+        countBenef++;
+        cells += `<div class="pb-row" data-emp="${empId}" data-nome="${(nome||'').replace(/"/g,'&quot;')}" data-tipo="${t.k}" data-valor="${val}" style="display:flex;align-items:center;gap:8px;padding:4px 0;border-top:1px solid #F0F0F0">
+          <label style="width:46px;font-weight:700;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" class="pb-chk" checked> ${t.lbl}</label>
+          <input type="date" class="pb-data" value="${hojeISO}" style="font-size:12px;padding:2px 4px">
+          <input type="text" class="pb-plat" value="${platDefault}" placeholder="Plataforma/operadora" style="flex:1;font-size:12px;padding:2px 6px;min-width:90px">
+          <span style="font-weight:700;white-space:nowrap">${fmtMoney(val)}</span>
+        </div>`;
+      }
+    });
+    if(!cells) return;
+    linhas += `<div style="margin-bottom:10px;padding:8px 10px;background:#FAFBFC;border:1px solid #ECEFF1;border-radius:8px">
+      <div style="font-weight:700;color:var(--primary);margin-bottom:2px">${esc(nome)}</div>
+      ${cells}
+    </div>`;
+  });
+
+  if(countBenef === 0){
+    toast('Os colaboradores marcados já têm VT/VR/VA registrados nesse período (ou não têm valor a pagar).','info');
+    _pbCtx=null; return;
+  }
+
+  const old = document.getElementById('modal-pago-benef');
+  if(old) old.remove();
+  const div = document.createElement('div');
+  div.id = 'modal-pago-benef';
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:24px;overflow:auto';
+  div.innerHTML = `<div style="background:#fff;border-radius:12px;max-width:700px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.3)">
+    <div style="padding:14px 18px;border-bottom:1px solid #ECEFF1;display:flex;align-items:center;gap:10px">
+      <i class="fa-solid fa-cash-register" style="color:#2E7D32;font-size:18px"></i>
+      <div style="flex:1">
+        <div style="font-weight:800;color:var(--primary);font-size:16px">Registrar pagamento por benefício</div>
+        <div style="font-size:12px;color:var(--text-muted)">${esc(periodoLabel)} — registre o que JÁ foi pago (não dispara PIX)</div>
+      </div>
+      <button onclick="_pbFecharModal()" class="btn-icon" title="Fechar"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div style="padding:10px 18px;display:flex;align-items:center;gap:10px;background:#F1F8E9;border-bottom:1px solid #ECEFF1;flex-wrap:wrap">
+      <span style="font-size:12px;font-weight:600;color:#33691E"><i class="fa-solid fa-calendar-day"></i> Aplicar data a todos:</span>
+      <input type="date" value="${hojeISO}" onchange="var v=this.value;document.querySelectorAll('#modal-pago-benef .pb-data').forEach(function(d){d.value=v});">
+      <span style="flex:1"></span>
+      <span style="font-size:11px;color:var(--text-muted)">A Boa Permanência continua no botão próprio.</span>
+    </div>
+    <div style="padding:14px 18px;max-height:55vh;overflow:auto">${linhas}</div>
+    <div style="padding:12px 18px;border-top:1px solid #ECEFF1;display:flex;justify-content:flex-end;gap:8px">
+      <button onclick="_pbFecharModal()" class="btn btn-outline">Cancelar</button>
+      <button onclick="confirmarPagoBenef()" class="btn" style="background:#2E7D32;color:#fff;border:none"><i class="fa-solid fa-circle-check"></i> Registrar pagos</button>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+}
+
+function _pbFecharModal(){
+  const m = document.getElementById('modal-pago-benef');
+  if(m) m.remove();
+  _pbCtx = null;
+}
+
+async function confirmarPagoBenef(){
+  if(!_pbCtx){ toast('Contexto perdido — reabra a janela.','error'); return; }
+  const { ini, fim, periodoLabel } = _pbCtx;
+  const rows = [...document.querySelectorAll('#modal-pago-benef .pb-row')]
+    .filter(r => r.querySelector('.pb-chk') && r.querySelector('.pb-chk').checked);
+  if(!rows.length){ toast('Marque ao menos um benefício para registrar.','info'); return; }
+  const u = Auth.currentUser || {};
+  const agora = new Date().toISOString();
+  const LBL = { vt:'VT', vr:'VR', va:'VA' };
+  let ok=0, erros=0;
+  for(const r of rows){
+    const empId = r.dataset.emp;
+    const nome  = r.dataset.nome || '—';
+    const tipo  = r.dataset.tipo;
+    const valor = parseFloat(r.dataset.valor) || 0;
+    const data  = (r.querySelector('.pb-data') && r.querySelector('.pb-data').value) || agora.slice(0,10);
+    const plat  = ((r.querySelector('.pb-plat') && r.querySelector('.pb-plat').value) || '').trim();
+    try{
+      const sol = {
+        id: genId(),
+        employeeId: empId, employeeNome: nome, payrollId: '',
+        valor, pixKey:'', keyType:'',
+        descricao: `${LBL[tipo]||tipo} pago manual ${periodoLabel}${plat?(' · '+plat):''} — ${nome}`.slice(0,500),
+        scheduleDate: data, competencia: `BEN${tipo.toUpperCase()}_${ini}_${fim}`,
+        origem: 'beneficio-manual', beneficioTipo: tipo, plataforma: plat,
+        status: 'pago', pagoEm: data,
+        criadoPor: u.username||u.id||'', criadoPorNome: u.username||'', criadoEm: agora,
+        aprovadoPor: u.username||u.id||'', aprovadoPorNome: u.username||'', aprovadoEm: agora,
+        asaasTransferId:'', asaasStatus:'pago-manual', motivoRecusa:'', erro:'',
+      };
+      await DB.save('solicitacoesPagamento', sol);
+      Auth.log('PAGAMENTO_MANUAL', null, `Benefício ${LBL[tipo]||tipo} ${periodoLabel} | ${nome} | R$ ${valor.toFixed(2)}${plat?(' | '+plat):''} | sol ${sol.id}`);
+      ok++;
+    }catch(e){ console.error('pago benef', e); erros++; }
+  }
+  toast(`${ok} pagamento(s) registrado(s)${erros?` · ${erros} erro(s)`:''}.`, erros?'warning':'success');
+  _pbFecharModal();
+  if(typeof renderBeneficiosLista==='function') renderBeneficiosLista();
+}
+
+async function desfazerPagoBenef(solId){
+  const sol = (State.solicitacoes||[]).find(s=>s.id===solId);
+  if(!sol){ toast('Lançamento não encontrado.','error'); return; }
+  if(!confirm(`Desfazer o registro de ${(sol.beneficioTipo||'').toUpperCase()} pago de ${sol.employeeNome||'colaborador'}? Ele volta a aparecer como a pagar.`)) return;
+  try{
+    await DB.merge('solicitacoesPagamento', solId, { status:'cancelado', canceladoEm:new Date().toISOString(), canceladoPor:(Auth.currentUser&&Auth.currentUser.username)||'' });
+    Auth.log('PAGAMENTO_MANUAL_DESFEITO', null, `Benefício ${(sol.beneficioTipo||'').toUpperCase()} | ${sol.employeeNome||'—'} | sol ${solId}`);
+    toast('Registro desfeito.','success');
+    if(typeof renderBeneficiosLista==='function') renderBeneficiosLista();
+  }catch(e){ console.error(e); toast('Erro ao desfazer.','error'); }
 }
 
 // Estado do modal de detalhe (para os botões de export)
@@ -8983,6 +9263,11 @@ function loadPayrollRecord(id){
   const emp=State.employees.find(e=>e.id===p.employeeId);
   if(emp) setVal('payroll-pix',emp.chavePix||'');
   onPayrollEmployeeChange();
+  // Atualiza o painel de fechamento + badge de status pra refletir a
+  // competência da folha clicada no histórico (antes o painel ficava preso
+  // na competência anterior — o badge não trocava).
+  _updatePainelFechamento(p.mes, p.ano);
+  _autoFillPeriodoDates(p.mes, p.ano);
   } finally { _loadingPayroll = false; }
 }
 
@@ -9452,6 +9737,10 @@ async function _updatePainelFechamento(mes,ano){
     }
   }
 
+  // Atualiza o badge de status do período (vigente / histórico / futuro)
+  // sempre que o painel re-renderiza. Garante consistência ao mudar mês/ano.
+  _renderBadgeStatusPeriodo(mes, ano);
+
   // Auto-fechamento: se hoje >= data de fechamento e não foi fechado ainda.
   // Suspenso após reabertura manual (conf.autoFecharSuspenso) — senão "Reabrir
   // Todas" seria desfeito na hora, já que hoje já passou do dia 25.
@@ -9775,6 +10064,25 @@ async function _executarFechamentoPeriodo(mes,ano,key,conf,automatico){
     _updatePainelFechamento(mes,ano);
     // Atualizar status badge da folha atual se estiver carregada
     _updateFolhaStatusBadge();
+    // Atalho 'Avançar pro próximo período' — só pergunta no fechamento MANUAL
+    // (automático é silencioso); só faz sentido se a competência fechada é a
+    // vigente OU histórica (não pergunta pra futura — não tem sentido avançar
+    // pra mais futuro ainda).
+    if(!automatico){
+      const st = statusCompetencia(mes, ano);
+      if(st !== 'futura'){
+        let novoMes = mes + 1, novoAno = ano;
+        if(novoMes > 12){ novoMes = 1; novoAno++; }
+        // Pergunta após 500ms pra não competir com o toast
+        setTimeout(() => {
+          if(confirm(`✅ ${MESES[mes]}/${ano} foi fechada com sucesso!\n\nAvançar agora para a próxima competência (${MESES[novoMes]}/${novoAno})?`)){
+            setVal('payroll-mes', String(novoMes));
+            setVal('payroll-ano', String(novoAno));
+            onPayrollPeriodoChange();
+          }
+        }, 500);
+      }
+    }
   }catch(e){ toast('Erro ao fechar período.','error'); console.error(e); }
 }
 

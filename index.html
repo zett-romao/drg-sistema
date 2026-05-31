@@ -623,9 +623,14 @@
           <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:200px">
             <i class="fa-solid fa-calendar-xmark" style="color:#5C6BC0;font-size:16px"></i>
             <div>
-              <div style="font-size:11px;color:#888;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Fechamento do Período</div>
+              <div style="font-size:11px;color:#888;font-weight:600;text-transform:uppercase;letter-spacing:.5px;display:flex;align-items:center;gap:8px">
+                Fechamento do Período <span id="badge-status-periodo"></span>
+              </div>
               <div id="fechamento-periodo-label" style="font-weight:700;color:#333;font-size:14px">—</div>
             </div>
+            <button id="btn-voltar-vigente" class="btn btn-sm" onclick="voltarParaCompetenciaVigente()" style="display:none;background:#fff;border:1px solid #2E7D32;color:#2E7D32;font-size:11px;white-space:nowrap;margin-left:6px" title="Volta pra competência VIGENTE (período em curso, 26→25 atual)">
+              <i class="fa-solid fa-rotate-left"></i> Voltar pra Vigente
+            </button>
           </div>
           <div style="display:flex;align-items:center;gap:8px">
             <label style="font-size:12px;color:#666;white-space:nowrap">Data de fechamento:</label>
@@ -685,7 +690,7 @@
                   </div>
                   <div class="form-group form-group-sm">
                     <label>Mês <span class="required">*</span></label>
-                    <select id="payroll-mes" onchange="onPayrollPeriodoChange()">
+                    <select id="payroll-mes" onchange="onPayrollPeriodoChange()" disabled>
                       <option value="1">Janeiro</option>
                       <option value="2">Fevereiro</option>
                       <option value="3">Março</option>
@@ -702,8 +707,16 @@
                   </div>
                   <div class="form-group form-group-sm">
                     <label>Ano <span class="required">*</span></label>
-                    <input type="number" id="payroll-ano" value="2025" min="2020" max="2100" onchange="onPayrollPeriodoChange()">
+                    <input type="number" id="payroll-ano" value="2025" min="2020" max="2100" onchange="onPayrollPeriodoChange()" disabled>
                   </div>
+                </div>
+                <!-- Checkbox: liberar dropdowns Mês/Ano pra navegar entre competências. -->
+                <!-- Por padrão FICA TRAVADO no período vigente (decisão usuário 31/05/2026). -->
+                <div style="margin:-6px 0 10px 0;padding:6px 10px;background:#F1F5F9;border-radius:6px;display:flex;align-items:center;gap:8px;font-size:12px;color:#37474F">
+                  <input type="checkbox" id="chk-consultar-passadas" onchange="_togglePeriodoNavegacao(this.checked)" style="margin:0;cursor:pointer">
+                  <label for="chk-consultar-passadas" style="margin:0;cursor:pointer;flex:1">
+                    <i class="fa-solid fa-unlock-keyhole" style="color:#9E9E9E"></i> <strong>Consultar competências passadas/futuras</strong> — destrava os campos Mês/Ano. Padrão: travado no período vigente.
+                  </label>
                 </div>
                 <!-- Período e Status -->
                 <div class="form-row" style="align-items:flex-end">
@@ -6091,6 +6104,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260531d-fix-esc"></script>
+<script src="app.js?v=20260531e-periodos-vigentes"></script>
 </body>
 </html>

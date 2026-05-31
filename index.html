@@ -5000,6 +5000,19 @@
           </div>
         </div>
       </div>
+      <div class="divider" style="margin:6px 0"><span>Benefícios (a partir desta transferência)</span></div>
+      <div class="form-row">
+        <div class="form-group"><label>VT — valor/dia (R$)</label><input type="number" id="transf-vt-valor" step="0.01" min="0"></div>
+        <div class="form-group"><label>VT — frequência</label><select id="transf-vt-freq"><option value="diario">Diário</option><option value="semanal">Semanal</option></select></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>VR — valor/dia (R$)</label><input type="number" id="transf-vr-valor" step="0.01" min="0"></div>
+        <div class="form-group"><label>VR — frequência</label><select id="transf-vr-freq"><option value="diario">Diário</option><option value="semanal">Semanal</option></select></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>VA — valor mensal (R$)</label><input type="number" id="transf-va-valor" step="0.01" min="0"></div>
+        <div class="form-group"><label>&nbsp;</label><div style="font-size:11px;color:var(--text-muted);padding:9px 0"><i class="fa-solid fa-circle-info"></i> Valem a partir da data de vigência acima.</div></div>
+      </div>
       <div class="form-group">
         <label>Observação <small style="color:var(--text-muted)">(opcional)</small></label>
         <input type="text" id="transf-obs" placeholder="Ex: Transferência a pedido do cliente, remanejamento, mudança de turno...">
@@ -6127,6 +6140,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260531q-escala-readonly"></script>
+<script src="app.js?v=20260531r-benef-segmentado"></script>
 </body>
 </html>

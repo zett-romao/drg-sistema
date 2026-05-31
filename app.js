@@ -8276,6 +8276,57 @@ function _calcBeneficiosColab(emp, dataInicioISO, dataFimISO, escopo){
 // injustificadas do mês ANTERIOR descontam do crédito do mês seguinte
 // (acerto de contas padrão do mercado).
 // ============================================================
+// Há VARIAÇÃO de valores de benefício entre os períodos de lotação? (transferência
+// que mudou VT/VR/VA). Só então o cálculo precisa segmentar — senão o caminho de
+// valor único já dá o resultado certo (e idêntico ao de antes). #benef-segmentado
+function _segBenefVaria(emp){
+  const hs=(emp.historicoLotacao||[]).filter(h=>h&&h.dataInicio);
+  if(hs.length<2) return false;
+  const k=h=>`${+h.valorDiarioVt||0}|${h.vtFreq||'diario'}|${+h.valorDiarioVr||0}|${h.vrFreq||'diario'}|${+h.valorMensalVa||0}`;
+  const first=k(hs[0]);
+  return hs.some(h=>k(h)!==first);
+}
+
+// Benefícios CHEIO segmentados por período de lotação: cada dia previsto soma o
+// VT/VR da lotação vigente NAQUELE dia; o VA mensal vira média ponderada pelos
+// dias de cada segmento. Com 1 segmento (ou valores iguais) o resultado é idêntico
+// ao cálculo de valor único. Garante que a transferência não reduza o benefício
+// indevidamente — cada regra incide a partir da data informada. #benef-segmentado
+function _beneficioCheioSeg(emp, mUso, aUso, isento){
+  const vtTipo=emp.tipoTransporte||'vt', vtFreq=emp.vtFreq||'diario', vrFreq=emp.vrFreq||'diario';
+  const zp=n=>String(n).padStart(2,'0');
+  let vtCheio=0, vrCheio=0, vaSum=0, diasVt=0, diasVr=0;
+  const wkVt=new Set(), wkVr=new Set();
+  for(const cd of _compDias(mUso, aUso)){
+    const iso=`${cd.ano}-${zp(cd.mes)}-${zp(cd.dia)}`;
+    let ehVt, ehVr;
+    if(isento){
+      const dow=new Date(cd.ano, cd.mes-1, cd.dia).getDay();
+      ehVt = dow>=1 && dow<=5; ehVr = ehVt;             // isento (Art.62): dias úteis, integral
+    } else {
+      const exp=_getExpectedDay(emp, cd.mes, cd.ano, cd.dia);
+      ehVt = !!(exp && exp.tipo!=='folga' && exp.entrada);
+      ehVr = ehVt && _minutosLiqEsperados(exp) > 360;  // VR só em jornada > 6h
+    }
+    if(!ehVt && !ehVr) continue;
+    const lot=_lotacaoEm(emp, iso);
+    if(ehVt){
+      diasVt++; vaSum += (+lot.valorMensalVa||0);
+      if(vtTipo!=='nao'){
+        if(vtFreq==='semanal'){ const wk=_semanaDe(iso).inicio; if(!wkVt.has(wk)){ wkVt.add(wk); vtCheio += (+lot.valorDiarioVt||0); } }
+        else vtCheio += (+lot.valorDiarioVt||0);
+      }
+    }
+    if(ehVr){
+      diasVr++;
+      if(vrFreq==='semanal'){ const wk=_semanaDe(iso).inicio; if(!wkVr.has(wk)){ wkVr.add(wk); vrCheio += (+lot.valorDiarioVr||0); } }
+      else vrCheio += (+lot.valorDiarioVr||0);
+    }
+  }
+  const vaMensal = diasVt>0 ? Math.round((vaSum/diasVt)*100)/100 : (+emp.valorMensalVa||0);
+  return { vtCheio:Math.round(vtCheio*100)/100, vrCheio:Math.round(vrCheio*100)/100, vaMensal, diasVt, diasVr };
+}
+
 function _calcBeneficiosColabPrevisto(emp, mUso, aUso, mPag, aPag){
   const empE = State.employees.find(e=>e.id===emp.id) || emp;
   // Isento (CLT Art. 62 — cargo de confiança): NÃO bate ponto, NÃO tem falta
@@ -8289,14 +8340,21 @@ function _calcBeneficiosColabPrevisto(emp, mUso, aUso, mPag, aPag){
   const vtTipo = empE.tipoTransporte || 'vt';
   const vtFreq = empE.vtFreq || 'diario';
   const vrFreq = empE.vrFreq || 'diario';
+  // Segmentação por transferência: só quando há variação de benefício entre as
+  // lotações (senão, valor único = resultado idêntico ao de antes). #benef-segmentado
+  const _seg = _segBenefVaria(empE) ? _beneficioCheioSeg(empE, mUso, aUso, isentoBPonto) : null;
+  const diasVtEf = _seg ? _seg.diasVt : diasVt;
+  const diasVrEf = _seg ? _seg.diasVr : diasVr;
   let vtCheio = 0;
-  if(vtTipo !== 'nao' && empE.valorDiarioVt){
+  if(_seg){ vtCheio = _seg.vtCheio; }
+  else if(vtTipo !== 'nao' && empE.valorDiarioVt){
     vtCheio = (vtFreq === 'semanal')
       ? (semVt > 0 ? empE.valorDiarioVt * semVt : 0)
       : empE.valorDiarioVt * diasVt;
   }
   let vrCheio = 0;
-  if(empE.valorDiarioVr){
+  if(_seg){ vrCheio = _seg.vrCheio; }
+  else if(empE.valorDiarioVr){
     vrCheio = (vrFreq === 'semanal')
       ? (semVr > 0 ? empE.valorDiarioVr * semVr : 0)
       : empE.valorDiarioVr * diasVr;
@@ -8309,15 +8367,15 @@ function _calcBeneficiosColabPrevisto(emp, mUso, aUso, mPag, aPag){
   // Valor-dia EFETIVO derivado do próprio crédito — vale p/ freq diária E semanal
   // (em 'semanal', valorDiarioVt representa a SEMANA inteira; usá-lo direto
   // descontaria ~1 semana por falta). #16
-  const vtDiaEf = diasVt > 0 ? vtCheio/diasVt : 0;
-  const vrDiaEf = diasVr > 0 ? vrCheio/diasVr : 0;
+  const vtDiaEf = diasVtEf > 0 ? vtCheio/diasVtEf : 0;
+  const vrDiaEf = diasVrEf > 0 ? vrCheio/diasVrEf : 0;
   const descVT = Math.min(vtCheio, faltasInj * vtDiaEf);
   const descVR = Math.min(vrCheio, faltasInj * vrDiaEf);
   // VA — Vale Alimentação (mensal fixo). Regras (mesmas da folha):
   //   - Isento → integral, sem desconto (CLT Art. 62).
   //   - ≥3 faltas inj → desconta vaDia × faltas (cap em vaMensal).
   //   - 0/1/2 faltas → integral (perdão das 2 primeiras).
-  const vaMensal = empE.valorMensalVa || 0;
+  const vaMensal = _seg ? _seg.vaMensal : (empE.valorMensalVa || 0);
   let vaCheio = vaMensal, descVA = 0;
   if(vaMensal > 0){
     if(isentoBPonto){
@@ -8370,7 +8428,7 @@ function _calcBeneficiosColabPrevisto(emp, mUso, aUso, mPag, aPag){
   // 'dinheiro' (PIX); cadastro pode sobrescrever via emp.bpCanal.
   const bpCanal = empE.bpCanal || 'dinheiro';
   return {
-    dias: diasVt, diasVt, diasVr,
+    dias: diasVtEf, diasVt: diasVtEf, diasVr: diasVrEf,
     semanas: semVt, semanasVr: semVr,
     vtTipo, vtFreq, vrFreq,
     vtCheio, vrCheio, vaCheio, vaMensal,
@@ -18556,7 +18614,13 @@ function _lotacaoSnapshot(src, emp){
     cargo:          txt('cargo', emp.cargo||''),
     salarioBase:    num('salarioBase', emp.salarioBase||0),
     insalubridade:  num('insalubridade', emp.insalubridade||0),
-    acumuloFuncao:  bool('acumuloFuncao', emp.acumuloFuncao)
+    acumuloFuncao:  bool('acumuloFuncao', emp.acumuloFuncao),
+    // Benefícios do período (cada lotação tem seus valores) — #benef-segmentado
+    valorDiarioVt:  num('valorDiarioVt', emp.valorDiarioVt||0),
+    vtFreq:         txt('vtFreq', emp.vtFreq||'diario'),
+    valorDiarioVr:  num('valorDiarioVr', emp.valorDiarioVr||0),
+    vrFreq:         txt('vrFreq', emp.vrFreq||'diario'),
+    valorMensalVa:  num('valorMensalVa', emp.valorMensalVa||0)
   };
 }
 function _lotacaoEm(emp, dataISO){
@@ -21146,6 +21210,12 @@ function openTransferenciaModal(){
   setVal('transf-h-ref-fim',emp.horarioRefFim||'');
   setVal('transf-insalubridade',String(emp.insalubridade||0));
   const ac=document.getElementById('transf-acumulo'); if(ac) ac.checked=!!emp.acumuloFuncao;
+  // Benefícios — pré-preenche com os valores atuais (muda só o que o novo posto altera)
+  setVal('transf-vt-valor', emp.valorDiarioVt||'');
+  setVal('transf-vt-freq', emp.vtFreq||'diario');
+  setVal('transf-vr-valor', emp.valorDiarioVr||'');
+  setVal('transf-vr-freq', emp.vrFreq||'diario');
+  setVal('transf-va-valor', emp.valorMensalVa||'');
   setVal('transf-obs','');
   document.getElementById('modal-transferencia').classList.remove('hidden');
 }
@@ -21171,6 +21241,12 @@ async function saveTransferencia(){
     salarioBase:parseFloat(val('transf-salario'))||emp.salarioBase||0,
     insalubridade:parseInt(val('transf-insalubridade'))||0,
     acumuloFuncao:!!(document.getElementById('transf-acumulo')||{}).checked,
+    // Benefícios do período (incidem a partir de dataInicio) — #benef-segmentado
+    valorDiarioVt:parseFloat(val('transf-vt-valor'))||0,
+    vtFreq:val('transf-vt-freq')||'diario',
+    valorDiarioVr:parseFloat(val('transf-vr-valor'))||0,
+    vrFreq:val('transf-vr-freq')||'diario',
+    valorMensalVa:parseFloat(val('transf-va-valor'))||0,
     obs
   };
   // historicoLotacao — semeia o estado atual como 1º período (admissão) se vazio
@@ -21183,10 +21259,24 @@ async function saveTransferencia(){
       horarioRefIni:emp.horarioRefIni||'', horarioRefFim:emp.horarioRefFim||'',
       semRefeicao:!!emp.semRefeicao, cargo:emp.cargo||'', salarioBase:emp.salarioBase||0,
       insalubridade:emp.insalubridade||0, acumuloFuncao:!!emp.acumuloFuncao,
+      valorDiarioVt:emp.valorDiarioVt||0, vtFreq:emp.vtFreq||'diario',
+      valorDiarioVr:emp.valorDiarioVr||0, vrFreq:emp.vrFreq||'diario',
+      valorMensalVa:emp.valorMensalVa||0,
       obs:'Lotação inicial (admissão)'
     });
   }
   lotHist=lotHist.filter(h=>h.dataInicio!==vig);   // re-edição da mesma data substitui
+  // Backfill: períodos antigos (criados antes do benefício segmentado) não tinham
+  // valores de benefício. Carimba os ATUAIS do colaborador — que representam o
+  // estado "antes" desta transferência — pra a segmentação histórica ficar correta
+  // (senão os dias anteriores usariam o valor NOVO). #benef-segmentado
+  lotHist.forEach(h=>{
+    if(h.valorDiarioVt==null) h.valorDiarioVt = emp.valorDiarioVt||0;
+    if(!h.vtFreq)             h.vtFreq        = emp.vtFreq||'diario';
+    if(h.valorDiarioVr==null) h.valorDiarioVr = emp.valorDiarioVr||0;
+    if(!h.vrFreq)             h.vrFreq        = emp.vrFreq||'diario';
+    if(h.valorMensalVa==null) h.valorMensalVa = emp.valorMensalVa||0;
+  });
   lotHist.push(snapNovo);
   lotHist.sort((a,b)=>a.dataInicio.localeCompare(b.dataInicio));
   const ultimo=lotHist[lotHist.length-1];          // estado "atual" = último período
@@ -21209,6 +21299,12 @@ async function saveTransferencia(){
     horarioRefIni:ultimo.horarioRefIni, horarioRefFim:ultimo.horarioRefFim,
     cargo:ultimo.cargo, salarioBase:ultimo.salarioBase,
     insalubridade:ultimo.insalubridade, acumuloFuncao:ultimo.acumuloFuncao,
+    // Benefícios — espelha o último período (se o snapshot trouxe; senão mantém o atual)
+    valorDiarioVt:(ultimo.valorDiarioVt!=null?ultimo.valorDiarioVt:emp.valorDiarioVt),
+    vtFreq:(ultimo.vtFreq||emp.vtFreq),
+    valorDiarioVr:(ultimo.valorDiarioVr!=null?ultimo.valorDiarioVr:emp.valorDiarioVr),
+    vrFreq:(ultimo.vrFreq||emp.vrFreq),
+    valorMensalVa:(ultimo.valorMensalVa!=null?ultimo.valorMensalVa:emp.valorMensalVa),
     updatedAt:new Date().toISOString()
   };
   try{

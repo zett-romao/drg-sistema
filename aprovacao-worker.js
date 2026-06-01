@@ -239,6 +239,16 @@ async function fsGetDoc(path, token){
   const doc = await res.json();
   return fromFsFields(doc.fields || {});
 }
+
+// Igual ao fsGetDoc, mas devolve também o updateTime do doc — necessário pro
+// compare-and-set (trava atômica que impede o PIX em dobro). #pix-idempotencia
+async function fsGetDocMeta(path, token){
+  const res = await fetch(FS_BASE + '/' + path, { headers: { Authorization: 'Bearer ' + token } });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error('Firestore GET ' + res.status);
+  const doc = await res.json();
+  return { data: fromFsFields(doc.fields || {}), updateTime: doc.updateTime || '' };
+}
 async function fsSetDoc(path, obj, token){
   const res = await fetch(FS_BASE + '/' + path, {
     method:  'PATCH',
@@ -258,6 +268,20 @@ async function fsUpdate(path, obj, token){
   });
   if (!res.ok) throw new Error('Firestore UPDATE ' + res.status + ' ' + (await res.text()));
   return true;
+}
+
+// Update CONDICIONAL (compare-and-set): só grava se o doc ainda tiver o updateTime
+// informado. true = gravou; false = pré-condição falhou (outro request mexeu antes)
+// OU qualquer erro — fail-safe p/ NÃO disparar PIX em dobro. #pix-idempotencia
+async function fsUpdateIf(path, obj, token, updateTime){
+  const mask = Object.keys(obj).map(k => 'updateMask.fieldPaths=' + encodeURIComponent(k)).join('&');
+  const cond = updateTime ? '&currentDocument.updateTime=' + encodeURIComponent(updateTime) : '';
+  const res  = await fetch(FS_BASE + '/' + path + '?' + mask + cond, {
+    method:  'PATCH',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ fields: toFsFields(obj) }),
+  });
+  return res.ok;  // não-ok (incl. FAILED_PRECONDITION) → não ganhou a trava
 }
 // id curto único (mesmo formato do genId do app).
 function genIdW(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,10); }
@@ -799,16 +823,29 @@ async function handleAprovarPagamento(auth, body, token, env){
 
   // 3. solicitação pendente
   const path = 'solicitacoesPagamento/' + solId;
-  const sol  = await fsGetDoc(path, token);
-  if (!sol) throw new Error('solicitação não encontrada');
+  const meta = await fsGetDocMeta(path, token);
+  if (!meta) throw new Error('solicitação não encontrada');
+  const sol = meta.data;
   if (sol.status === 'pago')
     return { ok: true, jaPago: true, asaasTransferId: sol.asaasTransferId || '', status: sol.asaasStatus || '' };
+  if (sol.status === 'processando')
+    return { ok: false, erro: 'pagamento já está sendo processado — aguarde (evitado pagamento em dobro)' };
   // aceita 'pendente' e 'erro' (retentativa de uma que falhou no Asaas)
   if (sol.status !== 'pendente' && sol.status !== 'erro')
     return { ok: false, erro: 'solicitação não está pendente (status: ' + sol.status + ')' };
 
   const nome  = user.nome || auth.email || auth.uid;
   const agora = new Date().toISOString();
+
+  // 3b. TRAVA ATÔMICA (compare-and-set): pendente/erro → processando SÓ se o doc
+  // não mudou desde a leitura. Dois requests simultâneos (duplo clique/retry):
+  // apenas UM ganha a trava; o outro é recusado. Fecha a janela de corrida (TOCTOU)
+  // entre ler o status e disparar o PIX, que permitia pagar 2×. #pix-idempotencia
+  const ganhouTrava = await fsUpdateIf(path, {
+    status: 'processando', aprovadoPor: auth.uid, aprovadoPorNome: nome, aprovadoEm: agora,
+  }, token, meta.updateTime);
+  if (!ganhouTrava)
+    return { ok: false, erro: 'pagamento já está sendo processado por outra aprovação — recusado para evitar pagamento em dobro' };
 
   // 4. dispara o PIX no Asaas
   let resp;

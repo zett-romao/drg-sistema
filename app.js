@@ -5,6 +5,11 @@
 
 'use strict';
 
+// Marca que o app.js carregou e começou a executar. A "trava de carregamento"
+// no index.html checa esta flag — se o arquivo tiver erro de sintaxe, NADA aqui
+// roda e a flag fica false → mostra aviso em vez de prender em "Conectando...". #blindagem-erro
+try{ window.__APP_BOOTED = true; }catch(_){}
+
 // ============================================
 // VERSÃO DO SISTEMA — altere APENAS aqui
 // ============================================

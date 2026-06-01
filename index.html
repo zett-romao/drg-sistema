@@ -8,6 +8,57 @@
   <meta http-equiv="Expires" content="0">
   <title id="page-title">D.R. Global Multi Services — Sistema de Gestão de Colaboradores</title>
   <link rel="icon" href="logo.png" type="image/png">
+  <!-- ===== Blindagem contra erro (camadas 1+2) — roda mesmo se o app.js falhar. #blindagem-erro ===== -->
+  <script>
+  (function(){
+    window.__APP_BOOTED = false;
+    window.__APP_ERRORS = [];
+    function _esc(s){ return String(s).replace(/[<>&]/g,function(c){return {'<':'&lt;','>':'&gt;','&':'&amp;'}[c];}); }
+    function _drgFatal(msg){
+      if(document.getElementById('__drg_fatal')) return;
+      var host = document.body || document.documentElement;
+      var d = document.createElement('div'); d.id='__drg_fatal';
+      d.style.cssText='position:fixed;inset:0;z-index:2147483600;background:#fff;display:flex;align-items:center;justify-content:center;font-family:Arial,Helvetica,sans-serif;padding:24px';
+      d.innerHTML='<div style="max-width:480px;text-align:center;color:#37474F">'
+        +'<div style="font-size:46px;margin-bottom:10px">⚠️</div>'
+        +'<h2 style="color:#C62828;margin:0 0 8px;font-size:20px">Não foi possível carregar o sistema</h2>'
+        +'<p style="color:#666;font-size:14px;line-height:1.55;margin:0 0 4px">A versão publicada pode estar com erro, ou houve falha de conexão. Tente recarregar — se persistir, avise o suporte.</p>'
+        +(msg?'<pre style="text-align:left;background:#F5F5F5;border:1px solid #eee;border-radius:6px;padding:8px;font-size:11px;color:#999;white-space:pre-wrap;word-break:break-word;max-height:120px;overflow:auto;margin:10px 0 0">'+_esc(msg)+'</pre>':'')
+        +'<button onclick="location.reload(true)" style="margin-top:14px;background:#1a3a6b;color:#fff;border:none;border-radius:6px;padding:10px 24px;font-size:14px;cursor:pointer">↻ Recarregar</button>'
+        +'</div>';
+      host.appendChild(d);
+    }
+    function _drgBanner(){
+      if(document.getElementById('__drg_errbar')) return;
+      var b=document.createElement('div'); b.id='__drg_errbar';
+      b.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:2147483500;background:#C62828;color:#fff;font-family:Arial,sans-serif;font-size:13px;padding:10px 14px;display:flex;align-items:center;gap:10px;box-shadow:0 -2px 8px rgba(0,0,0,.2)';
+      b.innerHTML='<span style="flex:1">⚠️ Ocorreu um erro nesta ação. Se algo parecer travado, recarregue a página.</span>'
+        +'<button onclick="location.reload(true)" style="background:#fff;color:#C62828;border:none;border-radius:4px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer">↻ Recarregar</button>'
+        +'<button onclick="this.parentNode.remove()" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,.5);border-radius:4px;padding:5px 10px;font-size:12px;cursor:pointer">Fechar</button>';
+      (document.body||document.documentElement).appendChild(b);
+    }
+    window.addEventListener('error', function(e){
+      var isResource = e && e.target && e.target.tagName && e.target!==window;
+      var fname = (e && (e.filename || (e.target && (e.target.src||e.target.href)))) || '';
+      var isAppJs = String(fname).indexOf('app.js')>=0;
+      if(isResource && !isAppJs) return;           // imagem/css quebrada: ignora
+      var m=(e&&e.message?e.message:'erro')+(fname?(' @ '+String(fname).split('/').pop()+(e.lineno?':'+e.lineno:'')):'');
+      window.__APP_ERRORS.push(m);
+      try{ console.error('[DRG erro]', m, e&&e.error); }catch(_){}
+      if(isAppJs && !window.__APP_BOOTED){ _drgFatal(m); }   // app.js não carregou = fatal
+      else if(!isResource){ _drgBanner(); }                  // erro em tempo de uso = banner
+    }, true);
+    window.addEventListener('unhandledrejection', function(e){
+      var m=(e&&e.reason&&(e.reason.message||e.reason))||'promessa rejeitada';
+      window.__APP_ERRORS.push(String(m));
+      try{ console.error('[DRG rejeição]', m); }catch(_){}
+      if(window.__APP_BOOTED) _drgBanner();
+    });
+    // Trava de carregamento: o app.js marca __APP_BOOTED assim que executa.
+    // Se em 9s não marcou, é porque não carregou (erro de sintaxe/rede) → avisa.
+    setTimeout(function(){ if(!window.__APP_BOOTED){ _drgFatal(window.__APP_ERRORS[0]||'O aplicativo não iniciou (tempo esgotado).'); } }, 9000);
+  })();
+  </script>
   <link rel="stylesheet" href="styles.css?v=20260530b">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -6335,6 +6386,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260601s-contabilidade"></script>
+<script src="app.js?v=20260601t-blindagem"></script>
 </body>
 </html>

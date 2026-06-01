@@ -10357,6 +10357,13 @@ async function _updatePainelFechamento(mes,ano){
     const temFechada=State.payrolls.some(p=>p.mes==mes&&p.ano==ano&&p.status==='fechada');
     btnReabrir.style.display=(periodoFechado||temFechada)?'inline-flex':'none';
   }
+  const btnFolhasFechadas=document.getElementById('btn-folhas-fechadas');
+  if(btnFolhasFechadas){
+    const temFechada=State.payrolls.some(p=>p.mes==mes&&p.ano==ano&&p.status==='fechada');
+    btnFolhasFechadas.style.display=temFechada?'inline-flex':'none';
+  }
+  // Se a lista estiver aberta, mantém em sincronia ao re-renderizar o painel.
+  if(document.getElementById('modal-folhas-fechadas')) renderFolhasFechadasLista();
   if(infoFechado){
     if(periodoFechado && conf.fechadoEm){
       infoFechado.style.display='inline';
@@ -10580,6 +10587,156 @@ async function enviarTodasFolhasCompetencia(){
   Auth.log('FOLHA_ENVIADA_CONFERENCIA_LOTE', null, `${MESES[mes]}/${ano} — ${ok} folha(s)`);
   toast(`${ok} folha(s) enviada(s) pra conferência${erros?` · ${erros} com erro`:''}. Colab tem ${_CONF_PRAZO_HORAS}h pra responder.`,'success');
   _updatePainelFechamento(mes, ano);
+  if(document.getElementById('modal-folhas-fechadas')) renderFolhasFechadasLista();
+}
+
+// ============================================================================
+// TELA "FOLHAS FECHADAS" — lista enxuta das folhas fechadas da competência atual.
+// Cada linha: checkbox (esquerda) · matrícula · nome (+ status do envio) ·
+// ícone revisar (abre a folha) · ícone reabrir. Botões de envio em lote
+// (selecionadas / todas) pra conferência. Aberta pelo botão no painel de
+// fechamento. #folhas-fechadas-lista
+// ============================================================================
+function _folhasFechadasLista(mes, ano){
+  const empById = id => State.employees.find(e=>e.id===id);
+  let lista = (State.payrolls||[]).filter(p=>p.mes==mes && p.ano==ano && p.status==='fechada');
+  // Respeita o escopo de postos do supervisor (master vê tudo).
+  lista = lista.filter(p=>{ const e=empById(p.employeeId); return e ? _empNoEscopo(e) : true; });
+  lista.sort((a,b)=>{
+    const ea=empById(a.employeeId), eb=empById(b.employeeId);
+    return (ea?.nome||'').localeCompare(eb?.nome||'');
+  });
+  return lista;
+}
+
+function openFolhasFechadas(){
+  const mes=parseInt(val('payroll-mes')||currentMes());
+  const ano=parseInt(val('payroll-ano')||currentAno());
+  document.getElementById('modal-folhas-fechadas')?.remove();
+  const html = `
+    <div id="modal-folhas-fechadas" class="modal" style="display:flex;align-items:center;justify-content:center;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999">
+      <div class="modal-content" style="background:#fff;max-width:700px;width:94%;max-height:88vh;border-radius:8px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.3);display:flex;flex-direction:column">
+        <div style="background:#5C6BC0;color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
+          <h3 style="margin:0;font-size:16px"><i class="fa-solid fa-lock"></i> Folhas Fechadas — ${MESES[mes]}/${ano}</h3>
+          <button onclick="document.getElementById('modal-folhas-fechadas').remove()" style="background:transparent;border:none;color:#fff;font-size:20px;cursor:pointer;line-height:1">&times;</button>
+        </div>
+        <div style="padding:10px 16px;border-bottom:1px solid #eee;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" id="ff-check-all" onchange="_folhasFechadasToggleAll(this)"> Marcar todos</label>
+          <span style="flex:1"></span>
+          <button class="btn btn-sm" id="ff-btn-enviar-sel" onclick="enviarFolhasSelecionadasConferencia()" style="background:#00897B;color:#fff;border:none;font-size:12px;white-space:nowrap"><i class="fa-solid fa-paper-plane"></i> Enviar selecionadas (0)</button>
+          <button class="btn btn-sm" onclick="enviarTodasFolhasCompetencia()" style="background:#00695C;color:#fff;border:none;font-size:12px;white-space:nowrap" title="Envia todas as folhas fechadas dessa competência pra conferência"><i class="fa-solid fa-paper-plane"></i> Enviar todas</button>
+        </div>
+        <div style="overflow:auto;flex:1">
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead><tr style="position:sticky;top:0;background:#f5f6fa;z-index:1">
+              <th style="width:40px;padding:8px"></th>
+              <th style="width:70px;text-align:left;padding:8px 6px;color:#666;font-size:11px;text-transform:uppercase">Matr.</th>
+              <th style="text-align:left;padding:8px 6px;color:#666;font-size:11px;text-transform:uppercase">Colaborador</th>
+              <th style="width:100px;text-align:center;padding:8px 6px;color:#666;font-size:11px;text-transform:uppercase">Ações</th>
+            </tr></thead>
+            <tbody id="ff-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+  renderFolhasFechadasLista();
+}
+
+function renderFolhasFechadasLista(){
+  const tbody=document.getElementById('ff-tbody');
+  if(!tbody) return;
+  const mes=parseInt(val('payroll-mes')||currentMes());
+  const ano=parseInt(val('payroll-ano')||currentAno());
+  const lista=_folhasFechadasLista(mes,ano);
+  if(!lista.length){
+    tbody.innerHTML=`<tr><td colspan="4" style="padding:26px;text-align:center;color:#888">Nenhuma folha fechada em ${MESES[mes]}/${ano}.</td></tr>`;
+    _folhasFechadasUpdateSel();
+    return;
+  }
+  tbody.innerHTML=lista.map((p,i)=>{
+    const emp=State.employees.find(e=>e.id===p.employeeId);
+    const nome=emp?.nome||p.employeeNome||'—';
+    const reg=emp?String(emp.registro||'').padStart(4,'0'):'—';
+    const st=_statusEnvioLabel(_statusEnvioConf(p));
+    const chip=`<span style="display:inline-block;background:${st.bg};color:${st.cor};border-radius:10px;padding:0 7px;font-size:10px;margin-left:6px;white-space:nowrap"><i class="fa-solid ${st.icon}"></i> ${st.txt}</span>`;
+    const bg=i%2?'#fafbfe':'#fff';
+    return `<tr style="background:${bg};border-bottom:1px solid #eef0f5">
+      <td style="text-align:center;padding:8px"><input type="checkbox" class="ff-row-check" data-id="${p.id}" onchange="_folhasFechadasUpdateSel()"></td>
+      <td style="padding:8px 6px;font-family:monospace;color:#555">${reg}</td>
+      <td style="padding:8px 6px"><strong>${esc(nome)}</strong>${chip}</td>
+      <td style="text-align:center;padding:8px 6px;white-space:nowrap">
+        <button class="btn-icon" title="Revisar folha (abre a folha de ponto)" onclick="_folhasFechadasRevisar('${p.employeeId}')"><i class="fa-solid fa-magnifying-glass" style="color:#1565C0"></i></button>
+        <button class="btn-icon" title="Reabrir folha (volta a editável)" onclick="reabrirFolhaPorId('${p.id}')"><i class="fa-solid fa-lock-open" style="color:#EF6C00"></i></button>
+      </td>
+    </tr>`;
+  }).join('');
+  _folhasFechadasUpdateSel();
+}
+
+function _folhasFechadasToggleAll(master){
+  document.querySelectorAll('#ff-tbody .ff-row-check').forEach(cb=>{ cb.checked=!!master.checked; });
+  _folhasFechadasUpdateSel();
+}
+
+function _folhasFechadasUpdateSel(){
+  const n=document.querySelectorAll('#ff-tbody .ff-row-check:checked').length;
+  const btn=document.getElementById('ff-btn-enviar-sel');
+  if(btn){ btn.innerHTML=`<i class="fa-solid fa-paper-plane"></i> Enviar selecionadas (${n})`; btn.disabled=n===0; btn.style.opacity=n===0?'0.55':'1'; }
+}
+
+function _folhasFechadasRevisar(empId){
+  document.getElementById('modal-folhas-fechadas')?.remove();
+  _abrirFolhaColaborador(empId);
+}
+
+// Reabre UMA folha pelo id (usado pela lista de Folhas Fechadas). Espelha reabrirFolha().
+async function reabrirFolhaPorId(payrollId){
+  if(Auth.currentUser?.role!=='master' && !getUserModules(Auth.currentUser).payroll){ toast('Sem permissão.','error'); return; }
+  const p=State.payrolls.find(r=>r.id===payrollId);
+  if(!p){ toast('Folha não encontrada.','error'); return; }
+  const emp=State.employees.find(e=>e.id===p.employeeId);
+  const nome=emp?.nome||p.employeeNome||'colaborador';
+  if(!confirm(`Reabrir a folha de ${nome} — ${MESES[p.mes]}/${p.ano}?\n\nA folha voltará a ser editável.`)) return;
+  try{
+    const _arqC=_arquivarContestacaoFolha(p);
+    await DB.merge('payrolls',p.id,{status:'aberta',reabertoEm:new Date().toISOString(), ...(_arqC?{contestacoesHistorico:p.contestacoesHistorico}:{})});
+    const s=State.payrolls.find(r=>r.id===p.id); if(s){ s.status='aberta'; if(_arqC) s.contestacoesHistorico=p.contestacoesHistorico; }
+    Auth.log('PAYROLL_REABERTO',null,`${nome} — ${MESES[p.mes]}/${p.ano}`);
+    toast(`Folha de ${nome} reaberta para edição.`);
+    _updatePainelFechamento(p.mes,p.ano);
+    if(typeof _updateFolhaStatusBadge==='function') _updateFolhaStatusBadge();
+    renderFolhasFechadasLista();
+  }catch(e){ console.error(e); toast('Erro ao reabrir folha.','error'); }
+}
+
+// Envia SÓ as folhas marcadas na lista de Folhas Fechadas pra conferência.
+async function enviarFolhasSelecionadasConferencia(){
+  if(Auth.currentUser?.role!=='master' && !getUserModules(Auth.currentUser).folhaEnviar){ toast('Sem permissão pra enviar folhas pra conferência.','error'); return; }
+  const ids=[...document.querySelectorAll('#ff-tbody .ff-row-check:checked')].map(cb=>cb.dataset.id);
+  if(!ids.length){ toast('Selecione pelo menos uma folha.','warning'); return; }
+  const alvos=ids.map(id=>State.payrolls.find(p=>p.id===id)).filter(Boolean).filter(p=>p.status==='fechada');
+  if(!alvos.length){ toast('Nenhuma folha fechada válida na seleção.','warning'); return; }
+  const jaEnviadas=alvos.filter(p=>_statusEnvioConf(p)).length;
+  let msg=`Enviar ${alvos.length} folha(s) selecionada(s) pra conferência dos colaboradores?\n\nPrazo: ${_CONF_PRAZO_HORAS}h. Após isso, sem ação, vira "aceita por silêncio".`;
+  if(jaEnviadas) msg+=`\n\n${jaEnviadas} já foram enviadas antes — serão REENVIADAS.`;
+  if(!confirm(msg)) return;
+  const agora=new Date();
+  const prazo=new Date(agora.getTime()+_CONF_PRAZO_HORAS*60*60*1000);
+  const u=Auth.currentUser||{};
+  let ok=0,erros=0;
+  for(const p of alvos){
+    const envio={ enviadoEm:agora.toISOString(), enviadoPor:u.username||u.id||'', enviadoPorNome:u.username||'', status:'pendente', prazoExpiraEm:prazo.toISOString(), visualizadoEm:null, assinadoEm:null, contestadoEm:null };
+    const _arqC=_arquivarContestacaoFolha(p);
+    try{
+      await DB.merge('payrolls',p.id,{ envioConferencia:envio, ...(_arqC?{contestacoesHistorico:p.contestacoesHistorico}:{}) });
+      p.envioConferencia=envio; ok++;
+    }catch(e){ console.error('envio folha sel',p.id,e); erros++; }
+  }
+  Auth.log('FOLHA_ENVIADA_CONFERENCIA_SELECAO',null,`${MESES[alvos[0].mes]}/${alvos[0].ano} — ${ok} folha(s)`);
+  toast(`${ok} folha(s) enviada(s) pra conferência${erros?` · ${erros} com erro`:''}.`,'success');
+  _updatePainelFechamento(alvos[0].mes,alvos[0].ano);
+  renderFolhasFechadasLista();
 }
 
 // Job "Aceito por silêncio": roda no carregamento do master. Marca como
@@ -23770,6 +23927,7 @@ async function _carregarDadosPosLogin(){
     if(State.currentSection==='payroll') renderPayrollHistory(val('payroll-employee'));
     if(State.currentSection==='dashboard') renderDashboard();
     if(State.currentSection==='recibos') renderRecibosEnviados(); // assinatura no app reflete na tela Recibos
+    if(document.getElementById('modal-folhas-fechadas')) renderFolhasFechadasLista(); // status na lista de folhas fechadas
     updateDbInfo();
     // Job 'Aceito por silêncio': roda toda vez que payrolls são atualizados.
     // Marca como 'aceita_por_silencio' folhas cujo prazo de 48h passou.

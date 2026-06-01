@@ -648,6 +648,9 @@
             <button id="btn-reabrir-periodo" class="btn btn-sm" onclick="reabrirPeriodo()" style="background:#EF6C00;color:#fff;border:none;font-size:12px;white-space:nowrap;display:none" title="Reabre TODAS as folhas fechadas desta competência de uma vez (voltam a ficar editáveis).">
               <i class="fa-solid fa-lock-open"></i> Reabrir Todas as Folhas
             </button>
+            <button id="btn-folhas-fechadas" class="btn btn-sm" onclick="openFolhasFechadas()" style="background:#fff;border:1px solid #5C6BC0;color:#5C6BC0;font-size:12px;white-space:nowrap;display:none" title="Lista das folhas fechadas desta competência — revisar, reabrir e enviar (todas ou selecionadas) pra conferência.">
+              <i class="fa-solid fa-list-check"></i> Folhas Fechadas
+            </button>
             <button id="btn-enviar-conferencia" class="btn btn-sm" onclick="enviarTodasFolhasCompetencia()" style="background:#00897B;color:#fff;border:none;font-size:12px;white-space:nowrap;display:none" title="Envia as folhas fechadas dessa competência pro app de cada colaborador conferir (prazo 48h, depois vira aceito por silêncio).">
               <i class="fa-solid fa-paper-plane"></i> Enviar p/ Conferência
             </button>
@@ -6211,6 +6214,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260601a-recibo-assinatura"></script>
+<script src="app.js?v=20260601b-folhas-fechadas"></script>
 </body>
 </html>

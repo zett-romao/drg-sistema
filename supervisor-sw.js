@@ -3,7 +3,7 @@
 // Estrategia identica ao ponto-sw.js: network-first para HTML/JS/CSS
 // (busca sempre a versao nova), cache-first para imagens.
 // ============================================================
-const CACHE = 'drg-sup-v3-20260523c';
+const CACHE = 'drg-sup-v4-20260531a';
 const ASSETS = [
   'supervisor.html',
   'supervisor-manifest.json',

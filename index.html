@@ -3851,13 +3851,16 @@
         Deixe a senha em branco para manter a senha atual.
       </div>
       <div class="form-group" id="usr-device-row" style="display:none">
-        <label><i class="fa-solid fa-laptop-code" style="color:#5C6BC0"></i> Dispositivo autorizado</label>
-        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-          <span id="usr-device-status" style="font-size:13px;color:#555"></span>
-          <button type="button" class="btn btn-sm btn-outline" onclick="resetarDispositivoUsuario(document.getElementById('usr-id').value)" style="font-size:12px"><i class="fa-solid fa-rotate"></i> Resetar dispositivo</button>
+        <label><i class="fa-solid fa-laptop-code" style="color:#5C6BC0"></i> Dispositivos autorizados</label>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <label style="font-size:13px;color:#555;display:flex;align-items:center;gap:6px;margin:0">Máximo de máquinas:
+            <input type="number" id="usr-max-dispositivos" min="1" max="20" value="1" onchange="_refreshUsrDeviceRow()" style="width:64px;padding:5px 6px;border:1px solid var(--border);border-radius:6px">
+          </label>
+          <button type="button" id="usr-device-reset-btn" class="btn btn-sm btn-outline" onclick="resetarDispositivoUsuario(document.getElementById('usr-id').value)" style="font-size:12px;display:none"><i class="fa-solid fa-rotate"></i> Resetar dispositivos</button>
         </div>
+        <div id="usr-device-status" style="font-size:12px;color:#555;margin-top:6px"></div>
         <small style="color:var(--text-muted);font-size:11px;display:block;margin-top:4px">
-          Cada usuário acessa de UMA máquina (LGPD). "Resetar" libera ele para registrar outra no próximo login. O Master acessa de qualquer máquina.
+          Cada máquina é registrada no 1º login dela, até o limite. "Resetar" zera todas (registra de novo nos próximos logins). O Master acessa de qualquer máquina.
         </small>
       </div>
     </div>
@@ -6231,6 +6234,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260601k-trava-dispositivo"></script>
+<script src="app.js?v=20260601l-multi-dispositivo"></script>
 </body>
 </html>

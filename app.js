@@ -1635,8 +1635,8 @@ function openUserModal(id=null){
     opt.value='p_'+p.id; opt.textContent='Perfil: '+p.nome;
     roleSelect.appendChild(opt);
   });
-  // Listener — toggla a visibilidade do bloco "Postos" conforme o perfil
-  roleSelect.onchange=()=>_toggleUsrPostosGroup();
+  // Listener — toggla a visibilidade do bloco "Postos" e dos dispositivos conforme o perfil
+  roleSelect.onchange=()=>{ _toggleUsrPostosGroup(); _refreshUsrDeviceRow(); };
   // Popular checkboxes de postos
   _renderUsrPostosCheckboxes([]);
   document.getElementById('modal-user').classList.remove('hidden');
@@ -1650,31 +1650,40 @@ function openUserModal(id=null){
     setVal('usr-role',u.role||'operador'); setVal('usr-active',String(u.active));
     setVal('usr-password',''); setVal('usr-password-confirm','');
     _renderUsrPostosCheckboxes(Array.isArray(u.postosResponsavel)?u.postosResponsavel:[]);
+    setVal('usr-max-dispositivos', String(u.maxDispositivos||1));
     editNote.style.display='';
-    _updateUsrDeviceRow(u);
+    _refreshUsrDeviceRow();
   } else {
     titleEl.innerHTML='<i class="fa-solid fa-user-plus"></i> Novo Usuário';
     ['usr-id','usr-username','usr-email','usr-password','usr-password-confirm'].forEach(i=>setVal(i,''));
     setVal('usr-role','operador'); setVal('usr-active','true');
+    setVal('usr-max-dispositivos','1');
     editNote.style.display='none';
-    _updateUsrDeviceRow(null);
+    _refreshUsrDeviceRow();
   }
   _toggleUsrPostosGroup();
 }
 
-// Mostra o status do dispositivo autorizado do usuário no modal (trava de 1 máquina).
-// Master é livre → esconde. Usuário novo → esconde (registra no 1º login).
-function _updateUsrDeviceRow(u){
+// Bloco de dispositivos autorizados no modal de usuário (trava de N máquinas).
+// Master é livre → esconde. Mostra o limite (editável) + quantos já registraram.
+// Lê o estado de Auth.users (com deviceIds/maxDispositivos vindos do Worker).
+function _refreshUsrDeviceRow(){
   const row=document.getElementById('usr-device-row');
-  const status=document.getElementById('usr-device-status');
   if(!row) return;
-  if(!u || u.role==='master'){ row.style.display='none'; return; }
+  if(val('usr-role')==='master'){ row.style.display='none'; return; }
   row.style.display='';
+  const id=val('usr-id');
+  const u=id?Auth.users.find(x=>x.id===id):null;
+  const n=u ? (Array.isArray(u.deviceIds)?u.deviceIds.length:(u.deviceId?1:0)) : 0;
+  const max=Math.max(1, parseInt(val('usr-max-dispositivos'))||1);
+  const status=document.getElementById('usr-device-status');
   if(status){
-    status.innerHTML = u.deviceId
-      ? '<span style="color:#1B5E20;font-weight:600"><i class="fa-solid fa-circle-check"></i> Registrado</span> — travado em 1 máquina.'
-      : '<span style="color:#E65100;font-weight:600"><i class="fa-solid fa-clock"></i> Nenhum ainda</span> — registra no 1º login.';
+    status.innerHTML = id
+      ? `<i class="fa-solid fa-laptop"></i> <strong style="color:${(n>0&&n>=max)?'#E65100':'#1B5E20'}">${n}</strong> de <strong>${max}</strong> dispositivo(s) registrado(s)${(n>0&&n>=max)?' — limite atingido':''}.`
+      : 'As máquinas são registradas no 1º login de cada uma, até o limite.';
   }
+  const resetBtn=document.getElementById('usr-device-reset-btn');
+  if(resetBtn) resetBtn.style.display=(id&&n>0)?'':'none';
 }
 
 // Master libera um novo dispositivo pro usuário (zera o deviceId). No próximo
@@ -1682,20 +1691,21 @@ function _updateUsrDeviceRow(u){
 async function resetarDispositivoUsuario(id){
   if(Auth.currentUser?.role!=='master') return;
   const u=Auth.users.find(x=>x.id===id); if(!u){ toast('Usuário não encontrado.','error'); return; }
-  if(!confirm(`Liberar novo dispositivo para "${u.username}"?\n\nO acesso da máquina atual dele deixa de valer. No próximo login, a máquina que ele usar vira a nova autorizada.`)) return;
+  if(!confirm(`Zerar os dispositivos de "${u.username}"?\n\nTodas as máquinas registradas deixam de valer. Nos próximos logins, as máquinas que ele usar viram as novas autorizadas (até o limite).`)) return;
   try{
     const r=await _aprovacaoReq('/usuarios/salvar',{
       user:{ id:u.id, username:u.username, email:u.email, role:u.role, active:u.active!==false,
-             postosResponsavel:Array.isArray(u.postosResponsavel)?u.postosResponsavel:[] },
+             postosResponsavel:Array.isArray(u.postosResponsavel)?u.postosResponsavel:[],
+             maxDispositivos:u.maxDispositivos||1 },
       resetDevice:true,
     });
-    if(!r||r.ok!==true){ toast((r&&r.erro)||'Não foi possível resetar o dispositivo.','error'); return; }
-    Auth.log('USER_DEVICE_RESET',Auth.currentUser.username,`Dispositivo liberado: ${u.username}`);
-    toast(`Dispositivo de "${u.username}" liberado. Ele registra a nova máquina no próximo login.`);
+    if(!r||r.ok!==true){ toast((r&&r.erro)||'Não foi possível resetar os dispositivos.','error'); return; }
+    Auth.log('USER_DEVICE_RESET',Auth.currentUser.username,`Dispositivos zerados: ${u.username}`);
+    toast(`Dispositivos de "${u.username}" zerados. Ele registra as novas máquinas nos próximos logins.`);
     await loadUsersFromWorker();
     if(State.currentSection==='users') renderUsersTable();
-    if(val('usr-id')===id){ const u2=Auth.users.find(x=>x.id===id); _updateUsrDeviceRow(u2||u); }
-  }catch(e){ toast((e&&e.message)||'Erro ao resetar dispositivo.','error'); }
+    if(val('usr-id')===id) _refreshUsrDeviceRow();
+  }catch(e){ toast((e&&e.message)||'Erro ao resetar os dispositivos.','error'); }
 }
 
 // Mostra o bloco de "Postos sob responsabilidade" só quando o perfil não é Master.
@@ -1753,11 +1763,12 @@ async function saveUser(){
   const postosResponsavel = role==='master'
     ? []
     : Array.from(document.querySelectorAll('#usr-postos-list input[name="usr-posto"]:checked')).map(c=>c.value);
+  const maxDispositivos = role==='master' ? 1 : Math.max(1, parseInt(val('usr-max-dispositivos'))||1);
   const btn=document.querySelector('#modal-user .btn-primary');
   setBtnLoading(btn,true,'');
   try {
     const r=await _aprovacaoReq('/usuarios/salvar',{
-      user:{ id:id||undefined, username, email, role, active, postosResponsavel },
+      user:{ id:id||undefined, username, email, role, active, postosResponsavel, maxDispositivos },
       novaSenha: password||undefined,
     });
     if(!r || r.ok!==true){ toast((r&&r.erro)||'Não foi possível salvar o usuário.','error'); return; }

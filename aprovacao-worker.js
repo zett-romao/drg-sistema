@@ -515,16 +515,22 @@ async function handleLogin(body, token, env){
   const agora = new Date().toISOString();
   const upd   = { lastLogin: agora };
   if (!user.firebaseUid) upd.firebaseUid = uid;
-  // --- TRAVA DE DISPOSITIVO: 1 máquina por usuário (LGPD). Master é LIVRE. ---
-  // O 1º login registra a máquina atual como a autorizada; logins seguintes só
-  // valem dessa mesma máquina. O master reseta (deviceId=null) pra liberar outra.
+  // --- TRAVA DE DISPOSITIVO: N máquinas por usuário (LGPD). Master é LIVRE. ---
+  // Cada usuário tem um limite `maxDispositivos` (default 1). Os primeiros logins
+  // registram as máquinas até o limite; além disso → bloqueio. Compat: o campo
+  // antigo `deviceId` (string) é lido como lista de 1. Master reseta (zera tudo).
   if (user.role !== 'master') {
     const deviceId = String(body.deviceId || '').trim();
     if (!deviceId) return { ok:false, erro:'dispositivo não identificado', deviceBlocked:true };
-    if (!user.deviceId) {
-      upd.deviceId = deviceId;                       // 1º acesso → registra esta máquina
-    } else if (user.deviceId !== deviceId) {
-      return { ok:false, erro:'dispositivo não autorizado', deviceBlocked:true };
+    const devices = Array.isArray(user.deviceIds) ? user.deviceIds.slice()
+                  : (user.deviceId ? [user.deviceId] : []);
+    const max = Math.max(1, parseInt(user.maxDispositivos) || 1);
+    if (!devices.includes(deviceId)) {
+      if (devices.length >= max)
+        return { ok:false, erro:'dispositivo não autorizado', deviceBlocked:true };
+      devices.push(deviceId);          // registra mais uma máquina
+      upd.deviceIds = devices;
+      upd.deviceId  = null;            // migra do campo antigo para a lista
     }
   }
   await fsUpdate('users/' + user.id, upd, token);
@@ -745,7 +751,11 @@ async function handleUsuariosSalvar(auth, body, token){
     if ('showLog' in dados) merged.showLog = !!dados.showLog;
     if ('postosResponsavel' in dados)
       merged.postosResponsavel = _sanitizePostosResponsavel(dados.postosResponsavel, role);
-    if (body.resetDevice) merged.deviceId = null;   // master libera novo dispositivo (trava de 1 máquina)
+    if ('maxDispositivos' in dados) {
+      const md = parseInt(dados.maxDispositivos);
+      merged.maxDispositivos = (Number.isFinite(md) && md >= 1) ? Math.min(md, 20) : 1;
+    }
+    if (body.resetDevice) { merged.deviceIds = []; merged.deviceId = null; }  // master zera os dispositivos
     if (novaSenha) {
       if (novaSenha.length < 6) return { ok:false, erro:'a senha precisa de ao menos 6 caracteres' };
       merged.passwordHash = await sha256hex(novaSenha);
@@ -758,10 +768,13 @@ async function handleUsuariosSalvar(auth, body, token){
     return { ok:false, erro:'informe uma senha de ao menos 6 caracteres' };
   const id = genIdW();
   const role = dados.role || 'operador';
+  const mdNovo = parseInt(dados.maxDispositivos);
   await fsSetDoc('users/' + id, {
     id, username, email, role,
     active: dados.active !== false, passwordHash: await sha256hex(novaSenha),
     postosResponsavel: _sanitizePostosResponsavel(dados.postosResponsavel, role),
+    maxDispositivos: (Number.isFinite(mdNovo) && mdNovo >= 1) ? Math.min(mdNovo, 20) : 1,
+    deviceIds: [],
     createdAt: new Date().toISOString(), lastLogin: null, forceChange: false,
   }, token);
   return { ok:true, id };

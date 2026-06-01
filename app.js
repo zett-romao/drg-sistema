@@ -2446,7 +2446,7 @@ function renderPagamentos(){
       tIRRF   +=(p.irrf||0);
       tFGTS   +=(p.fgts||0);
       tAdiant +=(p.adiantamentoValor||p.adiantamento||0);
-      tLiquido+=(p.totalLiquidoFinal||p.remuneracao||0);
+      tLiquido+=_reciboOficialLinhas(e,p).liquido; // mesma conta do holerite → cruzamentos batem
     } else { semFolhaCount++; }
   });
 
@@ -2497,7 +2497,7 @@ function renderPagamentos(){
     const irrf    =p?(p.irrf||0):0;
     const adiant  =p?(p.adiantamentoValor||p.adiantamento||0):0;
     const fgts    =p?(p.fgts||0):0;
-    const liq     =p?(p.totalLiquidoFinal||p.remuneracao||0):0;
+    const liq     =p?_reciboOficialLinhas(e,p).liquido:0; // mesma conta do holerite → cruzamentos batem
     const statusStr=p?p.status:'sem folha';
     const badge=statusStr==='fechada'
       ?`<span class="badge" style="background:#E8F5E9;color:#1B5E20;border:1px solid #A5D6A7;padding:2px 8px;border-radius:12px;font-size:11px">✓ Fechada</span>`
@@ -9861,9 +9861,13 @@ function recalculate(){
     const descontoSaida=isentoPonto?0:Math.round(_saidaTot.minutosDesc*valorMinuto*100)/100;
     setVal('payroll-saida-min', _saidaTot.minutos||'');
     setVal('payroll-desconto-saida', descontoSaida>0?descontoSaida.toFixed(2):'0.00');
-    // VT/VR/VA são benefícios pagos à parte (vale/cartão) — NÃO entram no
-    // líquido em dinheiro a receber.
-    const totalLiqFinal=Math.max(0,totalBruto-inss-irrf-pensaoEnc-planoEnc-outDesc-adiantEnc-atrasoEnc-descontoSaida);
+    // VR/VA são benefícios pagos à parte (vale/cartão) — NÃO entram no líquido.
+    // O VT entra só como CO-PARTICIPAÇÃO (menor entre 6% do salário e o custo do
+    // VT) — mesmo critério do holerite e da folha impressa, pra TODOS os cruzamentos
+    // (tela, Pagamentos, folha, holerite) baterem. #vt-coparticipacao
+    const _vtTotEnc=numVal('payroll-vt-total')||0;
+    const vtCoPartEnc=_vtTotEnc>0?Math.min(+(salBase*0.06).toFixed(2), _vtTotEnc):0;
+    const totalLiqFinal=Math.max(0,totalBruto-inss-irrf-pensaoEnc-planoEnc-outDesc-adiantEnc-atrasoEnc-descontoSaida-vtCoPartEnc);
     setVal('payroll-total-bruto',       totalBruto.toFixed(2));
     setVal('payroll-outros-proventos',  outProv.toFixed(2));
     setVal('payroll-outros-descontos',  outDesc.toFixed(2));

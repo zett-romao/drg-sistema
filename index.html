@@ -722,6 +722,13 @@
                     <i class="fa-solid fa-unlock-keyhole" style="color:#9E9E9E"></i> <strong>Consultar competências passadas/futuras</strong> — destrava os campos Mês/Ano. Padrão: travado no período vigente.
                   </label>
                 </div>
+                <!-- Atalho: carregar uma competência passada/futura direto (igual Benefícios). -->
+                <div id="payroll-competencia-rapida-row" style="margin:-4px 0 10px 0;display:flex;align-items:center;gap:8px;font-size:12px;flex-wrap:wrap">
+                  <label style="margin:0;color:#37474F;white-space:nowrap"><i class="fa-solid fa-clock-rotate-left" style="color:#5C6BC0"></i> Carregar competência:</label>
+                  <select id="payroll-competencia-rapida" onchange="_payrollCarregarCompetencia(this.value)" style="border:1px solid #ccc;border-radius:6px;padding:5px 8px;font-size:12px;flex:1;min-width:200px;max-width:300px">
+                    <option value="">— Selecione uma competência —</option>
+                  </select>
+                </div>
                 <!-- Período e Status -->
                 <div class="form-row" style="align-items:flex-end">
                   <div class="form-group form-group-sm">
@@ -6214,6 +6221,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260601b-folhas-fechadas"></script>
+<script src="app.js?v=20260601c-carregar-competencia"></script>
 </body>
 </html>

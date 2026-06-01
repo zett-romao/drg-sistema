@@ -5730,6 +5730,7 @@ function initPayrollSection(){
   _autoFillPeriodoDates(mes,ano);
   _updatePainelFechamento(mes,ano);
   _renderBadgeStatusPeriodo(mes,ano);
+  _payrollMontarDropdownCompetencias();
   if(currentId) onPayrollEmployeeChange();
 }
 
@@ -5794,6 +5795,45 @@ function avancarParaProximaCompetencia(){
   setVal('payroll-ano', String(novoAno));
   onPayrollPeriodoChange();
   toast(`Avançando para ${MESES[novoMes]}/${novoAno}`,'success');
+}
+
+// Popula o dropdown "Carregar competência" da Folha de Ponto — atalho pra pular
+// pra qualquer competência passada/futura sem destravar e mexer no Mês/Ano na
+// mão. Espelha o da tela de Benefícios. #folha-carregar-competencia
+function _payrollMontarDropdownCompetencias(){
+  const sel = document.getElementById('payroll-competencia-rapida');
+  if(!sel) return;
+  const setComp = new Set();
+  (State.payrolls||[]).forEach(p => { if(p.mes && p.ano) setComp.add(`${p.ano}-${String(p.mes).padStart(2,'0')}`); });
+  // Competência vigente + 24 retroativas como sugestão (cobre o histórico recente).
+  const v = competenciaVigente();
+  let m = v.mes, a = v.ano;
+  for(let i=0;i<24;i++){ setComp.add(`${a}-${String(m).padStart(2,'0')}`); m--; if(m<1){ m=12; a--; } }
+  const lista = [...setComp].sort((x,y)=> y.localeCompare(x)); // mais recente primeiro
+  const cur = `${val('payroll-ano')}-${String(val('payroll-mes')).padStart(2,'0')}`;
+  sel.innerHTML = '<option value="">— Selecione uma competência —</option>' + lista.map(k=>{
+    const [yy,mm] = k.split('-').map(n=>parseInt(n));
+    const stt = statusCompetencia(mm, yy);
+    const tag = stt==='vigente' ? ' • vigente' : stt==='futura' ? ' • futura' : '';
+    const lbl = `${MESES[mm]}/${yy} (${_compLabel(mm,yy)})${tag}`;
+    return `<option value="${k}"${k===cur?' selected':''}>${lbl}</option>`;
+  }).join('');
+}
+
+// Pula a Folha de Ponto pra competência escolhida no dropdown: destrava Mês/Ano,
+// ajusta os dropdowns e recarrega a folha do colaborador selecionado.
+function _payrollCarregarCompetencia(valor){
+  if(!valor) return;
+  const [aStr,mStr] = valor.split('-');
+  const m = parseInt(mStr), a = parseInt(aStr);
+  // Destrava a navegação (marca o checkbox) — deixa claro que saiu do vigente.
+  const chk = document.getElementById('chk-consultar-passadas');
+  if(chk && !chk.checked){ chk.checked = true; _togglePeriodoNavegacao(true); }
+  setVal('payroll-mes', String(m));
+  setVal('payroll-ano', String(a));
+  onPayrollPeriodoChange();
+  const stt = statusCompetencia(m, a);
+  toast(`Competência carregada: ${MESES[m]}/${a}${stt==='vigente'?' (vigente)':stt==='futura'?' (futura)':' (histórica)'}`,'success');
 }
 
 // Retorna a lista de informações básicas que faltam no cadastro do
@@ -10318,6 +10358,9 @@ function onPayrollPeriodoChange(){
   const ano=val('payroll-ano')||currentAno();
   _autoFillPeriodoDates(mes,ano);
   _updatePainelFechamento(mes,ano);
+  // Mantém o dropdown "Carregar competência" refletindo o período atual.
+  const _selComp=document.getElementById('payroll-competencia-rapida');
+  if(_selComp){ const k=`${ano}-${String(mes).padStart(2,'0')}`; if([..._selComp.options].some(o=>o.value===k)) _selComp.value=k; }
   // Recarregar folha do colaborador selecionado para o novo período
   const empId=val('payroll-employee');
   if(empId) onPayrollEmployeeChange();

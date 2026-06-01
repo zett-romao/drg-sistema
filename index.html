@@ -307,6 +307,12 @@
               <span>Contabilidade</span>
             </a>
           </li>
+          <li id="nav-rubricas-li">
+            <a class="nav-link" id="nav-rubricas" onclick="showSection('rubricas')">
+              <i class="fa-solid fa-list-check"></i>
+              <span>Rubricas</span>
+            </a>
+          </li>
         </ul>
       </li>
 
@@ -1291,6 +1297,30 @@
             </table>
           </div>
         </div>
+      </section>
+
+      <!-- ===== RUBRICAS (catálogo de proventos/descontos — Fase 1) ===== -->
+      <section id="section-rubricas" class="section">
+        <div class="page-header">
+          <div>
+            <h2>Rubricas</h2>
+            <p>Catálogo de proventos e descontos para lançamentos da folha (modo conferência)</p>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-primary" onclick="openRubricaModal()"><i class="fa-solid fa-plus"></i> Nova rubrica</button>
+          </div>
+        </div>
+        <div class="card"><div class="card-body" style="font-size:13px;color:var(--text-muted)">
+          <i class="fa-solid fa-circle-info"></i> Rubricas marcadas como <strong>"Fixa p/ todos"</strong> (ex.: Seguro de Vida) são aplicadas automaticamente a todos os ativos na folha. As demais você lança por colaborador na <strong>Folha de Ponto → Lançamentos avulsos</strong>.
+        </div></div>
+        <div class="card"><div class="card-body" style="padding:0">
+          <table class="data-table" id="rubricas-table">
+            <thead><tr>
+              <th>Código</th><th>Descrição</th><th>Tipo</th><th>Cálculo</th><th>Incide</th><th>Ações</th>
+            </tr></thead>
+            <tbody id="rubricas-tbody"></tbody>
+          </table>
+        </div></div>
       </section>
 
       <!-- ===== ADMINISTRAÇÃO (master only) ===== -->
@@ -6130,6 +6160,65 @@
   </div>
 </div>
 
+<!-- ===== MODAL RUBRICA ===== -->
+<div class="modal-overlay hidden" id="modal-rubrica" onclick="closeModal('modal-rubrica', event)">
+  <div class="modal-dialog">
+    <div class="modal-header">
+      <h3 id="modal-rubrica-title"><i class="fa-solid fa-plus"></i> Nova Rubrica</h3>
+      <button class="modal-close" onclick="closeModal('modal-rubrica')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="rubrica-id">
+      <div class="form-row">
+        <div class="form-group"><label>Código</label><input type="text" id="rubrica-codigo" placeholder="Ex.: 224"></div>
+        <div class="form-group"><label>Tipo</label>
+          <select id="rubrica-tipo"><option value="D">Desconto</option><option value="P">Provento</option></select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="grid-column:1 / -1"><label>Descrição <span class="required">*</span></label>
+          <input type="text" id="rubrica-descricao" maxlength="80" placeholder="Ex.: Seguro de Vida"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Forma de cálculo</label>
+          <select id="rubrica-calculo">
+            <option value="fixo">Valor fixo (R$)</option>
+            <option value="percentual">Percentual (% do salário base)</option>
+            <option value="quantidade">Quantidade × valor</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>&nbsp;</label>
+          <div class="checkbox-group" style="padding:9px 0">
+            <input type="checkbox" id="rubrica-fixatodos" onchange="_rubricaFixaToggle()">
+            <label for="rubrica-fixatodos" style="font-size:13px;font-weight:600;cursor:pointer">Fixa p/ TODOS os ativos</label>
+          </div>
+        </div>
+      </div>
+      <div class="form-row" id="rubrica-row-valorpadrao" style="display:none">
+        <div class="form-group" style="grid-column:1 / -1"><label>Valor fixo p/ todos (R$)</label>
+          <input type="number" id="rubrica-valorpadrao" step="0.01" min="0" placeholder="Ex.: 2,40">
+          <div style="font-size:11px;color:#888;margin-top:2px">Aplicado automaticamente a todos os colaboradores ativos na folha.</div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="grid-column:1 / -1">
+          <label style="font-size:12px;color:#888">Incidências (reservado — você parametriza na Fase 2/3)</label>
+          <div class="checkbox-group" style="gap:16px;flex-wrap:wrap">
+            <label style="font-weight:400;cursor:pointer"><input type="checkbox" id="rubrica-inss"> INSS</label>
+            <label style="font-weight:400;cursor:pointer"><input type="checkbox" id="rubrica-fgts"> FGTS</label>
+            <label style="font-weight:400;cursor:pointer"><input type="checkbox" id="rubrica-irrf"> IRRF</label>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-rubrica')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarRubrica()"><i class="fa-solid fa-floppy-disk"></i> Salvar</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== TROCA DE PLANTÃO ===== -->
 <div class="modal-overlay hidden" id="modal-troca-plantao" onclick="closeModal('modal-troca-plantao', event)">
   <div class="modal-dialog">
@@ -6237,6 +6326,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260601p-cct-clicavel"></script>
+<script src="app.js?v=20260601q-rubricas-1a"></script>
 </body>
 </html>

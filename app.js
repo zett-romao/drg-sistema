@@ -239,6 +239,7 @@ const State = {
   holeritesEnviados: [],
   parametrosLegais: null,
   cct: null,
+  rubricas: [],
   empresa: {...EMPRESA_DEFAULTS},
   decimoTerceiro: [],
   ferias:         [],
@@ -1064,6 +1065,7 @@ function showSection(name){
   if(name==='contabilidade'  && !mods.contabilidade)   return;
   if(name==='banco'          && Auth.currentUser?.role!=='master') return;
   if(name==='postos'         && !mods.postos)       return;
+  if(name==='rubricas'       && !mods.pagamentos && Auth.currentUser?.role!=='master') return;
   if(name==='contratos'      && !mods.contratos)    return;
   if(name==='comunicacao'    && !mods.comunicacao)  return;
   if(name==='autorizacoes'   && !mods.autorizarPonto) return;
@@ -1087,7 +1089,7 @@ function showSection(name){
   applyNavGroupsState(name);
   const titles={dashboard:'Dashboard',employees:'Colaboradores',payroll:'Folha de Ponto',escalas:'Escalas',
                 pagamentos:'Pagamentos',beneficios:'Benefícios',recibos:'Recibos Enviados',adiantamentos:'Adiantamentos',aprovacoes:'Aprovações de Pagamentos',decimoterceiro:'13º Salário',ferias:'Férias',rescisao:'Rescisões',
-                contabilidade:'Contabilidade',banco:'Banco de Dados',users:'Usuários & Acessos',postos:'Postos de Trabalho',contratos:'Contratos',comunicacao:'Comunicação',autorizacoes:'Autorizações de Ponto',documentos:'Documentos do Colaborador',configuracoes:'Configurações'};
+                contabilidade:'Contabilidade',banco:'Banco de Dados',users:'Usuários & Acessos',postos:'Postos de Trabalho',rubricas:'Rubricas',contratos:'Contratos',comunicacao:'Comunicação',autorizacoes:'Autorizações de Ponto',documentos:'Documentos do Colaborador',configuracoes:'Configurações'};
   document.getElementById('topbar-title').textContent=titles[name]||name;
   State.currentSection=name;
   if(name==='employees') renderEmployeeTable();
@@ -1117,6 +1119,7 @@ function showSection(name){
   if(name==='documentos')      renderDocumentosPendentes();
   if(name==='configuracoes')  renderConfiguracoes();
   if(name==='postos')    renderPostosTable();
+  if(name==='rubricas')  renderRubricas();
   if(name==='contratos') {
     // Garante aba Tenants ativa e carrega dados
     switchAdminTab('tenants');
@@ -22137,6 +22140,99 @@ async function savePosto(){
   } catch(e){ toast('Erro ao salvar posto.','error'); }
 }
 
+// ── RUBRICAS — catálogo de proventos/descontos (Fase 1) ──────────────
+const RUBRICAS_SEED = [
+  { codigo:'224', descricao:'Seguro de Vida',             tipo:'D', calculo:'fixo', fixaTodos:true, valorPadrao:2.40 },
+  { codigo:'212', descricao:'Pensão Alimentícia',          tipo:'D', calculo:'fixo' },
+  { codigo:'218', descricao:'Desconto Empréstimo',         tipo:'D', calculo:'fixo' },
+  { codigo:'235', descricao:'Empréstimo Consignado',       tipo:'D', calculo:'fixo' },
+  { codigo:'239', descricao:'Desconto Pagamento Indevido', tipo:'D', calculo:'fixo' },
+  { codigo:'207', descricao:'Reembolso Desconto Indevido', tipo:'P', calculo:'fixo' },
+  { codigo:'19',  descricao:'Diferença de Salários',       tipo:'P', calculo:'fixo' },
+];
+let _rubricasSeedTentado = false;
+async function _seedRubricasSeNecessario(){
+  if(_rubricasSeedTentado) return;
+  if(!Auth.currentUser || Auth.currentUser.role!=='master') return;  // só master semeia
+  if((State.rubricas||[]).length > 0) return;
+  _rubricasSeedTentado = true;
+  for(const r of RUBRICAS_SEED){
+    try{ await DB.save('rubricas', { id:genId(), base:'salarioBase', incideINSS:false, incideFGTS:false, incideIRRF:false, ativa:true, sistema:true, valorPadrao:0, fixaTodos:false, ...r, updatedAt:new Date().toISOString() }); }
+    catch(e){ console.error('seed rubrica', e); }
+  }
+}
+function _rubricaCalcLabel(c){ return c==='percentual' ? '% do salário' : c==='quantidade' ? 'Qtde × valor' : 'Valor fixo'; }
+function renderRubricas(){
+  const tbody=document.getElementById('rubricas-tbody'); if(!tbody) return;
+  const lista=(State.rubricas||[]).slice().sort((a,b)=>(a.descricao||'').localeCompare(b.descricao||''));
+  if(!lista.length){
+    tbody.innerHTML=`<tr><td colspan="6" class="empty-row"><i class="fa-solid fa-list-check"></i> Nenhuma rubrica — clique "Nova rubrica" (as padrões são semeadas no 1º acesso do master)</td></tr>`;
+    return;
+  }
+  tbody.innerHTML=lista.map(r=>{
+    const tipoBadge = r.tipo==='P'
+      ? '<span class="badge" style="background:#E8F5E9;color:#1B5E20">Provento</span>'
+      : '<span class="badge" style="background:#FFEBEE;color:#C62828">Desconto</span>';
+    const fixa = r.fixaTodos ? ` <span class="badge" style="background:#F3E5F5;color:#7B1FA2" title="Aplica automaticamente a todos os ativos">Fixa p/ todos · ${fmtMoney(r.valorPadrao||0)}</span>` : '';
+    const inc = [r.incideINSS?'INSS':'',r.incideFGTS?'FGTS':'',r.incideIRRF?'IRRF':''].filter(Boolean).join(' · ')||'—';
+    return `<tr>
+      <td style="font-size:12px">${esc(r.codigo||'—')}</td>
+      <td><strong>${esc(r.descricao||'—')}</strong>${fixa}</td>
+      <td>${tipoBadge}</td>
+      <td style="font-size:12px">${_rubricaCalcLabel(r.calculo)}</td>
+      <td style="font-size:11px;color:#888">${inc}</td>
+      <td>
+        <button class="btn-action btn-edit" onclick="openRubricaModal('${r.id}')" title="Editar"><i class="fa-solid fa-pen"></i></button>
+        <button class="btn-action btn-danger" onclick="confirmDeleteRubrica('${r.id}')" title="Excluir"><i class="fa-solid fa-trash"></i></button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+function _rubricaFixaToggle(){
+  const row=document.getElementById('rubrica-row-valorpadrao');
+  if(row) row.style.display = document.getElementById('rubrica-fixatodos')?.checked ? '' : 'none';
+}
+function openRubricaModal(id=null){
+  document.getElementById('modal-rubrica').classList.remove('hidden');
+  const r = id ? (State.rubricas||[]).find(x=>x.id===id) : null;
+  setVal('rubrica-id', r?r.id:'');
+  setVal('rubrica-codigo', r?(r.codigo||''):'');
+  setVal('rubrica-descricao', r?(r.descricao||''):'');
+  setVal('rubrica-tipo', r?(r.tipo||'D'):'D');
+  setVal('rubrica-calculo', r?(r.calculo||'fixo'):'fixo');
+  const fx=document.getElementById('rubrica-fixatodos'); if(fx) fx.checked=!!(r&&r.fixaTodos);
+  setVal('rubrica-valorpadrao', (r&&r.valorPadrao)?r.valorPadrao:'');
+  const ii=document.getElementById('rubrica-inss'); if(ii) ii.checked=!!(r&&r.incideINSS);
+  const ig=document.getElementById('rubrica-fgts'); if(ig) ig.checked=!!(r&&r.incideFGTS);
+  const ir=document.getElementById('rubrica-irrf'); if(ir) ir.checked=!!(r&&r.incideIRRF);
+  document.getElementById('modal-rubrica-title').innerHTML = id?'<i class="fa-solid fa-pen"></i> Editar Rubrica':'<i class="fa-solid fa-plus"></i> Nova Rubrica';
+  _rubricaFixaToggle();
+}
+async function salvarRubrica(){
+  const desc=val('rubrica-descricao').trim();
+  if(!desc){ toast('Informe a descrição da rubrica.','error'); return; }
+  const id=val('rubrica-id')||genId();
+  const record={
+    id, codigo:val('rubrica-codigo').trim(), descricao:desc,
+    tipo: val('rubrica-tipo')||'D',
+    calculo: val('rubrica-calculo')||'fixo',
+    fixaTodos: !!document.getElementById('rubrica-fixatodos')?.checked,
+    valorPadrao: parseFloat(val('rubrica-valorpadrao'))||0,
+    base:'salarioBase',
+    incideINSS: !!document.getElementById('rubrica-inss')?.checked,
+    incideFGTS: !!document.getElementById('rubrica-fgts')?.checked,
+    incideIRRF: !!document.getElementById('rubrica-irrf')?.checked,
+    ativa:true, sistema:false, updatedAt:new Date().toISOString()
+  };
+  try{ await DB.save('rubricas', record); toast('Rubrica salva!'); closeModal('modal-rubrica'); }
+  catch(e){ toast('Erro ao salvar rubrica.','error'); }
+}
+async function confirmDeleteRubrica(id){
+  const r=(State.rubricas||[]).find(x=>x.id===id); if(!r) return;
+  if(!confirm(`Excluir a rubrica "${r.descricao}"? Lançamentos já feitos nas folhas não são afetados.`)) return;
+  try{ await DB.remove('rubricas', id); toast('Rubrica excluída.'); }catch(e){ toast('Erro ao excluir.','error'); }
+}
+
 // ---- Histórico de Postos ----
 
 // Timeline de lotação (posto/turno/escala/função/salário por vigência) — pra
@@ -24275,6 +24371,11 @@ async function _carregarDadosPosLogin(){
   DB.listen('cct', data => {
     State.cct = data.find(c=>c.id==='current')||null;
     if(State.currentSection==='dashboard') renderDashboard();
+  });
+  DB.listen('rubricas', data => {
+    State.rubricas = data || [];
+    _seedRubricasSeNecessario();
+    if(State.currentSection==='rubricas') renderRubricas();
   });
   DB.listen('perfis', data => {
     State.perfis = data;

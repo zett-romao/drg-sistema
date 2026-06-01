@@ -3305,6 +3305,25 @@ function _paginaPublicaErroHTML(titulo, msg){
 // cards com totais, tabela com protocolo + link rápido + ações (reabrir
 // modal, anular, reimprimir).
 // ============================================
+// Status EFETIVO do recibo enviado: cruza a coleção holeritesEnviados (envio por
+// LINK público — marca visualizadoEm quando o colab abre) com o holeriteConferencia
+// do payroll (envio pro APP, onde o colab ASSINA com hash). Sem isso, a tela
+// Recibos Enviados ignorava a assinatura feita no app e ficava "Aguardando" mesmo
+// já assinada na aba Holerites Assinados. Agora a assinatura reflete nas DUAS
+// páginas. #recibo-assinatura-2paginas
+function _reciboStatusEfetivo(r){
+  if(r.anulado) return { key:'anulado', txt:'Anulado', cor:'#c0392b', bg:'#FFEBEE', bd:'#FFCDD2', icon:'fa-ban', data:null, interagiu:false };
+  const p = (State.payrolls||[]).find(x=>x.employeeId===r.employeeId && x.mes==r.mes && x.ano==r.ano);
+  const conf = p && p.holeriteConferencia;
+  const cs = conf && conf.status;
+  if(cs==='assinada')            return { key:'assinado',    txt:'Assinado',          cor:'#1B5E20', bg:'#E8F5E9', bd:'#A5D6A7', icon:'fa-file-signature',   data: conf.assinadoEm,   interagiu:true };
+  if(cs==='contestada')          return { key:'contestado',  txt:'Contestado',        cor:'#C62828', bg:'#FFEBEE', bd:'#FFCDD2', icon:'fa-circle-xmark',     data: conf.contestadoEm, interagiu:true };
+  if(cs==='aceita_por_silencio') return { key:'silencio',    txt:'Aceito (silêncio)', cor:'#558B2F', bg:'#F1F8E9', bd:'#C5E1A5', icon:'fa-clock-rotate-left',data: conf.silencioEm,   interagiu:true };
+  const visData = (cs==='visualizada' && conf.visualizadoEm) || r.visualizadoEm || null;
+  if(visData)                    return { key:'visualizado', txt:'Visualizado',       cor:'#1B5E20', bg:'#E8F5E9', bd:'#A5D6A7', icon:'fa-circle-check',     data: visData,           interagiu:true };
+  return { key:'aguardando', txt:'Aguardando', cor:'#E65100', bg:'#FFF3E0', bd:'#FFCC80', icon:'fa-clock', data:null, interagiu:false };
+}
+
 function _recibosEnviadosFiltrados(){
   const mes = (val('rec-mes')||'').trim();
   const ano = (val('rec-ano')||'').trim();
@@ -3313,8 +3332,8 @@ function _recibosEnviadosFiltrados(){
   let lista = (State.holeritesEnviados||[]).slice();
   if(mes) lista = lista.filter(r=>r.mes==parseInt(mes));
   if(ano) lista = lista.filter(r=>r.ano==parseInt(ano));
-  if(status==='visualizado') lista = lista.filter(r=>!!r.visualizadoEm && !r.anulado);
-  if(status==='pendente')    lista = lista.filter(r=>!r.visualizadoEm && !r.anulado);
+  if(status==='visualizado') lista = lista.filter(r=>_reciboStatusEfetivo(r).interagiu);
+  if(status==='pendente')    lista = lista.filter(r=>_reciboStatusEfetivo(r).key==='aguardando');
   if(status==='anulado')     lista = lista.filter(r=>!!r.anulado);
   if(q){
     lista = lista.filter(r=>{
@@ -3336,10 +3355,11 @@ function renderRecibosEnviados(){
   const todos = (State.holeritesEnviados||[]);
   const filtrados = _recibosEnviadosFiltrados();
 
-  // Stats globais (não filtrados — visão geral fica útil)
+  // Stats globais (não filtrados — visão geral fica útil). Usam o status EFETIVO,
+  // então a assinatura no app conta como interação (sai de "Aguardando").
   const totalEnv  = todos.length;
-  const totalVis  = todos.filter(r=>!!r.visualizadoEm && !r.anulado).length;
-  const totalPend = todos.filter(r=>!r.visualizadoEm && !r.anulado).length;
+  const totalVis  = todos.filter(r=>_reciboStatusEfetivo(r).interagiu).length;
+  const totalPend = todos.filter(r=>_reciboStatusEfetivo(r).key==='aguardando').length;
   const totalAnu  = todos.filter(r=>!!r.anulado).length;
   const pctVis    = totalEnv>0 ? Math.round(totalVis*100/totalEnv) : 0;
   if(statsEl){
@@ -3376,15 +3396,9 @@ function renderRecibosEnviados(){
     const compLabel = `${MESES[r.mes]||'?'}/${r.ano}`;
     const liq = fmtMoney(r.liquido||0);
     const enviado = r.geradoEm ? new Date(r.geradoEm).toLocaleString('pt-BR') : '—';
-    const visual  = r.visualizadoEm ? new Date(r.visualizadoEm).toLocaleString('pt-BR') : '—';
-    let badge;
-    if(r.anulado){
-      badge = `<span style="background:#FFEBEE;color:#c0392b;border:1px solid #FFCDD2;padding:2px 8px;border-radius:12px;font-size:11px"><i class="fa-solid fa-ban"></i> Anulado</span>`;
-    } else if(r.visualizadoEm){
-      badge = `<span style="background:#E8F5E9;color:#1B5E20;border:1px solid #A5D6A7;padding:2px 8px;border-radius:12px;font-size:11px"><i class="fa-solid fa-circle-check"></i> Visualizado</span>`;
-    } else {
-      badge = `<span style="background:#FFF3E0;color:#E65100;border:1px solid #FFCC80;padding:2px 8px;border-radius:12px;font-size:11px"><i class="fa-solid fa-clock"></i> Aguardando</span>`;
-    }
+    const st = _reciboStatusEfetivo(r);
+    const visual  = st.data ? new Date(st.data).toLocaleString('pt-BR') : '—';
+    const badge = `<span style="background:${st.bg};color:${st.cor};border:1px solid ${st.bd};padding:2px 8px;border-radius:12px;font-size:11px"><i class="fa-solid ${st.icon}"></i> ${st.txt}</span>`;
     const link = location.origin + location.pathname + '#/recibo/' + (r.token||'');
     const linkEscaped = link.replace(/'/g,"\\'");
     const bg = i%2===0 ? '#fff' : '#f7f9fc';
@@ -3455,13 +3469,14 @@ function exportRecibosCsv(){
     const emp = State.employees.find(e=>e.id===r.employeeId);
     const nome = r.employeeNome || emp?.nome || '';
     const reg = emp ? String(emp.registro||'').padStart(4,'0') : '';
-    const status = r.anulado?'Anulado':(r.visualizadoEm?'Visualizado':'Aguardando');
+    const stEf = _reciboStatusEfetivo(r);
+    const status = stEf.txt;
     const link = location.origin + location.pathname + '#/recibo/' + (r.token||'');
     const fmtBr = iso => iso ? new Date(iso).toLocaleString('pt-BR') : '';
     return [i+1, nome, reg, `${MESES[r.mes]||'?'}/${r.ano}`,
       (r.liquido||0).toFixed(2).replace('.',','),
       r.protocolo||'', r.token||'',
-      fmtBr(r.geradoEm), fmtBr(r.visualizadoEm), status, link
+      fmtBr(r.geradoEm), fmtBr(stEf.data), status, link
     ].map(v=>String(v).replace(/;/g,',')).join(';');
   });
   const csv = '﻿' + [header.join(';'), ...rows].join('\n');
@@ -23754,6 +23769,7 @@ async function _carregarDadosPosLogin(){
     State.payrolls = data;
     if(State.currentSection==='payroll') renderPayrollHistory(val('payroll-employee'));
     if(State.currentSection==='dashboard') renderDashboard();
+    if(State.currentSection==='recibos') renderRecibosEnviados(); // assinatura no app reflete na tela Recibos
     updateDbInfo();
     // Job 'Aceito por silêncio': roda toda vez que payrolls são atualizados.
     // Marca como 'aceita_por_silencio' folhas cujo prazo de 48h passou.

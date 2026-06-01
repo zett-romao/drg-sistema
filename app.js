@@ -2729,7 +2729,7 @@ function _reciboOficialUmHTML(emp, p, mes, ano, opts){
   const empCnpj = _e('cnpj') || '—';
   const empEnd  = _empresaEnderecoLinha() || '';
   const empCnae = _e('cnae') || '';
-  const empLogo = _e('logoUrl') || '';
+  const empLogo = _e('logoUrl') || 'logo.png';  // sem logo custom → usa o logo do sistema
   const ctpsTxt = [emp.ctpsNumero, emp.ctpsSerie, emp.ctpsUf].filter(Boolean).join(' / ') || '—';
   const rgTxt   = (emp.rg||'—') + (emp.rgOrgao?' '+emp.rgOrgao:'');
   const endCol  = [emp.endereco, emp.numero?'nº '+emp.numero:'', emp.complemento, emp.bairro,
@@ -12617,9 +12617,12 @@ function _gerarReciboEnvioHTML(d){
 </style></head>
 <body>
   <div class="header">
-    <div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <img src="logo.png" alt="" style="height:46px;width:auto;max-width:80px;object-fit:contain;flex-shrink:0" onerror="this.style.display='none'">
+      <div>
       <h1>RECIBO DE ENVIO</h1>
       <div class="empresa">${esc(d.empresa)}</div>
+      </div>
     </div>
     <div class="meta">
       Documento ID:<br><strong>${esc(d.discId)}</strong><br>
@@ -20657,11 +20660,14 @@ ${isPreview?`<div class="preview-banner">
   Gerado em ${dataAtual} com base nos registros até o momento. Os valores são proporcionais aos dias já trabalhados e podem mudar até o fechamento do mês.</div>
 </div>`:''}
 <div class="header">
-  <div class="header-left">
+  <div class="header-left" style="display:flex;align-items:center;gap:12px">
+    <img src="logo.png" alt="" style="height:52px;width:auto;max-width:90px;object-fit:contain;flex-shrink:0" onerror="this.style.display='none'">
+    <div>
     <h1>${_e('nomeEmpresa')}</h1>
     <p>CNPJ: ${_e('cnpj')} &nbsp;|&nbsp; ${_e('descricao')}${_e('cnae')?' &nbsp;|&nbsp; CNAE: '+_e('cnae'):''}</p>
     ${_empresaEnderecoLinha()?`<p style="font-size:11px;color:#555;margin-top:1px">${_empresaEnderecoLinha()}</p>`:''}
     <p style="font-size:12px;font-weight:700;color:${isPreview?'#E65100':'#1a3a6b'};margin-top:4px">${isPreview?'PRÉVIA — ':''}FOLHA DE PONTO — ${mesLabel.toUpperCase()} / ${ano}</p>
+    </div>
   </div>
   <div class="header-right">
     <p>${isPreview?'<strong style="color:#E65100">PRÉVIA PARCIAL</strong><br>':''}</p>
@@ -20909,11 +20915,14 @@ function _buildFolhaHtmlFromRecord(emp, p){
   .resumo-item.alerta .resumo-valor{color:#E65100}
 </style>
 <div class="header">
-  <div class="header-left">
+  <div class="header-left" style="display:flex;align-items:center;gap:12px">
+    <img src="logo.png" alt="" style="height:52px;width:auto;max-width:90px;object-fit:contain;flex-shrink:0" onerror="this.style.display='none'">
+    <div>
     <h1>${_e('nomeEmpresa')}</h1>
     <p>CNPJ: ${_e('cnpj')} &nbsp;|&nbsp; ${_e('descricao')}${_e('cnae')?' &nbsp;|&nbsp; CNAE: '+_e('cnae'):''}</p>
     ${_empresaEnderecoLinha()?`<p style="font-size:11px;color:#555;margin-top:1px">${_empresaEnderecoLinha()}</p>`:''}
     <p style="font-size:12px;font-weight:700;color:#1a3a6b;margin-top:4px">FOLHA DE PONTO — ${mesLabel.toUpperCase()} / ${ano}</p>
+    </div>
   </div>
   <div class="header-right">
     <p>Emitido em: ${dataAtual}</p>

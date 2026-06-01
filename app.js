@@ -2728,7 +2728,7 @@ function _reciboOficialLinhas(emp, p){
   const heCorrido   = +p.heCorridoValor||0;          // HE "hora corrida" — campo separado do motor (9613)
   const heCorridoMin= +p.heCorridoMin||0;
   const ins         = +p.insalubridade||0;
-  const acu         = +p.acumulo||0;
+  const acu         = +p.acumuloFuncao||0;
   const outProv     = +p.outrosProventosTotal||0;    // prêmios / ajudas lançados no cadastro (9617)
   const inss        = +p.inss||0;
   const irrf        = +p.irrf||0;
@@ -4039,7 +4039,7 @@ function renderContabilidade(){
     const bon=p?p.bonificacao||0:0;
     const an=p?p.adNoturno||0:0;
     const ins=p?p.insalubridade||0:0;
-    const acu=p?p.acumulo||0:0;
+    const acu=p?p.acumuloFuncao||0:0;
     const adiant=p?(p.adiantamentoValor||p.adiantamento||0):0;
     const totalFaltas=p?('faltasJustificadas' in p?(p.faltasJustificadas||0)+(p.faltasInjustificadas||0):(p.faltas||0)):0;
     // Boa Permanência (bon) é benefício pago no VR — NÃO entra na espécie (dinheiro).
@@ -4155,7 +4155,7 @@ function exportContabilidadeCsv(){
     const rem=p?p.remuneracao||0:0;
     const totalFaltas=p?('faltasJustificadas' in p?(p.faltasJustificadas||0)+(p.faltasInjustificadas||0):(p.faltas||0)):0;
     // Boa Permanência é benefício (VR), não espécie
-    const especie=rem+(p?p.adNoturno||0:0)+(p?p.insalubridade||0:0)+(p?p.acumulo||0:0)+(p?p.horasExtrasValor||0:0);
+    const especie=rem+(p?p.adNoturno||0:0)+(p?p.insalubridade||0:0)+(p?p.acumuloFuncao||0:0)+(p?p.horasExtrasValor||0:0);
     return [
       i+1,
       e.registro?String(e.registro).padStart(4,'0'):'',
@@ -4164,7 +4164,7 @@ function exportContabilidadeCsv(){
       e.salarioBase||0,
       p?p.diasTrabalhados||0:'', p?totalFaltas:'',
       rem, p?p.valeTransporte||0:0, p?p.valeRefeicao||0:0, p?p.valeAlimentacaoLiquido||0:0,
-      p?p.horasExtrasValor||0:0, p?p.bonificacao||0:0, p?p.adNoturno||0:0, p?p.insalubridade||0:0, p?p.acumulo||0:0, p?(p.adiantamentoValor||p.adiantamento||0):0,
+      p?p.horasExtrasValor||0:0, p?p.bonificacao||0:0, p?p.adNoturno||0:0, p?p.insalubridade||0:0, p?p.acumuloFuncao||0:0, p?(p.adiantamentoValor||p.adiantamento||0):0,
       especie, e.chavePix||''
     ].map(v=>typeof v==='string'&&v.includes(',')? `"${v}"`:v);
   });

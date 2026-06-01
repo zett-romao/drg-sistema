@@ -28,6 +28,55 @@ const ALLOWED_ORIGINS = [
 // API Asaas v3 — PRODUÇÃO (endereço conferido em docs.asaas.com).
 const ASAAS_BASE = 'https://api.asaas.com/v3';
 
+// ── Verificação do ID token do Firebase (mesma do drg-aprovacao) ──────────
+// Sem isto, este proxy ficava ABERTO: qualquer um com a URL criava cobrança /
+// lia clientes (CORS NÃO protege contra chamada via curl/servidor). Agora exige
+// 'Authorization: Bearer <idToken>' de um gestor logado no DRG-Kronos. #asaas-auth
+const PROJECT_ID   = 'drg-sistema';
+const TOKEN_ISSUER = 'https://securetoken.google.com/' + PROJECT_ID;
+const JWK_URL      = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
+function b64ToBytes(str){
+  let s = String(str).replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  const bin = atob(s);
+  const b = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i);
+  return b;
+}
+let _fbKeys = null;
+async function getFirebaseKeys(){
+  if (_fbKeys && _fbKeys.exp > Date.now()) return _fbKeys.map;
+  const res  = await fetch(JWK_URL);
+  const data = await res.json();
+  const map  = {};
+  for (const jwk of (data.keys || [])) {
+    map[jwk.kid] = await crypto.subtle.importKey(
+      'jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
+  }
+  const m = (res.headers.get('Cache-Control') || '').match(/max-age=(\d+)/);
+  _fbKeys = { map, exp: Date.now() + (m ? +m[1] : 3600) * 1000 };
+  return map;
+}
+async function verifyIdToken(idToken){
+  if (!idToken) throw new Error('token ausente');
+  const p = String(idToken).split('.');
+  if (p.length !== 3) throw new Error('token malformado');
+  const header  = JSON.parse(new TextDecoder().decode(b64ToBytes(p[0])));
+  const payload = JSON.parse(new TextDecoder().decode(b64ToBytes(p[1])));
+  if (header.alg !== 'RS256') throw new Error('alg invalido');
+  const key = (await getFirebaseKeys())[header.kid];
+  if (!key) throw new Error('chave nao encontrada');
+  const ok = await crypto.subtle.verify(
+    'RSASSA-PKCS1-v1_5', key, b64ToBytes(p[2]),
+    new TextEncoder().encode(p[0] + '.' + p[1]));
+  if (!ok) throw new Error('assinatura invalida');
+  const agora = Math.floor(Date.now() / 1000);
+  if (payload.aud !== PROJECT_ID)   throw new Error('projeto invalido');
+  if (payload.iss !== TOKEN_ISSUER) throw new Error('emissor invalido');
+  if (!payload.sub || !payload.exp || payload.exp <= agora) throw new Error('token expirado');
+  return { uid: payload.sub, email: payload.email || '' };
+}
+
 export default {
   async fetch(request, env) {
     // ── CORS ─────────────────────────────────────────────────────────────
@@ -36,7 +85,7 @@ export default {
     const cors = {
       'Access-Control-Allow-Origin':  allowed ? origin : 'null',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     };
 
     if (request.method === 'OPTIONS') {
@@ -49,6 +98,19 @@ export default {
       return new Response(
         JSON.stringify({ error: 'ASAAS_API_KEY não configurada no Worker.' }),
         { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // ── Auth: exige idToken do Firebase (gestor logado) ───────────────────
+    // Antes este proxy era PÚBLICO. Agora só responde a quem mandar um idToken
+    // válido do projeto DRG-Kronos no header Authorization. #asaas-auth
+    const idToken = (request.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '').trim();
+    try {
+      await verifyIdToken(idToken);
+    } catch (e) {
+      return new Response(
+        JSON.stringify({ error: 'não autorizado — faça login no DRG-Kronos (' + (e.message || e) + ')' }),
+        { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } }
       );
     }
 

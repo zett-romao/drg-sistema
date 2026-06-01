@@ -804,7 +804,8 @@ function genId()    { return Date.now().toString(36) + Math.random().toString(36
 function fmtMoney(v){ return 'R$ ' + parseFloat(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function fmtDate(iso){ if(!iso) return '—'; return new Date(iso).toLocaleDateString('pt-BR'); }
 function fmtDateTime(iso){ if(!iso) return '—'; return new Date(iso).toLocaleString('pt-BR'); }
-function formatDateBr(iso){ if(!iso) return '—'; const [y,m,d]=(iso||'').split('-'); return d&&m&&y?`${d}/${m}/${y}`:'—'; }
+// formatDateBr() está definida mais abaixo (~linha 2209, versão completa que trata
+// YYYY-MM-DD E datetime). A duplicata morta que ficava aqui foi removida. #dedupe
 function initials(name){
   if(!name) return '?';
   const p = name.trim().split(' ');

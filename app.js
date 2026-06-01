@@ -7592,7 +7592,7 @@ function openBeneficioDetalhe(empId, _ignEscopo, _ignIni, _ignFim){
   let usoInfo='';
   if(escopo==='mes' && _uMes){
     const _dl=_diasPrevistosEscalaLista(emp, _uMes, _uAno);
-    const _diasStr = _dl.length ? _dl.map(d=>zp(d.dia)).join(', ') : '—';
+    const _diasStr = _dl.length ? _dl.map(d=>String(d.dia).padStart(2,'0')).join(', ') : '—';
     usoInfo =
       `<div style="background:#E8F5E9;border-left:4px solid #2E7D32;border-radius:6px;padding:8px 12px;margin:8px 0 2px;font-size:12px;color:#1B5E20;line-height:1.6">`+
       `<i class="fa-solid fa-arrow-trend-up"></i> <strong>Benefício para USO em ${MESES[_uMes]}/${_uAno}</strong> — projetado pela escala do contrato (não pelo ponto batido).<br>`+

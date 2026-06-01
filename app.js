@@ -7528,6 +7528,7 @@ let _beneficioDetalheCtx = null;
 function openBeneficioDetalhe(empId, _ignEscopo, _ignIni, _ignFim){
   const emp = State.employees.find(e=>e.id===empId);
   if(!emp){ toast('Colaborador não encontrado.','error'); return; }
+  try {
   // SEMPRE deriva o período da ABA ATIVA — ignora os parâmetros antigos
   // (passados pelo onclick da linha) pra evitar modal mostrar "Hoje" quando
   // a aba ativa é "Este Período". Assim o modal e a lista ficam sempre
@@ -7688,6 +7689,10 @@ function openBeneficioDetalhe(empId, _ignEscopo, _ignIni, _ignFim){
   recalcBeneficioDetalhe();
   document.getElementById('modal-beneficio-detalhe').classList.remove('hidden');
   if(typeof _initModalDrag === 'function') _initModalDrag();
+  } catch(_e){
+    console.error('openBeneficioDetalhe falhou:', _e);
+    toast('Erro ao abrir a planilha: '+((_e&&_e.message)||_e),'error');
+  }
 }
 
 // Marca/desmarca todos os checkboxes habilitados da planilha de benefício

@@ -1079,7 +1079,7 @@ function showSection(name){
   if(name==='payroll')   { initPayrollSection(); renderPayrollStats(); }
   if(name==='escalas')   renderEscalas();
   if(name==='dashboard') renderDashboard();
-  if(name==='pagamentos')      { _applyModoBanners(State.empresa?.modoContabilidade||'ambas'); renderPagamentos(); }
+  if(name==='pagamentos')      { _applyModoBanners(State.empresa?.modoContabilidade||'ambas'); setVal('pag-mes',currentMes()); setVal('pag-ano',currentAno()); renderPagamentos(); }
   if(name==='beneficios')      switchBeneficioTab(_beneficioTabAtual||'hoje');
   if(name==='recibos')         renderRecibosEnviados();
   if(name==='aprovacoes')      renderAprovacoes();

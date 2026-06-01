@@ -430,6 +430,31 @@ async function verifyPassword(password, stored){
   }
   return timingSafeEqual(await sha256hex(password), stored);  // legado SHA-256 hex
 }
+
+// ── Rate-limit / lockout (Frente C, etapa 3). #rate-limit ──
+// Trava login/PIN após RL_MAX tentativas erradas, por RL_WINDOW segundos.
+// Usa o KV `env.RATELIMIT`. FAIL-OPEN: se o KV não estiver vinculado (ou falhar),
+// NÃO bloqueia ninguém — segurança extra, nunca uma barreira que tranca o acesso.
+const RL_MAX    = 5;     // tentativas erradas antes de travar
+const RL_WINDOW = 900;   // 15 min de bloqueio (e janela de contagem)
+async function rlBlocked(env, key){
+  if (!env || !env.RATELIMIT) return false;
+  try { const n = parseInt(await env.RATELIMIT.get('rl:' + key), 10) || 0; return n >= RL_MAX; }
+  catch (_) { return false; }
+}
+async function rlFail(env, key){
+  if (!env || !env.RATELIMIT) return;
+  try {
+    const n = (parseInt(await env.RATELIMIT.get('rl:' + key), 10) || 0) + 1;
+    await env.RATELIMIT.put('rl:' + key, String(n), { expirationTtl: RL_WINDOW });
+  } catch (_) {}
+}
+async function rlClear(env, key){
+  if (!env || !env.RATELIMIT) return;
+  try { await env.RATELIMIT.delete('rl:' + key); } catch (_) {}
+}
+const RL_MSG = 'Muitas tentativas erradas. Aguarde 15 minutos e tente de novo.';
+
 // Gera uma senha temporária forte (sem caracteres ambíguos).
 function gerarSenhaTemp(){
   const cs = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
@@ -480,6 +505,7 @@ async function handlePontoLogin(body, token, env){
   const matInput = String(body.matricula || '').trim();
   const pinInput = String(body.pin || '').trim();
   if (!matInput || !pinInput) return { ok:false, erro:'informe matrícula e PIN' };
+  if (await rlBlocked(env, 'pin:' + matInput)) return { ok:false, erro: RL_MSG };   // #rate-limit
 
   // registro pode estar salvo como int OU string — tenta os dois (mesma lógica do app)
   let emp = null;
@@ -502,8 +528,11 @@ async function handlePontoLogin(body, token, env){
   // PIN aceito: campo emp.pin se houver, senão 4 últimos dígitos do CPF
   const cpfClean    = String(emp.cpf || '').replace(/\D/g, '');
   const pinEsperado = emp.pin || (cpfClean.length >= 4 ? cpfClean.slice(-4) : '0000');
-  if (!timingSafeEqual(pinInput, String(pinEsperado)))
+  if (!timingSafeEqual(pinInput, String(pinEsperado))) {
+    await rlFail(env, 'pin:' + matInput);   // #rate-limit
     return { ok:false, erro:'PIN incorreto. Use os 4 últimos dígitos do seu CPF.' };
+  }
+  await rlClear(env, 'pin:' + matInput);    // acertou → zera o contador
 
   // uid estável = id do doc do employee. Claim empId pra S3-C usar nas regras.
   const customToken = await mintCustomToken(emp.id, {
@@ -544,12 +573,17 @@ async function handleLogin(body, token, env){
   const username = String(body.username || '').trim();
   const password = String(body.password || '');
   if (!username || !password) return { ok:false, erro:'informe usuário e senha' };
+  const _rlK = 'login:' + username.toLowerCase();
+  if (await rlBlocked(env, _rlK)) return { ok:false, erro: RL_MSG };   // #rate-limit
   const user = await fsFindUserByUsername(username, token);
   if (!user)                return { ok:false, erro:'usuário inválido ou sem acesso' };
   if (user.active === false) return { ok:false, erro:'usuário inativo' };
   if (!user.passwordHash)   return { ok:false, erro:'usuário sem senha definida' };
-  if (!(await verifyPassword(password, user.passwordHash)))
+  if (!(await verifyPassword(password, user.passwordHash))) {
+    await rlFail(env, _rlK);   // #rate-limit
     return { ok:false, erro:'senha incorreta' };
+  }
+  await rlClear(env, _rlK);   // senha correta → zera o contador
   // uid estável: reusa firebaseUid se já existe (preserva o 2FA enrollado),
   // senão usa o id do doc de users.
   const uid   = user.firebaseUid || user.id;
@@ -591,6 +625,7 @@ async function handleLogin(body, token, env){
 async function handleOperatorLogin(body, token, env){
   const password = String(body.password || '');
   if (!password) return { ok:false, erro:'digite a senha' };
+  if (await rlBlocked(env, 'op:operator')) return { ok:false, erro: RL_MSG };   // #rate-limit
 
   const cfg  = await fsGetDoc('operator/config', token);
 
@@ -600,10 +635,12 @@ async function handleOperatorLogin(body, token, env){
       senhaHash: await hashPassword(password), criadoEm: new Date().toISOString(),
     }, token);
   } else if (!(await verifyPassword(password, cfg.senhaHash))) {
+    await rlFail(env, 'op:operator');   // #rate-limit
     return { ok:false, erro:'senha incorreta' };
   } else if (isLegacyHash(cfg.senhaHash)) {
     await fsUpdate('operator/config', { senhaHash: await hashPassword(password) }, token);  // migra #pbkdf2
   }
+  await rlClear(env, 'op:operator');   // senha correta → zera o contador
 
   const customToken = await mintCustomToken('operator-default',
     { role: 'operator', drg: true }, env);

@@ -2251,7 +2251,8 @@ function renderDashboard(){
     accent:'#2E7D32', iconBg:'#F1F8E9', iconColor:'#2E7D32', valueColor:'#2E7D32',
     onclick:"showSection('contratos')", title:'Ver contratos'})});
   if(State.cct) catalogo.push({key:'cct', html:_statCard({label:'CCT vigente', value:`desde ${formatDateBr(State.cct.vigencia)}`, icon:'fa-file-contract',
-    accent:'#7B1FA2', iconBg:'#F3E5F5', iconColor:'#7B1FA2', valueColor:'#7B1FA2', smallValue:true})});
+    accent:'#7B1FA2', iconBg:'#F3E5F5', iconColor:'#7B1FA2', valueColor:'#7B1FA2', smallValue:true,
+    onclick:"openCctModal()", title:'Abrir a CCT vigente'})});
   _renderDashCards(catalogo);
   renderBirthdays();
   renderAlerts();

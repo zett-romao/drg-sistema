@@ -1101,7 +1101,7 @@ function showSection(name){
   if(name==='decimoterceiro')  renderDecimoTerceiro();
   if(name==='ferias')          renderFeriasModulo();
   if(name==='rescisao')        renderRescisoes();
-  if(name==='contabilidade')   { _applyModoBanners(State.empresa?.modoContabilidade||'ambas'); renderContabilidade(); }
+  if(name==='contabilidade')   { _applyModoBanners(State.empresa?.modoContabilidade||'ambas'); const _vc=competenciaVigente(); setVal('cont-mes',_vc.mes); setVal('cont-ano',_vc.ano); renderContabilidade(); }
   if(name==='banco')           renderBancoDados();
   if(name==='comunicacao')     renderComunicacaoSection();
   if(name==='autorizacoes')    renderAutorizacoesSection();

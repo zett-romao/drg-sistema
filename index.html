@@ -4295,6 +4295,16 @@
       </div>
       <div class="form-row">
         <div class="form-group">
+          <label><i class="fa-solid fa-moon" style="color:#5C6BC0"></i> Hora noturna (base do Adicional Noturno)</label>
+          <select id="cct-hora-noturna">
+            <option value="reduzida">Reduzida — 52min30s (padrão CLT Art. 73 §1º)</option>
+            <option value="cheia">Cheia — 60min (se a convenção negociar)</option>
+          </select>
+          <span style="font-size:11px;color:var(--text-muted);margin-top:4px;display:block">Reduzida faz 7h de turno (22h–05h) valerem 8h de adicional. Só mude para "cheia" se a CCT determinar.</span>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
           <label><i class="fa-solid fa-coins" style="color:#43A047"></i> Salário Mínimo Nacional (R$)</label>
           <input type="number" id="cct-salario-minimo" min="0" step="0.01" placeholder="1518,00">
           <span style="font-size:11px;color:var(--text-muted);margin-top:4px;display:block">Usado como base para cálculo da Insalubridade (20%, 40% ou 60%)</span>
@@ -4327,6 +4337,11 @@
         <div class="form-group form-group-sm">
           <label>Avisar quantos dias antes de expirar</label>
           <input type="number" id="cct-banco-aviso" min="1" max="180" step="1" placeholder="30" value="30">
+        </div>
+        <div class="form-group form-group-sm">
+          <label>% de HE das horas vencidas</label>
+          <input type="number" id="cct-he-vencidas-perc" min="0" max="200" step="1" placeholder="50" value="50">
+          <span style="font-size:11px;color:var(--text-muted);margin-top:4px;display:block">Horas que vencem sem compensar viram HE com este adicional (padrão CLT 50%).</span>
         </div>
       </div>
 
@@ -6386,6 +6401,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260601t-blindagem"></script>
+<script src="app.js?v=20260601u-cct-params"></script>
 </body>
 </html>

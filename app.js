@@ -6228,11 +6228,17 @@ function _resetPayrollFieldsOnly(){
   const _abChk=document.getElementById('payroll-atraso-abonado'); if(_abChk) _abChk.checked=false;
 }
 
+// CCT parametrizável (#10/#14 — confirmar contador): padrão = regra CLT.
+// Hora noturna: REDUZIDA (52min30s, CLT Art. 73 §1º) salvo se a convenção negociar HORA CHEIA.
+function _fatorHoraNoturna(){ return (State.cct && State.cct.horaNoturnaCheia) ? 1 : (60/52.5); }
+// % de HE das horas de banco VENCIDAS: padrão 50%; a convenção pode prever outro.
+function _hePercVencidas(){ const p = State.cct && parseFloat(State.cct.heVencidasPerc); return (p>0) ? p : 50; }
+
 function calcAdNoturno(salarioBase, dias){
   // CLT Art. 73 §1º: hora noturna reduzida = 52min30s. As 7h-relógio do turno
   // noturno (22h-05h) equivalem a 8 horas noturnas reduzidas (7*60/52,5 = 8).
-  // Antes multiplicava por 7 (horas-relógio) → adicional ~12,5% a menor.
-  return (salarioBase/220)*0.20*(7*60/52.5)*dias;
+  // A CCT pode negociar HORA CHEIA (fator 1, via _fatorHoraNoturna). #10-cct
+  return (salarioBase/220)*0.20*(7*_fatorHoraNoturna())*dias;
 }
 
 // Conta os dias TRABALHADOS da competência cuja LOTAÇÃO vigente era noturna
@@ -10470,7 +10476,7 @@ function renderBancoHoras(){
   const exp=bancoProximaExpiracao(empId);
   const _fifo=_bancoFifoStatus(empId);
   const _empBH=State.employees.find(e=>e.id===empId)||{};
-  const _bhHePerc=50; // alíquota padrão de HE para horas de banco vencidas
+  const _bhHePerc=_hePercVencidas(); // % de HE p/ horas vencidas (CCT; padrão 50%). #14-cct
   const _bhVencValor=_fifo.horasVencidas>0 ? Math.round(_fifo.horasVencidas*((parseFloat(_empBH.salarioBase||0))/220)*(1+_bhHePerc/100)*100)/100 : 0;
   const vencCard=_fifo.horasVencidas>0.0001 ? `<div style="flex:1;min-width:200px;background:#FFF8E1;border:1px solid #FFE082;border-left:4px solid #E65100;border-radius:8px;padding:10px 12px">
       <div style="font-size:11px;color:#E65100;text-transform:uppercase;letter-spacing:.5px">Vencidas — pagar como HE (${_bhHePerc}%)</div>
@@ -10571,7 +10577,7 @@ async function pagarHorasVencidasHE(empId){
   const { horasVencidas }=_bancoFifoStatus(empId);
   if(!(horasVencidas>0.0001)){ toast('Não há horas vencidas a pagar.','info'); return; }
   const salBase=parseFloat(emp.salarioBase||0);
-  const hePerc=50; // alíquota padrão de HE (CCT pode prever outra — confirmar)
+  const hePerc=_hePercVencidas(); // % de HE p/ horas vencidas (CCT; padrão 50%). #14-cct
   const valorHora=salBase/220;
   const valor=Math.round(horasVencidas*valorHora*(1+hePerc/100)*100)/100;
   const hojeISO=new Date().toISOString().substring(0,10);
@@ -19244,6 +19250,8 @@ function openCctModal(){
     setVal('cct-plr-p2-pago',cct.plrP2DataPagamento||'');
     setVal('cct-banco-validade',cct.bancoValidadeMeses||12);
     setVal('cct-banco-aviso',cct.bancoAvisoDias||30);
+    setVal('cct-hora-noturna', cct.horaNoturnaCheia ? 'cheia' : 'reduzida');   // #10-cct
+    setVal('cct-he-vencidas-perc', cct.heVencidasPerc||50);                    // #14-cct
     renderCctSalariosFuncao(Array.isArray(cct.salariosPorFuncao) && cct.salariosPorFuncao.length
       ? cct.salariosPorFuncao
       : CCT_FUNCOES_DEFAULT);
@@ -19257,6 +19265,8 @@ function openCctModal(){
     setVal('cct-plr-aviso-dias',30);
     setVal('cct-banco-validade',12);
     setVal('cct-banco-aviso',30);
+    setVal('cct-hora-noturna','reduzida');   // #10-cct (padrão CLT)
+    setVal('cct-he-vencidas-perc',50);       // #14-cct (padrão CLT)
     renderCctSalariosFuncao(CCT_FUNCOES_DEFAULT);
   }
 }
@@ -19285,6 +19295,8 @@ async function saveCct(){
     plrP2DataPagamento:val('cct-plr-p2-pago')||'',
     bancoValidadeMeses:numVal('cct-banco-validade')||12,
     bancoAvisoDias:numVal('cct-banco-aviso')||30,
+    horaNoturnaCheia: val('cct-hora-noturna')==='cheia',   // #10-cct
+    heVencidasPerc: numVal('cct-he-vencidas-perc')||50,    // #14-cct
     salariosPorFuncao: _coletarSalariosFuncao(),
     updatedAt:new Date().toISOString()
   };

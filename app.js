@@ -10391,11 +10391,12 @@ async function reabrirPeriodo(){
   if(!confirm(`Reabrir ${fechadas.length} folha(s) de ${MESES[mes]}/${ano}?\n\nTodas voltam a ficar EDITÁVEIS e o período é marcado como aberto.`)) return;
   const agora=new Date().toISOString();
   try{
-    await Promise.all(fechadas.map(p=>
-      DB.merge('payrolls',p.id,{status:'aberta',reabertoEm:agora}).then(()=>{
-        const s=State.payrolls.find(r=>r.id===p.id); if(s){ s.status='aberta'; s.reabertoEm=agora; }
-      })
-    ));
+    await Promise.all(fechadas.map(p=>{
+      const _arqC=_arquivarContestacaoFolha(p);  // preserva contestação no histórico. #contestacao-historico
+      return DB.merge('payrolls',p.id,{status:'aberta',reabertoEm:agora, ...(_arqC?{contestacoesHistorico:p.contestacoesHistorico}:{})}).then(()=>{
+        const s=State.payrolls.find(r=>r.id===p.id); if(s){ s.status='aberta'; s.reabertoEm=agora; if(_arqC) s.contestacoesHistorico=p.contestacoesHistorico; }
+      });
+    }));
     const conf=State.confFolha?.[key]||{};
     const novaConf={...conf,fechado:false,reabertoEm:agora,autoFecharSuspenso:true,updatedAt:agora};
     await DB.saveDoc('configuracoes',`fechamento_${key}`,novaConf,true);
@@ -10470,8 +10471,10 @@ async function enviarFolhaParaConferencia(payrollId){
     assinadoEm: null,
     contestadoEm: null,
   };
+  // Se havia contestação anterior, ARQUIVA antes de sobrescrever o envio. #contestacao-historico
+  const _arqC = _arquivarContestacaoFolha(p);
   try{
-    await DB.merge('payrolls', payrollId, { envioConferencia: envio });
+    await DB.merge('payrolls', payrollId, { envioConferencia: envio, ...(_arqC?{contestacoesHistorico:p.contestacoesHistorico}:{}) });
     p.envioConferencia = envio;
     Auth.log('FOLHA_ENVIADA_CONFERENCIA', null, `${MESES[p.mes]}/${p.ano} — ${p.employeeId} (prazo ${prazo.toLocaleString('pt-BR')})`);
     toast(`Folha enviada — colab tem ${_CONF_PRAZO_HORAS}h pra conferir.`,'success');
@@ -10554,6 +10557,27 @@ async function _aceitarPorSilencioJob(){
 // Chamada quando o usuário clica na aba "Folhas Assinadas". Mostra cada folha
 // com badge de status (assinada/silêncio/contestada), hash truncado, datas,
 // e botão "Ver" que abre o HTML render numa nova janela.
+// Arquiva a contestação ATUAL da folha num histórico permanente (não some quando
+// a folha é reaberta/reenviada — o envioConferencia é sobrescrito). Retorna true
+// se arquivou algo novo. #contestacao-historico
+function _arquivarContestacaoFolha(p){
+  if(!p) return false;
+  const st = p.envioConferencia?.status;
+  const motivo = (p.contestacao && p.contestacao.motivo) || '';
+  const contestadoEm = (p.envioConferencia && p.envioConferencia.contestadoEm) || (p.contestacao && p.contestacao.contestadoEm) || '';
+  if(st!=='contestada' && !motivo) return false;
+  const hist = Array.isArray(p.contestacoesHistorico) ? p.contestacoesHistorico.slice() : [];
+  if(contestadoEm && hist.some(h=>h.contestadoEm===contestadoEm)) return false; // já arquivada
+  hist.push({
+    motivo: motivo || '(sem motivo informado)',
+    contestadoEm: contestadoEm || new Date().toISOString(),
+    enviadoEm: (p.envioConferencia && p.envioConferencia.enviadoEm) || '',
+    arquivadoEm: new Date().toISOString(),
+  });
+  p.contestacoesHistorico = hist;
+  return true;
+}
+
 function renderFolhasAssinadasColab(){
   const empId = State.editingEmployeeId || val('emp-id');
   const container = document.getElementById('folhas-assinadas-list');
@@ -10572,11 +10596,14 @@ function renderFolhasAssinadasColab(){
     if(a.ano !== b.ano) return b.ano - a.ano;
     return b.mes - a.mes;
   });
-  if(!folhas.length){
+  const contestHist = (State.payrolls||[]).filter(p=>p.employeeId===empId)
+    .flatMap(p=>(p.contestacoesHistorico||[]).map(c=>({...c, comp:`${MESES[p.mes]||p.mes}/${p.ano}`})))
+    .sort((a,b)=>(b.contestadoEm||'').localeCompare(a.contestadoEm||''));
+  if(!folhas.length && !contestHist.length){
     container.innerHTML = `<div class="empty-state small"><i class="fa-solid fa-file-signature" style="font-size:32px;color:#cbd5e0"></i><p style="font-size:13px;margin-top:8px">Nenhuma folha foi enviada/assinada ainda.</p></div>`;
     return;
   }
-  container.innerHTML = folhas.map(p => {
+  let html = folhas.map(p => {
     const st = p.envioConferencia?.status;
     const stMap = {
       'assinada':            { txt:'Assinada', cor:'#2E7D32', bg:'#E8F5E9', icon:'fa-circle-check' },
@@ -10612,6 +10639,18 @@ function renderFolhasAssinadasColab(){
       <div style="margin-top:8px">${btnVer}</div>
     </div>`;
   }).join('');
+  if(contestHist.length){
+    const _dt = iso => { const d=iso?new Date(iso):null; return (d&&!isNaN(d.getTime()))?d.toLocaleString('pt-BR'):''; };
+    html += `<div style="margin-top:16px;padding-top:14px;border-top:1px solid #e0e0e0">
+      <strong style="font-size:13px;color:#C62828"><i class="fa-solid fa-clock-rotate-left"></i> Histórico de contestações (${contestHist.length})</strong>
+      <div style="font-size:11px;color:#888;margin:2px 0 8px">Contestações registradas pelo colaborador — preservadas mesmo após a folha ser reaberta/ajustada.</div>
+      ${contestHist.map(c=>`<div style="background:#FFF5F5;border:1px solid #FFCDD2;border-left:3px solid #C62828;border-radius:6px;padding:8px 11px;margin-bottom:6px;font-size:12px">
+        <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><strong>${c.comp}</strong><span style="color:#888;font-size:11px">${_dt(c.contestadoEm)}</span></div>
+        <div style="color:#C62828;margin-top:3px"><strong>Motivo:</strong> ${esc(c.motivo||'(sem motivo)')}</div>
+      </div>`).join('')}
+    </div>`;
+  }
+  container.innerHTML = html;
 }
 
 // Abre a folha assinada numa nova janela renderizada a partir do htmlRender
@@ -10907,8 +10946,11 @@ async function reabrirFolha(){
   if(!p){ toast('Folha não encontrada.','error'); return; }
   if(!confirm(`Reabrir a folha de ${emp.nome} — ${MESES[mes]}/${ano}?\n\nA folha voltará a ser editável. O período geral continuará fechado para os demais.`)) return;
   try{
-    await DB.merge('payrolls',p.id,{status:'aberta',reabertoEm:new Date().toISOString()});
-    const s=State.payrolls.find(r=>r.id===p.id); if(s) s.status='aberta';
+    // Antes de reabrir, ARQUIVA a contestação atual no histórico (senão some quando
+    // a folha for reenviada/ajustada). #contestacao-historico
+    const _arqC = _arquivarContestacaoFolha(p);
+    await DB.merge('payrolls',p.id,{status:'aberta',reabertoEm:new Date().toISOString(), ...(_arqC?{contestacoesHistorico:p.contestacoesHistorico}:{})});
+    const s=State.payrolls.find(r=>r.id===p.id); if(s){ s.status='aberta'; if(_arqC) s.contestacoesHistorico=p.contestacoesHistorico; }
     Auth.log('PAYROLL_REABERTO',null,`${emp.nome} — ${MESES[mes]}/${ano}`);
     toast(`Folha de ${emp.nome} reaberta para edição.`);
     _updateFolhaStatusBadge();

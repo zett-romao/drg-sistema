@@ -630,7 +630,11 @@ async function handleOperatorLogin(body, token, env){
   const cfg  = await fsGetDoc('operator/config', token);
 
   if (!cfg) {
-    // 1º acesso — cria o doc de config com a senha digitada (mesma lógica do operator.html legado)
+    // BOOTSTRAP PROTEGIDO (Frente C, etapa 4): no 1º acesso a senha do operador
+    // só é criada se vier o código de bootstrap (= RECOVERY_CODE). Sem isso,
+    // qualquer um que chamasse /operator-login antes sequestraria o painel. #op-bootstrap
+    if (!env.RECOVERY_CODE || !timingSafeEqual(String(body.bootstrapCode || ''), env.RECOVERY_CODE))
+      return { ok:false, erro:'Painel do Operador ainda não configurado. Informe o código de bootstrap para definir a senha.', bootstrapNeeded:true };
     await fsSetDoc('operator/config', {
       senhaHash: await hashPassword(password), criadoEm: new Date().toISOString(),
     }, token);

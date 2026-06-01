@@ -21022,11 +21022,12 @@ function printFolhaPonto(isPreview=false){
   const planoDesc=numVal('payroll-plano-saude-desc')||0;
   const pensaoDesc=numVal('payroll-pensao')||0;
   const outrosDescF=numVal('payroll-outros-descontos')||0;
+  const outrosProvF=numVal('payroll-outros-proventos')||0;  // prêmios/ajudas — o holerite já somava; a folha não. #liquido-bate-holerite
   // VT entra como CO-PARTICIPAÇÃO (menor entre 6% do salário e o custo do VT) —
   // o benefício segue pago à parte no cartão; só a co-part. desconta. #vt-coparticipacao
   const vtCoPart=vtTotal>0?Math.min(+(salarioBase*0.06).toFixed(2), vtTotal):0;
   // VR/VA e Boa Permanência são benefícios pagos à parte — não somam no líquido
-  const totalLiquido=remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade
+  const totalLiquido=remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade+outrosProvF
     -adiantamento-descontoAtraso-descontoSaida-inssDesc-irrfDesc-planoDesc-pensaoDesc-outrosDescF-vtCoPart;
 
   // Posto do colaborador
@@ -21194,6 +21195,7 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
     ${adNoturno>0?`<tr><td class="fin-label">Adicional Noturno</td><td class="fin-value">${fmtMoney(adNoturno)}</td></tr>`:''}
     ${acumulo>0?`<tr><td class="fin-label">Acúmulo de Função (+20%)</td><td class="fin-value">${fmtMoney(acumulo)}</td></tr>`:''}
     ${insalubridade>0?`<tr><td class="fin-label">Insalubridade</td><td class="fin-value">${fmtMoney(insalubridade)}</td></tr>`:''}
+    ${outrosProvF>0?`<tr><td class="fin-label">Outros Proventos</td><td class="fin-value">${fmtMoney(outrosProvF)}</td></tr>`:''}
     ${minutosAtraso>0?`<tr><td class="fin-label">Desconto Atraso — ${minutosAtraso} min atrasados</td><td class="fin-value" style="color:${descontoAtraso>0?'#c0392b':'#2E7D32'}">${descontoAtraso>0?fmtMoney(descontoAtraso):'R$ 0,00'}</td></tr>`:''}
     ${minutosSaida>0?`<tr><td class="fin-label">Desconto Saídas — ${minutosSaida} min de saída no expediente</td><td class="fin-value" style="color:${descontoSaida>0?'#c0392b':'#2E7D32'}">${descontoSaida>0?fmtMoney(descontoSaida):'R$ 0,00'}</td></tr>`:''}
     ${adiantamento>0?`<tr><td class="fin-label">Adiantamento (${numVal('payroll-adiantamento-perc')||40}%)</td><td class="fin-value" style="color:#c0392b">${fmtMoney(adiantamento)}</td></tr>`:''}

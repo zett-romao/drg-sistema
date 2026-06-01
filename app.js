@@ -255,6 +255,20 @@ const State = {
 // ============================================
 function _e(field){ return (State.empresa&&State.empresa[field]) || EMPRESA_DEFAULTS[field] || ''; }
 
+// URL ABSOLUTA da logo para documentos impressos (holerite, folha de ponto, recibos,
+// relatórios). Os documentos abrem em janela window.open('','_blank') cuja base é
+// about:blank — ali "logo.png" relativo NÃO resolve, a imagem quebrava e o onerror
+// a escondia (por isso a logo nunca aparecia nos impressos). Resolvendo contra o
+// document.baseURI da página atual vira URL absoluta, que funciona no popup, no HTML
+// salvo do recibo (enviado ao colaborador) e em localhost/pendrive. logoUrl custom
+// (multi-tenant / link externo) tem prioridade.
+function _logoSrc(){
+  const custom = (_e('logoUrl')||'').trim();
+  if(custom) return custom;
+  try { return new URL('logo.png', document.baseURI).href; }
+  catch(e){ return 'logo.png'; }
+}
+
 // HTML escape — pra usar em template literals que recebem dados de usuário
 // (motivos de contestação, nomes, etc.). Evita XSS + quebras de markup.
 // Algumas funções já têm um `esc` LOCAL (CSV escape, attr escape) — esses
@@ -2729,7 +2743,7 @@ function _reciboOficialUmHTML(emp, p, mes, ano, opts){
   const empCnpj = _e('cnpj') || '—';
   const empEnd  = _empresaEnderecoLinha() || '';
   const empCnae = _e('cnae') || '';
-  const empLogo = _e('logoUrl') || 'logo.png';  // sem logo custom → usa o logo do sistema
+  const empLogo = _logoSrc();  // URL absoluta (custom logoUrl ou logo.png do sistema) — resolve em popups
   const ctpsTxt = [emp.ctpsNumero, emp.ctpsSerie, emp.ctpsUf].filter(Boolean).join(' / ') || '—';
   const rgTxt   = (emp.rg||'—') + (emp.rgOrgao?' '+emp.rgOrgao:'');
   const endCol  = [emp.endereco, emp.numero?'nº '+emp.numero:'', emp.complemento, emp.bairro,
@@ -12685,7 +12699,7 @@ function _gerarReciboEnvioHTML(d){
 <body>
   <div class="header">
     <div style="display:flex;align-items:center;gap:12px">
-      <img src="logo.png" alt="" style="height:46px;width:auto;max-width:80px;object-fit:contain;flex-shrink:0" onerror="this.style.display='none'">
+      <img src="${_logoSrc()}" alt="" style="height:46px;width:auto;max-width:80px;object-fit:contain;flex-shrink:0" onerror="this.style.display='none'">
       <div>
       <h1>RECIBO DE ENVIO</h1>
       <div class="empresa">${esc(d.empresa)}</div>
@@ -16840,7 +16854,7 @@ function printSelectedReport() {
     strong{font-weight:700}
   </style></head><body>
   <div class="ph">
-    <img src="logo.png" alt="">
+    <img src="${_logoSrc()}" alt="">
     <div><h2>${_e('nomeEmpresa')}</h2><p>${subtitle}${period?' — '+period:''} — ${n} selecionado${n!==1?'s':''}</p></div>
     <div class="pm">Gerado em: ${genDate}</div>
   </div>
@@ -16935,7 +16949,7 @@ function _fichaCompletaHTML(e, idx){
   const depsList = (e.dependentes||[]).filter(d=>d && d.nome);
   return `<div class="pagina">
     <div class="ph">
-      <img src="logo.png" alt="">
+      <img src="${_logoSrc()}" alt="">
       <div><h2>${esc(empresa)}</h2><p>Ficha do Colaborador — Gerada em ${esc(dataGer)}</p></div>
       <div class="pm">Página ${idx+1}</div>
     </div>
@@ -17799,7 +17813,7 @@ function _autzImprimir(){
   .empty-state{text-align:center;padding:30px;color:#94a3b8}
 </style></head><body>
 <div class="ph">
-  <img src="logo.png" alt="">
+  <img src="${_logoSrc()}" alt="">
   <div><h2>${empresa.replace(/</g,'&lt;')}</h2><p>Autorizações de Ponto — Gerado em ${data}</p></div>
 </div>
 ${cont}
@@ -18362,7 +18376,7 @@ function printReport() {
   </style>
 </head><body>
   <div class="print-header">
-    <img class="print-logo" src="logo.png" alt="Logo">
+    <img class="print-logo" src="${_logoSrc()}" alt="Logo">
     <div class="print-title">
       <h2>${empresa}</h2>
       <p>${subtitle}${period ? ' — ' + period : ''}</p>
@@ -20767,7 +20781,7 @@ ${isPreview?`<div class="preview-banner">
 </div>`:''}
 <div class="header">
   <div class="header-left" style="display:flex;align-items:center;gap:12px">
-    <img src="logo.png" alt="" style="height:52px;width:auto;max-width:90px;object-fit:contain;flex-shrink:0" onerror="this.style.display='none'">
+    <img src="${_logoSrc()}" alt="" style="height:52px;width:auto;max-width:90px;object-fit:contain;flex-shrink:0" onerror="this.style.display='none'">
     <div>
     <h1>${_e('nomeEmpresa')}</h1>
     <p>CNPJ: ${_e('cnpj')} &nbsp;|&nbsp; ${_e('descricao')}${_e('cnae')?' &nbsp;|&nbsp; CNAE: '+_e('cnae'):''}</p>
@@ -21022,7 +21036,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
 </style>
 <div class="header">
   <div class="header-left" style="display:flex;align-items:center;gap:12px">
-    <img src="logo.png" alt="" style="height:52px;width:auto;max-width:90px;object-fit:contain;flex-shrink:0" onerror="this.style.display='none'">
+    <img src="${_logoSrc()}" alt="" style="height:52px;width:auto;max-width:90px;object-fit:contain;flex-shrink:0" onerror="this.style.display='none'">
     <div>
     <h1>${_e('nomeEmpresa')}</h1>
     <p>CNPJ: ${_e('cnpj')} &nbsp;|&nbsp; ${_e('descricao')}${_e('cnae')?' &nbsp;|&nbsp; CNAE: '+_e('cnae'):''}</p>

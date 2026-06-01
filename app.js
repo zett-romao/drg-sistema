@@ -21587,6 +21587,7 @@ async function removeHistoricoLotacao(id){
   const updated={ ...emp, historicoLotacao:lotHist, updatedAt:new Date().toISOString() };
   if(ultimo){ Object.assign(updated, {
     posto:ultimo.posto, turnoNoturno:ultimo.turnoNoturno, escala:ultimo.escala,
+    ciclo12x36Inicio: (escalaFamilia(ultimo.escala||'')==='12x36') ? (ultimo.ciclo12x36Inicio||emp.ciclo12x36Inicio||'') : (emp.ciclo12x36Inicio||''),
     horarioEntrada:ultimo.horarioEntrada, horarioSaida:ultimo.horarioSaida,
     horarioRefIni:ultimo.horarioRefIni, horarioRefFim:ultimo.horarioRefFim,
     cargo:ultimo.cargo, salarioBase:ultimo.salarioBase,
@@ -21649,6 +21650,14 @@ async function _limparEscalasSalvasDesde(empId, vigISO){
   if(afetadas.length) State.escalas=(State.escalas||[]).filter(es=>!afetadas.includes(es));
 }
 
+// Mostra o campo "início do ciclo 12x36" no modal de transferência só quando a
+// escala selecionada é 12x36 (a paridade trabalho/folga depende da âncora). #troca-escala-12x36
+function _transfToggleCiclo12x36(){
+  const row=document.getElementById('transf-row-ciclo12x36');
+  if(!row) return;
+  row.style.display = (escalaFamilia(val('transf-escala')||'')==='12x36') ? '' : 'none';
+}
+
 function openTransferenciaModal(){
   const empId=State.editingEmployeeId;
   const emp=State.employees.find(e=>e.id===empId);
@@ -21670,6 +21679,10 @@ function openTransferenciaModal(){
   const escSel=document.getElementById('transf-escala'), empEsc=document.getElementById('emp-escala');
   if(escSel && empEsc) escSel.innerHTML=empEsc.innerHTML;
   if(escSel) escSel.value=emp.escala||'5x2A';
+  // Âncora do ciclo 12x36 (paridade) — só aparece p/ escala 12x36. Vazio = usa a vigência.
+  if(escSel) escSel.onchange=_transfToggleCiclo12x36;
+  setVal('transf-ciclo-12x36', emp.ciclo12x36Inicio||'');
+  _transfToggleCiclo12x36();
   // Pré-preenche com a lotação atual (muda só o que trocou)
   setVal('transf-data-entrada',hojeISO);
   setVal('transf-cargo',emp.cargo||'');
@@ -21703,6 +21716,9 @@ async function saveTransferencia(){
     posto:novoPosto,
     turnoNoturno:!!(document.getElementById('transf-turno-noturno')||{}).checked,
     escala:val('transf-escala')||emp.escala||'5x2A',
+    // Âncora do ciclo 12x36 da NOVA fase (paridade trabalho/folga). Só p/ 12x36;
+    // vazio → a folha usa a dataInicio (vigência) como âncora. #troca-escala-12x36
+    ciclo12x36Inicio: (escalaFamilia(val('transf-escala')||emp.escala||'5x2A')==='12x36') ? (val('transf-ciclo-12x36')||'') : '',
     horarioEntrada:val('transf-h-entrada')||'',
     horarioSaida:val('transf-h-saida')||'',
     horarioRefIni:val('transf-h-ref-ini')||'',
@@ -21766,6 +21782,8 @@ async function saveTransferencia(){
     historicoLotacao:lotHist, historicoPostos:postoHist,
     // espelha os campos do ÚLTIMO período no estado atual do colaborador
     posto:ultimo.posto, turnoNoturno:ultimo.turnoNoturno, escala:ultimo.escala,
+    // Âncora 12x36 do último período espelha no cadastro (mantém a atual se o seg. não trouxe). #troca-escala-12x36
+    ciclo12x36Inicio: (escalaFamilia(ultimo.escala||'')==='12x36') ? (ultimo.ciclo12x36Inicio||emp.ciclo12x36Inicio||'') : (emp.ciclo12x36Inicio||''),
     horarioEntrada:ultimo.horarioEntrada, horarioSaida:ultimo.horarioSaida,
     horarioRefIni:ultimo.horarioRefIni, horarioRefFim:ultimo.horarioRefFim,
     cargo:ultimo.cargo, salarioBase:ultimo.salarioBase,

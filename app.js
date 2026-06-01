@@ -21200,8 +21200,8 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
     ${acumulo>0?`<tr><td class="fin-label">Acúmulo de Função (+20%)</td><td class="fin-value">${fmtMoney(acumulo)}</td></tr>`:''}
     ${insalubridade>0?`<tr><td class="fin-label">Insalubridade</td><td class="fin-value">${fmtMoney(insalubridade)}</td></tr>`:''}
     ${outrosProvF>0?`<tr><td class="fin-label">Outros Proventos</td><td class="fin-value">${fmtMoney(outrosProvF)}</td></tr>`:''}
-    ${minutosAtraso>0?`<tr><td class="fin-label">Desconto Atraso — ${minutosAtraso} min atrasados</td><td class="fin-value" style="color:${descontoAtraso>0?'#c0392b':'#2E7D32'}">${descontoAtraso>0?fmtMoney(descontoAtraso):'R$ 0,00'}</td></tr>`:''}
-    ${minutosSaida>0?`<tr><td class="fin-label">Desconto Saídas — ${minutosSaida} min de saída no expediente</td><td class="fin-value" style="color:${descontoSaida>0?'#c0392b':'#2E7D32'}">${descontoSaida>0?fmtMoney(descontoSaida):'R$ 0,00'}</td></tr>`:''}
+    ${descontoAtraso>0?`<tr><td class="fin-label">Desconto Atraso — ${minutosAtraso} min atrasados</td><td class="fin-value" style="color:#c0392b">${fmtMoney(descontoAtraso)}</td></tr>`:''}
+    ${descontoSaida>0?`<tr><td class="fin-label">Desconto Saídas — ${minutosSaida} min de saída no expediente</td><td class="fin-value" style="color:#c0392b">${fmtMoney(descontoSaida)}</td></tr>`:''}
     ${adiantamento>0?`<tr><td class="fin-label">Adiantamento (${numVal('payroll-adiantamento-perc')||40}%)</td><td class="fin-value" style="color:#c0392b">${fmtMoney(adiantamento)}</td></tr>`:''}
     ${inssDesc>0?`<tr><td class="fin-label">INSS</td><td class="fin-value" style="color:#c0392b">${fmtMoney(inssDesc)}</td></tr>`:''}
     ${irrfDesc>0?`<tr><td class="fin-label">IRRF</td><td class="fin-value" style="color:#c0392b">${fmtMoney(irrfDesc)}</td></tr>`:''}
@@ -21475,8 +21475,8 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
       ${irrfVal>0?`<tr><td class="fin-label">IRRF</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(irrfVal)})</td></tr>`:''}
       ${pensaoVal>0?`<tr><td class="fin-label">Pensão Alimentícia</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(pensaoVal)})</td></tr>`:''}
       ${planoSaudeVal>0?`<tr><td class="fin-label">Plano de Saúde</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(planoSaudeVal)})</td></tr>`:''}
-      ${minutosAtraso>0?`<tr><td class="fin-label">Desconto Atraso — ${minutosAtraso} min atrasados</td><td class="fin-value" style="color:${descontoAtraso>0?'#c0392b':'#2E7D32'}">${descontoAtraso>0?`(${fmtMoney(descontoAtraso)})`:'R$ 0,00'}</td></tr>`:''}
-      ${minutosSaida>0?`<tr><td class="fin-label">Desconto Saídas — ${minutosSaida} min de saída no expediente</td><td class="fin-value" style="color:${descontoSaida>0?'#c0392b':'#2E7D32'}">${descontoSaida>0?`(${fmtMoney(descontoSaida)})`:'R$ 0,00'}</td></tr>`:''}
+      ${descontoAtraso>0?`<tr><td class="fin-label">Desconto Atraso — ${minutosAtraso} min atrasados</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(descontoAtraso)})</td></tr>`:''}
+      ${descontoSaida>0?`<tr><td class="fin-label">Desconto Saídas — ${minutosSaida} min de saída no expediente</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(descontoSaida)})</td></tr>`:''}
       ${adiantamento>0?`<tr><td class="fin-label">Adiantamento (${adiantamentoPerc}%)</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(adiantamento)})</td></tr>`:''}
       ${outrosDescVal>0?`<tr><td class="fin-label">Outros Descontos</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(outrosDescVal)})</td></tr>`:''}
       ${vtCoPart>0?`<tr><td class="fin-label">Vale Transporte (co-part. 6%)</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(vtCoPart)})</td></tr>`:''}

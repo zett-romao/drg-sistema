@@ -11702,7 +11702,13 @@ async function migrarParaCompetencia(){
 
 // Utilitários de chamada ao Worker
 async function _asaasReq(method, path, body) {
-  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  const headers = { 'Content-Type': 'application/json' };
+  // Manda o idToken do gestor logado — o asaas-worker passa a EXIGIR (não fica mais aberto). #asaas-auth
+  try {
+    const fu = firebase.auth().currentUser;
+    if (fu) headers['Authorization'] = 'Bearer ' + (await fu.getIdToken());
+  } catch (_) { /* sem sessão → worker recusa com 401 */ }
+  const opts = { method, headers };
   if (body) opts.body = JSON.stringify(body);
   const r = await fetch(ASAAS_WORKER + path, opts);
   const data = await r.json().catch(() => ({}));

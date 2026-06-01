@@ -4900,7 +4900,10 @@
   <div class="modal-dialog modal-lg">
     <div class="modal-header">
       <h3 id="ponto-manual-titulo"><i class="fa-solid fa-keyboard"></i> Ponto Manual</h3>
-      <button class="modal-close" onclick="closeModal('modal-ponto-manual')"><i class="fa-solid fa-xmark"></i></button>
+      <div style="display:flex;align-items:center;gap:2px">
+        <button class="modal-close" id="btn-ponto-expand" onclick="togglePontoManualExpand()" title="Expandir (tela cheia)"><i id="ponto-manual-expand-ic" class="fa-solid fa-expand"></i></button>
+        <button class="modal-close" onclick="closeModal('modal-ponto-manual')"><i class="fa-solid fa-xmark"></i></button>
+      </div>
     </div>
     <div class="modal-body" style="padding:16px;max-height:70vh;overflow-y:auto">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:12px">
@@ -6234,6 +6237,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260601m-ciclo12x36-ponto"></script>
+<script src="app.js?v=20260601n-ponto-expandir"></script>
 </body>
 </html>

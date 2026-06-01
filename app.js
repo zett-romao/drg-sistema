@@ -19900,6 +19900,31 @@ function _intervaloCrossesMidnight(intIni, intFim, entrada, saida){
   return _shiftCrossesMidnight(entrada, saida);
 }
 
+// Expande/recolhe o modal de Ponto Manual (quase tela-cheia ↔ normal). Mexe só
+// no tamanho via style (sem CSS global), preservando o valor anterior pra
+// restaurar. Em tela cheia o grid mostra mais colunas de dias.
+function togglePontoManualExpand(){
+  const dlg  = document.querySelector('#modal-ponto-manual .modal-dialog');
+  const body = document.querySelector('#modal-ponto-manual .modal-body');
+  if(!dlg) return;
+  const exp = !dlg.classList.contains('ponto-expanded');
+  dlg.classList.toggle('ponto-expanded', exp);
+  if(exp){
+    dlg.dataset.prevMaxW = dlg.style.maxWidth || '';
+    dlg.dataset.prevW    = dlg.style.width    || '';
+    dlg.style.maxWidth = '97vw'; dlg.style.width = '97vw';
+    dlg.style.transform = '';   // recentraliza (limpa eventual arrasto)
+    if(body){ body.dataset.prevMaxH = body.style.maxHeight || ''; body.style.maxHeight = '84vh'; }
+  } else {
+    dlg.style.maxWidth = dlg.dataset.prevMaxW || ''; dlg.style.width = dlg.dataset.prevW || '';
+    if(body) body.style.maxHeight = body.dataset.prevMaxH || '70vh';
+  }
+  const ic = document.getElementById('ponto-manual-expand-ic');
+  if(ic) ic.className = exp ? 'fa-solid fa-compress' : 'fa-solid fa-expand';
+  const btn = document.getElementById('btn-ponto-expand');
+  if(btn) btn.title = exp ? 'Recolher' : 'Expandir (tela cheia)';
+}
+
 async function openPontoManual(){
   const mes=parseInt(val('payroll-mes')||currentMes());
   const ano=parseInt(val('payroll-ano')||currentAno());

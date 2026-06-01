@@ -4141,6 +4141,7 @@ function renderContabilidade(){
 
   // Totais
   let tR=0,tVT=0,tVR=0,tVA=0,tHE=0,tB=0,tAN=0,tIns=0,tAcu=0,tAdiant=0,tTotal=0;
+  let tBruto=0,tDesc=0,tLiq=0;  // bruto/descontos/líquido pelo motor do recibo (inclui seguro e encargos)
   let semFolha=[];
 
   const rows=emps.map((e,i)=>{
@@ -4160,8 +4161,12 @@ function renderContabilidade(){
     // Boa Permanência (bon) é benefício pago no VR — NÃO entra na espécie (dinheiro).
     // Adiantamento ja foi pago no meio do mes -> descontado do TOTAL ESPECIE (restante a receber).
     const especie=rem+an+ins+acu+he-adiant;
+    // Bruto/Descontos/Líquido FIÉIS ao recibo (proventos, todos os descontos legais + seguro). #cont-liquido
+    let _br=0,_de=0,_li=0;
+    if(p){ try{ const _r=_reciboOficialLinhas(e,p); _br=_r.totalPr; _de=_r.totalDe; _li=_r.liquido; }catch(_){} }
     tR+=rem; tVT+=vt; tVR+=vr; tVA+=va; tHE+=he; tB+=bon; tAN+=an; tIns+=ins; tAcu+=acu; tAdiant+=adiant;
     tTotal+=especie+vt+vr+va+bon;
+    tBruto+=_br; tDesc+=_de; tLiq+=_li;
     const rowBg=i%2===0?'#ffffff':'#EEF2FF';
     const semFolhaBorder=!p?'border-left:3px solid #EF9A9A':'';
     return `<tr style="background:${rowBg};${semFolhaBorder}" data-nome="${(e.nome||'').toLowerCase()}" data-reg="${e.registro?String(e.registro).padStart(4,'0'):''}">
@@ -4188,6 +4193,9 @@ function renderContabilidade(){
       <td>${acu?fmtMoney(acu):'—'}</td>
       <td>${adiant?fmtMoney(adiant):'—'}</td>
       <td style="font-weight:700;color:#1B5E20">${p?fmtMoney(especie):'—'}</td>
+      <td style="font-weight:600;color:#0D47A1">${p?fmtMoney(_br):'—'}</td>
+      <td style="color:#B71C1C">${p?fmtMoney(_de):'—'}</td>
+      <td style="font-weight:700;color:#1B5E20">${p?fmtMoney(_li):'—'}</td>
       <td style="font-size:11px">${e.chavePix||'—'}</td>
       <td style="font-size:11px">${p&&p.observacoes?p.observacoes:''}</td>
     </tr>`;
@@ -4207,6 +4215,9 @@ function renderContabilidade(){
     <td>${fmtMoney(tAcu)}</td>
     <td>${fmtMoney(tAdiant)}</td>
     <td style="color:#1B5E20">${fmtMoney(tTotal)}</td>
+    <td style="color:#0D47A1">${fmtMoney(tBruto)}</td>
+    <td style="color:#B71C1C">${fmtMoney(tDesc)}</td>
+    <td style="color:#1B5E20">${fmtMoney(tLiq)}</td>
     <td colspan="2"></td>
   </tr>`;
 
@@ -4253,6 +4264,19 @@ function renderContabilidade(){
   toast(`Planilha de ${MESES[mes]}/${ano} carregada — ${emps.length} colaborador(es).`);
 }
 
+// Atalho da Folha de Ponto → planilha de Contabilidade já na competência carregada.
+// A planilha lá tem todas/selecionadas, com dias/valores/benefícios/descontos/líquido. #cont-liquido
+function _exportarFolhasContabilidade(){
+  const _vc = (typeof competenciaVigente==='function') ? competenciaVigente() : {mes:currentMes(),ano:currentAno()};
+  const mes = parseInt(val('payroll-mes')) || _vc.mes;
+  const ano = parseInt(val('payroll-ano')) || _vc.ano;
+  showSection('contabilidade');
+  // showSection reseta cont-mes/ano pro vigente — reaplica a competência da Folha e re-renderiza.
+  setVal('cont-mes', mes); setVal('cont-ano', ano);
+  try{ renderContabilidade(); }catch(_){}
+  toast(`Planilha de contabilidade — ${MESES[mes]||mes}/${ano}. Marque os colaboradores e use Exportar CSV / Imprimir.`,'info');
+}
+
 function exportContabilidadeCsv(){
   const mes=parseInt(val('cont-mes')||currentMes());
   const ano=parseInt(val('cont-ano')||currentAno());
@@ -4264,13 +4288,16 @@ function exportContabilidadeCsv(){
   const folhaMap={};
   folhasMes.forEach(p=>{ folhaMap[p.employeeId]=p; });
 
-  const headers=['Nº','Matrícula','Nome','CPF','Setor','Posto','Escala','Admissão','Sal.Base','Dias','Faltas','Remuneração','VT/AM','VR','VA','HE','Bonificação','Ad.Noturno','Insalub.','Acúmulo','Adiantamento','Total Espécie','Chave PIX'];
+  const headers=['Nº','Matrícula','Nome','CPF','Setor','Posto','Escala','Admissão','Sal.Base','Dias','Faltas','Remuneração','VT/AM','VR','VA','HE','Bonificação','Ad.Noturno','Insalub.','Acúmulo','Adiantamento','Total Espécie','Total Bruto','Total Descontos','Líquido','Chave PIX'];
   const rows=emps.map((e,i)=>{
     const p=folhaMap[e.id];
     const rem=p?p.remuneracao||0:0;
     const totalFaltas=p?('faltasJustificadas' in p?(p.faltasJustificadas||0)+(p.faltasInjustificadas||0):(p.faltas||0)):0;
     // Boa Permanência é benefício (VR), não espécie
     const especie=rem+(p?p.adNoturno||0:0)+(p?p.insalubridade||0:0)+(p?p.acumuloFuncao||0:0)+(p?p.horasExtrasValor||0:0);
+    // Bruto/Descontos/Líquido fiéis ao recibo (inclui seguro + encargos). #cont-liquido
+    let _br=0,_de=0,_li=0;
+    if(p){ try{ const _r=_reciboOficialLinhas(e,p); _br=_r.totalPr;_de=_r.totalDe;_li=_r.liquido; }catch(_){} }
     return [
       i+1,
       e.registro?String(e.registro).padStart(4,'0'):'',
@@ -4280,7 +4307,7 @@ function exportContabilidadeCsv(){
       p?p.diasTrabalhados||0:'', p?totalFaltas:'',
       rem, p?p.valeTransporte||0:0, p?p.valeRefeicao||0:0, p?p.valeAlimentacaoLiquido||0:0,
       p?p.horasExtrasValor||0:0, p?p.bonificacao||0:0, p?p.adNoturno||0:0, p?p.insalubridade||0:0, p?p.acumuloFuncao||0:0, p?(p.adiantamentoValor||p.adiantamento||0):0,
-      especie, e.chavePix||''
+      especie, p?_br:'', p?_de:'', p?_li:'', e.chavePix||''
     ].map(v=>typeof v==='string'&&v.includes(',')? `"${v}"`:v);
   });
 
@@ -4378,6 +4405,55 @@ function printContabilidadeSelecionados(){
     </style></head><body>
     <h2>${empresaNome} — Planilha de Contabilidade</h2>
     <div class="sub">Competência: <strong>${mesLabel}/${ano}</strong> · ${sel.length} colaborador(es) selecionado(s) · Gerado em ${new Date().toLocaleString('pt-BR')}${empresaEnd?'<br>'+empresaEnd:''}</div>
+    ${clone.outerHTML}
+    <script>window.onload=function(){ window.print(); }<\/script>
+    </body></html>`);
+  w.document.close();
+}
+
+// Gera um PDF SÓ do RESUMO (esta planilha consolidada) — NÃO as folhas completas.
+// Sem marcados → todos (com totais); com marcados → só os selecionados (sem totais). #cont-resumo-pdf
+function _resumoContabilidadePdf(){
+  const table=document.getElementById('cont-table');
+  if(!table){ toast('Carregue a planilha primeiro.','warning'); return; }
+  const sel = Array.from(document.querySelectorAll('#cont-tbody .cont-row-check:checked')).map(cb=>cb.dataset.empId);
+  const soSel = sel.length>0;
+  const set = new Set(sel);
+  const mes=parseInt(val('cont-mes')||currentMes());
+  const ano=parseInt(val('cont-ano')||currentAno());
+  const mesLabel=MESES[mes]||'';
+  const clone = table.cloneNode(true);
+  if(soSel){
+    Array.from(clone.querySelectorAll('tbody tr')).forEach(tr=>{
+      const cb=tr.querySelector('.cont-row-check'); if(!cb || !set.has(cb.dataset.empId)) tr.remove();
+    });
+    Array.from(clone.querySelectorAll('tbody tr')).forEach((tr,i)=>{ const td=tr.children[1]; if(td) td.textContent=String(i+1); });
+    const tf=clone.querySelector('tfoot'); if(tf) tf.remove();  // totais não batem com a seleção
+  }
+  // remove a coluna de checkbox (1ª) de thead/tbody
+  clone.querySelectorAll('tr').forEach(tr=>{
+    const f=tr.firstElementChild;
+    if(f && (f.classList?.contains('col-check') || f.querySelector('input[type="checkbox"]'))) f.remove();
+  });
+  const qtd = soSel ? sel.length : clone.querySelectorAll('tbody tr').length;
+  const empresaNome=_e('nomeEmpresa')||''; const empresaEnd=_empresaEnderecoLinha()||'';
+  const w=window.open('','_blank','width=1200,height=800');
+  if(!w){ toast('Permita pop-ups para gerar o PDF.','error'); return; }
+  w.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+    <title>Resumo Contabilidade ${mesLabel}/${ano}</title>
+    <style>
+      @page { size:A4 landscape; margin:8mm }
+      body { font-family:Arial,sans-serif; font-size:10px; color:#212529; margin:0; padding:10px }
+      h2 { color:#1a3a6b; margin:0 0 4px }
+      .sub { color:#555; font-size:11px; margin-bottom:10px }
+      table { width:100%; border-collapse:collapse; min-width:1100px }
+      th,td { border:1px solid #ccc; padding:3px 5px; font-size:9.5px }
+      th { background:#1a3a6b; color:#fff; text-align:left }
+      tfoot td { font-weight:700; background:#EEF4FF }
+      tr:nth-child(even) td { background:#f5f7fb }
+    </style></head><body>
+    <h2>${empresaNome} — Resumo para Contabilidade</h2>
+    <div class="sub">Competência: <strong>${mesLabel}/${ano}</strong> · ${qtd} colaborador(es)${soSel?' (selecionados)':''} · Gerado em ${new Date().toLocaleString('pt-BR')}${empresaEnd?'<br>'+empresaEnd:''}</div>
     ${clone.outerHTML}
     <script>window.onload=function(){ window.print(); }<\/script>
     </body></html>`);

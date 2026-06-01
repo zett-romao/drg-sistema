@@ -734,6 +734,9 @@
                   <select id="payroll-competencia-rapida" onchange="_payrollCarregarCompetencia(this.value)" style="border:1px solid #ccc;border-radius:6px;padding:5px 8px;font-size:12px;flex:1;min-width:200px;max-width:300px">
                     <option value="">— Selecione uma competência —</option>
                   </select>
+                  <button type="button" class="btn btn-sm btn-outline" onclick="_exportarFolhasContabilidade()" title="Abrir a planilha consolidada (todas/selecionadas) desta competência — dias, valores, benefícios, descontos e líquido — pra contabilidade externa" style="color:#1a3a6b;border-color:#1a3a6b;font-size:12px;white-space:nowrap">
+                    <i class="fa-solid fa-file-export"></i> Exportar p/ contabilidade
+                  </button>
                 </div>
                 <!-- Período e Status -->
                 <div class="form-row" style="align-items:flex-end">
@@ -1973,7 +1976,10 @@
               <button class="btn btn-outline" id="btn-cont-imprimir-sel" onclick="printContabilidadeSelecionados()" disabled style="border-color:#1B5E20;color:#1B5E20" title="Imprime a planilha apenas com os colaboradores marcados">
                 <i class="fa-solid fa-check-double"></i> Imprimir Selecionados <span id="cont-sel-count" style="background:#1B5E20;color:#fff;border-radius:10px;padding:1px 6px;font-size:10px;display:none;margin-left:4px">0</span>
               </button>
-              <button class="btn btn-primary" onclick="exportarTodasFolhasPDF()" id="btn-export-folhas-pdf" title="Gera um PDF com as folhas de ponto de todos os colaboradores do mês">
+              <button class="btn btn-outline" onclick="_resumoContabilidadePdf()" style="border-color:#1a3a6b;color:#1a3a6b" title="Gera um PDF SÓ deste resumo (a planilha) — todos, ou só os marcados. NÃO inclui as folhas de ponto completas.">
+                <i class="fa-solid fa-file-lines"></i> Resumo em PDF
+              </button>
+              <button class="btn btn-primary" onclick="exportarTodasFolhasPDF()" id="btn-export-folhas-pdf" title="Gera um PDF com as FOLHAS DE PONTO COMPLETAS de todos os colaboradores do mês (1 página por pessoa)">
                 <i class="fa-solid fa-file-pdf"></i> Exportar Folhas em PDF
               </button>
               <button class="btn btn-outline" id="btn-cont-pdf-sel" onclick="exportarFolhasPdfSelecionados()" disabled style="border-color:#1565C0;color:#1565C0" title="Gera PDF das folhas de ponto apenas dos colaboradores marcados">
@@ -2020,6 +2026,9 @@
                       <th>Acúmulo</th>
                       <th>Adiantamento</th>
                       <th>Total Espécie</th>
+                      <th style="background:#0D47A1" title="Soma dos proventos (salário + HE + adicionais + outros + seguro), conforme o recibo">Total Bruto</th>
+                      <th style="background:#B71C1C" title="Soma dos descontos (INSS, IRRF, pensão, plano, faltas, atraso, saída, seguro, VT co-part., outros)">Total Descontos</th>
+                      <th style="background:#1B5E20" title="Líquido a receber = Total Bruto − Total Descontos (igual ao recibo)">Líquido</th>
                       <th>Chave PIX</th>
                       <th>Obs.</th>
                     </tr>
@@ -6326,6 +6335,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260601r-rubricas-1bc"></script>
+<script src="app.js?v=20260601s-contabilidade"></script>
 </body>
 </html>

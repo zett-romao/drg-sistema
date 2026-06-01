@@ -2788,6 +2788,32 @@ function updatePagSelCount(){
 // pro app do colaborador e atualiza esse protocolo com data/hora de visualização).
 // ============================================
 
+// Rubricas FIXAS (fixaTodos) — aplicadas automaticamente a TODOS os colaboradores
+// ativos (ex.: Seguro de Vida 224). Reaproveita o catálogo de Rubricas (seção própria).
+// Exceção por colaborador via emp.rubricasOptOut (lista de id/código a pular) — espaço
+// pra parametrização futura. Retorna [{codigo,descricao,tipo:'P'|'D',valor,incideINSS,incideFGTS,incideIRRF}]. #rubricas-fixas
+function _rubricasFixasColab(emp){
+  if(!emp) return [];
+  const optOut  = emp.rubricasOptOut || [];
+  const salBase = parseFloat(emp.salarioBase||0) || 0;
+  return (State.rubricas||[])
+    .filter(r=>r.fixaTodos && r.ativa!==false && !optOut.includes(r.id) && !optOut.includes(r.codigo))
+    .map(r=>{
+      let valor = parseFloat(r.valorPadrao||0) || 0;
+      if(r.calculo==='percentual') valor = +(salBase*valor/100).toFixed(2);  // 'quantidade' não faz sentido p/ todos → trata como fixo
+      return { codigo:r.codigo||'', descricao:r.descricao||'Rubrica', tipo:(r.tipo==='P'?'P':'D'),
+               valor:valor, incideINSS:!!r.incideINSS, incideFGTS:!!r.incideFGTS, incideIRRF:!!r.incideIRRF };
+    })
+    .filter(f=>f.valor>0);
+}
+// Soma as fixas por categoria: provento tributável (entra na base INSS/IRRF/FGTS),
+// provento não-tributável (só no líquido) e desconto.
+function _rubricasFixasTotais(fixas){
+  let provTrib=0, provNtrib=0, desc=0;
+  (fixas||[]).forEach(f=>{ if(f.tipo==='P'){ if(f.incideINSS) provTrib+=f.valor; else provNtrib+=f.valor; } else desc+=f.valor; });
+  return { provTrib, provNtrib, desc };
+}
+
 // Monta as linhas de proventos/descontos a partir do payroll record.
 // Retorna { linhas:[{cod,nome,ref,pr,de}], totalPr, totalDe, liquido, baseINSS, baseFGTS, baseIRRF, fgtsDepositado }.
 function _reciboOficialLinhas(emp, p){
@@ -2852,10 +2878,21 @@ function _reciboOficialLinhas(emp, p){
     if(vtCoPart>0) linhas.push({cod:'0910', nome:'Vale Transporte (co-part. 6%)', ref:'até 6%', pr:0, de:vtCoPart});
   }
 
+  // Rubricas fixas p/ todos (Seguro de Vida etc.) — usa SÓ o snapshot salvo na folha.
+  // Folhas antigas (sem snapshot) ficam intactas e batem com o totalLiquidoFinal salvo;
+  // o seguro passa a aparecer/descontar nas folhas recalculadas pós-implantação. Cada uma vira sua linha. #rubricas-fixas
+  const _fixas = Array.isArray(p.rubricasFixas) ? p.rubricasFixas : [];
+  _fixas.forEach(f=>{
+    if(f.tipo==='P') linhas.push({cod:f.codigo||'0150', nome:f.descricao||'Outros Proventos', ref:'fixa', pr:f.valor||0, de:0});
+    else             linhas.push({cod:f.codigo||'0960', nome:f.descricao||'Outros Descontos', ref:'fixa', pr:0, de:f.valor||0});
+  });
+
   const totalPr   = linhas.reduce((s,l)=>s+(l.pr||0), 0);
   const totalDe   = linhas.reduce((s,l)=>s+(l.de||0), 0);
   const liquido   = totalPr - totalDe;
-  const baseINSS  = Math.max(0, totalPr - descFaltas);  // proventos tributáveis (faltas/proporcional já descontados; HE corrida e Outros Proventos já inclusos em totalPr)
+  // Proventos fixos NÃO-tributáveis (ex.: reembolso) não entram na base INSS, mesmo somando em totalPr.
+  const _fixProvNtrib = _fixas.filter(f=>f.tipo==='P' && !f.incideINSS).reduce((s,f)=>s+(f.valor||0),0);
+  const baseINSS  = Math.max(0, totalPr - descFaltas - _fixProvNtrib);  // proventos tributáveis (faltas/proporcional já descontados; HE corrida e Outros Proventos já inclusos em totalPr)
   const baseFGTS  = baseINSS;
   // Base IRRF espelha calcIRRF (8382-8386): bruto - INSS - (dependentes × dedução) - pensão. Plano de saúde NÃO entra na base neste sistema.
   const dedDep    = (parseInt(emp.dependentesIRRF||0)||0) * (_pl().irrfDedDependente||0);
@@ -5171,12 +5208,22 @@ function getNextRegistro(){
 // ============================================
 // ENCARGOS & IRRF — LISTAS DINÂMICAS
 // ============================================
+// Autocomplete do catálogo de Rubricas no campo de descrição dos "Outros Proventos/Descontos".
+// Sugere as rubricas do tipo certo (D→descontos, P→proventos) com o código como dica —
+// padroniza os nomes sem travar a digitação livre. #rubricas-bridge
+function _rubricasDatalistHtml(tipo){
+  const t = tipo==='proventos' ? 'P' : 'D';
+  const opts=(State.rubricas||[]).filter(r=>r.ativa!==false && r.tipo===t && !r.fixaTodos)
+    .sort((a,b)=>(a.descricao||'').localeCompare(b.descricao||''))
+    .map(r=>`<option value="${esc(r.descricao||'')}">${r.codigo?('cód. '+esc(r.codigo)):''}</option>`).join('');
+  return `<datalist id="rubricas-dl-${tipo}">${opts}</datalist>`;
+}
 function renderOutrosItens(items, tipo){
   const container=document.getElementById(`emp-outros-${tipo}`);
   if(!container) return;
-  container.innerHTML=(items||[]).map((item,i)=>`
+  container.innerHTML=_rubricasDatalistHtml(tipo)+(items||[]).map((item,i)=>`
     <div class="outro-item-row" id="${tipo}-row-${i}">
-      <input type="text" placeholder="Descrição (ex: Adiantamento salarial)" value="${(item.descricao||'').replace(/"/g,'&quot;')}" id="${tipo}-desc-${i}">
+      <input type="text" list="rubricas-dl-${tipo}" placeholder="Descrição (ex: Adiantamento salarial)" value="${(item.descricao||'').replace(/"/g,'&quot;')}" id="${tipo}-desc-${i}">
       <input type="number" placeholder="0,00" value="${item.valor||0}" min="0" step="0.01" id="${tipo}-val-${i}">
       <button type="button" class="btn-icon btn-danger-icon" onclick="removeOutroItem('${tipo}',${i})" title="Remover">
         <i class="fa-solid fa-xmark"></i>
@@ -5192,7 +5239,7 @@ function addOutroItem(tipo){
   row.className='outro-item-row';
   row.id=`${tipo}-row-${idx}`;
   row.innerHTML=`
-    <input type="text" placeholder="Descrição" id="${tipo}-desc-${idx}">
+    <input type="text" list="rubricas-dl-${tipo}" placeholder="Descrição" id="${tipo}-desc-${idx}">
     <input type="number" placeholder="0,00" min="0" step="0.01" id="${tipo}-val-${idx}">
     <button type="button" class="btn-icon btn-danger-icon" onclick="removeOutroItem('${tipo}',${idx})" title="Remover">
       <i class="fa-solid fa-xmark"></i>
@@ -9919,7 +9966,10 @@ function recalculate(){
     // (não tributada). Fica só no campo `bonificacao` (auditoria) e soma no VR.
     const outProv=(emp.outrosProventos||[]).reduce((s,i)=>s+(parseFloat(i.valor)||0),0);
     const outDesc=(emp.outrosDescontos||[]).reduce((s,i)=>s+(parseFloat(i.valor)||0),0);
-    const totalBruto=remuneracao+heValEnc+heCorridoValor+noturnoEnc+acumuloEnc+insalubEnc+outProv;
+    // Rubricas fixas p/ todos (Seguro de Vida etc.). provTrib entra na base de impostos. #rubricas-fixas
+    const _rfix=_rubricasFixasColab(emp);
+    const _rfT=_rubricasFixasTotais(_rfix);
+    const totalBruto=remuneracao+heValEnc+heCorridoValor+noturnoEnc+acumuloEnc+insalubEnc+outProv+_rfT.provTrib;
     const pensaoEnc  =emp.pensaoAlimenticia||0;
     const planoEnc   =emp.planoSaude||0;
     const inss=calcINSS(totalBruto);
@@ -9939,7 +9989,7 @@ function recalculate(){
     // (tela, Pagamentos, folha, holerite) baterem. #vt-coparticipacao
     const _vtTotEnc=numVal('payroll-vt-total')||0;
     const vtCoPartEnc=_vtTotEnc>0?Math.min(+(salBase*0.06).toFixed(2), _vtTotEnc):0;
-    const totalLiqFinal=Math.max(0,totalBruto-inss-irrf-pensaoEnc-planoEnc-outDesc-adiantEnc-atrasoEnc-descontoSaida-vtCoPartEnc);
+    const totalLiqFinal=Math.max(0,totalBruto+_rfT.provNtrib-inss-irrf-pensaoEnc-planoEnc-outDesc-_rfT.desc-adiantEnc-atrasoEnc-descontoSaida-vtCoPartEnc);
     setVal('payroll-total-bruto',       totalBruto.toFixed(2));
     setVal('payroll-outros-proventos',  outProv.toFixed(2));
     setVal('payroll-outros-descontos',  outDesc.toFixed(2));
@@ -10149,6 +10199,9 @@ async function savePayroll(){
     minutosSaida:        numVal('payroll-saida-min')||0,
     descontoSaida:       numVal('payroll-desconto-saida')||0,
     totalLiquidoFinal:   numVal('payroll-total-liquido-final')||0,
+    // Snapshot das rubricas fixas p/ todos (Seguro de Vida etc.) aplicadas nesta folha —
+    // congela o que foi descontado, mesmo que o catálogo mude depois. #rubricas-fixas
+    rubricasFixas: _rubricasFixasColab(State.employees.find(e=>e.id===val('payroll-employee'))),
     // Preserva os pontos do app — savePayroll nunca deve apagar pontoManualDias
     // Sanitiza: Firestore rejeita undefined; converte para null ou remove
     pontoManualDias: _sanitizeForFirestore(existing?.pontoManualDias || []),
@@ -21167,9 +21220,15 @@ function printFolhaPonto(isPreview=false){
   // VT entra como CO-PARTICIPAÇÃO (menor entre 6% do salário e o custo do VT) —
   // o benefício segue pago à parte no cartão; só a co-part. desconta. #vt-coparticipacao
   const vtCoPart=vtTotal>0?Math.min(+(salarioBase*0.06).toFixed(2), vtTotal):0;
+  // Rubricas fixas p/ todos (Seguro de Vida etc.) — recomputadas do catálogo. #rubricas-fixas
+  const _fixasFolha=_rubricasFixasColab(emp);
+  const _ftF=_rubricasFixasTotais(_fixasFolha);
+  const _fixasRowsLive=_fixasFolha.map(f=>f.tipo==='P'
+    ? `<tr><td class="fin-label">${esc(f.descricao)}</td><td class="fin-value">${fmtMoney(f.valor)}</td></tr>`
+    : `<tr><td class="fin-label">${esc(f.descricao)}</td><td class="fin-value" style="color:#c0392b">${fmtMoney(f.valor)}</td></tr>`).join('');
   // VR/VA e Boa Permanência são benefícios pagos à parte — não somam no líquido
-  const totalLiquido=remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade+outrosProvF
-    -adiantamento-descontoAtraso-descontoSaida-inssDesc-irrfDesc-planoDesc-pensaoDesc-outrosDescF-vtCoPart;
+  const totalLiquido=remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade+outrosProvF+_ftF.provTrib+_ftF.provNtrib
+    -adiantamento-descontoAtraso-descontoSaida-inssDesc-irrfDesc-planoDesc-pensaoDesc-outrosDescF-_ftF.desc-vtCoPart;
 
   // Posto do colaborador
   const posto=State.postos.find(p=>p.razaoSocial===emp.posto)||{razaoSocial:emp.posto||'—', endereco:'—'};
@@ -21345,6 +21404,7 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
     ${planoDesc>0?`<tr><td class="fin-label">Plano de Saúde</td><td class="fin-value" style="color:#c0392b">${fmtMoney(planoDesc)}</td></tr>`:''}
     ${pensaoDesc>0?`<tr><td class="fin-label">Pensão Alimentícia</td><td class="fin-value" style="color:#c0392b">${fmtMoney(pensaoDesc)}</td></tr>`:''}
     ${outrosDescF>0?`<tr><td class="fin-label">Outros Descontos</td><td class="fin-value" style="color:#c0392b">${fmtMoney(outrosDescF)}</td></tr>`:''}
+    ${_fixasRowsLive}
     ${vtCoPart>0?`<tr><td class="fin-label">Vale Transporte (co-part. 6%)</td><td class="fin-value" style="color:#c0392b">${fmtMoney(vtCoPart)}</td></tr>`:''}
     <tr class="fin-total"><td class="fin-label" style="color:#fff">TOTAL LÍQUIDO A RECEBER</td><td class="fin-value" style="color:#fff">${fmtMoney(totalLiquido)}</td></tr>
   </table>
@@ -21456,9 +21516,15 @@ function _buildFolhaHtmlFromRecord(emp, p){
   // VT entra como CO-PARTICIPAÇÃO (menor entre 6% do salário e o custo do VT) —
   // o benefício segue pago à parte no cartão; só a co-part. desconta. #vt-coparticipacao
   const vtCoPart        = vtTotal>0 ? Math.min(+((emp.salarioBase||0)*0.06).toFixed(2), vtTotal) : 0;
+  // Rubricas fixas p/ todos (Seguro de Vida etc.) — usa SÓ o snapshot; folhas antigas sem snapshot ficam intactas. #rubricas-fixas
+  const _fixasRec=Array.isArray(p.rubricasFixas)?p.rubricasFixas:[];
+  const _ftR=_rubricasFixasTotais(_fixasRec);
+  // Na via totalBruto (registros novos), provTrib já está embutido em totalBrutoVal; soma só provNtrib.
   const totalLiquido    = totalBrutoVal>0
-    ? Math.max(0, totalBrutoVal-inssVal-irrfVal-pensaoVal-planoSaudeVal-outrosDescVal-adiantamento-descontoAtraso-descontoSaida-vtCoPart)
-    : Math.max(0, remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade-adiantamento-descontoAtraso-descontoSaida-inssVal-irrfVal-pensaoVal-planoSaudeVal-outrosDescVal-vtCoPart);
+    ? Math.max(0, totalBrutoVal+_ftR.provNtrib-inssVal-irrfVal-pensaoVal-planoSaudeVal-outrosDescVal-_ftR.desc-adiantamento-descontoAtraso-descontoSaida-vtCoPart)
+    : Math.max(0, remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade+_ftR.provTrib+_ftR.provNtrib-adiantamento-descontoAtraso-descontoSaida-inssVal-irrfVal-pensaoVal-planoSaudeVal-outrosDescVal-_ftR.desc-vtCoPart);
+  const _fixasProvRowsRec=_fixasRec.filter(f=>f.tipo==='P').map(f=>`<tr><td class="fin-label">${esc(f.descricao)}</td><td class="fin-value">${fmtMoney(f.valor)}</td></tr>`).join('');
+  const _fixasDescRowsRec=_fixasRec.filter(f=>f.tipo==='D').map(f=>`<tr><td class="fin-label">${esc(f.descricao)}</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(f.valor)})</td></tr>`).join('');
 
   // Tabela de dias da competência (26/mês-anterior → 25/mês)
   const diasPonto    = p.pontoManualDias||[];
@@ -21605,6 +21671,7 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
       ${acumulo>0?`<tr><td class="fin-label">Acúmulo de Função (+20%)</td><td class="fin-value">${fmtMoney(acumulo)}</td></tr>`:''}
       ${insalubridade>0?`<tr><td class="fin-label">Insalubridade</td><td class="fin-value">${fmtMoney(insalubridade)}</td></tr>`:''}
       ${outrosProvVal>0?`<tr><td class="fin-label">Outros Proventos</td><td class="fin-value">${fmtMoney(outrosProvVal)}</td></tr>`:''}
+      ${_fixasProvRowsRec}
     </table>
     <div style="font-size:9px;font-weight:700;color:#c0392b;text-transform:uppercase;margin:6px 0 3px">DESCONTOS</div>
     <table class="fin-table">
@@ -21616,6 +21683,7 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
       ${descontoSaida>0?`<tr><td class="fin-label">Desconto Saídas — ${minutosSaida} min de saída no expediente</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(descontoSaida)})</td></tr>`:''}
       ${adiantamento>0?`<tr><td class="fin-label">Adiantamento (${adiantamentoPerc}%)</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(adiantamento)})</td></tr>`:''}
       ${outrosDescVal>0?`<tr><td class="fin-label">Outros Descontos</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(outrosDescVal)})</td></tr>`:''}
+      ${_fixasDescRowsRec}
       ${vtCoPart>0?`<tr><td class="fin-label">Vale Transporte (co-part. 6%)</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(vtCoPart)})</td></tr>`:''}
     </table>
     ${fgtsVal>0?`<div style="font-size:9px;color:#1565C0;margin-top:4px;padding:3px 6px;background:#E3F2FD;border-radius:2px">FGTS (custo empregador): ${fmtMoney(fgtsVal)}</div>`:''}

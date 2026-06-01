@@ -389,6 +389,16 @@ async function sha256hex(str){
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
 }
+// Comparação em TEMPO CONSTANTE de segredos (senha/PIN/código) — não vaza, pelo
+// tempo de resposta, onde os valores diferem nem o tamanho. Frente C, etapa 1. #constant-time
+function timingSafeEqual(a, b){
+  a = String(a == null ? '' : a);
+  b = String(b == null ? '' : b);
+  const n = Math.max(a.length, b.length);
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < n; i++) diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  return diff === 0;
+}
 // Gera uma senha temporária forte (sem caracteres ambíguos).
 function gerarSenhaTemp(){
   const cs = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
@@ -401,7 +411,7 @@ async function handleRecuperarAcesso(body, env, token){
   const code = String(body.code || '');
   if (!env.RECOVERY_CODE)        return { ok:false, erro:'recuperação não configurada no servidor' };
   if (!code)                     return { ok:false, erro:'informe o código de recuperação' };
-  if (code !== env.RECOVERY_CODE) return { ok:false, erro:'código de recuperação incorreto' };
+  if (!timingSafeEqual(code, env.RECOVERY_CODE)) return { ok:false, erro:'código de recuperação incorreto' };
   const senha = gerarSenhaTemp();
   const hash  = await sha256hex(senha);
   await fsUpdate('users/master-default', {
@@ -461,7 +471,7 @@ async function handlePontoLogin(body, token, env){
   // PIN aceito: campo emp.pin se houver, senão 4 últimos dígitos do CPF
   const cpfClean    = String(emp.cpf || '').replace(/\D/g, '');
   const pinEsperado = emp.pin || (cpfClean.length >= 4 ? cpfClean.slice(-4) : '0000');
-  if (pinInput !== String(pinEsperado))
+  if (!timingSafeEqual(pinInput, String(pinEsperado)))
     return { ok:false, erro:'PIN incorreto. Use os 4 últimos dígitos do seu CPF.' };
 
   // uid estável = id do doc do employee. Claim empId pra S3-C usar nas regras.
@@ -507,7 +517,7 @@ async function handleLogin(body, token, env){
   if (!user)                return { ok:false, erro:'usuário inválido ou sem acesso' };
   if (user.active === false) return { ok:false, erro:'usuário inativo' };
   if (!user.passwordHash)   return { ok:false, erro:'usuário sem senha definida' };
-  if ((await sha256hex(password)) !== user.passwordHash)
+  if (!timingSafeEqual(await sha256hex(password), user.passwordHash))
     return { ok:false, erro:'senha incorreta' };
   // uid estável: reusa firebaseUid se já existe (preserva o 2FA enrollado),
   // senão usa o id do doc de users.
@@ -557,7 +567,7 @@ async function handleOperatorLogin(body, token, env){
     await fsSetDoc('operator/config', {
       senhaHash: hash, criadoEm: new Date().toISOString(),
     }, token);
-  } else if (cfg.senhaHash !== hash) {
+  } else if (!timingSafeEqual(cfg.senhaHash, hash)) {
     return { ok:false, erro:'senha incorreta' };
   }
 
@@ -795,7 +805,7 @@ async function handleTrocarSenha(auth, body, token){
   if (nova.length < 6) return { ok:false, erro:'a nova senha precisa de ao menos 6 caracteres' };
   const user = await fsFindUser(auth.uid, token);
   if (!user) return { ok:false, erro:'usuário não encontrado' };
-  if ((await sha256hex(atual)) !== user.passwordHash)
+  if (!timingSafeEqual(await sha256hex(atual), user.passwordHash))
     return { ok:false, erro:'senha atual incorreta' };
   await fsUpdate('users/' + user.id, {
     passwordHash: await sha256hex(nova), forceChange: false,

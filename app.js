@@ -1093,7 +1093,15 @@ function showSection(name){
   if(name==='payroll')   { initPayrollSection(); renderPayrollStats(); }
   if(name==='escalas')   renderEscalas();
   if(name==='dashboard') renderDashboard();
-  if(name==='pagamentos')      { _applyModoBanners(State.empresa?.modoContabilidade||'ambas'); setVal('pag-mes',currentMes()); setVal('pag-ano',currentAno()); renderPagamentos(); }
+  if(name==='pagamentos')      {
+    _applyModoBanners(State.empresa?.modoContabilidade||'ambas');
+    // Se voltando de uma revisão (clique numa linha), restaura a MESMA competência
+    // e rola até a linha. Senão, default = mês de calendário atual.
+    if(State._pagReturn){ setVal('pag-mes',State._pagReturn.mes); setVal('pag-ano',State._pagReturn.ano); }
+    else { setVal('pag-mes',currentMes()); setVal('pag-ano',currentAno()); }
+    renderPagamentos();
+    if(State._pagReturn){ const _emp=State._pagReturn.empId; State._pagReturn=null; setTimeout(()=>_pagScrollToEmp(_emp),60); }
+  }
   if(name==='beneficios')      switchBeneficioTab(_beneficioTabAtual||'hoje');
   if(name==='recibos')         renderRecibosEnviados();
   if(name==='aprovacoes')      renderAprovacoes();
@@ -2498,8 +2506,8 @@ function renderPagamentos(){
         :`<span class="badge" style="background:#FFEBEE;color:#c0392b;border:1px solid #FFCDD2;padding:2px 8px;border-radius:12px;font-size:11px">— Sem folha</span>`;
     const rowBg=i%2===0?'#ffffff':'#EEF2FF';
     const border=!p?'border-left:3px solid #EF9A9A':'';
-    return `<tr style="background:${rowBg};${border}" data-nome="${(e.nome||'').toLowerCase()}" data-reg="${e.registro?String(e.registro).padStart(4,'0'):''}">
-      <td style="text-align:center"><input type="checkbox" class="pag-row-check" data-emp-id="${e.id}" onclick="updatePagSelCount()"></td>
+    return `<tr style="background:${rowBg};${border};cursor:pointer" data-nome="${(e.nome||'').toLowerCase()}" data-reg="${e.registro?String(e.registro).padStart(4,'0'):''}" onclick="_pagRowClick(event,'${e.id}')" title="Clique na linha para revisar/editar a folha de ${(e.nome||'').replace(/"/g,'')}">
+      <td style="text-align:center"><input type="checkbox" class="pag-row-check" data-emp-id="${e.id}" onclick="event.stopPropagation();updatePagSelCount()"></td>
       <td>${i+1}</td>
       <td style="font-size:11px">${e.registro?String(e.registro).padStart(4,'0'):'—'}</td>
       <td><strong>${e.nome}</strong></td>
@@ -2511,7 +2519,7 @@ function renderPagamentos(){
       <td style="color:#c0392b">${adiant?'('+fmtMoney(adiant)+')':'—'}</td>
       <td style="color:#1565C0">${fgts?fmtMoney(fgts):'—'}</td>
       <td style="font-weight:700;color:#1B5E20">${liq?fmtMoney(liq):'<span style="color:#ccc">—</span>'}</td>
-      <td>${badge}</td>
+      <td>${badge}${p?`<div style="margin-top:4px"><label style="font-size:10px;color:#555;cursor:pointer;display:inline-flex;align-items:center;gap:3px" onclick="event.stopPropagation()"><input type="checkbox" class="pag-revisada" ${p.revisada?'checked':''} onclick="event.stopPropagation();_pagToggleRevisada('${p.id}',this.checked)"> ${p.revisada?'<span style="color:#1B5E20;font-weight:600">Revisada</span>':'Revisada'}</label></div>`:''}</td>
       <td style="white-space:nowrap">
         ${(() => {
           const env = p ? _reciboEnvioVigente(e.id, mes, ano) : null;
@@ -2532,7 +2540,9 @@ function renderPagamentos(){
           return `${badge}
             <button class="btn-icon" onclick="imprimirReciboOficial('${e.id}')" title="Recibo Oficial CLT (Portaria 671)" ${p?'':'disabled style="opacity:.4;cursor:not-allowed"'}><i class="fa-solid fa-file-invoice-dollar" style="color:#1B5E20"></i></button>
             <button class="btn-icon" onclick="enviarReciboOficial('${e.id}')" title="${enviarTitle}" ${p?'':'disabled style="opacity:.4;cursor:not-allowed"'}><i class="fa-solid fa-paper-plane" style="color:${enviarColor}"></i></button>
-            <button class="btn-icon" onclick="openPayrollForEmployee('${e.id}')" title="Abrir folha de ponto"><i class="fa-solid fa-arrow-up-right-from-square"></i></button>`;
+            <button class="btn-icon" onclick="event.stopPropagation();openPayrollForEmployee('${e.id}')" title="Abrir folha de ponto"><i class="fa-solid fa-arrow-up-right-from-square"></i></button>
+            ${p && p.status==='aberta' ? `<button class="btn-icon" onclick="event.stopPropagation();fecharFolhaPorId('${p.id}')" title="Fechar folha"><i class="fa-solid fa-lock" style="color:#5C6BC0"></i></button>` : ''}
+            ${p && p.status==='fechada' ? `<button class="btn-icon" onclick="event.stopPropagation();reabrirFolhaPorId('${p.id}')" title="Reabrir folha"><i class="fa-solid fa-lock-open" style="color:#EF6C00"></i></button>` : ''}`;
         })()}
       </td>
     </tr>`;
@@ -2552,6 +2562,64 @@ function renderPagamentos(){
   </tr>`;
 
   if(card) card.style.display='';
+}
+
+// ============================================================================
+// REVISÃO PELA TELA PAGAMENTOS — clicar na linha abre a folha pra revisar/editar;
+// o botão Voltar global retorna pra esta lista na MESMA competência (rolando até
+// a linha). Fechar/reabrir e marcar "Revisada" direto daqui. #pagamentos-revisao
+// ============================================================================
+// Clique na linha — ignora cliques em controles (checkbox, botões, labels).
+function _pagRowClick(ev, empId){
+  if(ev && ev.target && ev.target.closest('button,input,a,label')) return;
+  _pagAbrirRevisao(empId);
+}
+
+// Abre a folha do colaborador pra revisão, NA MESMA competência exibida em
+// Pagamentos, e guarda o contexto pra o Voltar global retornar exatamente aqui.
+function _pagAbrirRevisao(empId){
+  const mes=parseInt(val('pag-mes')||currentMes());
+  const ano=parseInt(val('pag-ano')||currentAno());
+  State._pagReturn={ mes, ano, empId };
+  showSection('payroll'); // empilha 'pagamentos' no histórico → botão Voltar retorna aqui
+  // Se o período não é o vigente, destrava a navegação (coerência visual do painel).
+  const vig=competenciaVigente();
+  const chk=document.getElementById('chk-consultar-passadas');
+  if(chk && (mes!==vig.mes||ano!==vig.ano) && !chk.checked){ chk.checked=true; _togglePeriodoNavegacao(true); }
+  setVal('payroll-mes', String(mes));
+  setVal('payroll-ano', String(ano));
+  try{ _ensurePayrollEmployeeOption(empId); }catch(e){ console.warn('_pagAbrirRevisao', e); }
+  setVal('payroll-employee', empId);
+  onPayrollPeriodoChange(); // atualiza painel de fechamento + recarrega a folha
+}
+
+// Rola até a linha do colaborador na lista de Pagamentos e dá um flash amarelo.
+function _pagScrollToEmp(empId){
+  const cb=document.querySelector(`#pag-tbody .pag-row-check[data-emp-id="${empId}"]`);
+  const tr=cb?cb.closest('tr'):null;
+  if(!tr) return;
+  tr.scrollIntoView({behavior:'smooth', block:'center'});
+  const old=tr.style.background;
+  tr.style.transition='background-color .5s';
+  tr.style.background='#FFF59D';
+  setTimeout(()=>{ tr.style.background=old; }, 1300);
+}
+
+// Marca/desmarca a folha como REVISADA (salva quem revisou + quando). Revisada é
+// pré-requisito pra enviar a folha/holerite pra conferência no app. #revisada-gate
+async function _pagToggleRevisada(payrollId, checked){
+  const p=State.payrolls.find(r=>r.id===payrollId);
+  if(!p){ toast('Folha não encontrada.','error'); return; }
+  const u=Auth.currentUser||{};
+  const upd = checked
+    ? { revisada:true, revisadoPor:(u.username||u.id||''), revisadoEm:new Date().toISOString() }
+    : { revisada:false, revisadoPor:null, revisadoEm:null };
+  try{
+    await DB.merge('payrolls', p.id, upd);
+    const s=State.payrolls.find(r=>r.id===p.id); if(s) Object.assign(s, upd);
+    Auth.log('PAYROLL_REVISADA', null, `${p.employeeId} — ${MESES[p.mes]}/${p.ano} — ${checked?'revisada':'desmarcada'}`);
+    if(State.currentSection==='pagamentos') renderPagamentos();
+  }catch(e){ console.error(e); toast('Erro ao salvar a revisão.','error'); }
 }
 
 function exportPagamentosCsv(){
@@ -10559,6 +10627,7 @@ async function enviarFolhaParaConferencia(payrollId){
   const p = State.payrolls.find(x => x.id === payrollId);
   if(!p){ toast('Folha não encontrada.','error'); return; }
   if(p.status !== 'fechada'){ toast('Folha precisa estar FECHADA pra enviar pra conferência.','warning'); return; }
+  if(!p.revisada){ toast('Marque a folha como REVISADA (tela Pagamentos) antes de enviar pra conferência.','warning'); return; }
   if(_statusEnvioConf(p) && _statusEnvioConf(p) !== 'pendente'){
     if(!confirm(`Esta folha já foi ${_statusEnvioLabel(_statusEnvioConf(p)).txt.toLowerCase()}. Reenviar mesmo assim?`)) return;
   }
@@ -10605,7 +10674,12 @@ async function enviarTodasFolhasCompetencia(){
     }
   }
   if(!alvos.length){ toast('Tudo já foi enviado. Nada a fazer.','info'); return; }
-  if(!confirm(`Enviar ${alvos.length} folha(s) de ${MESES[mes]}/${ano} pra conferência dos colaboradores?\n\nPrazo: ${_CONF_PRAZO_HORAS} horas. Após isso, sem ação, vira "aceita por silêncio".`)) return;
+  // Trava de revisão: só envia folhas REVISADAS; as demais são puladas. #revisada-gate
+  const semRev = alvos.filter(p=>!p.revisada);
+  alvos = alvos.filter(p=>p.revisada);
+  if(!alvos.length){ toast('Nenhuma folha REVISADA pra enviar. Marque como revisada na tela Pagamentos.','warning'); return; }
+  const _avisoRev = semRev.length ? `\n\n⚠ ${semRev.length} folha(s) NÃO revisada(s) serão puladas.` : '';
+  if(!confirm(`Enviar ${alvos.length} folha(s) de ${MESES[mes]}/${ano} pra conferência dos colaboradores?\n\nPrazo: ${_CONF_PRAZO_HORAS} horas. Após isso, sem ação, vira "aceita por silêncio".${_avisoRev}`)) return;
   const agora = new Date();
   const prazo = new Date(agora.getTime() + _CONF_PRAZO_HORAS*60*60*1000);
   const u = Auth.currentUser || {};
@@ -10628,7 +10702,7 @@ async function enviarTodasFolhasCompetencia(){
     }catch(e){ console.error('envio folha', p.id, e); erros++; }
   }
   Auth.log('FOLHA_ENVIADA_CONFERENCIA_LOTE', null, `${MESES[mes]}/${ano} — ${ok} folha(s)`);
-  toast(`${ok} folha(s) enviada(s) pra conferência${erros?` · ${erros} com erro`:''}. Colab tem ${_CONF_PRAZO_HORAS}h pra responder.`,'success');
+  toast(`${ok} folha(s) enviada(s) pra conferência${erros?` · ${erros} com erro`:''}${semRev.length?` · ${semRev.length} pulada(s) (não revisada)`:''}. Colab tem ${_CONF_PRAZO_HORAS}h pra responder.`,'success');
   _updatePainelFechamento(mes, ano);
   if(document.getElementById('modal-folhas-fechadas')) renderFolhasFechadasLista();
 }
@@ -10750,7 +10824,35 @@ async function reabrirFolhaPorId(payrollId){
     _updatePainelFechamento(p.mes,p.ano);
     if(typeof _updateFolhaStatusBadge==='function') _updateFolhaStatusBadge();
     renderFolhasFechadasLista();
+    if(State.currentSection==='pagamentos') renderPagamentos();
   }catch(e){ console.error(e); toast('Erro ao reabrir folha.','error'); }
+}
+
+// Fecha UMA folha pelo id (usado pela lista de Pagamentos). Apura a Boa
+// Permanência por-dados via _apurarBonusFolha (mesma lógica do fechamento em
+// lote) — não depende da folha estar carregada no formulário. #pagamentos-revisao
+async function fecharFolhaPorId(payrollId){
+  if(Auth.currentUser?.role!=='master' && !getUserModules(Auth.currentUser).payroll){ toast('Sem permissão.','error'); return; }
+  const p=State.payrolls.find(r=>r.id===payrollId);
+  if(!p){ toast('Folha não encontrada.','error'); return; }
+  if(p.status==='fechada'){ toast('Esta folha já está fechada.','warning'); return; }
+  const emp=State.employees.find(e=>e.id===p.employeeId);
+  const nome=emp?.nome||p.employeeNome||'colaborador';
+  if(!confirm(`Fechar a folha de ${nome} — ${MESES[p.mes]}/${p.ano}?\n\nA folha ficará bloqueada para edição. Você poderá reabrir se necessário.`)) return;
+  try{
+    const agora=new Date().toISOString();
+    const upd={ status:'fechada', fechadoEm:agora };
+    const recalc=(emp && !emp.isentoPonto) ? _apurarBonusFolha(p, emp, State.cct) : null;
+    if(recalc) Object.assign(upd, recalc);
+    await DB.merge('payrolls',p.id,upd);
+    const s=State.payrolls.find(r=>r.id===p.id); if(s) Object.assign(s, upd);
+    Auth.log('PAYROLL_FECHADO_INDIVIDUAL',null,`${nome} — ${MESES[p.mes]}/${p.ano}`);
+    toast(`Folha de ${nome} fechada.`);
+    _updatePainelFechamento(p.mes,p.ano);
+    if(typeof _updateFolhaStatusBadge==='function') _updateFolhaStatusBadge();
+    renderFolhasFechadasLista();
+    if(State.currentSection==='pagamentos') renderPagamentos();
+  }catch(e){ console.error(e); toast('Erro ao fechar folha.','error'); }
 }
 
 // Envia SÓ as folhas marcadas na lista de Folhas Fechadas pra conferência.
@@ -10758,10 +10860,15 @@ async function enviarFolhasSelecionadasConferencia(){
   if(Auth.currentUser?.role!=='master' && !getUserModules(Auth.currentUser).folhaEnviar){ toast('Sem permissão pra enviar folhas pra conferência.','error'); return; }
   const ids=[...document.querySelectorAll('#ff-tbody .ff-row-check:checked')].map(cb=>cb.dataset.id);
   if(!ids.length){ toast('Selecione pelo menos uma folha.','warning'); return; }
-  const alvos=ids.map(id=>State.payrolls.find(p=>p.id===id)).filter(Boolean).filter(p=>p.status==='fechada');
+  let alvos=ids.map(id=>State.payrolls.find(p=>p.id===id)).filter(Boolean).filter(p=>p.status==='fechada');
   if(!alvos.length){ toast('Nenhuma folha fechada válida na seleção.','warning'); return; }
+  // Trava de revisão: só envia folhas REVISADAS; as demais são puladas. #revisada-gate
+  const semRev=alvos.filter(p=>!p.revisada);
+  alvos=alvos.filter(p=>p.revisada);
+  if(!alvos.length){ toast('Nenhuma folha REVISADA na seleção. Marque como revisada na tela Pagamentos.','warning'); return; }
   const jaEnviadas=alvos.filter(p=>_statusEnvioConf(p)).length;
   let msg=`Enviar ${alvos.length} folha(s) selecionada(s) pra conferência dos colaboradores?\n\nPrazo: ${_CONF_PRAZO_HORAS}h. Após isso, sem ação, vira "aceita por silêncio".`;
+  if(semRev.length) msg+=`\n\n⚠ ${semRev.length} folha(s) NÃO revisada(s) serão puladas.`;
   if(jaEnviadas) msg+=`\n\n${jaEnviadas} já foram enviadas antes — serão REENVIADAS.`;
   if(!confirm(msg)) return;
   const agora=new Date();
@@ -10777,7 +10884,7 @@ async function enviarFolhasSelecionadasConferencia(){
     }catch(e){ console.error('envio folha sel',p.id,e); erros++; }
   }
   Auth.log('FOLHA_ENVIADA_CONFERENCIA_SELECAO',null,`${MESES[alvos[0].mes]}/${alvos[0].ano} — ${ok} folha(s)`);
-  toast(`${ok} folha(s) enviada(s) pra conferência${erros?` · ${erros} com erro`:''}.`,'success');
+  toast(`${ok} folha(s) enviada(s) pra conferência${erros?` · ${erros} com erro`:''}${semRev.length?` · ${semRev.length} pulada(s) (não revisada)`:''}.`,'success');
   _updatePainelFechamento(alvos[0].mes,alvos[0].ano);
   renderFolhasFechadasLista();
 }
@@ -10939,6 +11046,7 @@ async function enviarHoleriteParaConferencia(payrollId){
   const p = State.payrolls.find(x => x.id === payrollId);
   if(!p){ toast('Folha não encontrada.','error'); return; }
   if(p.status !== 'fechada'){ toast('Folha precisa estar FECHADA pra enviar o holerite.','warning'); return; }
+  if(!p.revisada){ toast('Marque a folha como REVISADA (tela Pagamentos) antes de enviar o holerite pra conferência.','warning'); return; }
   const emp = State.employees.find(e => e.id === p.employeeId);
   if(!emp){ toast('Colaborador não encontrado.','error'); return; }
   if(_statusEnvioHolerite(p) && _statusEnvioHolerite(p) !== 'pendente'){
@@ -10982,7 +11090,12 @@ async function enviarTodosHoleritesCompetencia(){
     }
   }
   if(!alvos.length){ toast('Tudo já foi enviado. Nada a fazer.','info'); return; }
-  if(!confirm(`Enviar ${alvos.length} holerite(s) de ${MESES[mes]}/${ano} pra conferência dos colaboradores?\n\nPrazo: ${_CONF_PRAZO_HORAS} horas. Após isso, sem ação, vira "aceito por silêncio".`)) return;
+  // Trava de revisão: só envia holerites de folhas REVISADAS; as demais são puladas. #revisada-gate
+  const semRev = alvos.filter(p=>!p.revisada);
+  alvos = alvos.filter(p=>p.revisada);
+  if(!alvos.length){ toast('Nenhuma folha REVISADA pra enviar. Marque como revisada na tela Pagamentos.','warning'); return; }
+  const _avisoRev = semRev.length ? `\n\n⚠ ${semRev.length} folha(s) NÃO revisada(s) serão puladas.` : '';
+  if(!confirm(`Enviar ${alvos.length} holerite(s) de ${MESES[mes]}/${ano} pra conferência dos colaboradores?\n\nPrazo: ${_CONF_PRAZO_HORAS} horas. Após isso, sem ação, vira "aceito por silêncio".${_avisoRev}`)) return;
   const agora = new Date();
   const prazo = new Date(agora.getTime() + _CONF_PRAZO_HORAS*60*60*1000);
   const u = Auth.currentUser || {};
@@ -11005,7 +11118,7 @@ async function enviarTodosHoleritesCompetencia(){
     }catch(e){ console.error('envio holerite', p.id, e); erros++; }
   }
   Auth.log('HOLERITE_ENVIADO_CONFERENCIA_LOTE', null, `${MESES[mes]}/${ano} — ${ok} holerite(s)`);
-  toast(`${ok} holerite(s) enviado(s)${erros?` · ${erros} com erro`:''}. Colab tem ${_CONF_PRAZO_HORAS}h pra responder.`,'success');
+  toast(`${ok} holerite(s) enviado(s)${erros?` · ${erros} com erro`:''}${semRev.length?` · ${semRev.length} pulado(s) (não revisada)`:''}. Colab tem ${_CONF_PRAZO_HORAS}h pra responder.`,'success');
   if(typeof renderPagamentos==='function' && State.currentSection==='pagamentos') renderPagamentos();
 }
 

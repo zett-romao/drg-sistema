@@ -1221,6 +1221,20 @@ function closeSidebarMobile(){
 // ============================================
 // Login 100% verificado no servidor (Worker). A senha nunca é conferida no
 // cliente — o Worker valida e devolve um Firebase Custom Token (sessão real).
+// ID único e persistente desta máquina/navegador (trava de dispositivo, LGPD).
+// Gerado 1x e guardado no localStorage. Enviado no /login pro Worker conferir.
+function _getDeviceId(){
+  try{
+    let id = localStorage.getItem('drg_device_id');
+    if(!id){
+      id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+         : 'dev-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,12);
+      localStorage.setItem('drg_device_id', id);
+    }
+    return id;
+  }catch(e){ return ''; }
+}
+
 async function doLogin(event){
   event.preventDefault();
   const username=val('login-username'), password=val('login-password');
@@ -1240,7 +1254,7 @@ async function doLogin(event){
 
     let r;
     try {
-      r=await _workerReqPublic('/login',{username,password});
+      r=await _workerReqPublic('/login',{username,password,deviceId:_getDeviceId()});
     } catch(e){
       console.warn('Worker /login indisponível:', (e&&e.message)||e);
       errorMsg.textContent='Servidor de login indisponível no momento. Verifique a conexão e tente de novo.';
@@ -1248,7 +1262,11 @@ async function doLogin(event){
     }
     if(!r || r.ok!==true || !r.user || !r.customToken){
       Auth.log('LOGIN_FAILED',username,(r&&r.erro)||'recusado pelo servidor');
-      errorMsg.textContent = /senha/i.test((r&&r.erro)||'') ? 'Senha incorreta.' : 'Usuário inválido ou sem acesso.';
+      let msg;
+      if(r && r.deviceBlocked) msg='Este usuário só pode acessar do dispositivo autorizado. Procure o administrador para liberar esta máquina.';
+      else if(/senha/i.test((r&&r.erro)||'')) msg='Senha incorreta.';
+      else msg='Usuário inválido ou sem acesso.';
+      errorMsg.textContent = msg;
       errorEl.classList.remove('hidden'); return;
     }
 
@@ -1633,13 +1651,51 @@ function openUserModal(id=null){
     setVal('usr-password',''); setVal('usr-password-confirm','');
     _renderUsrPostosCheckboxes(Array.isArray(u.postosResponsavel)?u.postosResponsavel:[]);
     editNote.style.display='';
+    _updateUsrDeviceRow(u);
   } else {
     titleEl.innerHTML='<i class="fa-solid fa-user-plus"></i> Novo Usuário';
     ['usr-id','usr-username','usr-email','usr-password','usr-password-confirm'].forEach(i=>setVal(i,''));
     setVal('usr-role','operador'); setVal('usr-active','true');
     editNote.style.display='none';
+    _updateUsrDeviceRow(null);
   }
   _toggleUsrPostosGroup();
+}
+
+// Mostra o status do dispositivo autorizado do usuário no modal (trava de 1 máquina).
+// Master é livre → esconde. Usuário novo → esconde (registra no 1º login).
+function _updateUsrDeviceRow(u){
+  const row=document.getElementById('usr-device-row');
+  const status=document.getElementById('usr-device-status');
+  if(!row) return;
+  if(!u || u.role==='master'){ row.style.display='none'; return; }
+  row.style.display='';
+  if(status){
+    status.innerHTML = u.deviceId
+      ? '<span style="color:#1B5E20;font-weight:600"><i class="fa-solid fa-circle-check"></i> Registrado</span> — travado em 1 máquina.'
+      : '<span style="color:#E65100;font-weight:600"><i class="fa-solid fa-clock"></i> Nenhum ainda</span> — registra no 1º login.';
+  }
+}
+
+// Master libera um novo dispositivo pro usuário (zera o deviceId). No próximo
+// login, a máquina que ele usar vira a nova autorizada. #trava-dispositivo
+async function resetarDispositivoUsuario(id){
+  if(Auth.currentUser?.role!=='master') return;
+  const u=Auth.users.find(x=>x.id===id); if(!u){ toast('Usuário não encontrado.','error'); return; }
+  if(!confirm(`Liberar novo dispositivo para "${u.username}"?\n\nO acesso da máquina atual dele deixa de valer. No próximo login, a máquina que ele usar vira a nova autorizada.`)) return;
+  try{
+    const r=await _aprovacaoReq('/usuarios/salvar',{
+      user:{ id:u.id, username:u.username, email:u.email, role:u.role, active:u.active!==false,
+             postosResponsavel:Array.isArray(u.postosResponsavel)?u.postosResponsavel:[] },
+      resetDevice:true,
+    });
+    if(!r||r.ok!==true){ toast((r&&r.erro)||'Não foi possível resetar o dispositivo.','error'); return; }
+    Auth.log('USER_DEVICE_RESET',Auth.currentUser.username,`Dispositivo liberado: ${u.username}`);
+    toast(`Dispositivo de "${u.username}" liberado. Ele registra a nova máquina no próximo login.`);
+    await loadUsersFromWorker();
+    if(State.currentSection==='users') renderUsersTable();
+    if(val('usr-id')===id){ const u2=Auth.users.find(x=>x.id===id); _updateUsrDeviceRow(u2||u); }
+  }catch(e){ toast((e&&e.message)||'Erro ao resetar dispositivo.','error'); }
 }
 
 // Mostra o bloco de "Postos sob responsabilidade" só quando o perfil não é Master.

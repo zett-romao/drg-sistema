@@ -515,6 +515,18 @@ async function handleLogin(body, token, env){
   const agora = new Date().toISOString();
   const upd   = { lastLogin: agora };
   if (!user.firebaseUid) upd.firebaseUid = uid;
+  // --- TRAVA DE DISPOSITIVO: 1 máquina por usuário (LGPD). Master é LIVRE. ---
+  // O 1º login registra a máquina atual como a autorizada; logins seguintes só
+  // valem dessa mesma máquina. O master reseta (deviceId=null) pra liberar outra.
+  if (user.role !== 'master') {
+    const deviceId = String(body.deviceId || '').trim();
+    if (!deviceId) return { ok:false, erro:'dispositivo não identificado', deviceBlocked:true };
+    if (!user.deviceId) {
+      upd.deviceId = deviceId;                       // 1º acesso → registra esta máquina
+    } else if (user.deviceId !== deviceId) {
+      return { ok:false, erro:'dispositivo não autorizado', deviceBlocked:true };
+    }
+  }
   await fsUpdate('users/' + user.id, upd, token);
   const customToken = await mintCustomToken(uid, { role: user.role || '', drg: true }, env);
   user.firebaseUid = uid;
@@ -733,6 +745,7 @@ async function handleUsuariosSalvar(auth, body, token){
     if ('showLog' in dados) merged.showLog = !!dados.showLog;
     if ('postosResponsavel' in dados)
       merged.postosResponsavel = _sanitizePostosResponsavel(dados.postosResponsavel, role);
+    if (body.resetDevice) merged.deviceId = null;   // master libera novo dispositivo (trava de 1 máquina)
     if (novaSenha) {
       if (novaSenha.length < 6) return { ok:false, erro:'a senha precisa de ao menos 6 caracteres' };
       merged.passwordHash = await sha256hex(novaSenha);

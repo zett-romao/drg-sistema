@@ -1,0 +1,27 @@
+name: Verificar código (sintaxe + no-undef)
+
+# Roda a cada push na main e pode ser disparado à mão. Marca ❌ se o app.js
+# tiver erro de sintaxe OU usar função/variável que não existe — antes que isso
+# trave o sistema em produção. Não bloqueia o deploy do Pages, mas avisa na hora. #camada3
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Sintaxe (node -c)
+        run: |
+          node -c app.js
+          node -c ponto-sw.js
+          node -c firebase-config.js
+      - name: Instalar ESLint (só na nuvem)
+        run: npm install --no-audit --no-fund eslint@9 globals@15
+      - name: ESLint (no-undef)
+        run: npx eslint app.js ponto-sw.js

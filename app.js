@@ -7498,6 +7498,8 @@ async function marcarBeneficiosPagoManual(){
   return _abrirModalPagoBenef(chks);
 
   // Mesmo período/comp das outras ações (dedup compartilhado)
+  // bloco legado mantido de propósito como referência (não executa)
+  // eslint-disable-next-line no-unreachable
   const tab = _beneficioTabAtual || 'hoje';
   const hojeISO = new Date().toISOString().substring(0,10);
   let ini, fim, periodoLabel;

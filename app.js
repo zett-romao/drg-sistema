@@ -2772,7 +2772,13 @@ function _reciboOficialLinhas(emp, p){
   if(plano>0)      linhas.push({cod:'0920', nome:'Plano de Saúde',           ref:'—',                                              pr:0, de:plano});
   if(pensao>0)     linhas.push({cod:'0930', nome:'Pensão Alimentícia',       ref:'—',                                              pr:0, de:pensao});
   if(outDesc>0)    linhas.push({cod:'0960', nome:'Outros Descontos',         ref:'—',                                              pr:0, de:outDesc});
-  if(vt>0)         linhas.push({cod:'0910', nome:'Vale Transporte',          ref:'6%',                                             pr:0, de:vt});
+  if(vt>0){
+    // Co-participação CLT (Lei 7.418/85): desconta o MENOR entre 6% do salário-base
+    // e o custo do VT. Antes descontava o VT cheio (passava do teto e anulava o
+    // benefício, que é pago à parte no cartão). #vt-coparticipacao
+    const vtCoPart = Math.min(+(salBase*0.06).toFixed(2), vt);
+    if(vtCoPart>0) linhas.push({cod:'0910', nome:'Vale Transporte (co-part. 6%)', ref:'até 6%', pr:0, de:vtCoPart});
+  }
 
   const totalPr   = linhas.reduce((s,l)=>s+(l.pr||0), 0);
   const totalDe   = linhas.reduce((s,l)=>s+(l.de||0), 0);
@@ -21010,8 +21016,18 @@ function printFolhaPonto(isPreview=false){
   const minutosAtraso=numVal('payroll-atraso-min')||0;
   const descontoSaida=numVal('payroll-desconto-saida')||0;
   const minutosSaida=numVal('payroll-saida-min')||0;
-  // VT/VR/VA e Boa Permanência são benefícios pagos à parte — não somam no líquido
-  const totalLiquido=remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade-adiantamento-descontoAtraso-descontoSaida;
+  // Descontos legais — agora descontados no líquido pra BATER com o holerite.
+  const inssDesc=numVal('payroll-inss')||0;
+  const irrfDesc=numVal('payroll-irrf')||0;
+  const planoDesc=numVal('payroll-plano-saude-desc')||0;
+  const pensaoDesc=numVal('payroll-pensao')||0;
+  const outrosDescF=numVal('payroll-outros-descontos')||0;
+  // VT entra como CO-PARTICIPAÇÃO (menor entre 6% do salário e o custo do VT) —
+  // o benefício segue pago à parte no cartão; só a co-part. desconta. #vt-coparticipacao
+  const vtCoPart=vtTotal>0?Math.min(+(salarioBase*0.06).toFixed(2), vtTotal):0;
+  // VR/VA e Boa Permanência são benefícios pagos à parte — não somam no líquido
+  const totalLiquido=remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade
+    -adiantamento-descontoAtraso-descontoSaida-inssDesc-irrfDesc-planoDesc-pensaoDesc-outrosDescF-vtCoPart;
 
   // Posto do colaborador
   const posto=State.postos.find(p=>p.razaoSocial===emp.posto)||{razaoSocial:emp.posto||'—', endereco:'—'};
@@ -21181,6 +21197,12 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
     ${minutosAtraso>0?`<tr><td class="fin-label">Desconto Atraso — ${minutosAtraso} min atrasados</td><td class="fin-value" style="color:${descontoAtraso>0?'#c0392b':'#2E7D32'}">${descontoAtraso>0?fmtMoney(descontoAtraso):'R$ 0,00'}</td></tr>`:''}
     ${minutosSaida>0?`<tr><td class="fin-label">Desconto Saídas — ${minutosSaida} min de saída no expediente</td><td class="fin-value" style="color:${descontoSaida>0?'#c0392b':'#2E7D32'}">${descontoSaida>0?fmtMoney(descontoSaida):'R$ 0,00'}</td></tr>`:''}
     ${adiantamento>0?`<tr><td class="fin-label">Adiantamento (${numVal('payroll-adiantamento-perc')||40}%)</td><td class="fin-value" style="color:#c0392b">${fmtMoney(adiantamento)}</td></tr>`:''}
+    ${inssDesc>0?`<tr><td class="fin-label">INSS</td><td class="fin-value" style="color:#c0392b">${fmtMoney(inssDesc)}</td></tr>`:''}
+    ${irrfDesc>0?`<tr><td class="fin-label">IRRF</td><td class="fin-value" style="color:#c0392b">${fmtMoney(irrfDesc)}</td></tr>`:''}
+    ${planoDesc>0?`<tr><td class="fin-label">Plano de Saúde</td><td class="fin-value" style="color:#c0392b">${fmtMoney(planoDesc)}</td></tr>`:''}
+    ${pensaoDesc>0?`<tr><td class="fin-label">Pensão Alimentícia</td><td class="fin-value" style="color:#c0392b">${fmtMoney(pensaoDesc)}</td></tr>`:''}
+    ${outrosDescF>0?`<tr><td class="fin-label">Outros Descontos</td><td class="fin-value" style="color:#c0392b">${fmtMoney(outrosDescF)}</td></tr>`:''}
+    ${vtCoPart>0?`<tr><td class="fin-label">Vale Transporte (co-part. 6%)</td><td class="fin-value" style="color:#c0392b">${fmtMoney(vtCoPart)}</td></tr>`:''}
     <tr class="fin-total"><td class="fin-label" style="color:#fff">TOTAL LÍQUIDO A RECEBER</td><td class="fin-value" style="color:#fff">${fmtMoney(totalLiquido)}</td></tr>
   </table>
   <div>
@@ -21288,9 +21310,12 @@ function _buildFolhaHtmlFromRecord(emp, p){
   // p.totalLiquidoFinal salvo, que em registros antigos somava VT/VR/VA
   // indevidamente). VT/VR/VA são benefícios pagos à parte.
   // Boa Permanência (bonificacao) NÃO entra no líquido — é benefício pago no VR.
+  // VT entra como CO-PARTICIPAÇÃO (menor entre 6% do salário e o custo do VT) —
+  // o benefício segue pago à parte no cartão; só a co-part. desconta. #vt-coparticipacao
+  const vtCoPart        = vtTotal>0 ? Math.min(+((emp.salarioBase||0)*0.06).toFixed(2), vtTotal) : 0;
   const totalLiquido    = totalBrutoVal>0
-    ? Math.max(0, totalBrutoVal-inssVal-irrfVal-pensaoVal-planoSaudeVal-outrosDescVal-adiantamento-descontoAtraso-descontoSaida)
-    : Math.max(0, remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade-adiantamento-descontoAtraso-descontoSaida);
+    ? Math.max(0, totalBrutoVal-inssVal-irrfVal-pensaoVal-planoSaudeVal-outrosDescVal-adiantamento-descontoAtraso-descontoSaida-vtCoPart)
+    : Math.max(0, remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade-adiantamento-descontoAtraso-descontoSaida-inssVal-irrfVal-pensaoVal-planoSaudeVal-outrosDescVal-vtCoPart);
 
   // Tabela de dias da competência (26/mês-anterior → 25/mês)
   const diasPonto    = p.pontoManualDias||[];
@@ -21448,6 +21473,7 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
       ${minutosSaida>0?`<tr><td class="fin-label">Desconto Saídas — ${minutosSaida} min de saída no expediente</td><td class="fin-value" style="color:${descontoSaida>0?'#c0392b':'#2E7D32'}">${descontoSaida>0?`(${fmtMoney(descontoSaida)})`:'R$ 0,00'}</td></tr>`:''}
       ${adiantamento>0?`<tr><td class="fin-label">Adiantamento (${adiantamentoPerc}%)</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(adiantamento)})</td></tr>`:''}
       ${outrosDescVal>0?`<tr><td class="fin-label">Outros Descontos</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(outrosDescVal)})</td></tr>`:''}
+      ${vtCoPart>0?`<tr><td class="fin-label">Vale Transporte (co-part. 6%)</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(vtCoPart)})</td></tr>`:''}
     </table>
     ${fgtsVal>0?`<div style="font-size:9px;color:#1565C0;margin-top:4px;padding:3px 6px;background:#E3F2FD;border-radius:2px">FGTS (custo empregador): ${fmtMoney(fgtsVal)}</div>`:''}
     <table class="fin-table" style="margin-top:4px">

@@ -3410,37 +3410,18 @@ async function _entrarRotaPublicaSeAplicavel(){
     <div style="font-size:42px;margin-bottom:14px">⏳</div>
     <div>Carregando seu recibo...</div></div>`;
 
-  // Garante Firebase Auth (anônima quando necessário, pra ler o documento)
+  // SEM sessão anônima: o recibo é servido pelo Worker (rota pública /recibo-publico),
+  // que lê por token via conta de serviço e marca a visualização. Frente C, etapa 5. #recibo-publico
   try {
-    if(!firebase.auth().currentUser){
-      await firebase.auth().signInAnonymously();
-    }
-  } catch(e){ console.warn('Sem auth anônima:', e); }
-
-  try {
-    const snap = await firebase.firestore().collectionGroup('holeritesEnviados')
-                       .where('token','==',token).limit(1).get();
-    if(snap.empty){
-      document.body.innerHTML = _paginaPublicaErroHTML('Recibo não encontrado.', 'O link pode ter sido digitado errado ou o envio foi anulado pelo emissor.');
+    const r = await _workerReqPublic('/recibo-publico', { token, userAgent: (navigator.userAgent||'').slice(0,200) });
+    if(!r || r.ok!==true){
+      document.body.innerHTML = _paginaPublicaErroHTML(
+        (r && r.anulado) ? 'Recibo indisponível.' : 'Recibo não encontrado.',
+        (r && r.anulado) ? 'Este recibo foi anulado pelo emissor.'
+                         : 'O link pode ter sido digitado errado ou o envio foi anulado pelo emissor.');
       return true;
     }
-    const docRef = snap.docs[0].ref;
-    const data   = snap.docs[0].data();
-    if(data.anulado){
-      document.body.innerHTML = _paginaPublicaErroHTML('Recibo indisponível.', 'Este recibo foi anulado pelo emissor.');
-      return true;
-    }
-    // Marca como visualizado na PRIMEIRA abertura
-    if(!data.visualizadoEm){
-      data.visualizadoEm = new Date().toISOString();
-      try {
-        await docRef.update({
-          visualizadoEm: data.visualizadoEm,
-          userAgent: (navigator.userAgent||'').slice(0,200)
-        });
-      } catch(e){ console.warn('Falha ao registrar visualização:', e); }
-    }
-
+    const data = r.recibo || {};
     const emp = data.empSnapshot || {};
     const p   = data.pSnapshot   || {};
     const reciboHtml = _reciboOficialUmHTML(emp, p, data.mes, data.ano,

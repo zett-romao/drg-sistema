@@ -120,9 +120,11 @@ if (typeof firebase !== 'undefined' && firebase.apps && !firebase.apps.length) {
 //        allow delete:               if isStaff();
 //      }
 //
-//      // recibos enviados: leitura PÚBLICA por token (link #/recibo/...) — staff grava
-//      match /holeritesEnviados/{id}          { allow read: if request.auth != null; allow write: if isStaff(); }
-//      match /{p=**}/holeritesEnviados/{id}   { allow read: if request.auth != null; } // collectionGroup
+//      // recibos enviados: SÓ staff. O link público #/recibo/<token> agora é
+//      // servido pelo Worker (/recibo-publico, via conta de serviço) — não há
+//      // mais leitura anônima direta. Frente C, etapa 5.
+//      match /holeritesEnviados/{id}        { allow read, write: if isStaff(); }
+//      match /{p=**}/holeritesEnviados/{id} { allow read: if isStaff(); }   // collectionGroup
 //
 //      // log de acesso: append-only
 //      match /accessLog/{id} {

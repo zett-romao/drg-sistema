@@ -477,6 +477,46 @@ async function handleRecuperarAcesso(body, env, token){
   return { ok:true, username:'admin', senha };
 }
 
+// ── Recibo público (rota pública) ────────────────────────────
+// Substitui o signInAnonymously() do link #/recibo/<token>. O token (16-64 hex,
+// imprevisível) é a credencial. Lê holeritesEnviados por token via conta de
+// serviço e marca a 1ª visualização. Frente C, etapa 5. #recibo-publico
+async function handleReciboPublico(body, token){
+  const recToken = String(body.token || '').trim();
+  if (!/^[A-Fa-f0-9]{16,64}$/.test(recToken)) return { ok:false, erro:'token inválido' };
+  const res = await fetch(FS_BASE + ':runQuery', {
+    method:  'POST',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ structuredQuery: {
+      from:  [{ collectionId: 'holeritesEnviados', allDescendants: true }],
+      where: { fieldFilter: { field: { fieldPath: 'token' }, op: 'EQUAL',
+               value: { stringValue: recToken } } },
+      limit: 1,
+    } }),
+  });
+  if (!res.ok) throw new Error('Firestore query ' + res.status);
+  const rows = await res.json();
+  let docName = null, data = null;
+  for (const row of (rows || [])) if (row.document) { docName = row.document.name; data = fromFsFields(row.document.fields || {}); break; }
+  if (!data)         return { ok:false, erro:'nao_encontrado' };
+  if (data.anulado)  return { ok:false, anulado:true };
+  // Marca a visualização na 1ª abertura (não-crítico).
+  let visualizadoEm = data.visualizadoEm;
+  if (!visualizadoEm && docName) {
+    visualizadoEm = new Date().toISOString();
+    const relPath = docName.split('/documents/')[1];
+    try { await fsUpdate(relPath, { visualizadoEm, userAgent: String(body.userAgent || '').slice(0,200) }, token); } catch (_) {}
+  }
+  return { ok:true, recibo: {
+    empSnapshot: data.empSnapshot || {},
+    pSnapshot:   data.pSnapshot   || {},
+    mes:         data.mes,
+    ano:         data.ano,
+    protocolo:   data.protocolo || '',
+    visualizadoEm,
+  } };
+}
+
 // ── Login do app de ponto (rota pública) ─────────────────────
 // Recebe { matricula, pin }, confere contra `employees` e devolve um
 // custom token com claim `role: 'colaborador'`. Substitui o
@@ -1014,6 +1054,10 @@ export default {
       if (url.pathname === '/recuperar-acesso') {
         const t = await getAccessToken(env);
         return json(await handleRecuperarAcesso(body, env, t), 200, origin);
+      }
+      if (url.pathname === '/recibo-publico') {
+        const t = await getAccessToken(env);
+        return json(await handleReciboPublico(body, t), 200, origin);
       }
       if (url.pathname === '/login') {
         const t = await getAccessToken(env);

@@ -399,6 +399,37 @@ function timingSafeEqual(a, b){
   for (let i = 0; i < n; i++) diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
   return diff === 0;
 }
+
+// ── Hash de senha: PBKDF2-SHA256 + salt (Frente C, etapa 2). #pbkdf2 ──
+// Formato self-describing: "pbkdf2$<iteracoes>$<saltB64url>$<hashB64url>".
+// Backward-compat: hash antigo (SHA-256 hex puro, sem salt) AINDA valida via
+// verifyPassword e é MIGRADO para PBKDF2 no próximo login — ninguém é trancado.
+// 100k iterações: forte com salt e dentro do limite de CPU do Cloudflare Worker
+// por requisição (210k+ pode estourar). Iterações ficam embutidas no hash, então
+// dá pra subir no futuro sem quebrar os hashes já gravados.
+const PBKDF2_ITERS = 100000;
+async function _pbkdf2Bits(password, salt, iterations){
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(String(password)), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({ name:'PBKDF2', salt, iterations, hash:'SHA-256' }, key, 256);
+  return new Uint8Array(bits);
+}
+async function hashPassword(password){
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const bits = await _pbkdf2Bits(password, salt, PBKDF2_ITERS);
+  return `pbkdf2$${PBKDF2_ITERS}$${bytesToB64url(salt)}$${bytesToB64url(bits)}`;
+}
+function isLegacyHash(stored){ return !!stored && !String(stored).startsWith('pbkdf2$'); }
+async function verifyPassword(password, stored){
+  if (!stored) return false;
+  if (String(stored).startsWith('pbkdf2$')){
+    const parts = String(stored).split('$');           // [pbkdf2, iter, salt, hash]
+    if (parts.length !== 4) return false;
+    const iters = parseInt(parts[1], 10) || PBKDF2_ITERS;
+    const bits  = await _pbkdf2Bits(password, b64ToBytes(parts[2]), iters);
+    return timingSafeEqual(bytesToB64url(bits), parts[3]);
+  }
+  return timingSafeEqual(await sha256hex(password), stored);  // legado SHA-256 hex
+}
 // Gera uma senha temporária forte (sem caracteres ambíguos).
 function gerarSenhaTemp(){
   const cs = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
@@ -413,7 +444,7 @@ async function handleRecuperarAcesso(body, env, token){
   if (!code)                     return { ok:false, erro:'informe o código de recuperação' };
   if (!timingSafeEqual(code, env.RECOVERY_CODE)) return { ok:false, erro:'código de recuperação incorreto' };
   const senha = gerarSenhaTemp();
-  const hash  = await sha256hex(senha);
+  const hash  = await hashPassword(senha);   // PBKDF2 (#pbkdf2)
   await fsUpdate('users/master-default', {
     username:'admin', passwordHash:hash, role:'master',
     active:true, forceChange:true, recuperadoEm:new Date().toISOString(),
@@ -517,7 +548,7 @@ async function handleLogin(body, token, env){
   if (!user)                return { ok:false, erro:'usuário inválido ou sem acesso' };
   if (user.active === false) return { ok:false, erro:'usuário inativo' };
   if (!user.passwordHash)   return { ok:false, erro:'usuário sem senha definida' };
-  if (!timingSafeEqual(await sha256hex(password), user.passwordHash))
+  if (!(await verifyPassword(password, user.passwordHash)))
     return { ok:false, erro:'senha incorreta' };
   // uid estável: reusa firebaseUid se já existe (preserva o 2FA enrollado),
   // senão usa o id do doc de users.
@@ -525,6 +556,8 @@ async function handleLogin(body, token, env){
   const agora = new Date().toISOString();
   const upd   = { lastLogin: agora };
   if (!user.firebaseUid) upd.firebaseUid = uid;
+  // Migração transparente: senha antiga (SHA-256) → PBKDF2 no 1º login pós-deploy. #pbkdf2
+  if (isLegacyHash(user.passwordHash)) upd.passwordHash = await hashPassword(password);
   // --- TRAVA DE DISPOSITIVO: N máquinas por usuário (LGPD). Master é LIVRE. ---
   // Cada usuário tem um limite `maxDispositivos` (default 1). Os primeiros logins
   // registram as máquinas até o limite; além disso → bloqueio. Compat: o campo
@@ -560,15 +593,16 @@ async function handleOperatorLogin(body, token, env){
   if (!password) return { ok:false, erro:'digite a senha' };
 
   const cfg  = await fsGetDoc('operator/config', token);
-  const hash = await sha256hex(password);
 
   if (!cfg) {
     // 1º acesso — cria o doc de config com a senha digitada (mesma lógica do operator.html legado)
     await fsSetDoc('operator/config', {
-      senhaHash: hash, criadoEm: new Date().toISOString(),
+      senhaHash: await hashPassword(password), criadoEm: new Date().toISOString(),
     }, token);
-  } else if (!timingSafeEqual(cfg.senhaHash, hash)) {
+  } else if (!(await verifyPassword(password, cfg.senhaHash))) {
     return { ok:false, erro:'senha incorreta' };
+  } else if (isLegacyHash(cfg.senhaHash)) {
+    await fsUpdate('operator/config', { senhaHash: await hashPassword(password) }, token);  // migra #pbkdf2
   }
 
   const customToken = await mintCustomToken('operator-default',
@@ -618,7 +652,7 @@ async function handleTenantCadastrar(body, token){
   // 2. Usuário master no tenant
   const userId = 'master_' + tenantId;
   await fsSetDoc('tenants/' + tenantId + '/users/' + userId, {
-    id: userId, username: usuario, passwordHash: await sha256hex(senha),
+    id: userId, username: usuario, passwordHash: await hashPassword(senha),
     role: 'master', active: true, criadoEm: agora,
   }, token);
 
@@ -768,7 +802,7 @@ async function handleUsuariosSalvar(auth, body, token){
     if (body.resetDevice) { merged.deviceIds = []; merged.deviceId = null; }  // master zera os dispositivos
     if (novaSenha) {
       if (novaSenha.length < 6) return { ok:false, erro:'a senha precisa de ao menos 6 caracteres' };
-      merged.passwordHash = await sha256hex(novaSenha);
+      merged.passwordHash = await hashPassword(novaSenha);   // #pbkdf2
       merged.forceChange  = false;
     }
     await fsSetDoc('users/' + dados.id, merged, token);
@@ -781,7 +815,7 @@ async function handleUsuariosSalvar(auth, body, token){
   const mdNovo = parseInt(dados.maxDispositivos);
   await fsSetDoc('users/' + id, {
     id, username, email, role,
-    active: dados.active !== false, passwordHash: await sha256hex(novaSenha),
+    active: dados.active !== false, passwordHash: await hashPassword(novaSenha),
     postosResponsavel: _sanitizePostosResponsavel(dados.postosResponsavel, role),
     maxDispositivos: (Number.isFinite(mdNovo) && mdNovo >= 1) ? Math.min(mdNovo, 20) : 1,
     deviceIds: [],
@@ -805,10 +839,10 @@ async function handleTrocarSenha(auth, body, token){
   if (nova.length < 6) return { ok:false, erro:'a nova senha precisa de ao menos 6 caracteres' };
   const user = await fsFindUser(auth.uid, token);
   if (!user) return { ok:false, erro:'usuário não encontrado' };
-  if (!timingSafeEqual(await sha256hex(atual), user.passwordHash))
+  if (!(await verifyPassword(atual, user.passwordHash)))
     return { ok:false, erro:'senha atual incorreta' };
   await fsUpdate('users/' + user.id, {
-    passwordHash: await sha256hex(nova), forceChange: false,
+    passwordHash: await hashPassword(nova), forceChange: false,
     senhaAlteradaEm: new Date().toISOString(),
   }, token);
   return { ok:true };

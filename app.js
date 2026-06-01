@@ -3091,9 +3091,33 @@ async function enviarReciboOficial(empId){
   _abrirModalEnvioRecibo(emp, reg, link);
 }
 
+// Manda o MESMO recibo pro app do colaborador assinar (com hash) — reaproveita o
+// fluxo do holerite-conferência (_reciboOficialUmHTML). Decisão do usuário 2026-05-31:
+// o "Enviar recibo" ganha a opção de app+assinatura, mantendo o link público. #recibo-app-assina
+async function _enviarReciboAppAssinar(empId, mes, ano){
+  const p = State.payrolls.find(x=>x.employeeId===empId && x.mes==mes && x.ano==ano);
+  if(!p){ toast('Folha não encontrada para assinar no app.','error'); return; }
+  document.getElementById('modal-envio-recibo')?.remove();
+  await enviarHoleriteParaConferencia(p.id);  // valida 'fechada'/permissão e envia c/ hash
+}
+
 function _abrirModalEnvioRecibo(emp, reg, link){
   const compLabel = `${MESES[reg.mes]||''}/${reg.ano}`;
   const primeiroNome = (emp.nome||'').split(' ')[0] || emp.nome || '';
+  // Mesmo documento do "Enviar Holerite p/ Conferência" → app + assinatura/hash.
+  const _pConf = State.payrolls.find(x=>x.employeeId===reg.employeeId && x.mes==reg.mes && x.ano==reg.ano);
+  const _confSt = _pConf?.holeriteConferencia?.status || null;
+  const _fechada = _pConf?.status==='fechada';
+  const _appBox = `
+    <div style="background:#F5F3FF;border:1px solid #DDD6FE;border-radius:8px;padding:12px;margin-bottom:14px">
+      <div style="font-weight:700;color:#5B21B6;font-size:13px;margin-bottom:5px"><i class="fa-solid fa-mobile-screen-button"></i> Assinar no app do colaborador (hash SHA-256)</div>
+      ${_confSt
+        ? `<div style="font-size:12px;color:#5B21B6;margin-bottom:8px">Status no app: <strong>${(_statusEnvioLabel(_confSt)||{}).txt||_confSt}</strong>${_pConf.holeriteConferencia.enviadoEm?` · enviado em ${new Date(_pConf.holeriteConferencia.enviadoEm).toLocaleString('pt-BR')}`:''}</div>`
+        : `<div style="font-size:12px;color:#7c6aaa;margin-bottom:8px">Manda o recibo pro app do colaborador <strong>conferir e assinar</strong> — igual à folha de ponto, com hash.</div>`}
+      ${_fechada
+        ? `<button onclick="_enviarReciboAppAssinar('${reg.employeeId}',${reg.mes},${reg.ano})" style="width:100%;background:#6D28D9;color:#fff;border:none;padding:10px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600"><i class="fa-solid fa-paper-plane"></i> ${_confSt&&_confSt!=='pendente'?'Reenviar pro app p/ assinar':_confSt==='pendente'?'Reenviar pro app':'Enviar pro app p/ assinar'}</button>`
+        : `<div style="font-size:12px;color:#E65100;background:#FFF3E0;border-radius:5px;padding:8px 10px"><i class="fa-solid fa-lock"></i> Para assinar no app, <strong>feche a competência</strong> desta folha primeiro.</div>`}
+    </div>`;
   const msgWa = `Olá ${primeiroNome}! Seu recibo de pagamento (${compLabel}) está disponível para visualização: ${link}`;
   const waUrl = `https://wa.me/${(emp.celular||'').replace(/\D/g,'')?'55'+emp.celular.replace(/\D/g,''):''}?text=${encodeURIComponent(msgWa)}`;
   const mailto = `mailto:${emp.email||''}?subject=${encodeURIComponent('Recibo de pagamento — '+compLabel)}&body=${encodeURIComponent(msgWa)}`;
@@ -3116,7 +3140,8 @@ function _abrirModalEnvioRecibo(emp, reg, link){
             <div><strong>Protocolo:</strong> <span style="font-family:monospace">${reg.protocolo}</span></div>
             <div><strong>Líquido:</strong> ${fmtMoney(reg.liquido||0)}</div>
           </div>
-          <label style="font-weight:600;font-size:12px;display:block;margin-bottom:4px">Link único do recibo</label>
+          ${_appBox}
+          <label style="font-weight:600;font-size:12px;display:block;margin-bottom:4px">Ou compartilhe por link público <span style="font-weight:400;color:#999">(sem assinatura)</span></label>
           <div style="display:flex;gap:6px">
             <input type="text" id="recibo-link-input" value="${link}" readonly style="flex:1;font-family:monospace;font-size:11px;padding:8px 10px;border:1px solid #ccc;border-radius:4px;background:#f7f7f7">
             <button onclick="_copiarLinkRecibo()" style="background:#1a3a6b;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:13px"><i class="fa-solid fa-copy"></i> Copiar</button>

@@ -19467,32 +19467,65 @@ function _fdsLivreResolve(emp, ano, mes, dia){
   return { ehSabado:dow===6, esteBatido, outroBatido, algumBatido: esteBatido||outroBatido };
 }
 
+// Cache leve do "1º dia trabalhado" por colaborador+trecho (evita re-escanear
+// payrolls a cada chamada do ciclo). Zerado quando payrolls mudam (listener).
+let _primTrab12x36Cache = {};
+function _resetPrimTrab12x36Cache(){ _primTrab12x36Cache = {}; }
+
+// Primeiro dia com PONTO REAL batido (entrada+saída, não-backfill) do colaborador,
+// a partir de fromISO inclusive (início do segmento de lotação; null = desde sempre).
+// Retorna 'YYYY-MM-DD' ou null. É a REFERÊNCIA DE PARIDADE do ciclo 12x36 — à prova
+// de erro humano: o dia que ele comprovadamente trabalhou É dia de trabalho, e no
+// 12x36 todos os dias de trabalho têm a MESMA paridade. #ciclo12x36-por-ponto
+function _primeiroDiaTrabalho12x36(emp, fromISO){
+  const key = emp.id + '|' + (fromISO||'');
+  if(key in _primTrab12x36Cache) return _primTrab12x36Cache[key];
+  const pad = n => String(n).padStart(2,'0');
+  let min = null;
+  (State.payrolls||[]).forEach(p => {
+    if(p.employeeId !== emp.id) return;
+    const dias = Array.isArray(p.pontoManualDias) ? p.pontoManualDias : [];
+    dias.forEach(d => {
+      if(!d || !d.entrada) return;
+      if((d.entrada_origem||'') === 'backfill') return;       // projeção não conta
+      const rd  = _compRealDate(p.mes, p.ano, d.dia);          // dia da competência → data real
+      const iso = `${rd.ano}-${pad(rd.mes)}-${pad(rd.dia)}`;
+      if(fromISO && iso < fromISO) return;
+      if(!min || iso < min) min = iso;
+    });
+  });
+  _primTrab12x36Cache[key] = min;
+  return min;
+}
+
+// true=trabalho / false=folga / null=sem referência. NOVA regra (decisão usuário
+// 2026-06-01): a paridade do ciclo 12x36 é ancorada no **1º dia batido** do
+// colaborador dentro do trecho de lotação vigente — e reseta a cada TRANSFERÊNCIA
+// (historicoLotacao). O campo manual `ciclo12x36Inicio` vira só fallback (novo
+// colaborador sem ponto ainda). Isso AUTO-CORRIGE os ciclos que estavam errados.
 function _ciclo12x36EhTrabalho(emp, ano, mes, dia){
   if(!emp) return null;
-  // Procura âncora vigente: SEGMENTO da lotação (ciclo12x36Inicio do segmento,
-  // ou dataInicio dele como fallback) → cadastro principal. Necessário quando
-  // há transferência entre 12x36 diurno e noturno: a paridade do ciclo pode
-  // inverter entre os segmentos e uma única âncora global manda a escala
-  // antiga pro lado errado (todos os dias trabalhados viram "folga trabalhada"
-  // → HE indevida em lote).
   const ymd = `${ano}-${String(mes).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
-  let ini = null;
+  // Segmento de lotação vigente na data (transferências) → início do trecho atual.
+  let segIni = null, segAnchor = null;
   const hist = (emp.historicoLotacao||[]).filter(h=>h && h.dataInicio)
     .sort((a,b)=>a.dataInicio.localeCompare(b.dataInicio));
   if(hist.length){
     let vig=null;
     for(const h of hist){ if(h.dataInicio<=ymd) vig=h; else break; }
-    if(vig) ini = vig.ciclo12x36Inicio || vig.dataInicio;
+    if(vig){ segIni = vig.dataInicio; segAnchor = vig.ciclo12x36Inicio || null; }
   }
-  if(!ini) ini = emp.ciclo12x36Inicio;
+  // Âncora de paridade: 1º dia batido no trecho (PRIMÁRIO, auto) → âncora explícita
+  // do segmento → início do segmento → ciclo manual do cadastro → admissão.
+  const ini = _primeiroDiaTrabalho12x36(emp, segIni)
+    || segAnchor || segIni || emp.ciclo12x36Inicio || emp.dataAdmissao;
   if(!ini) return null;
   const dAnchor = new Date(ini + 'T00:00:00');
   if(isNaN(dAnchor.getTime())) return null;
   const dAlvo = new Date(ano, mes-1, dia);
   const diff = Math.round((dAlvo - dAnchor) / 86400000);
-  // Âncora = referência de PARIDADE do ciclo: alternância vale nos DOIS sentidos
-  // a partir dela. O recorte de "antes da admissão" é tratado à parte em
-  // _getExpectedDay/_diaEmBrancoEhFalta.
+  // A alternância vale nos DOIS sentidos a partir da âncora. Recorte de
+  // pré-admissão é tratado em _getExpectedDay/_diaEmBrancoEhFalta.
   return ((((diff % 2) + 2) % 2) === 0);
 }
 
@@ -24186,6 +24219,7 @@ async function _carregarDadosPosLogin(){
   });
   DB.listen('payrolls', data => {
     State.payrolls = data;
+    _resetPrimTrab12x36Cache();   // ponto mudou → recalcula a âncora 12x36 (1º dia batido)
     if(State.currentSection==='payroll') renderPayrollHistory(val('payroll-employee'));
     if(State.currentSection==='dashboard') renderDashboard();
     if(State.currentSection==='recibos') renderRecibosEnviados(); // assinatura no app reflete na tela Recibos

@@ -13961,6 +13961,7 @@ async function renderComunicacoesTab(empId){
   const podeApagar = !!getUserModules(Auth.currentUser).comunicacoesApagar || Auth.currentUser?.role==='master';
   const emp=State.employees.find(e=>e.id===empId);
   const autos = emp ? _computeAvisosAutomaticos(emp) : [];
+  const docsEnv = _docsEnviadosColab(empId);
   let html='';
   html+=`<div style="margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
     <strong style="font-size:13px">Mensagens enviadas (${lista.length})</strong>
@@ -14015,6 +14016,17 @@ async function renderComunicacoesTab(empId){
       ${autos.map(a=>`<div style="background:#fafafa;border-left:3px solid #999;padding:7px 10px;margin-bottom:6px;border-radius:4px;font-size:12px"><strong>${a.icone} ${a.titulo}</strong><br><span style="color:#555">${a.msg}</span></div>`).join('')}
     </div>`;
   }
+  if(docsEnv.length){
+    const _fdt = iso => { const d=iso?new Date(iso):null; return (d&&!isNaN(d.getTime()))?(d.toLocaleDateString('pt-BR')+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})):''; };
+    html+=`<div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border)">
+      <strong style="font-size:13px"><i class="fa-solid fa-file-arrow-up" style="color:#1a3a6b"></i> Documentos enviados — folha & holerite (${docsEnv.length})</strong>
+      <div style="font-size:11px;color:#888;margin-bottom:8px">Registro de cada folha de ponto e holerite enviado ao colaborador para conferência/assinatura.</div>
+      ${docsEnv.map(d=>`<div style="background:#fff;border:1px solid var(--border);border-left:3px solid #1a3a6b;border-radius:6px;padding:8px 11px;margin-bottom:6px;font-size:12px">
+        <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><strong>${d.icone} ${d.tipo} — ${d.comp}</strong><span style="color:#475569">${_docEnvStatusLabel(d.status)}</span></div>
+        <div style="color:#888;font-size:11px;margin-top:2px">Enviado em ${_fdt(d.enviadoEm)} por ${d.por}</div>
+      </div>`).join('')}
+    </div>`;
+  }
   // Ação no fim da aba: gerar relatório PDF SO deste colaborador — usado em
   // auditorias / pastas individuais. Abre o modal universal de relatorios
   // em modo dedicado (sem grid de tipos e sem filtros).
@@ -14060,6 +14072,33 @@ function _computeAvisosAutomaticos(emp){
     if(dd>=0 && dd<=30) out.push({icone:'🤝',titulo:'Contrato efetivado',msg:`Em ${emp.efetivadoEm.split('-').reverse().join('/')}.`});
   }
   return out;
+}
+
+// Log de DOCUMENTOS enviados ao colaborador (folha de ponto / holerite p/
+// conferência) — derivado das folhas em State.payrolls (folha → envioConferencia;
+// holerite → holeriteConferencia). Registro persistente na aba Comunicações
+// (pedido do usuário 2026-05-31). #docs-enviados
+function _docsEnviadosColab(empId){
+  const out=[];
+  (State.payrolls||[]).filter(p=>p && p.employeeId===empId).forEach(p=>{
+    const comp = `${MESES[p.mes]||p.mes}/${p.ano}`;
+    if(p.envioConferencia && p.envioConferencia.enviadoEm){
+      const e=p.envioConferencia;
+      out.push({ tipo:'Folha de Ponto', icone:'🕐', comp, enviadoEm:e.enviadoEm, por:e.enviadoPorNome||e.enviadoPor||'—', status:e.status||'pendente' });
+    }
+    if(p.holeriteConferencia && p.holeriteConferencia.enviadoEm){
+      const e=p.holeriteConferencia;
+      out.push({ tipo:'Holerite', icone:'🧾', comp, enviadoEm:e.enviadoEm, por:e.enviadoPorNome||e.enviadoPor||'—', status:e.status||'pendente' });
+    }
+  });
+  out.sort((a,b)=>(b.enviadoEm||'').localeCompare(a.enviadoEm||''));
+  return out;
+}
+function _docEnvStatusLabel(s){
+  const m={ pendente:'⏳ Aguardando conferência', assinada:'✅ Assinada', assinado:'✅ Assinado',
+    aceita:'✅ Aceita', aceita_por_silencio:'✅ Aceita (decurso de prazo)',
+    contestada:'⚠️ Contestada', contestado:'⚠️ Contestado', recusada:'⚠️ Contestada' };
+  return m[s]||s||'—';
 }
 
 function renderAprovacoes(){

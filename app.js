@@ -19498,11 +19498,12 @@ function _primeiroDiaTrabalho12x36(emp, fromISO){
   return min;
 }
 
-// true=trabalho / false=folga / null=sem referência. NOVA regra (decisão usuário
-// 2026-06-01): a paridade do ciclo 12x36 é ancorada no **1º dia batido** do
-// colaborador dentro do trecho de lotação vigente — e reseta a cada TRANSFERÊNCIA
-// (historicoLotacao). O campo manual `ciclo12x36Inicio` vira só fallback (novo
-// colaborador sem ponto ainda). Isso AUTO-CORRIGE os ciclos que estavam errados.
+// true=trabalho / false=folga / null=sem referência. Regra (decisão usuário
+// 2026-06-01): a paridade do ciclo 12x36 é ancorada na DATA INFORMADA no cadastro
+// (`ciclo12x36Inicio`), que SOBREPÕE qualquer outra regra. A partir dela, conta
+// 12x36 estrito (trabalha 1, folga 1) em todos os meses. Só as ALTERAÇÕES DE
+// CONTRATO (transferências / historicoLotacao) são observadas (reancoram o trecho).
+// Sem data informada → usa o 1º dia batido no ponto (auto); sem nada → admissão.
 function _ciclo12x36EhTrabalho(emp, ano, mes, dia){
   if(!emp) return null;
   const ymd = `${ano}-${String(mes).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
@@ -19515,10 +19516,16 @@ function _ciclo12x36EhTrabalho(emp, ano, mes, dia){
     for(const h of hist){ if(h.dataInicio<=ymd) vig=h; else break; }
     if(vig){ segIni = vig.dataInicio; segAnchor = vig.ciclo12x36Inicio || null; }
   }
-  // Âncora de paridade: 1º dia batido no trecho (PRIMÁRIO, auto) → âncora explícita
-  // do segmento → início do segmento → ciclo manual do cadastro → admissão.
-  const ini = _primeiroDiaTrabalho12x36(emp, segIni)
-    || segAnchor || segIni || emp.ciclo12x36Inicio || emp.dataAdmissao;
+  // Âncora de paridade (PRIORIDADE — decisão usuário 2026-06-01):
+  //  1) transferência com ciclo próprio no trecho vigente (alteração de contrato);
+  //  2) DATA INFORMADA no cadastro (`ciclo12x36Inicio`) — sobrepõe as demais;
+  //  3) na ausência dela → 1º dia batido no ponto (auto);
+  //  4) fallback: início do segmento / admissão.
+  const ini = segAnchor
+    || emp.ciclo12x36Inicio
+    || _primeiroDiaTrabalho12x36(emp, segIni)
+    || segIni
+    || emp.dataAdmissao;
   if(!ini) return null;
   const dAnchor = new Date(ini + 'T00:00:00');
   if(isNaN(dAnchor.getTime())) return null;

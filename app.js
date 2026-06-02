@@ -21538,6 +21538,8 @@ function printFolhaPonto(isPreview=false){
   // Monta tabela de dias da competência (26/mês-anterior → 25/mês)
   const diasSemana=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
   let tabelaDias='';
+  // Acumuladores do período (rodapé "Apuração do Período"). #folha-detalhada
+  let totTrab=0, totPrev=0, totAtraso=0, totExtra=0, totFaltaMin=0, totFaltaQtd=0, totNaoRend=0;
   for(const cd of _compDias(mes,ano)){
     const d=cd.dia;
     const dow=cd.diaSem;
@@ -21555,7 +21557,36 @@ function printFolhaPonto(isPreview=false){
       const mi=_calcIntervaloMin(intIni,intFim,entrada,saida);
       minLiq=mb-mi;
     }
+    // --- Métricas dia-a-dia: Previstas / Atraso / Extras / Faltas / Refeição não rendida ---
+    const exp     = _getExpectedDay(emp, mes, ano, d);
+    const ehFolga = !exp || exp.tipo==='folga' || !exp.entrada;
+    let prevMin=0, contratualIntMin=0;
+    if(!ehFolga){
+      let mbE = timeToMinutes(exp.saida)-timeToMinutes(exp.entrada);
+      if(mbE<=0) mbE+=24*60;
+      contratualIntMin = _calcIntervaloMin(exp.intIni, exp.intFim, exp.entrada, exp.saida);
+      if(emp.semRefeicao && contratualIntMin===0 && mbE>360) contratualIntMin = 60;
+      prevMin = Math.max(0, mbE - contratualIntMin);
+    }
+    const temBatida = !!(entrada&&saida);
+    let atrasoMin=0, extraMin=0, faltaMin=0, naoRendMin=0;
+    if(!ehFolga && temBatida){
+      const delta = minLiq - prevMin;
+      if(delta>0) extraMin=delta; else if(delta<0) atrasoMin=-delta;
+      const realIntMin = _calcIntervaloMin(intIni,intFim,entrada,saida);
+      naoRendMin = Math.max(0, contratualIntMin - realIntMin);
+    } else if(!ehFolga && !temBatida && _diaEmBrancoEhFalta(emp,mes,ano,d,isWknd,is12x36)){
+      faltaMin = prevMin; totFaltaQtd++;
+    }
+    totTrab += (minLiq>0?minLiq:0); totPrev += prevMin; totAtraso += atrasoMin;
+    totExtra += extraMin; totFaltaMin += faltaMin; totNaoRend += naoRendMin;
+
     const horasLiq=minLiq>0?minutesToStr(minLiq):'';
+    const cPrev = prevMin>0  ? minutesToStr(prevMin)  : '';
+    const cAtr  = atrasoMin>0 ? minutesToStr(atrasoMin): '';
+    const cExt  = extraMin>0  ? minutesToStr(extraMin) : '';
+    const cFal  = faltaMin>0  ? minutesToStr(faltaMin) : '';
+    const cNR   = naoRendMin>0? minutesToStr(naoRendMin):'';
     // Sufixo (+1) para saída/intFim cross-midnight em turno noturno
     const saidaDisplay=_shiftCrossesMidnight(entrada,saida)?`${saida} <span style="color:#FB8C00;font-size:9px">(+1)</span>`:saida;
     const intFimDisplay=_intervaloCrossesMidnight(intIni,intFim,entrada,saida)?`${intFim} <span style="color:#FB8C00;font-size:9px">(+1)</span>`:intFim;
@@ -21565,17 +21596,28 @@ function printFolhaPonto(isPreview=false){
       obsdia=_ods.txt; obscor=_ods.cor;
     }
     const rowBg=isWknd?'background:#F8F9FA;color:#999':'';
+    const _cel='text-align:center;padding:3px 5px;border:1px solid #DEE2E6';
     tabelaDias+=`<tr style="${rowBg}">
-      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${String(d).padStart(2,'0')}/${String(cd.mes).padStart(2,'0')}</td>
-      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${nomeDia}</td>
-      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${entrada}</td>
-      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${saidaDisplay}</td>
-      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${intIni}</td>
-      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${intFimDisplay}</td>
-      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6;font-weight:${horasLiq?'600':'400'}">${horasLiq}</td>
-      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6;color:${obscor}">${obsdia}</td>
+      <td style="${_cel}">${String(d).padStart(2,'0')}/${String(cd.mes).padStart(2,'0')}</td>
+      <td style="${_cel}">${nomeDia}</td>
+      <td style="${_cel}">${entrada}</td>
+      <td style="${_cel}">${saidaDisplay}</td>
+      <td style="${_cel}">${intIni}</td>
+      <td style="${_cel}">${intFimDisplay}</td>
+      <td style="${_cel};font-weight:${horasLiq?'600':'400'}">${horasLiq}</td>
+      <td style="${_cel};color:#555">${cPrev}</td>
+      <td style="${_cel};color:#c0392b">${cAtr}</td>
+      <td style="${_cel};color:#1B5E20;font-weight:${cExt?'600':'400'}">${cExt}</td>
+      <td style="${_cel};color:#c0392b;font-weight:${cFal?'600':'400'}">${cFal}</td>
+      <td style="${_cel};color:#E65100">${cNR}</td>
+      <td style="text-align:center;padding:3px 5px;border:1px solid #DEE2E6;color:${obscor}">${obsdia}</td>
     </tr>`;
   }
+  // Formatador de totais (suporta > 24h, ex.: 345:34)
+  const _hmTot=(mm)=>{const x=Math.max(0,Math.round(mm));return Math.floor(x/60)+':'+String(x%60).padStart(2,'0');};
+  const _totTrabStr=_hmTot(totTrab), _totPrevStr=_hmTot(totPrev), _totAtrasoStr=_hmTot(totAtraso),
+        _totExtraStr=_hmTot(totExtra), _totFaltaStr=_hmTot(totFaltaMin), _totNaoRendStr=_hmTot(totNaoRend);
+  const _obsFolha = (typeof p!=='undefined' && p && p.observacaoFolha) ? String(p.observacaoFolha) : '';
 
   const reg=emp.registro?String(emp.registro).padStart(4,'0'):'—';
   const dataAtual=new Date().toLocaleDateString('pt-BR');
@@ -21675,11 +21717,38 @@ ${_segmentosLotacaoHtml(emp, mes, ano)}
   <thead>
     <tr>
       <th>Dia</th><th>Sem.</th><th>Entrada</th><th>Saída</th>
-      <th>Int. Início</th><th>Int. Fim</th><th>Horas Líq.</th><th>Obs.</th>
+      <th>Int. Início</th><th>Int. Fim</th><th>Trabalh.</th>
+      <th>Prev.</th><th>Atraso</th><th>Extras</th><th>Faltas</th><th>Ref. n/r</th><th>Obs.</th>
     </tr>
   </thead>
   <tbody>${tabelaDias}</tbody>
+  <tfoot>
+    <tr style="background:#1a3a6b;color:#fff;font-weight:700">
+      <td colspan="6" style="text-align:right;padding:4px 8px;border:1px solid #1a3a6b">TOTAIS DO PERÍODO &rarr;</td>
+      <td style="text-align:center;padding:4px 5px;border:1px solid #1a3a6b">${_totTrabStr}</td>
+      <td style="text-align:center;padding:4px 5px;border:1px solid #1a3a6b">${_totPrevStr}</td>
+      <td style="text-align:center;padding:4px 5px;border:1px solid #1a3a6b">${_totAtrasoStr}</td>
+      <td style="text-align:center;padding:4px 5px;border:1px solid #1a3a6b">${_totExtraStr}</td>
+      <td style="text-align:center;padding:4px 5px;border:1px solid #1a3a6b">${_totFaltaStr}</td>
+      <td style="text-align:center;padding:4px 5px;border:1px solid #1a3a6b">${_totNaoRendStr}</td>
+      <td style="border:1px solid #1a3a6b"></td>
+    </tr>
+  </tfoot>
 </table>
+
+<h2 style="margin-top:12px">Apuração do Período</h2>
+<div class="resumo-bar" style="flex-wrap:wrap">
+  <div class="resumo-item"><div class="resumo-label">Horas Trabalhadas</div><div class="resumo-valor">${_totTrabStr}</div></div>
+  <div class="resumo-item"><div class="resumo-label">Horas Previstas</div><div class="resumo-valor" style="color:#1a3a6b">${_totPrevStr}</div></div>
+  <div class="resumo-item alerta"><div class="resumo-label">Atrasos</div><div class="resumo-valor">${_totAtrasoStr}</div></div>
+  <div class="resumo-item"><div class="resumo-label">Horas Extras</div><div class="resumo-valor">${_totExtraStr}</div></div>
+  <div class="resumo-item alerta"><div class="resumo-label">Faltas (${totFaltaQtd} dia${totFaltaQtd===1?'':'s'})</div><div class="resumo-valor">${_totFaltaStr}</div></div>
+  <div class="resumo-item alerta"><div class="resumo-label">Refeições não rendidas${emp.semRefeicao?' (sozinho)':''}</div><div class="resumo-valor">${_totNaoRendStr}</div></div>
+</div>
+<div style="margin-top:8px">
+  <div style="font-size:9px;font-weight:700;color:#1a3a6b;text-transform:uppercase;margin-bottom:3px">Observações / Ajustes manuais (contabilidade)</div>
+  <div style="border:1px solid #999;border-radius:4px;min-height:46px;padding:6px 8px;font-size:11px;color:#333;white-space:pre-wrap">${esc(_obsFolha)}</div>
+</div>
 
 <h2 style="margin-top:12px">Demonstrativo Financeiro</h2>
 ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px solid #F9A825;border-radius:6px;text-align:center;color:#E65100;font-weight:700;font-size:13px">FOLHA SEM PONTO REGISTRADO — nenhum valor a apurar.<div style="font-weight:400;font-size:11px;color:#666;margin-top:4px">Lance o ponto do colaborador para gerar o demonstrativo financeiro e o total a receber.</div></div>`:`<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
@@ -21827,6 +21896,8 @@ function _buildFolhaHtmlFromRecord(emp, p){
   const fam          = escalaFamilia(emp.escala||'5x2A');
   const is12x36      = fam==='12x36';
   let tabelaDias='';
+  // Acumuladores do período (rodapé "Apuração do Período"). #folha-detalhada
+  let totTrab=0, totPrev=0, totAtraso=0, totExtra=0, totFaltaMin=0, totFaltaQtd=0, totNaoRend=0;
   for(const cd of _compDias(mes,ano)){
     const d        = cd.dia;
     const dow      = cd.diaSem;
@@ -21844,7 +21915,38 @@ function _buildFolhaHtmlFromRecord(emp, p){
       const mi=_calcIntervaloMin(intIni,intFim,entrada,saida);
       minLiq=mb-mi;
     }
+    // --- Métricas dia-a-dia: Previstas / Atraso / Extras / Faltas / Refeição não rendida ---
+    const exp     = _getExpectedDay(emp, mes, ano, d);
+    const ehFolga = !exp || exp.tipo==='folga' || !exp.entrada;
+    let prevMin=0, contratualIntMin=0;
+    if(!ehFolga){
+      let mbE = timeToMinutes(exp.saida)-timeToMinutes(exp.entrada);
+      if(mbE<=0) mbE+=24*60;
+      contratualIntMin = _calcIntervaloMin(exp.intIni, exp.intFim, exp.entrada, exp.saida);
+      // Trabalha sozinho não tem intervalo no contrato → usa o intervalo LEGAL (1h p/ jornada > 6h)
+      if(emp.semRefeicao && contratualIntMin===0 && mbE>360) contratualIntMin = 60;
+      prevMin = Math.max(0, mbE - contratualIntMin);
+    }
+    const temBatida = !!(entrada&&saida);
+    let atrasoMin=0, extraMin=0, faltaMin=0, naoRendMin=0;
+    if(!ehFolga && temBatida){
+      const delta = minLiq - prevMin;
+      if(delta>0) extraMin=delta; else if(delta<0) atrasoMin=-delta;
+      // Refeição não rendida = intervalo contratual − intervalo realmente tirado
+      const realIntMin = _calcIntervaloMin(intIni,intFim,entrada,saida);
+      naoRendMin = Math.max(0, contratualIntMin - realIntMin);
+    } else if(!ehFolga && !temBatida && _diaEmBrancoEhFalta(emp,mes,ano,d,isWknd,is12x36)){
+      faltaMin = prevMin; totFaltaQtd++;
+    }
+    totTrab += (minLiq>0?minLiq:0); totPrev += prevMin; totAtraso += atrasoMin;
+    totExtra += extraMin; totFaltaMin += faltaMin; totNaoRend += naoRendMin;
+
     const horasLiq=minLiq>0?minutesToStr(minLiq):'';
+    const cPrev = prevMin>0  ? minutesToStr(prevMin)  : '';
+    const cAtr  = atrasoMin>0 ? minutesToStr(atrasoMin): '';
+    const cExt  = extraMin>0  ? minutesToStr(extraMin) : '';
+    const cFal  = faltaMin>0  ? minutesToStr(faltaMin) : '';
+    const cNR   = naoRendMin>0? minutesToStr(naoRendMin):'';
     // Sufixo (+1) para saída/intFim cross-midnight em turno noturno
     const saidaDisplay=_shiftCrossesMidnight(entrada,saida)?`${saida} <span style="color:#FB8C00;font-size:9px">(+1)</span>`:saida;
     const intFimDisplay=_intervaloCrossesMidnight(intIni,intFim,entrada,saida)?`${intFim} <span style="color:#FB8C00;font-size:9px">(+1)</span>`:intFim;
@@ -21854,17 +21956,28 @@ function _buildFolhaHtmlFromRecord(emp, p){
       obsdia=_ods.txt; obscor=_ods.cor;
     }
     const rowBg=isWknd?'background:#F8F9FA;color:#999':'';
+    const _cel='text-align:center;padding:3px 5px;border:1px solid #DEE2E6';
     tabelaDias+=`<tr style="${rowBg}">
-      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${String(d).padStart(2,'0')}/${String(cd.mes).padStart(2,'0')}</td>
-      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${nomeDia}</td>
-      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${entrada}</td>
-      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${saidaDisplay}</td>
-      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${intIni}</td>
-      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${intFimDisplay}</td>
-      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6;font-weight:${horasLiq?'600':'400'}">${horasLiq}</td>
-      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6;color:${obscor}">${obsdia}</td>
+      <td style="${_cel}">${String(d).padStart(2,'0')}/${String(cd.mes).padStart(2,'0')}</td>
+      <td style="${_cel}">${nomeDia}</td>
+      <td style="${_cel}">${entrada}</td>
+      <td style="${_cel}">${saidaDisplay}</td>
+      <td style="${_cel}">${intIni}</td>
+      <td style="${_cel}">${intFimDisplay}</td>
+      <td style="${_cel};font-weight:${horasLiq?'600':'400'}">${horasLiq}</td>
+      <td style="${_cel};color:#555">${cPrev}</td>
+      <td style="${_cel};color:#c0392b">${cAtr}</td>
+      <td style="${_cel};color:#1B5E20;font-weight:${cExt?'600':'400'}">${cExt}</td>
+      <td style="${_cel};color:#c0392b;font-weight:${cFal?'600':'400'}">${cFal}</td>
+      <td style="${_cel};color:#E65100">${cNR}</td>
+      <td style="text-align:center;padding:3px 5px;border:1px solid #DEE2E6;color:${obscor}">${obsdia}</td>
     </tr>`;
   }
+  // Formatador de totais (suporta > 24h, ex.: 345:34)
+  const _hmTot=(mm)=>{const x=Math.max(0,Math.round(mm));return Math.floor(x/60)+':'+String(x%60).padStart(2,'0');};
+  const _totTrabStr=_hmTot(totTrab), _totPrevStr=_hmTot(totPrev), _totAtrasoStr=_hmTot(totAtraso),
+        _totExtraStr=_hmTot(totExtra), _totFaltaStr=_hmTot(totFaltaMin), _totNaoRendStr=_hmTot(totNaoRend);
+  const _obsFolha = (p.observacaoFolha||'').toString();
 
   return `
 <div style="page-break-after:always;padding:16px">
@@ -21947,11 +22060,38 @@ ${_segmentosLotacaoHtml(emp, mes, ano)}
   <thead>
     <tr>
       <th>Dia</th><th>Sem.</th><th>Entrada</th><th>Saída</th>
-      <th>Int. Início</th><th>Int. Fim</th><th>Horas Líq.</th><th>Obs.</th>
+      <th>Int. Início</th><th>Int. Fim</th><th>Trabalh.</th>
+      <th>Prev.</th><th>Atraso</th><th>Extras</th><th>Faltas</th><th>Ref. n/r</th><th>Obs.</th>
     </tr>
   </thead>
   <tbody>${tabelaDias}</tbody>
+  <tfoot>
+    <tr style="background:#1a3a6b;color:#fff;font-weight:700">
+      <td colspan="6" style="text-align:right;padding:4px 8px;border:1px solid #1a3a6b">TOTAIS DO PERÍODO &rarr;</td>
+      <td style="text-align:center;padding:4px 5px;border:1px solid #1a3a6b">${_totTrabStr}</td>
+      <td style="text-align:center;padding:4px 5px;border:1px solid #1a3a6b">${_totPrevStr}</td>
+      <td style="text-align:center;padding:4px 5px;border:1px solid #1a3a6b">${_totAtrasoStr}</td>
+      <td style="text-align:center;padding:4px 5px;border:1px solid #1a3a6b">${_totExtraStr}</td>
+      <td style="text-align:center;padding:4px 5px;border:1px solid #1a3a6b">${_totFaltaStr}</td>
+      <td style="text-align:center;padding:4px 5px;border:1px solid #1a3a6b">${_totNaoRendStr}</td>
+      <td style="border:1px solid #1a3a6b"></td>
+    </tr>
+  </tfoot>
 </table>
+
+<h2 style="margin-top:12px">Apuração do Período</h2>
+<div class="resumo-bar" style="flex-wrap:wrap">
+  <div class="resumo-item"><div class="resumo-label">Horas Trabalhadas</div><div class="resumo-valor">${_totTrabStr}</div></div>
+  <div class="resumo-item"><div class="resumo-label">Horas Previstas</div><div class="resumo-valor" style="color:#1a3a6b">${_totPrevStr}</div></div>
+  <div class="resumo-item alerta"><div class="resumo-label">Atrasos</div><div class="resumo-valor">${_totAtrasoStr}</div></div>
+  <div class="resumo-item"><div class="resumo-label">Horas Extras</div><div class="resumo-valor">${_totExtraStr}</div></div>
+  <div class="resumo-item alerta"><div class="resumo-label">Faltas (${totFaltaQtd} dia${totFaltaQtd===1?'':'s'})</div><div class="resumo-valor">${_totFaltaStr}</div></div>
+  <div class="resumo-item alerta"><div class="resumo-label">Refeições não rendidas${emp.semRefeicao?' (sozinho)':''}</div><div class="resumo-valor">${_totNaoRendStr}</div></div>
+</div>
+<div style="margin-top:8px">
+  <div style="font-size:9px;font-weight:700;color:#1a3a6b;text-transform:uppercase;margin-bottom:3px">Observações / Ajustes manuais (contabilidade)</div>
+  <div style="border:1px solid #999;border-radius:4px;min-height:46px;padding:6px 8px;font-size:11px;color:#333;white-space:pre-wrap">${esc(_obsFolha)}</div>
+</div>
 
 <h2 style="margin-top:12px">Demonstrativo Financeiro</h2>
 ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px solid #F9A825;border-radius:6px;text-align:center;color:#E65100;font-weight:700;font-size:13px">FOLHA SEM PONTO REGISTRADO — nenhum valor a apurar.<div style="font-weight:400;font-size:11px;color:#666;margin-top:4px">Lance o ponto do colaborador para gerar o demonstrativo financeiro e o total a receber.</div></div>`:`<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">

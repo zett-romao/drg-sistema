@@ -18348,27 +18348,53 @@ function _comuAbrirRegistroDoCard(empId){
 // bateram. Nao grava nada na folha. As acoes Informar/Abonar (que mexem em
 // pagamento) e o robo no servidor (cron 24h) entram nas etapas S1b/S2.
 const MONITOR_FALTAS_TOLERANCIA_MIN = 15;   // so alerta 15min apos o horario previsto
+// Resolucoes do dia (decisao do supervisor): { [empId]: {status:'informada'|'abonada'|'aguardando', por, em} }
+// Persistido em configuracoes/monitorfaltas_{ymd} (sempre gravavel, sem regra nova). #monitor-faltas
+let _mfResolvYmd = null, _mfResolv = {};
+function _mfYmdHoje(){ const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`; }
+async function _mfCarregarResolv(force){
+  const ymd=_mfYmdHoje();
+  if(!force && _mfResolvYmd===ymd) return;
+  try{ const d=await DB.getDoc('configuracoes','monitorfaltas_'+ymd); _mfResolv=(d&&d.resolvidos)||{}; }
+  catch(_){ _mfResolv={}; }
+  _mfResolvYmd=ymd;
+}
+async function _mfSalvarResolv(empId, status){
+  const ymd=_mfYmdHoje();
+  if(_mfResolvYmd!==ymd){ _mfResolv={}; _mfResolvYmd=ymd; }
+  _mfResolv[empId]={ status, por:(Auth.currentUser&&(Auth.currentUser.nome||Auth.currentUser.username))||'—', em:new Date().toISOString() };
+  await DB.saveDoc('configuracoes','monitorfaltas_'+ymd, { resolvidos:_mfResolv, updatedAt:new Date().toISOString() }, true);
+}
 
 // Detecta as faltas de entrada de HOJE (em memoria, sem gravar).
 function _monitorFaltasHoje(){
   const now = new Date();
   const ano = now.getFullYear(), mes = now.getMonth()+1, dia = now.getDate();
+  const ymd = `${ano}-${String(mes).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
   const nowMin = now.getHours()*60 + now.getMinutes();
   const out = [];
   (State.employees||[]).forEach(emp=>{
     if((emp.status||'ativo') !== 'ativo') return;   // so ativos
     if(emp.isentoPonto) return;                     // isento nao bate ponto
+    const r = _mfResolv[emp.id];
+    if(r && (r.status==='informada' || r.status==='abonada')) return;  // ja decidido hoje
+    if(_temAtestadoNoDia(emp.id, ymd)) return;       // justificado por atestado/abono cobrindo o dia
     const exp = _getExpectedDay(emp, mes, ano, dia);
-    if(!exp || exp.tipo==='folga' || !exp.entrada) return;   // nao trabalha hoje
+    if(!exp || exp.tipo==='folga' || !exp.entrada) return;   // nao trabalha hoje (inclui feriado-folga)
     const entMin = toMin(exp.entrada);
     if(!Number.isFinite(entMin)) return;
     if(nowMin < entMin + MONITOR_FALTAS_TOLERANCIA_MIN) return;  // ainda dentro da tolerancia
     const reg = _pontoDiaReal(emp, ano, mes, dia);
     if(reg && reg.entrada) return;                  // ja bateu a entrada
     out.push({ id:emp.id, nome:emp.nome||'(sem nome)', setor:emp.setor||'', cargo:emp.cargo||'',
-               previsto:exp.entrada, atrasoMin: nowMin - entMin });
+               previsto:exp.entrada, atrasoMin: nowMin - entMin, aguardando: !!(r && r.status==='aguardando') });
   });
   return out.sort((a,b)=> b.atrasoMin - a.atrasoMin);
+}
+// Atestado/abono aprovado (em dias) cobrindo a data ymd → colaborador justificado. #monitor-faltas
+function _temAtestadoNoDia(empId, ymd){
+  return (State.atestados||[]).some(a=> a && a.employeeId===empId && a.status!=='pendente'
+    && a.tipo!=='horas' && a.dataInicio && a.dataInicio<=ymd && (a.dataFim||a.dataInicio)>=ymd);
 }
 
 function _fmtAtraso(min){
@@ -18379,7 +18405,7 @@ function _fmtAtraso(min){
 // Badge AO VIVO no nav: recalcula periodicamente (deteccao e baseada em relogio).
 let _mfBadgeTimer = null;
 function _initMonitorFaltasBadge(){
-  const tick = ()=>{ try{ _setMonitorFaltasBadge(_monitorFaltasHoje().length); }catch(e){} };
+  const tick = async ()=>{ try{ await _mfCarregarResolv(); _setMonitorFaltasBadge(_monitorFaltasHoje().length); }catch(e){} };
   tick();
   if(!_mfBadgeTimer) _mfBadgeTimer = setInterval(tick, 5*60*1000);  // a cada 5 min
 }
@@ -18390,11 +18416,54 @@ function _setMonitorFaltasBadge(n){
   else { b.classList.add('hidden'); }
 }
 
-function renderMonitorFaltas(){
+// ── Acoes do Monitor de Faltas (supervisor decide por colaborador). #monitor-faltas ──
+// ABONAR  = justifica o dia (cria abono de 1 dia em `atestados`, origem 'abono-monitor';
+//           a folha NAO desconta — _atestadoTotais abate). INFORMAR = registra falta
+//           injustificada (o dia sem batida ja e descontado na folha; aqui so registra
+//           a decisao e tira do monitor). AGUARDAR = continua monitorando.
+function _mfPodeAgir(){ return !!(getUserModules(Auth.currentUser)||{}).monitorarFaltas || Auth.currentUser?.role==='master'; }
+async function _monitorAbonar(empId){
+  if(!_mfPodeAgir()){ toast('Sem permissão.','error'); return; }
+  const emp=State.employees.find(e=>e.id===empId); if(!emp) return;
+  if(!confirm(`Abonar a falta de HOJE de ${emp.nome}?\n\nCria um abono de 1 dia (justificado) — a folha NÃO desconta esse dia. Aparece nos atestados/abonos da folha.`)) return;
+  const ymd=_mfYmdHoje();
+  const comp=_competenciaDe(new Date());
+  const doc={ id:genId(), employeeId:empId, mes:comp.mes, ano:comp.ano, tipo:'dia',
+    dataInicio:ymd, dataFim:ymd, dias:1, horas:0, cid:'', observacao:'Falta abonada via Monitor de Faltas',
+    arquivoUrl:'', arquivoNome:'', origem:'abono-monitor', status:'aprovado',
+    createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() };
+  try{
+    await DB.save('atestados', doc);
+    await _mfSalvarResolv(empId,'abonada');
+    Auth.log && Auth.log('FALTA_ABONADA', null, `${emp.nome} — ${ymd} (Monitor de Faltas)`);
+    toast(`Falta de ${emp.nome} abonada (1 dia justificado).`,'success');
+    renderMonitorFaltas();
+  }catch(e){ toast('Erro ao abonar: '+(e.message||e),'error'); }
+}
+async function _monitorInformar(empId){
+  if(!_mfPodeAgir()){ toast('Sem permissão.','error'); return; }
+  const emp=State.employees.find(e=>e.id===empId); if(!emp) return;
+  if(!confirm(`Registrar a falta de HOJE de ${emp.nome} como INJUSTIFICADA?\n\nO dia sem batida já entra como falta na folha ao recalcular. Isto registra a decisão e tira do monitor.`)) return;
+  try{
+    await _mfSalvarResolv(empId,'informada');
+    Auth.log && Auth.log('FALTA_INFORMADA', null, `${emp.nome} — ${_mfYmdHoje()} (Monitor de Faltas)`);
+    toast(`Falta de ${emp.nome} registrada como injustificada.`,'success');
+    renderMonitorFaltas();
+  }catch(e){ toast('Erro: '+(e.message||e),'error'); }
+}
+async function _monitorAguardar(empId){
+  if(!_mfPodeAgir()){ toast('Sem permissão.','error'); return; }
+  try{ await _mfSalvarResolv(empId,'aguardando'); renderMonitorFaltas(); }
+  catch(e){ toast('Erro: '+(e.message||e),'error'); }
+}
+
+async function renderMonitorFaltas(){
   const box = document.getElementById('monitorfaltas-content');
   if(!box) return;
+  await _mfCarregarResolv();
   const lista = _monitorFaltasHoje();
   _setMonitorFaltasBadge(lista.length);
+  const resolvidosHoje = Object.values(_mfResolv||{}).filter(r=>r && (r.status==='informada'||r.status==='abonada')).length;
   const now = new Date();
   const hhmm = String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
   const dataBR = now.toLocaleDateString('pt-BR');
@@ -18404,21 +18473,31 @@ function renderMonitorFaltas(){
     corpo = `<div style="text-align:center;padding:48px 16px;color:#16a34a">
         <i class="fa-solid fa-circle-check" style="font-size:40px"></i>
         <p style="margin-top:12px;font-size:15px;font-weight:600">Ninguém em falta até agora.</p>
-        <p style="color:#777;font-size:13px">Todos que tinham entrada prevista até ${hhmm} já bateram (ou ainda estão dentro dos ${MONITOR_FALTAS_TOLERANCIA_MIN} min de tolerância).</p>
+        <p style="color:#777;font-size:13px">Todos que tinham entrada prevista até ${hhmm} já bateram, estão dentro dos ${MONITOR_FALTAS_TOLERANCIA_MIN} min de tolerância, ou já foram tratados.</p>
       </div>`;
   } else {
-    const rows = lista.map(f=>`<tr style="border-bottom:1px solid #eee">
-        <td style="padding:10px 8px;font-weight:600">${_esc(f.nome)}</td>
+    const rows = lista.map(f=>{
+      const tag = f.aguardando ? ` <span style="background:#FFF8E1;color:#E65100;border:1px solid #FFE082;border-radius:8px;padding:1px 7px;font-size:10px;font-weight:700;vertical-align:middle">⏳ aguardando</span>` : '';
+      const acoes = `<div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end">
+          <button class="btn btn-sm" onclick="_monitorAbonar('${f.id}')" title="Justifica o dia — não desconta na folha" style="font-size:11px;padding:4px 9px;background:#E8F5E9;color:#2E7D32;border:1px solid #A5D6A7"><i class="fa-solid fa-circle-check"></i> Abonar</button>
+          <button class="btn btn-sm" onclick="_monitorInformar('${f.id}')" title="Falta injustificada (já é descontada na folha)" style="font-size:11px;padding:4px 9px;background:#FDECEA;color:#C62828;border:1px solid #EF9A9A"><i class="fa-solid fa-user-xmark"></i> Informar falta</button>
+          <button class="btn btn-sm" onclick="_monitorAguardar('${f.id}')" title="Continuar monitorando" style="font-size:11px;padding:4px 9px;background:#FFF8E1;color:#E65100;border:1px solid #FFE082"><i class="fa-solid fa-hourglass-half"></i> Aguardar</button>
+        </div>`;
+      return `<tr style="border-bottom:1px solid #eee">
+        <td style="padding:10px 8px;font-weight:600">${_esc(f.nome)}${tag}</td>
         <td style="padding:10px 8px;color:#555">${_esc(f.setor||f.cargo||'—')}</td>
         <td style="padding:10px 8px;text-align:center;font-variant-numeric:tabular-nums">${_esc(f.previsto)}</td>
         <td style="padding:10px 8px;text-align:center;color:#dc2626;font-weight:700;font-variant-numeric:tabular-nums">${_fmtAtraso(f.atrasoMin)}</td>
-      </tr>`).join('');
+        <td style="padding:8px">${acoes}</td>
+      </tr>`;
+    }).join('');
     corpo = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:14px">
         <thead><tr style="background:#fafafa;border-bottom:2px solid #e5e7eb;text-align:left">
           <th style="padding:10px 8px">Colaborador</th>
           <th style="padding:10px 8px">Setor / Cargo</th>
           <th style="padding:10px 8px;text-align:center">Entrada prevista</th>
           <th style="padding:10px 8px;text-align:center">Atraso</th>
+          <th style="padding:10px 8px;text-align:right">Ação</th>
         </tr></thead><tbody>${rows}</tbody></table></div>`;
   }
 
@@ -18426,7 +18505,7 @@ function renderMonitorFaltas(){
     <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
       <div>
         <h2 style="margin:0"><i class="fa-solid fa-user-clock" style="color:#dc2626"></i> Monitor de Faltas</h2>
-        <p style="margin:4px 0 0;color:#666">Quem deveria ter batido a entrada e ainda não bateu — ${dataBR}, conferido às ${hhmm} (tolerância de ${MONITOR_FALTAS_TOLERANCIA_MIN} min).</p>
+        <p style="margin:4px 0 0;color:#666">Quem deveria ter batido a entrada e ainda não bateu — ${dataBR}, conferido às ${hhmm} (tolerância de ${MONITOR_FALTAS_TOLERANCIA_MIN} min).${resolvidosHoje?` <span style="color:#16a34a">· ${resolvidosHoje} já tratado(s) hoje</span>`:''}</p>
       </div>
       <button class="btn btn-secondary" onclick="renderMonitorFaltas()"><i class="fa-solid fa-rotate"></i> Atualizar</button>
     </div>
@@ -18435,7 +18514,7 @@ function renderMonitorFaltas(){
     </div>
     ${corpo}
     <div style="margin-top:18px;padding:10px 14px;border-radius:8px;background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;font-size:13px">
-      <i class="fa-solid fa-circle-info"></i> Esta é a tela de <strong>visibilidade</strong>. A verificação automática 24h (robô no servidor) e os botões <strong>Informar falta</strong> / <strong>Abonar</strong> entram nas próximas etapas. Por enquanto a lista atualiza ao abrir a tela e a cada 5 min.
+      <i class="fa-solid fa-circle-info"></i> <strong>Abonar</strong> = justifica o dia (cria abono de 1 dia, a folha não desconta). <strong>Informar falta</strong> = injustificada (o dia sem batida já é descontado na folha). <strong>Aguardar</strong> = continua monitorando. A lista atualiza ao abrir e a cada 5 min.
     </div>`;
 }
 

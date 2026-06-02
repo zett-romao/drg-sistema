@@ -1207,12 +1207,14 @@ function mostrarBloqueio(prox, hora, analise){
 
 // Cria a solicitacao de autorizacao no Firestore.
 // Retorna o id do doc criado ou null em erro.
-async function solicitarAutorizacao(prox, hora, analise){
+async function solicitarAutorizacao(prox, hora, analise, comp){
   const motivoUsuario = (prompt('(Opcional) Motivo do pedido (ex.: trânsito, consulta médica, hora extra):') || '').trim();
   const agora = new Date();
   const agoraISO = agora.toISOString();
-  const validade = new Date(agora.getTime() + 15*60*1000).toISOString();
   const docId = Date.now().toString(36) + Math.random().toString(36).slice(2,8);
+  // NOVO FLUXO: o pedido NÃO expira por tempo — fica pendente até o supervisor avaliar.
+  // E guarda a COMPETÊNCIA + dia + geo da batida, pra o supervisor gravá-la na folha
+  // ao aprovar (a batida só entra na folha depois da aprovação). #ponto-provisorio
   const sol = {
     id: docId,
     employeeId: currentEmp.id,
@@ -1227,8 +1229,13 @@ async function solicitarAutorizacao(prox, hora, analise){
     tipoBloqueio: analise.tipo,               // 'foraJanela' | 'folga'
     ehFolga: analise.tipo === 'folga',
     motivo: motivoUsuario,
-    status: 'pendente',                       // 'pendente'|'autorizada'|'recusada'|'expirada'|'cancelada'
-    validadeAteEm: validade,
+    status: 'pendente',                       // 'pendente'|'autorizada'|'recusada'|'cancelada'
+    // Competência/dia da batida (pra gravar na folha certa ao aprovar):
+    diaBatida: comp ? comp.dia : null,
+    mesComp:   comp ? comp.mes : null,
+    anoComp:   comp ? comp.ano : null,
+    diaSem:    comp ? comp.diaSem : null,
+    geo:       comp && comp.geo ? comp.geo : null,
     criadoEm: agoraISO,
   };
   try{
@@ -1347,29 +1354,18 @@ async function baterPonto() {
     const acao = await mostrarBloqueio(prox, hora, analise);
     if(!acao){ renderBotao(); return; }                  // colaborador cancelou
     if(acao.acao === 'solicitar'){
-      const docId = await solicitarAutorizacao(prox, hora, analise);
-      if(!docId){ renderBotao(); return; }
-      autorizacao = await mostrarTelaEspera(docId, prox, hora);
-      if(!autorizacao){ renderBotao(); return; }         // recusado/cancelado/expirado
-      // Recalcula a hora do registro com o momento atual (pode ter passado tempo
-      // entre o pedido e a autorizacao).
-      const agora2 = new Date();
-      hora = `${pad(agora2.getHours())}:${pad(agora2.getMinutes())}`;
-      // Verifica regra de descanso minimo APOS autorizacao (CLT — irrevogavel,
-      // mesmo com autorizacao do supervisor nao pode burlar o minimo de 1h)
-      if(prox === 'intFim'){
-        const horaIda = _horaIntIniRegistrada();
-        if(horaIda){
-          const idaMin = timeToMin(horaIda);
-          const atualMin2 = agora2.getHours()*60 + agora2.getMinutes();
-          const dec = atualMin2 - idaMin;
-          if(dec < DESCANSO_MIN){
-            toast(`⏳ Aguarde mais ${DESCANSO_MIN-dec} min — intervalo mínimo de 1h (CLT).`,'error');
-            renderBotao(); return;
-          }
-        }
+      // NOVO FLUXO (#ponto-provisorio): cria o pedido PROVISÓRIO (não expira) e LIBERA
+      // o colaborador na hora — a batida só vai pra folha quando o supervisor aprovar.
+      // Não há mais tela de espera nem timer.
+      const geoReq = await getGeolocalizacao();
+      const docId = await solicitarAutorizacao(prox, hora, analise, { dia, mes, ano, diaSem: dsem, geo: geoReq });
+      renderBotao();
+      if(docId){
+        alert('✅ Pedido enviado ao supervisor.\n\nVocê pode seguir trabalhando — não precisa esperar aqui.\n\nQuando o supervisor aprovar, a batida (' + (_nomesPonto[prox]||prox) + ' às ' + hora + ') será registrada na sua folha. Até lá ela fica como "⏳ aguardando aprovação".');
       }
+      return;  // a batida NÃO é gravada agora — o supervisor grava ao aprovar
     }
+    renderBotao(); return;  // qualquer outro caso bloqueado (ex.: CLT) — não bate
   }
 
   const btn = document.getElementById('punch-btn');

@@ -474,19 +474,50 @@ function _cardPedido(p){
 }
 
 // ─── AÇÕES ─────────────────────────────────────────────────────────────────
+// Grava a batida aprovada na FOLHA do colaborador (competência/dia do pedido).
+// É aqui que a batida finalmente ENTRA na folha — só após a aprovação. #ponto-provisorio
+async function _gravarBatidaNaFolha(p, horarioEfetivo){
+  const empId = p.employeeId, mes = p.mesComp, ano = p.anoComp, dia = p.diaBatida, tp = p.tipoBatida;
+  if(!empId || !mes || !ano || !dia || !tp)
+    throw new Error('pedido antigo sem competência/dia — recuse e peça novo');
+  const snap = await dbCol('payrolls')
+    .where('employeeId','==',empId).where('mes','==',mes).where('ano','==',ano).limit(1).get();
+  let docId, dias, createdAt;
+  if(!snap.empty){ const d0=snap.docs[0]; docId=d0.id; dias=[...((d0.data().pontoManualDias)||[])]; createdAt=d0.data().createdAt||new Date().toISOString(); }
+  else { docId = Date.now().toString(36)+Math.random().toString(36).slice(2,8); dias=[]; createdAt=new Date().toISOString(); }
+  let entry = dias.find(d => d.dia === dia);
+  if(!entry){ entry = { dia, diaSem: (p.diaSem!=null?p.diaSem:new Date(ano,mes-1,dia).getDay()), entrada:'', saida:'', intIni:'', intFim:'' }; dias.push(entry); }
+  entry[tp] = horarioEfetivo;
+  entry[tp+'_origem'] = 'app';
+  entry[tp+'_foraHorario'] = true;
+  entry[tp+'_autorizadoPorId']   = currentUser.id || '';
+  entry[tp+'_autorizadoPorNome'] = currentUser.username || '';
+  entry[tp+'_autorizadoEm']      = new Date().toISOString();
+  entry[tp+'_autorizacaoId']     = p.id;
+  entry[tp+'_motivoPedido']      = p.motivo || '';
+  if(p.geo) entry[tp+'_geo'] = p.geo;
+  await dbCol('payrolls').doc(docId).set({
+    id:docId, employeeId:empId, mes, ano, pontoManualDias:dias,
+    updatedAt:new Date().toISOString(), createdAt
+  }, { merge:true });
+}
+
 async function autorizarPedido(pedidoId){
   const p = pedidos.find(x => x.id === pedidoId);
   if(!p) return;
-  if(!confirm(`Autorizar a batida de ${p.employeeNome}?\n\n${NOMES_BATIDA[p.tipoBatida]||p.tipoBatida} às ${p.horarioReal}.`)) return;
+  if(!confirm(`Autorizar e REGISTRAR na folha a batida de ${p.employeeNome}?\n\n${NOMES_BATIDA[p.tipoBatida]||p.tipoBatida} às ${p.horarioReal}.`)) return;
   const agora = new Date().toISOString();
   try{
+    // 1) grava a batida na folha (no horário real); 2) marca o pedido como autorizado.
+    await _gravarBatidaNaFolha(p, p.horarioReal);
     await dbCol('autorizacoesPonto').doc(pedidoId).update({
       status: 'autorizada',
       autorizadoPorId:   currentUser.id || '',
       autorizadoPorNome: currentUser.username || '',
       autorizadoEm:      agora,
+      batidaGravada:     true,
     });
-    toast(`✅ Autorizado para ${p.employeeNome}`, 'success');
+    toast(`✅ Autorizado e registrado na folha — ${p.employeeNome}`, 'success');
   }catch(e){
     console.error(e);
     toast('Erro ao autorizar: ' + (e.message||e), 'error');

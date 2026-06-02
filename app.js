@@ -2882,6 +2882,10 @@ function _reciboOficialLinhas(emp, p){
   if(ins>0) linhas.push({cod:'0099', nome:'Adicional Insalubridade '+grauInsal+'%', ref:grauInsal+'%',       pr:ins, de:0});
   if(acu>0) linhas.push({cod:'0103', nome:'Acúmulo de Função',     ref:'—',                                  pr:acu, de:0});
   if(outProv>0) linhas.push({cod:'0150', nome:'Outros Proventos',  ref:'—',                                  pr:outProv, de:0});
+  // Refeição não rendida (intervalo intrajornada suprimido, 50%) — INDENIZATÓRIA (CLT 71 §4),
+  // não-tributável: soma em totalPr/líquido mas NÃO entra na base INSS/IRRF/FGTS. #ref-nao-rendida
+  const _refNR = p.refNaoRendidaValor||0;
+  if(_refNR>0) linhas.push({cod:'0085', nome:'Refeição não rendida (50%)', ref:(p.refNaoRendidaMin?minutesToStr(p.refNaoRendidaMin):'—'), pr:_refNR, de:0});
 
   // Descontos
   if(descFaltas>0){
@@ -2919,7 +2923,7 @@ function _reciboOficialLinhas(emp, p){
   const liquido   = totalPr - totalDe;
   // Proventos fixos NÃO-tributáveis (ex.: reembolso) não entram na base INSS, mesmo somando em totalPr.
   const _fixProvNtrib = _fixas.filter(f=>f.tipo==='P' && !f.incideINSS).reduce((s,f)=>s+(f.valor||0),0);
-  const baseINSS  = Math.max(0, totalPr - descFaltas - _fixProvNtrib);  // proventos tributáveis (faltas/proporcional já descontados; HE corrida e Outros Proventos já inclusos em totalPr)
+  const baseINSS  = Math.max(0, totalPr - descFaltas - _fixProvNtrib - _refNR);  // proventos tributáveis (faltas/proporcional já descontados; ref. não rendida é indenizatória → fora da base)
   const baseFGTS  = baseINSS;
   // Base IRRF espelha calcIRRF (8382-8386): bruto - INSS - (dependentes × dedução) - pensão. Plano de saúde NÃO entra na base neste sistema.
   const dedDep    = (parseInt(emp.dependentesIRRF||0)||0) * (_pl().irrfDedDependente||0);
@@ -9812,6 +9816,20 @@ function recalculate(){
     ? _segmentosLotacao(emp,_mesR,_anoR,_pontoDiasR,_atest.dias) : [];
   const _multiSeg=_segs.length>1;
 
+  // --- Refeição não rendida (intervalo intrajornada suprimido) ---
+  // Extra de 50% SÓ p/ quem trabalha sozinho (emp.semRefeicao). Natureza INDENIZATÓRIA
+  // (CLT art. 71 §4) → NÃO-tributável: entra só no líquido (igual provNtrib), fora da
+  // base de INSS/IRRF/FGTS. O tempo em si já é jornada normal no salário deles (semRefeicao
+  // zera o intervalo no esperado) → paga-se só os 50%. #ref-nao-rendida #folha-detalhada
+  let refNaoRendidaMin=0, refNaoRendidaValor=0;
+  if(emp && emp.semRefeicao && !isentoPonto && salBase>0){
+    const _apNR=_apuracaoPontoTotais(emp,{mes:_mesR,ano:_anoR,pontoManualDias:_pontoDiasR});
+    refNaoRendidaMin=_apNR.naoRendMin;
+    refNaoRendidaValor=+((refNaoRendidaMin/60)*valorHora*0.5).toFixed(2);
+  }
+  setVal('payroll-ref-nao-rendida-min', refNaoRendidaMin||'');
+  setVal('payroll-ref-nao-rendida-valor', refNaoRendidaValor>0?refNaoRendidaValor.toFixed(2):'0.00');
+
   // Atrasos — lista de ocorrências (coleção `atrasos`). Só as ocorrências
   // NÃO abonadas descontam. O atestado abate horas de atraso. Isento não desconta.
   const _atrasoTot = _atrasoTotais(val('payroll-employee'), _mesR, _anoR);
@@ -10166,7 +10184,7 @@ function recalculate(){
     // (tela, Pagamentos, folha, holerite) baterem. #vt-coparticipacao
     const _vtTotEnc=numVal('payroll-vt-total')||0;
     const vtCoPartEnc=_vtTotEnc>0?Math.min(+(salBase*0.06).toFixed(2), _vtTotEnc):0;
-    const totalLiqFinal=Math.max(0,totalBruto+_rfT.provNtrib-inss-irrf-pensaoEnc-planoEnc-outDesc-_rfT.desc-adiantEnc-atrasoEnc-descontoSaida-vtCoPartEnc);
+    const totalLiqFinal=Math.max(0,totalBruto+_rfT.provNtrib+refNaoRendidaValor-inss-irrf-pensaoEnc-planoEnc-outDesc-_rfT.desc-adiantEnc-atrasoEnc-descontoSaida-vtCoPartEnc);
     setVal('payroll-total-bruto',       totalBruto.toFixed(2));
     setVal('payroll-outros-proventos',  outProv.toFixed(2));
     setVal('payroll-outros-descontos',  outDesc.toFixed(2));
@@ -10388,6 +10406,9 @@ async function savePayroll(){
     pontoManualDias: _sanitizeForFirestore(existing?.pontoManualDias || []),
     // Observação/ajuste manual da folha (impressa no espelho + Contabilidade). #folha-detalhada
     observacaoFolha: val('payroll-observacao-folha')||'',
+    // Refeição não rendida (indenizatória, 50%) — snapshot p/ recibo/folha/contab. #ref-nao-rendida
+    refNaoRendidaMin:   numVal('payroll-ref-nao-rendida-min')||0,
+    refNaoRendidaValor: numVal('payroll-ref-nao-rendida-valor')||0,
     // Período e status
     periodoDe: val('payroll-periodo-de')||'',
     periodoAte: val('payroll-periodo-ate')||'',
@@ -10422,7 +10443,7 @@ function clearPayrollForm(){
    'payroll-atraso-min','payroll-desconto-atraso','payroll-atraso-justificativa',
    'payroll-entrada','payroll-saida','payroll-intervalo-inicio','payroll-intervalo-fim',
    'payroll-horas-liquidas','payroll-horas-extras-dia','payroll-he-total','payroll-he-valor',
-   'payroll-he-corrido-min','payroll-he-corrido-detalhe','payroll-he-corrido-valor','payroll-observacao-folha']
+   'payroll-he-corrido-min','payroll-he-corrido-detalhe','payroll-he-corrido-valor','payroll-observacao-folha','payroll-ref-nao-rendida-valor','payroll-ref-nao-rendida-min']
     .forEach(id=>setVal(id,''));
   setVal('payroll-adiantamento-ativo','nao');
   setVal('payroll-adiantamento-perc','40');
@@ -21559,6 +21580,7 @@ function printFolhaPonto(isPreview=false){
   const pensaoDesc=numVal('payroll-pensao')||0;
   const outrosDescF=numVal('payroll-outros-descontos')||0;
   const outrosProvF=numVal('payroll-outros-proventos')||0;  // prêmios/ajudas — o holerite já somava; a folha não. #liquido-bate-holerite
+  const refNaoRendidaValorF=numVal('payroll-ref-nao-rendida-valor')||0;  // indenizatória (não-trib), soma só no líquido. #ref-nao-rendida
   // VT entra como CO-PARTICIPAÇÃO (menor entre 6% do salário e o custo do VT) —
   // o benefício segue pago à parte no cartão; só a co-part. desconta. #vt-coparticipacao
   const vtCoPart=vtTotal>0?Math.min(+(salarioBase*0.06).toFixed(2), vtTotal):0;
@@ -21569,7 +21591,7 @@ function printFolhaPonto(isPreview=false){
     ? `<tr><td class="fin-label">${esc(f.descricao)}</td><td class="fin-value">${fmtMoney(f.valor)}</td></tr>`
     : `<tr><td class="fin-label">${esc(f.descricao)}</td><td class="fin-value" style="color:#c0392b">${fmtMoney(f.valor)}</td></tr>`).join('');
   // VR/VA e Boa Permanência são benefícios pagos à parte — não somam no líquido
-  const totalLiquido=remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade+outrosProvF+_ftF.provTrib+_ftF.provNtrib
+  const totalLiquido=remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade+outrosProvF+refNaoRendidaValorF+_ftF.provTrib+_ftF.provNtrib
     -adiantamento-descontoAtraso-descontoSaida-inssDesc-irrfDesc-planoDesc-pensaoDesc-outrosDescF-_ftF.desc-vtCoPart;
 
   // Posto do colaborador
@@ -21807,6 +21829,7 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
     ${acumulo>0?`<tr><td class="fin-label">Acúmulo de Função (+20%)</td><td class="fin-value">${fmtMoney(acumulo)}</td></tr>`:''}
     ${insalubridade>0?`<tr><td class="fin-label">Insalubridade</td><td class="fin-value">${fmtMoney(insalubridade)}</td></tr>`:''}
     ${outrosProvF>0?`<tr><td class="fin-label">Outros Proventos</td><td class="fin-value">${fmtMoney(outrosProvF)}</td></tr>`:''}
+    ${refNaoRendidaValorF>0?`<tr><td class="fin-label">Refeição não rendida (50%) <small style="color:#1B5E20">— indenizatória</small></td><td class="fin-value">${fmtMoney(refNaoRendidaValorF)}</td></tr>`:''}
     ${descontoAtraso>0?`<tr><td class="fin-label">Desconto Atraso — ${minutosAtraso} min atrasados</td><td class="fin-value" style="color:#c0392b">${fmtMoney(descontoAtraso)}</td></tr>`:''}
     ${descontoSaida>0?`<tr><td class="fin-label">Desconto Saídas — ${minutosSaida} min de saída no expediente</td><td class="fin-value" style="color:#c0392b">${fmtMoney(descontoSaida)}</td></tr>`:''}
     ${adiantamento>0?`<tr><td class="fin-label">Adiantamento (${numVal('payroll-adiantamento-perc')||40}%)</td><td class="fin-value" style="color:#c0392b">${fmtMoney(adiantamento)}</td></tr>`:''}
@@ -21919,6 +21942,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
   const planoSaudeVal   = p.planoSaudeDesc||0;
   const outrosProvVal   = p.outrosProventosTotal||0;
   const outrosDescVal   = p.outrosDescontosTotal||0;
+  const refNaoRendidaValorR = p.refNaoRendidaValor||0;  // indenizatória (não-trib), soma só no líquido. #ref-nao-rendida
   const totalBrutoVal   = p.totalBruto||0;
   // Líquido final em dinheiro — recalculado dos componentes (NÃO usa o
   // p.totalLiquidoFinal salvo, que em registros antigos somava VT/VR/VA
@@ -21932,8 +21956,8 @@ function _buildFolhaHtmlFromRecord(emp, p){
   const _ftR=_rubricasFixasTotais(_fixasRec);
   // Na via totalBruto (registros novos), provTrib já está embutido em totalBrutoVal; soma só provNtrib.
   const totalLiquido    = totalBrutoVal>0
-    ? Math.max(0, totalBrutoVal+_ftR.provNtrib-inssVal-irrfVal-pensaoVal-planoSaudeVal-outrosDescVal-_ftR.desc-adiantamento-descontoAtraso-descontoSaida-vtCoPart)
-    : Math.max(0, remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade+_ftR.provTrib+_ftR.provNtrib-adiantamento-descontoAtraso-descontoSaida-inssVal-irrfVal-pensaoVal-planoSaudeVal-outrosDescVal-_ftR.desc-vtCoPart);
+    ? Math.max(0, totalBrutoVal+_ftR.provNtrib+refNaoRendidaValorR-inssVal-irrfVal-pensaoVal-planoSaudeVal-outrosDescVal-_ftR.desc-adiantamento-descontoAtraso-descontoSaida-vtCoPart)
+    : Math.max(0, remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade+_ftR.provTrib+_ftR.provNtrib+refNaoRendidaValorR-adiantamento-descontoAtraso-descontoSaida-inssVal-irrfVal-pensaoVal-planoSaudeVal-outrosDescVal-_ftR.desc-vtCoPart);
   const _fixasProvRowsRec=_fixasRec.filter(f=>f.tipo==='P').map(f=>`<tr><td class="fin-label">${esc(f.descricao)}</td><td class="fin-value">${fmtMoney(f.valor)}</td></tr>`).join('');
   const _fixasDescRowsRec=_fixasRec.filter(f=>f.tipo==='D').map(f=>`<tr><td class="fin-label">${esc(f.descricao)}</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(f.valor)})</td></tr>`).join('');
 
@@ -22153,6 +22177,7 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
       ${acumulo>0?`<tr><td class="fin-label">Acúmulo de Função (+20%)</td><td class="fin-value">${fmtMoney(acumulo)}</td></tr>`:''}
       ${insalubridade>0?`<tr><td class="fin-label">Insalubridade</td><td class="fin-value">${fmtMoney(insalubridade)}</td></tr>`:''}
       ${outrosProvVal>0?`<tr><td class="fin-label">Outros Proventos</td><td class="fin-value">${fmtMoney(outrosProvVal)}</td></tr>`:''}
+      ${refNaoRendidaValorR>0?`<tr><td class="fin-label">Refeição não rendida (50%) <small style="color:#1B5E20">— indenizatória</small></td><td class="fin-value">${fmtMoney(refNaoRendidaValorR)}</td></tr>`:''}
       ${_fixasProvRowsRec}
     </table>
     <div style="font-size:9px;font-weight:700;color:#c0392b;text-transform:uppercase;margin:6px 0 3px">DESCONTOS</div>

@@ -8506,36 +8506,37 @@ function exportBeneficiosLista(formato, soSelecionados){
   // dia 25). NÃO pode ser semana de calendário. O label do relatório
   // SEMPRE reflete essa competência, mesmo se aba é 'Hoje'/'Esta Semana'.
   const tab = _beneficioTabAtual || 'hoje';
-  let mPag, aPag;
-  // Para tab='custom' com competência exata → usa essa competência.
-  // Senão usa a competência ATUAL (o mês de calendário corrente).
-  if(tab === 'custom'){
-    const cp = _compFromRange(_beneficioCustomIni, _beneficioCustomFim);
-    if(cp){ mPag = cp.mPag; aPag = cp.aPag; }
-  }
-  if(!mPag){
-    const d = new Date();
-    mPag = d.getMonth()+1; aPag = d.getFullYear();
-  }
-  // SEMPRE prospectivo (decisão do usuário 2026-05-31): carregar a competência
-  // projeta o USO do mês seguinte (mPag+1); o desconto por faltas vem de mPag.
-  let mUso = mPag+1, aUso = aPag;
-  if(mUso>12){ mUso=1; aUso++; }
-  // Label do período = competência LEGAL (26→25 — Art. da CLT/CCT vigente).
   const fmtBr = iso => new Date(iso+'T12:00:00').toLocaleDateString('pt-BR');
-  // ini/fim: período da competência de USO (o que está sendo apurado).
-  const perUso = _compPeriodo(mUso, aUso);
-  const ini = perUso.deISO, fim = perUso.ateISO;
-  const escopo = 'mes';
+  // Período PERSONALIZADO que NÃO casa com uma competência (26→25) → planilha
+  // PROPORCIONAL ao intervalo escolhido (conta VT/VR dia a dia pela escala, igual
+  // à TELA). VA e B.Perm. são MENSAIS → só entram na competência inteira (decisão
+  // do usuário 2026-06-02; `_calcBeneficiosColab` já devolve va/bp = 0). #benef-parcial
+  const _cpCustom   = (tab==='custom') ? _compFromRange(_beneficioCustomIni, _beneficioCustomFim) : null;
+  const usarParcial = (tab==='custom' && !_cpCustom && _beneficioCustomIni && _beneficioCustomFim);
+  let mPag, aPag, mUso, aUso, ini, fim, periodoLabel;
+  if(usarParcial){
+    ini = _beneficioCustomIni; fim = _beneficioCustomFim;
+    periodoLabel = `Benefícios — período ${fmtBr(ini)} a ${fmtBr(fim)} (proporcional aos dias · só VT/VR; VA e B.Perm. só na competência cheia)`;
+  } else {
+    // tab='custom' que casa competência → usa essa; senão a competência ATUAL.
+    if(_cpCustom){ mPag = _cpCustom.mPag; aPag = _cpCustom.aPag; }
+    if(!mPag){ const d = new Date(); mPag = d.getMonth()+1; aPag = d.getFullYear(); }
+    // SEMPRE prospectivo (decisão do usuário 2026-05-31): USO = mPag+1; desconto de faltas vem de mPag.
+    mUso = mPag+1; aUso = aPag; if(mUso>12){ mUso=1; aUso++; }
+    const perUso = _compPeriodo(mUso, aUso);
+    ini = perUso.deISO; fim = perUso.ateISO;
+    periodoLabel = `Benefícios p/ uso em ${MESES[mUso]}/${aUso} (${_compLabel(mUso, aUso)}) — desconto: faltas de ${MESES[mPag]}/${aPag}`;
+  }
   const periodoCol = `${fmtBr(ini)} → ${fmtBr(fim)}`;
-  const periodoLabel = `Benefícios p/ uso em ${MESES[mUso]}/${aUso} (${_compLabel(mUso, aUso)}) — desconto: faltas de ${MESES[mPag]}/${aPag}`;
   const periodoLabelFull = soSelecionados ? `${periodoLabel} — selecionados` : periodoLabel;
   const linhas = [];
   (State.employees||[])
     .filter(e => (e.status||'ativo') === 'ativo')
     .filter(e => !selIds || selIds.has(e.id))
     .forEach(e => {
-      const b = _calcBeneficiosColabPrevisto(e, mUso, aUso, mPag, aPag);
+      const b = usarParcial
+        ? _calcBeneficiosColab(e, ini, fim, 'semana')          // proporcional ao intervalo (VA/BP = 0)
+        : _calcBeneficiosColabPrevisto(e, mUso, aUso, mPag, aPag);
       // Inclui linhas com algum valor OU motivo de BP perdida/pendente,
       // pra ter transparência total no relatório.
       if(b.total > 0 || b.bpMotivo) linhas.push({ emp:e, b });

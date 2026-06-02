@@ -18366,6 +18366,55 @@ async function _mfSalvarResolv(empId, status){
   await DB.saveDoc('configuracoes','monitorfaltas_'+ymd, { resolvidos:_mfResolv, updatedAt:new Date().toISOString() }, true);
 }
 
+// ── S2: precompute diario + Web Push (robo 24h). #monitor-faltas-cron ──
+// O app grava 1x/dia a lista de "quem entra hoje" (o motor de escala mora aqui; o
+// cron no servidor nao calcula). O worker le isso + as batidas (payrolls.pontoManualDias)
+// e dispara o push pra quem nao bateu apos +15min.
+async function _mfPrecomputarExpectativas(){
+  try{
+    const n=new Date(); const ano=n.getFullYear(), mes=n.getMonth()+1, dia=n.getDate();
+    const ymd=`${ano}-${String(mes).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
+    const esperados=[];
+    (State.employees||[]).forEach(emp=>{
+      if((emp.status||'ativo')!=='ativo' || emp.isentoPonto) return;
+      const exp=_getExpectedDay(emp,mes,ano,dia);
+      if(!exp || exp.tipo==='folga' || !exp.entrada) return;
+      esperados.push({ empId:emp.id, nome:emp.nome||'', entrada:exp.entrada });
+    });
+    await DB.saveDoc('configuracoes','monitorexpectativas_'+ymd,
+      { ymd, geradoEm:n.toISOString(), tolerancia:MONITOR_FALTAS_TOLERANCIA_MIN, esperados }, true);
+  }catch(_){}
+}
+// Chave PUBLICA VAPID — preencha apos gerar o par (ver guia de deploy do robo). Vazio = push desligado.
+const PUSH_VAPID_PUBLIC = '';
+function _b64urlToU8(b64){
+  const pad='='.repeat((4-b64.length%4)%4);
+  const s=(b64+pad).replace(/-/g,'+').replace(/_/g,'/');
+  const raw=atob(s); const out=new Uint8Array(raw.length);
+  for(let i=0;i<raw.length;i++) out[i]=raw.charCodeAt(i);
+  return out;
+}
+function _pushUserKey(){ const u=Auth.currentUser; return String((u&&(u.username||u.id))||'anon').replace(/[^\w.-]/g,'_'); }
+function _pushAtivoNesteAparelho(){ try{ return localStorage.getItem('drg_push_faltas')==='1'; }catch(_){ return false; } }
+// Ativa notificacoes de falta neste aparelho (permissao + SW push-only + subscription salva).
+async function _ativarNotificacoesFaltas(){
+  try{
+    if(!('serviceWorker' in navigator) || !('PushManager' in window)){ toast('Este navegador não suporta notificações push.','error'); return; }
+    if(!PUSH_VAPID_PUBLIC){ toast('Notificações ainda não configuradas no servidor (falta a chave VAPID). Avise o administrador.','warning'); return; }
+    const perm=await Notification.requestPermission();
+    if(perm!=='granted'){ toast('Permissão de notificação negada — ative nas configurações do navegador.','warning'); return; }
+    const reg=await navigator.serviceWorker.register('push-sw.js?v=1');
+    await navigator.serviceWorker.ready;
+    let sub=await reg.pushManager.getSubscription();
+    if(!sub) sub=await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:_b64urlToU8(PUSH_VAPID_PUBLIC) });
+    await DB.saveDoc('configuracoes','pushsub_'+_pushUserKey(),
+      { sub: JSON.parse(JSON.stringify(sub)), userKey:_pushUserKey(), nome:(Auth.currentUser&&(Auth.currentUser.nome||Auth.currentUser.username))||'', monitorarFaltas:true, atualizadoEm:new Date().toISOString() }, true);
+    try{ localStorage.setItem('drg_push_faltas','1'); }catch(_){}
+    toast('Notificações ativadas neste aparelho!','success');
+    if(State.currentSection==='monitorfaltas') renderMonitorFaltas();
+  }catch(e){ toast('Erro ao ativar notificações: '+(e.message||e),'error'); }
+}
+
 // Detecta as faltas de entrada de HOJE (em memoria, sem gravar).
 function _monitorFaltasHoje(){
   const now = new Date();
@@ -18407,6 +18456,7 @@ let _mfBadgeTimer = null;
 function _initMonitorFaltasBadge(){
   const tick = async ()=>{ try{ await _mfCarregarResolv(); _setMonitorFaltasBadge(_monitorFaltasHoje().length); }catch(e){} };
   tick();
+  _mfPrecomputarExpectativas();   // grava "quem entra hoje" p/ o robô (cron) — #monitor-faltas-cron
   if(!_mfBadgeTimer) _mfBadgeTimer = setInterval(tick, 5*60*1000);  // a cada 5 min
 }
 function _setMonitorFaltasBadge(n){
@@ -18507,7 +18557,12 @@ async function renderMonitorFaltas(){
         <h2 style="margin:0"><i class="fa-solid fa-user-clock" style="color:#dc2626"></i> Monitor de Faltas</h2>
         <p style="margin:4px 0 0;color:#666">Quem deveria ter batido a entrada e ainda não bateu — ${dataBR}, conferido às ${hhmm} (tolerância de ${MONITOR_FALTAS_TOLERANCIA_MIN} min).${resolvidosHoje?` <span style="color:#16a34a">· ${resolvidosHoje} já tratado(s) hoje</span>`:''}</p>
       </div>
-      <button class="btn btn-secondary" onclick="renderMonitorFaltas()"><i class="fa-solid fa-rotate"></i> Atualizar</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${_pushAtivoNesteAparelho()
+          ? `<span style="align-self:center;font-size:12px;color:#16a34a;font-weight:600"><i class="fa-solid fa-bell"></i> Notificações ativas neste aparelho</span>`
+          : `<button class="btn btn-outline" onclick="_ativarNotificacoesFaltas()" title="Receber aviso no celular mesmo com o app fechado (robô 24h)"><i class="fa-solid fa-bell"></i> Ativar notificações</button>`}
+        <button class="btn btn-secondary" onclick="renderMonitorFaltas()"><i class="fa-solid fa-rotate"></i> Atualizar</button>
+      </div>
     </div>
     <div style="margin:14px 0;padding:10px 14px;border-radius:8px;background:${lista.length?'#fef2f2':'#f0fdf4'};border:1px solid ${lista.length?'#fecaca':'#bbf7d0'};font-weight:600;color:${lista.length?'#b91c1c':'#15803d'}">
       ${lista.length ? `<i class="fa-solid fa-triangle-exclamation"></i> ${lista.length} colaborador(es) sem entrada registrada` : `<i class="fa-solid fa-circle-check"></i> Nenhuma falta de entrada no momento`}

@@ -1231,16 +1231,31 @@ function closeSidebarMobile(){
 // cliente — o Worker valida e devolve um Firebase Custom Token (sessão real).
 // ID único e persistente desta máquina/navegador (trava de dispositivo, LGPD).
 // Gerado 1x e guardado no localStorage. Enviado no /login pro Worker conferir.
+function _genDeviceId(){
+  return (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+       : 'dev-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,12);
+}
+// ID do dispositivo RESILIENTE: localStorage → cookie → memória. Nunca devolve vazio
+// (vazio fazia o login travar com "dispositivo não identificado" em navegador que
+// bloqueia localStorage — modo anônimo, cookies/site-data bloqueados). #fix-deviceid
 function _getDeviceId(){
+  // 1) localStorage (preferido)
   try{
     let id = localStorage.getItem('drg_device_id');
-    if(!id){
-      id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
-         : 'dev-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,12);
-      localStorage.setItem('drg_device_id', id);
-    }
-    return id;
-  }catch(e){ return ''; }
+    if(!id){ id = _genDeviceId(); localStorage.setItem('drg_device_id', id); }
+    if(id){ try{ document.cookie = 'drg_device_id='+id+';path=/;max-age=31536000;SameSite=Lax'; }catch(_){ } return id; }
+  }catch(e){ /* localStorage bloqueado → tenta cookie */ }
+  // 2) cookie (quando o localStorage está bloqueado mas cookies não)
+  try{
+    const m = document.cookie.match(/(?:^|;\s*)drg_device_id=([^;]+)/);
+    if(m && m[1]) return decodeURIComponent(m[1]);
+    const id = _genDeviceId();
+    document.cookie = 'drg_device_id='+id+';path=/;max-age=31536000;SameSite=Lax';
+    if(/(?:^|;\s*)drg_device_id=/.test(document.cookie)) return id;
+  }catch(e){ /* cookie também bloqueado → memória */ }
+  // 3) memória (último recurso — não persiste entre recargas, mas o login funciona)
+  if(!window.__drgDevMem) window.__drgDevMem = _genDeviceId();
+  return window.__drgDevMem;
 }
 
 async function doLogin(event){

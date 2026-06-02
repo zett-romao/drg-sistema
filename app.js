@@ -18385,8 +18385,8 @@ async function _mfPrecomputarExpectativas(){
       { ymd, geradoEm:n.toISOString(), tolerancia:MONITOR_FALTAS_TOLERANCIA_MIN, esperados }, true);
   }catch(_){}
 }
-// Chave PUBLICA VAPID — preencha apos gerar o par (ver guia de deploy do robo). Vazio = push desligado.
-const PUSH_VAPID_PUBLIC = '';
+// Chave PUBLICA VAPID (par gerado 2026-06-02; a privada fica so no worker drg-monitor). #monitor-faltas-cron
+const PUSH_VAPID_PUBLIC = 'BIeMp4BsrGe1L68PELiLO5-KGWd3jixiBFE48kRAvmwUxT3j5N99jMsyEcGK9LSmjpcQdKvHmRuS_Z-6M8P-BY8';
 function _b64urlToU8(b64){
   const pad='='.repeat((4-b64.length%4)%4);
   const s=(b64+pad).replace(/-/g,'+').replace(/_/g,'/');

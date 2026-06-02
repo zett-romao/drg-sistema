@@ -74,6 +74,8 @@
   .btn-aut:active{background:#15803d}
   .btn-rec{flex:1;padding:13px;background:#fff;color:#c62828;border:1px solid #fca5a5;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer}
   .btn-rec:active{background:#fee2e2}
+  .btn-edit{flex:1;padding:13px;background:#fff;color:#1565C0;border:1px solid #90caf9;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer}
+  .btn-edit:active{background:#e3f2fd}
 
   .empty{text-align:center;padding:40px 20px;color:#94a3b8}
   .empty-icon{font-size:48px;margin-bottom:8px}
@@ -491,7 +493,8 @@ function _cardPedido(p){
       ${motivoBox}
       <div class="card-tempo">⏱ Solicitado ${fmtMinAtras(p.tentativaEm)}</div>
       <div class="card-actions">
-        <button class="btn-aut" onclick="autorizarPedido('${p.id}')">✓ AUTORIZAR</button>
+        <button class="btn-aut" onclick="autorizarPedido('${p.id}')" title="Registra na folha o horário REAL da batida (${p.horarioReal||'—'})">✓ AUTORIZAR</button>
+        <button class="btn-edit" onclick="editarERegistrar('${p.id}')" title="Define o horário a registrar (ex.: o previsto, pra abonar o desvio)">✏️ Editar</button>
         <button class="btn-rec" onclick="abrirRecusa('${p.id}')">✕ Recusar</button>
       </div>
     </div>`;
@@ -545,6 +548,41 @@ async function autorizarPedido(pedidoId){
   }catch(e){
     console.error(e);
     toast('Erro ao autorizar: ' + (e.message||e), 'error');
+  }
+}
+
+// Edita o horário antes de registrar (ex.: usar o previsto pra ABONAR o desvio,
+// sem gerar atraso/HE). O supervisor controla o que conta pelo horário. #ponto-provisorio
+async function editarERegistrar(pedidoId){
+  const p = pedidos.find(x => x.id === pedidoId);
+  if(!p) return;
+  const sugestao = p.horarioPrevisto || p.horarioReal || '';
+  const txt = prompt(
+    'Horário a REGISTRAR na folha (HH:MM):\n\n'
+    + '• Real da batida: ' + (p.horarioReal||'—') + (p.horarioPrevisto ? '\n• Previsto: ' + p.horarioPrevisto : '')
+    + '\n\nDica: use o PREVISTO para abonar o desvio (sem atraso/HE).',
+    sugestao);
+  if(txt === null) return;
+  let hhmm = (txt||'').trim();
+  const m = hhmm.match(/^(\d{1,2}):(\d{2})$/);
+  if(!m || +m[1] > 23 || +m[2] > 59){ toast('Horário inválido. Use HH:MM (ex.: 07:00).', 'error'); return; }
+  hhmm = String(+m[1]).padStart(2,'0') + ':' + m[2];
+  if(!confirm(`Registrar na folha a batida de ${p.employeeNome} às ${hhmm} (${NOMES_BATIDA[p.tipoBatida]||p.tipoBatida})?`)) return;
+  const agora = new Date().toISOString();
+  try{
+    await _gravarBatidaNaFolha(p, hhmm);
+    await dbCol('autorizacoesPonto').doc(pedidoId).update({
+      status: 'autorizada',
+      autorizadoPorId:   currentUser.id || '',
+      autorizadoPorNome: currentUser.username || '',
+      autorizadoEm:      agora,
+      batidaGravada:     true,
+      horarioEditado:    hhmm,
+    });
+    toast(`✅ Registrado às ${hhmm} — ${p.employeeNome}`, 'success');
+  }catch(e){
+    console.error(e);
+    toast('Erro ao registrar: ' + (e.message||e), 'error');
   }
 }
 

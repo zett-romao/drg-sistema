@@ -9922,8 +9922,15 @@ function recalculate(){
   const vrFreqCalc = emp?.vrFreq || 'diario';
   const semCalc    = _semanasTrabalhadas(dias, emp?.escala);
   const semCalcVr  = _semanasTrabalhadas(diasBeneficioVr, emp?.escala);
-  const vtMult = (vtFreqCalc === 'semanal') ? semCalc   : diasBeneficio;   // todos os dias
-  const vrMult = (vrFreqCalc === 'semanal') ? semCalcVr : diasBeneficioVr; // só dias > 6h
+  // Feriados trabalhados (5x2/6x1, modo folga): só somam VT/VR se APROVADOS pelo
+  // supervisor. `dias` (e o VR proporcional) já incluem o dia batido → tira os NÃO
+  // aprovados. Painel de aprovação renderizado abaixo. #feriados
+  const _ferTrab   = emp ? _feriadosTrabalhadosNaFolha(emp, _mesR, _anoR, _pontoDiasR) : [];
+  const _ferVtExcl = isentoPonto ? 0 : _ferTrab.filter(f=>!f.aprovado).length;
+  const _ferVrExcl = isentoPonto ? 0 : _ferTrab.filter(f=>!f.aprovado && f.vr).length;
+  _renderFeriadoTrabPanel(_ferTrab, empId, _mesR, _anoR);
+  const vtMult = (vtFreqCalc === 'semanal') ? semCalc   : Math.max(0, diasBeneficio   - _ferVtExcl);  // todos os dias − feriados não aprovados
+  const vrMult = (vrFreqCalc === 'semanal') ? semCalcVr : Math.max(0, diasBeneficioVr - _ferVrExcl);  // dias > 6h − feriados não aprovados
   setVal('payroll-vt-total',(numVal('payroll-vt-dia')*vtMult).toFixed(2));
   setVal('payroll-vr-total',(numVal('payroll-vr-dia')*vrMult).toFixed(2));
 
@@ -20157,6 +20164,53 @@ function _escalaRespeitaFeriado(escala){
   const fam=escalaFamilia(escala);
   return fam==='5x2'||fam==='6x1';
 }
+// Dias de feriado-folga COM batida (5x2/6x1) na folha → benefício PENDENTE de aprovação
+// do supervisor. Retorna [{dia,nome,vr,aprovado}]. #feriados
+function _feriadosTrabalhadosNaFolha(emp, mes, ano, pontoDias){
+  const out=[];
+  if(!emp || !_escalaRespeitaFeriado(emp.escala) || !Array.isArray(pontoDias)) return out;
+  const comp=_compDias(mes,ano);
+  pontoDias.forEach(d=>{
+    if(!d || !d.entrada || !d.saida) return;
+    const cd=comp.find(c=>c.dia===d.dia); if(!cd) return;
+    const fer=_ehFeriado(cd.ano,cd.mes,cd.dia);
+    if(!fer || !fer.folga) return;              // só feriado em modo folga (trabalha já paga normal)
+    out.push({ dia:d.dia, nome:fer.nome, vr:_liqMin(d)>360, aprovado:!!d.feriadoBenefOk });
+  });
+  return out;
+}
+// Painel na folha: lista feriados trabalhados e deixa o supervisor aprovar o benefício. #feriados
+function _renderFeriadoTrabPanel(ferTrab, empId, mes, ano){
+  const box=document.getElementById('feriado-trab-panel');
+  if(!box) return;
+  if(!ferTrab || !ferTrab.length){ box.style.display='none'; box.innerHTML=''; return; }
+  const mods=getUserModules(Auth.currentUser)||{};
+  const podeAprovar = mods.autorizarPonto || Auth.currentUser?.role==='master';
+  const linhas=ferTrab.map(f=>{
+    const benLabel = f.vr ? 'VT+VR' : 'VT';
+    const acao = podeAprovar
+      ? `<button class="btn btn-sm" onclick="aprovarFeriadoBenef('${empId}',${mes},${ano},${f.dia},${f.aprovado?'false':'true'})" style="font-size:11px;padding:3px 10px;background:${f.aprovado?'#E8F5E9':'#FFF3E0'};color:${f.aprovado?'#2E7D32':'#E65100'};border:1px solid ${f.aprovado?'#A5D6A7':'#FFCC80'}">${f.aprovado?'✓ Aprovado — desfazer':'Aprovar '+benLabel}</button>`
+      : `<span style="font-size:11px;color:${f.aprovado?'#2E7D32':'#E65100'}">${f.aprovado?'✓ Benefício aprovado':'Aguardando aprovação do supervisor'}</span>`;
+    return `<div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12px">
+      <span style="flex:1">Dia ${String(f.dia).padStart(2,'0')} — <strong>${f.nome}</strong> trabalhado <span style="color:#888">(${benLabel})</span></span>${acao}</div>`;
+  }).join('');
+  box.style.display='';
+  box.innerHTML=`<div style="font-size:11px;font-weight:700;color:#6A1B9A;margin-bottom:4px"><i class="fa-solid fa-calendar-day"></i> Feriado trabalhado — benefício depende de aprovação</div>${linhas}<div style="font-size:10px;color:#6A1B9A;margin-top:4px">Só dias APROVADOS somam VT/VR. Recalcule/salve a folha após aprovar.</div>`;
+}
+async function aprovarFeriadoBenef(empId, mes, ano, dia, aprovar){
+  const mods=getUserModules(Auth.currentUser)||{};
+  if(!(mods.autorizarPonto || Auth.currentUser?.role==='master')){ toast('Sem permissão para aprovar (precisa ser supervisor).','error'); return; }
+  const reg=State.payrolls.find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
+  if(!reg || !Array.isArray(reg.pontoManualDias)){ toast('Salve a folha primeiro (precisa ter ponto lançado).','warning'); return; }
+  const want=(aprovar===true||aprovar==='true');
+  const dias=reg.pontoManualDias.map(d=> d.dia===dia ? {...d, feriadoBenefOk:want} : d);
+  try{
+    await DB.merge('payrolls', reg.id, { pontoManualDias:dias });
+    reg.pontoManualDias=dias;   // reflete no State p/ recalcular já
+    toast(want?'Benefício do feriado APROVADO. Recalcule/salve a folha.':'Aprovação removida.','success');
+    if(val('payroll-employee')===empId) recalculate();
+  }catch(e){ toast('Erro ao aprovar: '+(e.message||e),'error'); }
+}
 // Nota HTML dos feriados-folga num período [ini,fim] ISO (p/ visibilidade no modal de benefícios). #feriados
 function _feriadosNotaPeriodo(iniISO,fimISO){
   try{
@@ -20684,6 +20738,8 @@ function _collectPontoManualDias(){
     });
     // Preserva heReview do dia (decisão de aprovação)
     if(existingDay.heReview) obj.heReview = existingDay.heReview;
+    // Preserva aprovação do benefício de feriado trabalhado. #feriados
+    if(existingDay.feriadoBenefOk) obj.feriadoBenefOk = existingDay.feriadoBenefOk;
     dias.push(obj);
   });
   return dias;

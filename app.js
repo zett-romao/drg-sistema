@@ -8560,9 +8560,8 @@ function exportBeneficiosLista(formato, soSelecionados){
       <td><strong>${emp.nome}</strong>${emp.setor?`<br><small style="color:#666">${emp.setor}</small>`:''}</td>
       <td style="font-size:11px">${posto}</td>
       <td style="text-align:center;font-size:11px">${periodoCol}</td>
-      <td style="text-align:center"><strong>${b.diasVt!=null?b.diasVt:(b.dias||0)}</strong> <small style="color:#888">VT</small><br><span style="color:#E65100;font-size:11px">${b.diasVr!=null?b.diasVr:0} <small>VR</small></span></td>
-      <td style="text-align:right">${benVT} ${fmtMoney(b.vtValor)}</td>
-      <td style="text-align:right">${fmtMoney(b.vrValor)}</td>
+      <td style="text-align:right"><span style="color:#888;font-size:11px">${b.diasVt!=null?b.diasVt:(b.dias||0)} dias</span> &middot; ${benVT} ${fmtMoney(b.vtValor)}</td>
+      <td style="text-align:right"><span style="color:#E65100;font-size:11px">${b.diasVr!=null?b.diasVr:0} dias</span> &middot; ${fmtMoney(b.vrValor)}</td>
       <td style="text-align:right">${fmtMoney(b.vaValor||0)}</td>
       <td style="text-align:right">${(b.bpValor||0)>0 ? fmtMoney(b.bpValor) : (b.bpPendente ? '<span style="color:#9E9E9E">N/C</span>' : (b.bpMotivo ? '<span style="color:#C62828">perdeu</span>' : '—'))}</td>
       <td style="text-align:right;font-weight:700">${fmtMoney(b.total)}</td>
@@ -8591,7 +8590,6 @@ function exportBeneficiosLista(formato, soSelecionados){
     <th>Colaborador</th>
     <th>Posto</th>
     <th style="text-align:center">Período</th>
-    <th style="text-align:center">Dias (VT/VR)</th>
     <th style="text-align:right">VT/AM</th>
     <th style="text-align:right">VR</th>
     <th style="text-align:right">VA</th>
@@ -8602,7 +8600,7 @@ function exportBeneficiosLista(formato, soSelecionados){
   <tbody>${rows}</tbody>
   <tfoot>
     <tr>
-      <td colspan="6" style="text-align:right">TOTAIS</td>
+      <td colspan="5" style="text-align:right">TOTAIS</td>
       <td style="text-align:right">${fmtMoney(totalVT)}</td>
       <td style="text-align:right">${fmtMoney(totalVR)}</td>
       <td style="text-align:right">${fmtMoney(totalVA)}</td>

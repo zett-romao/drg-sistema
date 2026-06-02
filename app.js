@@ -18227,6 +18227,10 @@ function _renderAutzUI(){
   const agora = Date.now();
   const dias  = parseInt(_autzFiltros.periodo||'30',10);
   const busca = (_autzFiltros.busca||'').trim().toLowerCase();
+  // Status EFETIVO: um 'pendente' cujo prazo (15 min) já venceu conta como EXPIRADA —
+  // o app de Supervisor não mostra mais (filtra vencidos), então o histórico e a
+  // contagem precisam refletir isso (senão mostra "pendente" que não dá pra aprovar). #autz-expira
+  const efStatus = p => (p.status==='pendente' && p.validadeAteEm && Date.parse(p.validadeAteEm) < agora) ? 'expirada' : p.status;
   // Escopo: supervisor com postosResponsavel só vê pedidos de colaboradores dos
   // postos dele. Master / sem restrição vê tudo.
   const escopo = _postosDoUsuario(Auth.currentUser);
@@ -18239,7 +18243,7 @@ function _renderAutzUI(){
       const dt = new Date(p.tentativaEm).getTime();
       if(isFinite(dt) && (agora-dt) > dias*D) return false;
     }
-    if(_autzFiltros.status !== 'todos' && p.status !== _autzFiltros.status) return false;
+    if(_autzFiltros.status !== 'todos' && efStatus(p) !== _autzFiltros.status) return false;
     if(busca){
       const blob = `${p.employeeNome||''} ${p.employeeRegistro||''} ${p.autorizadoPorNome||''} ${p.motivo||''}`.toLowerCase();
       if(!blob.includes(busca)) return false;
@@ -18250,10 +18254,10 @@ function _renderAutzUI(){
   // Stats
   const cnt = {
     todos: filtradas.length,
-    pendente: filtradas.filter(p=>p.status==='pendente').length,
-    autorizada: filtradas.filter(p=>p.status==='autorizada').length,
-    recusada: filtradas.filter(p=>p.status==='recusada').length,
-    expirada: filtradas.filter(p=>p.status==='expirada' || p.status==='cancelada').length,
+    pendente: filtradas.filter(p=>efStatus(p)==='pendente').length,
+    autorizada: filtradas.filter(p=>efStatus(p)==='autorizada').length,
+    recusada: filtradas.filter(p=>efStatus(p)==='recusada').length,
+    expirada: filtradas.filter(p=>{const s=efStatus(p);return s==='expirada' || s==='cancelada';}).length,
   };
   const fmtDt = iso => { const d=iso?new Date(iso):null; if(!d||isNaN(d.getTime())) return '—'; return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}); };
   const NOMES = {entrada:'Entrada', intIni:'Início intervalo', intFim:'Fim intervalo', saida:'Saída'};
@@ -18323,20 +18327,22 @@ function _renderAutzUI(){
     listaHtml = `<div class="empty-state"><i class="fa-solid fa-shield-halved"></i><p>Nenhuma autorização com este filtro.</p></div>`;
   } else {
     listaHtml = filtradas.map(p => {
-      const corStatus = p.status==='pendente'   ? '#E65100'
-                      : p.status==='autorizada' ? '#16a34a'
-                      : p.status==='recusada'   ? '#c62828'
+      const st = efStatus(p);   // status efetivo (pendente vencido vira expirada). #autz-expira
+      const corStatus = st==='pendente'   ? '#E65100'
+                      : st==='autorizada' ? '#16a34a'
+                      : st==='recusada'   ? '#c62828'
                       : '#94a3b8';
-      const lblStatus = p.status==='pendente'  ? 'PENDENTE'
-                      : p.status==='autorizada'? 'AUTORIZADA'
-                      : p.status==='recusada'  ? 'RECUSADA'
-                      : p.status==='expirada'  ? 'EXPIRADA'
+      const lblStatus = st==='pendente'  ? 'PENDENTE'
+                      : st==='autorizada'? 'AUTORIZADA'
+                      : st==='recusada'  ? 'RECUSADA'
+                      : (st==='expirada' && p.status==='pendente') ? 'EXPIRADA (sem ação)'
+                      : st==='expirada'  ? 'EXPIRADA'
                       : 'CANCELADA';
       const diff = p.diferencaMinutos || 0;
       const diffTxt = diff===0 ? '' :
         diff > 0 ? `+${diff} min` : `${diff} min`;
       const empCad = State.employees.find(e => e.id === p.employeeId);
-      const isPend = p.status==='pendente';
+      const isPend = st==='pendente';   // só pendente ATIVO (dentro dos 15 min) tem ação. #autz-expira
       const supUrl = 'supervisor.html?autz=' + encodeURIComponent(p.id);
       const _nome  = (p.employeeNome||'—').replace(/</g,'&lt;');
       // PENDENTE → o nome abre o app de Supervisor JÁ FOCADO nesta solicitação (aprovar/recusar).

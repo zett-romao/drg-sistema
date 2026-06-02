@@ -18,10 +18,20 @@ export default {
   // Permite disparo manual p/ teste: GET https://<worker>/?run=1
   async fetch(req, env) {
     const u = new URL(req.url);
-    if (u.searchParams.get('run') === '1') { const r = await rodar(env); return new Response(JSON.stringify(r), {headers:{'content-type':'application/json'}}); }
+    if (u.searchParams.get('run')  === '1') { const r = await rodar(env);        return new Response(JSON.stringify(r), {headers:{'content-type':'application/json'}}); }
+    if (u.searchParams.get('test') === '1') { const r = await enviarTeste(env);  return new Response(JSON.stringify(r), {headers:{'content-type':'application/json'}}); }
     return new Response('drg-monitor-worker ok', {status:200});
   }
 };
+
+// Teste de entrega: manda uma notificação de teste a TODOS os inscritos (ignora faltas/dedupe).
+async function enviarTeste(env){
+  const cfgs=await fsListCol(env,'configuracoes');
+  const subs=cfgs.filter(c=>c.id.startsWith('pushsub_') && c.data && c.data.sub && c.data.sub.endpoint);
+  let enviados=0; const status=[];
+  for(const s of subs){ const st=await enviarPush(env,s.data.sub); status.push(st); if(st===201||st===200) enviados++; }
+  return {ok:true, teste:true, inscritos:subs.length, enviados, status};
+}
 
 // ───────── util base64url ─────────
 function b64urlToBytes(s){ const pad='='.repeat((4-s.length%4)%4); const b=atob((s+pad).replace(/-/g,'+').replace(/_/g,'/')); const out=new Uint8Array(b.length); for(let i=0;i<b.length;i++) out[i]=b.charCodeAt(i); return out; }
@@ -182,8 +192,10 @@ async function rodar(env){
   const subs=cfgs.filter(c=>c.id.startsWith('pushsub_') && c.data && c.data.sub && c.data.sub.endpoint);
   let enviados=0;
   for(const s of subs){ const st=await enviarPush(env,s.data.sub); if(st===201||st===200) enviados++; }
-  // grava estado dedupe (acumula os faltantes notificados)
-  const acc=Array.from(new Set([...jaNotif, ...novos]));
-  await fsSaveDoc(env,'configuracoes','monitorpushstate_'+ymd,{ ymd, notificados:acc, atualizadoEm:new Date().toISOString() });
+  // grava dedupe SÓ se realmente entregou a alguém — senão re-tenta quando alguém se inscrever
+  if(enviados>0){
+    const acc=Array.from(new Set([...jaNotif, ...novos]));
+    await fsSaveDoc(env,'configuracoes','monitorpushstate_'+ymd,{ ymd, notificados:acc, atualizadoEm:new Date().toISOString() });
+  }
   return {ok:true, ymd, faltantesNovos:novos.length, inscritos:subs.length, enviados};
 }

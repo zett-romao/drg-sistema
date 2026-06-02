@@ -404,6 +404,25 @@ function renderPedidos(){
 
   wrap.innerHTML = `<div class="lista-sec-title">Pedidos pendentes (${n})</div>` +
     pedidos.map(p => _cardPedido(p)).join('');
+  _focarAutzDeepLink();
+}
+
+// Deep-link vindo do app (Autorizações): supervisor.html?autz=<id> → rola até o
+// pedido e destaca. Foca só uma vez (o snapshot re-renderiza ao vivo). #autz-deeplink
+let _autzFocado = false;
+function _focarAutzDeepLink(){
+  if(_autzFocado) return;
+  try{
+    const id = new URLSearchParams(location.search).get('autz');
+    if(!id) return;
+    const el = document.getElementById('ped-' + id);
+    if(!el) return;
+    _autzFocado = true;
+    el.scrollIntoView({ behavior:'smooth', block:'center' });
+    el.style.transition = 'box-shadow .3s';
+    el.style.boxShadow = '0 0 0 3px #1976D2';
+    setTimeout(()=>{ el.style.boxShadow = ''; }, 2800);
+  }catch(_){}
 }
 
 function _cardPedido(p){
@@ -419,7 +438,7 @@ function _cardPedido(p){
     : '';
   const matricula = p.employeeRegistro ? String(p.employeeRegistro).padStart(4,'0') : '—';
   return `
-    <div class="card-ped ${classExtra}">
+    <div class="card-ped ${classExtra}" id="ped-${p.id}">
       <div class="card-head">
         <div style="flex:1;min-width:0">
           <div class="card-nome">${(p.employeeNome||'—').replace(/</g,'&lt;')}</div>

@@ -18336,9 +18336,19 @@ function _renderAutzUI(){
       const diffTxt = diff===0 ? '' :
         diff > 0 ? `+${diff} min` : `${diff} min`;
       const empCad = State.employees.find(e => e.id === p.employeeId);
-      const nomeLink = empCad
-        ? `<a href="javascript:void(0)" onclick="openEmployeeModal('${p.employeeId}')" style="color:var(--primary);text-decoration:none;border-bottom:1px dotted var(--primary)">${(p.employeeNome||'—').replace(/</g,'&lt;')}</a>`
-        : ((p.employeeNome||'—').replace(/</g,'&lt;'));
+      const isPend = p.status==='pendente';
+      const supUrl = 'supervisor.html?autz=' + encodeURIComponent(p.id);
+      const _nome  = (p.employeeNome||'—').replace(/</g,'&lt;');
+      // PENDENTE → o nome abre o app de Supervisor JÁ FOCADO nesta solicitação (aprovar/recusar).
+      // Resolvido → abre o cadastro do colaborador (consulta/edição). #autz-deeplink
+      const nomeLink = isPend
+        ? `<a href="${supUrl}" target="_blank" rel="noopener" style="color:#E65100;text-decoration:none;border-bottom:1px dotted #E65100" title="Abrir o app de Supervisor para APROVAR ou RECUSAR esta solicitação">${_nome} <i class="fa-solid fa-up-right-from-square" style="font-size:10px"></i></a>`
+        : (empCad
+            ? `<a href="javascript:void(0)" onclick="openEmployeeModal('${p.employeeId}')" style="color:var(--primary);text-decoration:none;border-bottom:1px dotted var(--primary)" title="Abrir cadastro do colaborador">${_nome}</a>`
+            : _nome);
+      const acaoBox = isPend
+        ? `<div style="margin-top:9px"><a href="${supUrl}" target="_blank" rel="noopener" style="display:inline-block;background:#16a34a;color:#fff;padding:7px 14px;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none" title="Abrir o app de Supervisor para decidir esta solicitação"><i class="fa-solid fa-gavel"></i> Aprovar / Recusar</a></div>`
+        : '';
       const matr = p.employeeRegistro ? String(p.employeeRegistro).padStart(4,'0') : '—';
       const motivoBox = p.motivo
         ? `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:7px 9px;margin-top:7px;font-size:12px;color:#713f12"><strong>📝 Motivo do colaborador:</strong> ${(p.motivo||'').replace(/</g,'&lt;')}</div>`
@@ -18367,6 +18377,7 @@ function _renderAutzUI(){
         ${motivoBox}
         ${recusaBox}
         ${supBox}
+        ${acaoBox}
         <div style="font-size:11px;color:#888;margin-top:6px">⏱ Solicitado em ${fmtDt(p.tentativaEm)}</div>
       </div>`;
     }).join('');

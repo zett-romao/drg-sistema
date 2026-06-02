@@ -1579,6 +1579,7 @@ function applyUserSession(user){
   // Autorizacoes (historico): mesma permissao do app de supervisor.
   const autzLi=document.getElementById('nav-autorizacoes-li');
   if(autzLi) autzLi.classList.toggle('hidden', !mods.autorizarPonto);
+  if(mods.autorizarPonto) _initAutzBadge();   // contador de pendentes ao vivo no nav. #autz-badge
   // Postos de Trabalho: master ou gestor
   const postosLi=document.getElementById('nav-postos-li');
   if(postosLi) postosLi.classList.toggle('hidden', !mods.postos);
@@ -18203,6 +18204,36 @@ function _comuAbrirRegistroDoCard(empId){
 let _autzCache    = null;
 let _autzFiltros  = { busca:'', status:'todos', periodo:'30' };
 let _autzCarregando = false;
+
+// Contador AO VIVO de pedidos de autorização PENDENTES (não-vencidos), exibido como
+// badge no nav "Autorizações". Como os pedidos não expiram mais, isso evita que
+// algum fique esquecido. #autz-badge
+let _autzBadgeUnsub = null;
+function _initAutzBadge(){
+  if(_autzBadgeUnsub) return;  // já ativo
+  try{
+    _autzBadgeUnsub = DB.col('autorizacoesPonto').where('status','==','pendente').onSnapshot(snap=>{
+      const agora = Date.now();
+      let n = 0;
+      snap.forEach(d=>{ const p=d.data(); const venc = p.validadeAteEm && Date.parse(p.validadeAteEm) < agora; if(!venc) n++; });
+      _setAutzBadge(n);
+    }, ()=>{});
+  }catch(e){ /* sem badge se falhar */ }
+}
+function _setAutzBadge(n){
+  const li = document.getElementById('nav-autorizacoes-li');
+  const alvo = li ? (li.querySelector('a,button,span') || li) : null;
+  if(!alvo) return;
+  let b = alvo.querySelector('.autz-badge');
+  if(n>0){
+    if(!b){ b=document.createElement('span'); b.className='autz-badge';
+      b.style.cssText='background:#E65100;color:#fff;border-radius:10px;font-size:10px;font-weight:700;padding:1px 6px;margin-left:6px;vertical-align:middle';
+      alvo.appendChild(b); }
+    b.textContent = n>99 ? '99+' : String(n);
+    b.style.display='';
+    b.title = n+' batida(s) aguardando sua autorização';
+  } else if(b){ b.style.display='none'; }
+}
 
 async function renderAutorizacoesSection(){
   const box = document.getElementById('autorizacoes-content');

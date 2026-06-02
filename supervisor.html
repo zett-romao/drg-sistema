@@ -237,6 +237,30 @@ const NOMES_BATIDA = {
 };
 
 // ─── AUTH ──────────────────────────────────────────────────────────────────
+// ID do dispositivo (resiliente: localStorage → cookie → memória). O worker exige
+// deviceId pra usuário não-master; sem ele dava "dispositivo não identificado" no
+// login do Supervisor (o app de ponto/gestor já mandava; aqui faltava). #fix-deviceid
+function _genDeviceId(){
+  return (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+       : 'dev-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,12);
+}
+function _getDeviceId(){
+  try{
+    let id = localStorage.getItem('drg_device_id');
+    if(!id){ id = _genDeviceId(); localStorage.setItem('drg_device_id', id); }
+    if(id){ try{ document.cookie = 'drg_device_id='+id+';path=/;max-age=31536000;SameSite=Lax'; }catch(_){ } return id; }
+  }catch(e){}
+  try{
+    const m = document.cookie.match(/(?:^|;\s*)drg_device_id=([^;]+)/);
+    if(m && m[1]) return decodeURIComponent(m[1]);
+    const id = _genDeviceId();
+    document.cookie = 'drg_device_id='+id+';path=/;max-age=31536000;SameSite=Lax';
+    if(/(?:^|;\s*)drg_device_id=/.test(document.cookie)) return id;
+  }catch(e){}
+  if(!window.__drgDevMem) window.__drgDevMem = _genDeviceId();
+  return window.__drgDevMem;
+}
+
 async function doLogin(){
   const user = (document.getElementById('login-user').value||'').trim();
   const pass = document.getElementById('login-pass').value||'';
@@ -254,7 +278,7 @@ async function doLogin(){
     // Login via worker — mesmo endpoint do painel principal
     const r = await fetch(APROVACAO_WORKER + '/login', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ username:user, password:pass })
+      body: JSON.stringify({ username:user, password:pass, deviceId:_getDeviceId() })
     });
     const data = await r.json().catch(()=>({}));
     if(!r.ok || !data.ok || !data.user || !data.customToken){

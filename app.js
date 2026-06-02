@@ -18761,10 +18761,23 @@ function _renderAutzUI(){
                       : (st==='expirada' && p.status==='pendente') ? 'EXPIRADA (sem ação)'
                       : st==='expirada'  ? 'EXPIRADA'
                       : 'CANCELADA';
-      const diff = p.diferencaMinutos || 0;
+      const empCad = State.employees.find(e => e.id === p.employeeId);
+      // Previsto/diferença AO VIVO pela escala ATUAL — recalcula se a escala foi corrigida
+      // depois (o pedido guarda o previsto "congelado" de quando foi criado). #autz-previsto-vivo
+      let previstoEf = p.horarioPrevisto || '', diff = p.diferencaMinutos || 0;
+      if(empCad && p.mesComp && p.anoComp && p.diaBatida){
+        try{
+          const _expL = _getExpectedDayComp(empCad, p.mesComp, p.anoComp, p.diaBatida);
+          const _prevL = (_expL && _expL.tipo!=='folga') ? (_expL[p.tipoBatida]||'') : '';
+          if(_prevL){
+            previstoEf = _prevL;
+            const _re=timeToMinutes(p.horarioReal), _pe=timeToMinutes(_prevL);
+            if(Number.isFinite(_re) && Number.isFinite(_pe)) diff = _re - _pe;
+          }
+        }catch(_){}
+      }
       const diffTxt = diff===0 ? '' :
         diff > 0 ? `+${diff} min` : `${diff} min`;
-      const empCad = State.employees.find(e => e.id === p.employeeId);
       const isPend = st==='pendente';   // só pendente ATIVO (dentro dos 15 min) tem ação. #autz-expira
       const supUrl = 'supervisor.html?autz=' + encodeURIComponent(p.id);
       const _nome  = (p.employeeNome||'—').replace(/</g,'&lt;');
@@ -18799,7 +18812,7 @@ function _renderAutzUI(){
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:8px;background:#f8fafc;border-radius:6px;padding:9px">
           <div><div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;font-weight:600">Batida</div><div style="font-size:13px;color:var(--text);font-weight:600">${NOMES[p.tipoBatida]||p.tipoBatida||'—'}</div></div>
           <div><div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;font-weight:600">Hora real</div><div style="font-size:13px;color:var(--text);font-weight:600">${p.horarioReal||'—'}</div></div>
-          ${p.horarioPrevisto ? `<div><div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;font-weight:600">Previsto</div><div style="font-size:13px;color:var(--text);font-weight:600">${p.horarioPrevisto}</div></div>` : ''}
+          ${previstoEf ? `<div><div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;font-weight:600">Previsto${(previstoEf!==p.horarioPrevisto)?' <span style="color:#16a34a;font-size:8px">(escala atual)</span>':''}</div><div style="font-size:13px;color:var(--text);font-weight:600">${previstoEf}</div></div>` : ''}
           ${diffTxt ? `<div><div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;font-weight:600">Diferença</div><div style="font-size:13px;font-weight:600;color:${diff>0?'#c62828':'#1976D2'}">${diffTxt}</div></div>` : ''}
           ${p.ehFolga ? `<div><div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;font-weight:600">Folga</div><div style="font-size:13px;font-weight:600;color:#7e22ce">SIM</div></div>` : ''}
         </div>

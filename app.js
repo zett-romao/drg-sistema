@@ -20354,12 +20354,18 @@ function _getExpectedDay(emp, mes, ano, dia, ignoreAdmissao){
   // Para 5x2 e fins de semana, sem horário esperado (é folga)
   if(fam==='5x2' && isWknd) return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
   if(fam==='6x1' && diaSem===0) return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
+  // Dia de trabalho (5x2A/B, 6x1A/C comuns): usa _escalaHorariosDia para aplicar os
+  // horários DIFERENCIADOS por dia que fazem parte da DEFINIÇÃO da escala — sexta 16:00
+  // (5x2A/B), sábado 4h sem refeição (6x1A 07–11 / 6x1C 08–12). Antes retornava o
+  // horário contratual cheio → sábado curto virava "atraso" e "refeição não rendida"
+  // fantasmas. #sabado-curto
+  const _hg = _escalaHorariosDia(emp, diaSem, lot);
   return {
     tipo:'trabalho',
-    entrada: lot.horarioEntrada || '',
-    saida:   lot.horarioSaida   || '',
-    intIni:  lot.semRefeicao ? '' : (lot.horarioRefIni || '12:00'),
-    intFim:  lot.semRefeicao ? '' : (lot.horarioRefFim || '13:00')
+    entrada: _hg.entrada || lot.horarioEntrada || '',
+    saida:   _hg.saida   || lot.horarioSaida   || '',
+    intIni:  _hg.intIni || '',
+    intFim:  _hg.intFim || ''
   };
 }
 

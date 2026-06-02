@@ -2168,6 +2168,13 @@
             <button class="btn btn-secondary btn-sm" onclick="_benefExportarDispatch()" style="white-space:nowrap;flex-shrink:0;font-size:12px" title="Gerar conforme as opções acima"><i class="fa-solid fa-download"></i> Gerar</button>
           </span>
         </div>
+        <!-- Canal de pagamento em massa (eventualidade: pagar todos em dinheiro/PIX). #canal-toggle -->
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:7px 10px">
+          <span style="font-size:12px;color:#37474F;font-weight:600"><i class="fa-solid fa-money-bill-transfer" style="color:#558B2F"></i> Canal de pagamento (todos):</span>
+          <button class="btn btn-sm btn-outline" onclick="_canalTodosBenef('dinheiro')" style="font-size:12px;color:#2E7D32;border-color:#2E7D32" title="Muda VT/VR/VA de TODOS os colaboradores ativos para Dinheiro/PIX (reversível)"><i class="fa-solid fa-hand-holding-dollar"></i> Todos em Dinheiro/PIX</button>
+          <button class="btn btn-sm btn-outline" onclick="_canalTodosBenef('cartao')" style="font-size:12px;color:#1565C0;border-color:#1565C0" title="Volta VT/VR/VA de TODOS os ativos para o Cartão da operadora"><i class="fa-solid fa-credit-card"></i> Todos no Cartão</button>
+          <span style="font-size:11px;color:var(--text-muted)">· ou clique no selo <b style="color:#1565C0">CARTÃO</b>/<b style="color:#2E7D32">PIX</b> de cada um na lista pra trocar individual</span>
+        </div>
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
           <div style="position:relative;flex:1;max-width:360px">
             <i class="fa-solid fa-magnifying-glass" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:13px"></i>
@@ -6401,6 +6408,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260601w-auditoria-fixes"></script>
+<script src="app.js?v=20260602a-canal-pagamento"></script>
 </body>
 </html>

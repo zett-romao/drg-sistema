@@ -6705,6 +6705,37 @@ function _benefBPStatus(empId, ini, fim){
   return null; // recusado/estornado não bloqueia (refazer)
 }
 
+// Alterna o CANAL de um benefício (cartão ↔ dinheiro/PIX) de UM colaborador, na hora.
+// Clicável pelos badges da lista de Benefícios. Muda o cadastro (vale até trocar de volta). #canal-toggle
+async function _toggleCanalBenef(empId, campo){
+  const emp = State.employees.find(e=>e.id===empId); if(!emp) return;
+  const atual = emp[campo] || (campo==='bpCanal' ? 'dinheiro' : 'cartao');
+  const novo  = atual==='dinheiro' ? 'cartao' : 'dinheiro';
+  const nomeBenef = {vtCanal:'VT/AM', vrCanal:'VR', vaCanal:'VA', bpCanal:'B.Perm.'}[campo] || campo;
+  try{
+    await DB.merge('employees', empId, { [campo]: novo, updatedAt:new Date().toISOString() });
+    emp[campo] = novo;
+    toast(`${emp.nome} — ${nomeBenef}: ${novo==='dinheiro'?'Dinheiro / PIX':'Cartão'}.`);
+  }catch(e){ toast('Erro ao alterar o canal.','error'); return; }
+  if(State.currentSection==='beneficios') renderBeneficiosLista();
+}
+
+// MASSA: muda VT, VR e VA de TODOS os colaboradores ativos do escopo para um canal.
+// Pra eventualidade ("este mês pago todo mundo em dinheiro/PIX"). Reversível. #canal-toggle
+async function _canalTodosBenef(canal){
+  const alvo = canal==='dinheiro' ? 'Dinheiro / PIX' : 'Cartão (operadora)';
+  const emps = _filtrarEmpsPorEscopo(State.employees).filter(e=>(e.status||'ativo')==='ativo');
+  if(!emps.length){ toast('Nenhum colaborador ativo.','warning'); return; }
+  if(!confirm(`Mudar o canal de VT, VR e VA de TODOS os ${emps.length} colaboradores ativos para ${alvo}?\n\nIsso altera o cadastro (vale daqui pra frente, até você trocar de volta). A Boa Permanência não é afetada.`)) return;
+  let ok=0;
+  for(const e of emps){
+    try{ await DB.merge('employees', e.id, { vtCanal:canal, vrCanal:canal, vaCanal:canal, updatedAt:new Date().toISOString() });
+         e.vtCanal=canal; e.vrCanal=canal; e.vaCanal=canal; ok++; }catch(_){}
+  }
+  toast(`${ok} de ${emps.length} colaborador(es) → ${alvo}.`, ok===emps.length?'success':'warning');
+  if(State.currentSection==='beneficios') renderBeneficiosLista();
+}
+
 function renderBeneficiosLista(){
   const tab = _beneficioTabAtual || 'hoje';
   const hojeISO = new Date().toISOString().substring(0,10);
@@ -7019,10 +7050,14 @@ function renderBeneficiosLista(){
                                      : '<i class="fa-solid fa-bus" style="color:#4fc3f7"></i>';
     const matr = emp.registro ? String(emp.registro).padStart(4,'0') : '—';
     const pix  = emp.chavePix || '—';
-    // Badge do canal de cada benefício (CARTÃO = operadora, PIX = dinheiro)
-    const cBadge = canal => canal==='dinheiro'
-      ? '<span style="background:#E8F5E9;color:#2E7D32;font-size:8px;padding:1px 4px;border-radius:6px;font-weight:700;vertical-align:middle">PIX</span>'
-      : '<span style="background:#E3F2FD;color:#1565C0;font-size:8px;padding:1px 4px;border-radius:6px;font-weight:700;vertical-align:middle">CARTÃO</span>';
+    // Badge do canal de cada benefício (CARTÃO = operadora, PIX = dinheiro).
+    // CLICÁVEL: alterna Cartão ↔ Dinheiro/PIX daquele colaborador na hora. #canal-toggle
+    const cBadge = (canal, campo) => {
+      const isPix = canal==='dinheiro';
+      const sty = isPix ? 'background:#E8F5E9;color:#2E7D32' : 'background:#E3F2FD;color:#1565C0';
+      const click = campo ? `onclick="event.stopPropagation();_toggleCanalBenef('${emp.id}','${campo}')" title="Clique para alternar Cartão ↔ Dinheiro/PIX" style="cursor:pointer;` : `style="`;
+      return `<span ${click}${sty};font-size:8px;padding:1px 4px;border-radius:6px;font-weight:700;vertical-align:middle">${isPix?'PIX':'CARTÃO'}</span>`;
+    };
     // Badge do STATUS do pagamento da competência. Bloqueia checkbox quando
     // já pago/pendente pra evitar lançar de novo (pagamento em dobro).
     let statusBadge = '';
@@ -7053,10 +7088,10 @@ function renderBeneficiosLista(){
       <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7"><strong style="color:var(--primary)">${emp.nome}</strong><br><small style="color:var(--text-muted)">${emp.setor||'—'}</small>${statusBadge}${_mpBadge}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7;font-size:11px">${posto}</td>
       <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7;font-size:11px">${periodoCol}</td>
-      <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap">${vtIcon} ${b.vtValor>0?`<span style="color:var(--text-muted);font-size:11px">${b.diasVt}d ·</span> ${fmtMoney(b.vtValor)}${b.descVT>0?` <small style="color:#C62828" title="Desconto de ${b.faltasInjAnterior||0} falta(s) inj. anterior">(-${fmtMoney(b.descVT)})</small>`:''} ${cBadge(b.vtCanal)}`:(b.descVT>0?`<small style="color:#C62828" title="${b.faltasInjAnterior||0} falta(s) consumiram o crédito">${b.diasVt}d · ${fmtMoney(b.vtCheio||0)} −${fmtMoney(b.descVT)}</small>`:'—')}</td>
-      <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap"><i class="fa-solid fa-utensils" style="color:#ff8a65"></i> ${b.vrValor>0?`<span style="color:#ff8a65;font-size:11px">${b.diasVr}d ·</span> ${fmtMoney(b.vrValor)}${b.descVR>0?` <small style="color:#C62828" title="Desconto de ${b.faltasInjAnterior||0} falta(s) inj. anterior">(-${fmtMoney(b.descVR)})</small>`:''} ${cBadge(b.vrCanal)}`:(b.descVR>0?`<small style="color:#C62828" title="${b.faltasInjAnterior||0} falta(s) consumiram o crédito">${b.diasVr}d · ${fmtMoney(b.vrCheio||0)} −${fmtMoney(b.descVR)}</small>`:'—')}</td>
-      <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap"><i class="fa-solid fa-basket-shopping" style="color:#AD1457"></i> ${(b.vaValor||0)>0?`${fmtMoney(b.vaValor)}${b.descVA>0?` <small style="color:#C62828" title="Desconto de ${b.faltasInjAnterior||0} falta(s) inj. — mensal">(-${fmtMoney(b.descVA)})</small>`:''} ${cBadge(b.vaCanal||'cartao')}`:((b.vaMensal||0)>0&&b.descVA>0?`<small style="color:#C62828" title="${b.faltasInjAnterior||0} falta(s) consumiram o VA">${fmtMoney(b.vaMensal||0)} −${fmtMoney(b.descVA)}</small>`:'—')}</td>
-      <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap"><i class="fa-solid fa-medal" style="color:#F57F17"></i> ${(b.bpValor||0)>0?(_bpPg==='pago'?`<small style="color:#2E7D32" title="Boa Permanência já paga"><i class="fa-solid fa-circle-check"></i> PAGO</small>`:_bpPg==='pendente'?`<small style="color:#E65100" title="BP em aprovação (Aprovações)">PENDENTE</small>`:`${fmtMoney(b.bpValor)} ${cBadge(b.bpCanal||'dinheiro')}`):(b.bpMotivo?`<small style="color:#C62828" title="${esc(b.bpMotivo)}">perdeu <i class="fa-solid fa-circle-info" style="color:#9E9E9E"></i></small>`:'—')}</td>
+      <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap">${vtIcon} ${b.vtValor>0?`<span style="color:var(--text-muted);font-size:11px">${b.diasVt}d ·</span> ${fmtMoney(b.vtValor)}${b.descVT>0?` <small style="color:#C62828" title="Desconto de ${b.faltasInjAnterior||0} falta(s) inj. anterior">(-${fmtMoney(b.descVT)})</small>`:''} ${cBadge(b.vtCanal,'vtCanal')}`:(b.descVT>0?`<small style="color:#C62828" title="${b.faltasInjAnterior||0} falta(s) consumiram o crédito">${b.diasVt}d · ${fmtMoney(b.vtCheio||0)} −${fmtMoney(b.descVT)}</small>`:'—')}</td>
+      <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap"><i class="fa-solid fa-utensils" style="color:#ff8a65"></i> ${b.vrValor>0?`<span style="color:#ff8a65;font-size:11px">${b.diasVr}d ·</span> ${fmtMoney(b.vrValor)}${b.descVR>0?` <small style="color:#C62828" title="Desconto de ${b.faltasInjAnterior||0} falta(s) inj. anterior">(-${fmtMoney(b.descVR)})</small>`:''} ${cBadge(b.vrCanal,'vrCanal')}`:(b.descVR>0?`<small style="color:#C62828" title="${b.faltasInjAnterior||0} falta(s) consumiram o crédito">${b.diasVr}d · ${fmtMoney(b.vrCheio||0)} −${fmtMoney(b.descVR)}</small>`:'—')}</td>
+      <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap"><i class="fa-solid fa-basket-shopping" style="color:#AD1457"></i> ${(b.vaValor||0)>0?`${fmtMoney(b.vaValor)}${b.descVA>0?` <small style="color:#C62828" title="Desconto de ${b.faltasInjAnterior||0} falta(s) inj. — mensal">(-${fmtMoney(b.descVA)})</small>`:''} ${cBadge(b.vaCanal||'cartao','vaCanal')}`:((b.vaMensal||0)>0&&b.descVA>0?`<small style="color:#C62828" title="${b.faltasInjAnterior||0} falta(s) consumiram o VA">${fmtMoney(b.vaMensal||0)} −${fmtMoney(b.descVA)}</small>`:'—')}</td>
+      <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;white-space:nowrap"><i class="fa-solid fa-medal" style="color:#F57F17"></i> ${(b.bpValor||0)>0?(_bpPg==='pago'?`<small style="color:#2E7D32" title="Boa Permanência já paga"><i class="fa-solid fa-circle-check"></i> PAGO</small>`:_bpPg==='pendente'?`<small style="color:#E65100" title="BP em aprovação (Aprovações)">PENDENTE</small>`:`${fmtMoney(b.bpValor)} ${cBadge(b.bpCanal||'dinheiro','bpCanal')}`):(b.bpMotivo?`<small style="color:#C62828" title="${esc(b.bpMotivo)}">perdeu <i class="fa-solid fa-circle-info" style="color:#9E9E9E"></i></small>`:'—')}</td>
       <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #EEF2F7;font-weight:700;color:#0288D1">${fmtMoney(b.total)}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #EEF2F7;font-size:11px;font-family:monospace;color:#00695C">${pix}</td>
       <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #EEF2F7"><button class="btn-icon" onclick="event.stopPropagation();openBeneficioDetalhe('${emp.id}','${escopo}','${ini}','${fim}')" title="Ver planilha individual"><i class="fa-solid fa-clipboard-list" style="color:#0288D1"></i></button></td>

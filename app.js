@@ -8560,7 +8560,7 @@ function exportBeneficiosLista(formato, soSelecionados){
       <td><strong>${emp.nome}</strong>${emp.setor?`<br><small style="color:#666">${emp.setor}</small>`:''}</td>
       <td style="font-size:11px">${posto}</td>
       <td style="text-align:center;font-size:11px">${periodoCol}</td>
-      <td style="text-align:center">${b.dias}</td>
+      <td style="text-align:center"><strong>${b.diasVt!=null?b.diasVt:(b.dias||0)}</strong> <small style="color:#888">VT</small><br><span style="color:#E65100;font-size:11px">${b.diasVr!=null?b.diasVr:0} <small>VR</small></span></td>
       <td style="text-align:right">${benVT} ${fmtMoney(b.vtValor)}</td>
       <td style="text-align:right">${fmtMoney(b.vrValor)}</td>
       <td style="text-align:right">${fmtMoney(b.vaValor||0)}</td>
@@ -8591,7 +8591,7 @@ function exportBeneficiosLista(formato, soSelecionados){
     <th>Colaborador</th>
     <th>Posto</th>
     <th style="text-align:center">Período</th>
-    <th style="text-align:center">Dias</th>
+    <th style="text-align:center">Dias (VT/VR)</th>
     <th style="text-align:right">VT/AM</th>
     <th style="text-align:right">VR</th>
     <th style="text-align:right">VA</th>
@@ -8612,7 +8612,7 @@ function exportBeneficiosLista(formato, soSelecionados){
     </tr>
   </tfoot>
 </table>
-<p style="margin-top:14px;font-size:11px;color:#555"><strong>Uso:</strong> esta planilha lista os colaboradores com benefícios a serem pagos manualmente (PIX, espécie ou cartão). Use a coluna "Chave PIX" para conferir o destinatário. VA e Boa Permanência são calculados pela competência ${MESES[mPag]}/${aPag} (apuração mensal). BP marcada como <strong>N/C</strong> = folha do mês ainda não fechada; <strong>"perdeu"</strong> = colab teve falta no mês.</p>
+<p style="margin-top:14px;font-size:11px;color:#555"><strong>Uso:</strong> esta planilha lista os colaboradores com benefícios a serem pagos manualmente (PIX, espécie ou cartão). Use a coluna "Chave PIX" para conferir o destinatário. ${usarParcial ? 'Período PARCIAL: só VT/VR, proporcional aos dias trabalhados no intervalo (VA e Boa Permanência são mensais — só entram na competência cheia).' : `VA e Boa Permanência são calculados pela competência ${MESES[mPag]}/${aPag} (apuração mensal).`} BP marcada como <strong>N/C</strong> = folha do mês ainda não fechada; <strong>"perdeu"</strong> = colab teve falta no mês.</p>
 <p style="margin-top:18px;font-size:10px;color:#888;text-align:center">${_e('nomeEmpresa')} — Sistema DRG-Kronos 3.0 &middot; ${linhas.length} colaborador(es)</p>
 </body></html>`;
   _abrirJanelaExport(html, formato, `Beneficios_${soSelecionados?'selecionados':(_beneficioTabAtual||'hoje')}_${new Date().toISOString().substring(0,10)}`);

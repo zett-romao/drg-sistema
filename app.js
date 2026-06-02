@@ -4121,6 +4121,35 @@ function recarregarDadosFirestore(){
   catch(e){ toast('Erro ao recarregar: '+(e.message||e), 'error'); }
 }
 
+// Totais de apuração de ponto do período (horas), por colaborador. MESMA LÓGICA
+// do espelho da folha (_buildFolhaHtmlFromRecord) — manter em sincronia p/ os
+// números da Contabilidade baterem com a folha impressa. #folha-detalhada
+function _apuracaoPontoTotais(emp, p){
+  const out={trabMin:0,prevMin:0,atrasoMin:0,extraMin:0,faltaMin:0,faltaQtd:0,naoRendMin:0};
+  if(!emp || !p) return out;
+  const mes=p.mes, ano=p.ano;
+  const diasPonto=Array.isArray(p.pontoManualDias)?p.pontoManualDias:[];
+  const is12x36=escalaFamilia(emp.escala||'5x2A')==='12x36';
+  for(const cd of _compDias(mes,ano)){
+    const d=cd.dia, dow=cd.diaSem, isWknd=dow===0||dow===6;
+    const pd=diasPonto.find(x=>x.dia===d)||{};
+    const entrada=pd.entrada||'', saida=pd.saida||'', intIni=pd.intIni||'', intFim=pd.intFim||'';
+    let minLiq=0;
+    if(entrada&&saida){ let mb=timeToMinutes(saida)-timeToMinutes(entrada); if(mb<=0)mb+=24*60; minLiq=mb-_calcIntervaloMin(intIni,intFim,entrada,saida); }
+    const exp=_getExpectedDay(emp,mes,ano,d);
+    const ehFolga=!exp||exp.tipo==='folga'||!exp.entrada;
+    let prevMin=0, contratualIntMin=0;
+    if(!ehFolga){ let mbE=timeToMinutes(exp.saida)-timeToMinutes(exp.entrada); if(mbE<=0)mbE+=24*60; contratualIntMin=_calcIntervaloMin(exp.intIni,exp.intFim,exp.entrada,exp.saida); if(emp.semRefeicao&&contratualIntMin===0&&mbE>360)contratualIntMin=60; prevMin=Math.max(0,mbE-contratualIntMin); }
+    const temBatida=!!(entrada&&saida);
+    if(!ehFolga&&temBatida){ const delta=minLiq-prevMin; if(delta>0)out.extraMin+=delta; else if(delta<0)out.atrasoMin+=-delta; out.naoRendMin+=Math.max(0,contratualIntMin-_calcIntervaloMin(intIni,intFim,entrada,saida)); }
+    else if(!ehFolga&&!temBatida&&_diaEmBrancoEhFalta(emp,mes,ano,d,isWknd,is12x36)){ out.faltaMin+=prevMin; out.faltaQtd++; }
+    out.trabMin+=(minLiq>0?minLiq:0); out.prevMin+=prevMin;
+  }
+  return out;
+}
+// Minutos → "H:MM" (suporta > 24h)
+function _minToHM(mm){ const x=Math.max(0,Math.round(mm||0)); return Math.floor(x/60)+':'+String(x%60).padStart(2,'0'); }
+
 function renderContabilidade(){
   const mes=parseInt(val('cont-mes')||currentMes());
   const ano=parseInt(val('cont-ano')||currentAno());
@@ -4150,6 +4179,7 @@ function renderContabilidade(){
   // Totais
   let tR=0,tVT=0,tVR=0,tVA=0,tHE=0,tB=0,tAN=0,tIns=0,tAcu=0,tAdiant=0,tTotal=0;
   let tBruto=0,tDesc=0,tLiq=0;  // bruto/descontos/líquido pelo motor do recibo (inclui seguro e encargos)
+  let tTrabMin=0,tAtrasoMin=0,tExtraMin=0,tFaltaMin=0,tNaoRendMin=0;  // apuração de ponto em horas. #folha-detalhada
   let semFolha=[];
 
   const rows=emps.map((e,i)=>{
@@ -4172,9 +4202,11 @@ function renderContabilidade(){
     // Bruto/Descontos/Líquido FIÉIS ao recibo (proventos, todos os descontos legais + seguro). #cont-liquido
     let _br=0,_de=0,_li=0;
     if(p){ try{ const _r=_reciboOficialLinhas(e,p); _br=_r.totalPr; _de=_r.totalDe; _li=_r.liquido; }catch(_){} }
+    const ap = p ? _apuracaoPontoTotais(e,p) : null;
     tR+=rem; tVT+=vt; tVR+=vr; tVA+=va; tHE+=he; tB+=bon; tAN+=an; tIns+=ins; tAcu+=acu; tAdiant+=adiant;
     tTotal+=especie+vt+vr+va+bon;
     tBruto+=_br; tDesc+=_de; tLiq+=_li;
+    if(ap){ tTrabMin+=ap.trabMin; tAtrasoMin+=ap.atrasoMin; tExtraMin+=ap.extraMin; tFaltaMin+=ap.faltaMin; tNaoRendMin+=ap.naoRendMin; }
     const rowBg=i%2===0?'#ffffff':'#EEF2FF';
     const semFolhaBorder=!p?'border-left:3px solid #EF9A9A':'';
     return `<tr style="background:${rowBg};${semFolhaBorder}" data-nome="${(e.nome||'').toLowerCase()}" data-reg="${e.registro?String(e.registro).padStart(4,'0'):''}">
@@ -4190,6 +4222,11 @@ function renderContabilidade(){
       <td>${e.salarioBase?fmtMoney(e.salarioBase):'—'}</td>
       <td style="text-align:center">${p?p.diasTrabalhados||0:'—'}</td>
       <td style="text-align:center;color:${totalFaltas>0?'var(--danger)':'inherit'}">${p?totalFaltas:'—'}</td>
+      <td style="text-align:center;font-weight:600">${ap?_minToHM(ap.trabMin):'—'}</td>
+      <td style="text-align:center;color:${ap&&ap.atrasoMin>0?'#B71C1C':'inherit'}">${ap?_minToHM(ap.atrasoMin):'—'}</td>
+      <td style="text-align:center;color:${ap&&ap.extraMin>0?'#1B5E20':'inherit'}">${ap?_minToHM(ap.extraMin):'—'}</td>
+      <td style="text-align:center;color:${ap&&ap.faltaMin>0?'#B71C1C':'inherit'}">${ap?_minToHM(ap.faltaMin):'—'}</td>
+      <td style="text-align:center;color:${ap&&ap.naoRendMin>0?'#E65100':'inherit'}">${ap?_minToHM(ap.naoRendMin):'—'}</td>
       <td style="font-weight:700">${p?fmtMoney(rem):'<span style="color:#ccc">S/ folha</span>'}</td>
       <td>${vt?fmtMoney(vt):'—'}</td>
       <td>${vr?fmtMoney(vr):'—'}</td>
@@ -4205,13 +4242,18 @@ function renderContabilidade(){
       <td style="color:#B71C1C">${p?fmtMoney(_de):'—'}</td>
       <td style="font-weight:700;color:#1B5E20">${p?fmtMoney(_li):'—'}</td>
       <td style="font-size:11px">${e.chavePix||'—'}</td>
-      <td style="font-size:11px">${p&&p.observacoes?p.observacoes:''}</td>
+      <td style="font-size:11px">${p?esc(p.observacaoFolha||p.observacoes||''):''}</td>
     </tr>`;
   }).join('');
 
   tbody.innerHTML=rows;
   tfoot.innerHTML=`<tr style="background:#EEF4FF;font-weight:700">
     <td colspan="12" style="padding:8px 10px">TOTAIS — ${emps.length} colaborador(es)</td>
+    <td style="text-align:center">${_minToHM(tTrabMin)}</td>
+    <td style="text-align:center;color:#B71C1C">${_minToHM(tAtrasoMin)}</td>
+    <td style="text-align:center;color:#1B5E20">${_minToHM(tExtraMin)}</td>
+    <td style="text-align:center;color:#B71C1C">${_minToHM(tFaltaMin)}</td>
+    <td style="text-align:center;color:#E65100">${_minToHM(tNaoRendMin)}</td>
     <td>${fmtMoney(tR)}</td>
     <td>${fmtMoney(tVT)}</td>
     <td>${fmtMoney(tVR)}</td>
@@ -4296,7 +4338,7 @@ function exportContabilidadeCsv(){
   const folhaMap={};
   folhasMes.forEach(p=>{ folhaMap[p.employeeId]=p; });
 
-  const headers=['Nº','Matrícula','Nome','CPF','Setor','Posto','Escala','Admissão','Sal.Base','Dias','Faltas','Remuneração','VT/AM','VR','VA','HE','Bonificação','Ad.Noturno','Insalub.','Acúmulo','Adiantamento','Total Espécie','Total Bruto','Total Descontos','Líquido','Chave PIX'];
+  const headers=['Nº','Matrícula','Nome','CPF','Setor','Posto','Escala','Admissão','Sal.Base','Dias','Faltas','Trab.(h)','Atrasos(h)','Extras(h)','Faltas(h)','Ref.não rend.(h)','Remuneração','VT/AM','VR','VA','HE','Bonificação','Ad.Noturno','Insalub.','Acúmulo','Adiantamento','Total Espécie','Total Bruto','Total Descontos','Líquido','Chave PIX'];
   const rows=emps.map((e,i)=>{
     const p=folhaMap[e.id];
     const rem=p?p.remuneracao||0:0;
@@ -4306,6 +4348,7 @@ function exportContabilidadeCsv(){
     // Bruto/Descontos/Líquido fiéis ao recibo (inclui seguro + encargos). #cont-liquido
     let _br=0,_de=0,_li=0;
     if(p){ try{ const _r=_reciboOficialLinhas(e,p); _br=_r.totalPr;_de=_r.totalDe;_li=_r.liquido; }catch(_){} }
+    const ap = p ? _apuracaoPontoTotais(e,p) : null;
     return [
       i+1,
       e.registro?String(e.registro).padStart(4,'0'):'',
@@ -4313,6 +4356,7 @@ function exportContabilidadeCsv(){
       escalaLabel(e.escala||'5x2A'), e.dataAdmissao||'',
       e.salarioBase||0,
       p?p.diasTrabalhados||0:'', p?totalFaltas:'',
+      ap?_minToHM(ap.trabMin):'', ap?_minToHM(ap.atrasoMin):'', ap?_minToHM(ap.extraMin):'', ap?_minToHM(ap.faltaMin):'', ap?_minToHM(ap.naoRendMin):'',
       rem, p?p.valeTransporte||0:0, p?p.valeRefeicao||0:0, p?p.valeAlimentacaoLiquido||0:0,
       p?p.horasExtrasValor||0:0, p?p.bonificacao||0:0, p?p.adNoturno||0:0, p?p.insalubridade||0:0, p?p.acumuloFuncao||0:0, p?(p.adiantamentoValor||p.adiantamento||0):0,
       especie, p?_br:'', p?_de:'', p?_li:'', e.chavePix||''
@@ -10171,6 +10215,7 @@ function loadPayrollRecord(id){
   // Período De/Até — restaura se salvo, caso contrário auto-preenche
   if(p.periodoDe) setVal('payroll-periodo-de',p.periodoDe);
   if(p.periodoAte) setVal('payroll-periodo-ate',p.periodoAte);
+  setVal('payroll-observacao-folha', p.observacaoFolha||'');  // #folha-detalhada
   if(!p.periodoDe||!p.periodoAte) _autoFillPeriodoDates(p.mes,p.ano);
   setVal('payroll-dias',p.diasTrabalhados);
   // Suporte a registros antigos (campo faltas único) e novos (divididos)
@@ -10341,6 +10386,8 @@ async function savePayroll(){
     // Preserva os pontos do app — savePayroll nunca deve apagar pontoManualDias
     // Sanitiza: Firestore rejeita undefined; converte para null ou remove
     pontoManualDias: _sanitizeForFirestore(existing?.pontoManualDias || []),
+    // Observação/ajuste manual da folha (impressa no espelho + Contabilidade). #folha-detalhada
+    observacaoFolha: val('payroll-observacao-folha')||'',
     // Período e status
     periodoDe: val('payroll-periodo-de')||'',
     periodoAte: val('payroll-periodo-ate')||'',
@@ -10375,7 +10422,7 @@ function clearPayrollForm(){
    'payroll-atraso-min','payroll-desconto-atraso','payroll-atraso-justificativa',
    'payroll-entrada','payroll-saida','payroll-intervalo-inicio','payroll-intervalo-fim',
    'payroll-horas-liquidas','payroll-horas-extras-dia','payroll-he-total','payroll-he-valor',
-   'payroll-he-corrido-min','payroll-he-corrido-detalhe','payroll-he-corrido-valor']
+   'payroll-he-corrido-min','payroll-he-corrido-detalhe','payroll-he-corrido-valor','payroll-observacao-folha']
     .forEach(id=>setVal(id,''));
   setVal('payroll-adiantamento-ativo','nao');
   setVal('payroll-adiantamento-perc','40');
@@ -15199,7 +15246,7 @@ function _lockPayrollForm(isLocked){
     'payroll-atraso-tipo','payroll-atraso-justificativa','payroll-atraso-abonado','payroll-adiantamento-ativo',
     'payroll-adiantamento-perc','payroll-adiantamento-valor','payroll-entrada','payroll-saida',
     'payroll-intervalo-inicio','payroll-intervalo-fim','payroll-he-total','payroll-he-perc',
-    'payroll-he-valor','pdf-input'];
+    'payroll-he-valor','payroll-observacao-folha','pdf-input'];
   editIds.forEach(id=>{ const el=document.getElementById(id); if(el) el.disabled=isLocked; });
   // Botões
   const saveBtn=document.querySelector('#section-payroll .btn-primary');

@@ -3679,7 +3679,7 @@ function renderDecimoTerceiro(){
     const bruto=Math.round(salBase*mesesDir/12*100)/100;
     const parc1=Math.round(bruto/2*100)/100;
     const inss=calcINSS(bruto);
-    const irrf=calcIRRF(bruto/2,emp.dependentesIRRF||0,emp.pensaoAlimenticia||0,0,inss);
+    const irrf=calcIRRF(bruto,emp.dependentesIRRF||0,emp.pensaoAlimenticia||0,0,inss);  // 13o tributa o BRUTO CHEIO (exclusivo na fonte), nao metade. #fix-irrf13
     const fgts=calcFGTS(bruto);
     const parc2=Math.round((bruto/2-inss-irrf)*100)/100;
     const liq=Math.round((bruto-inss-irrf)*100)/100;
@@ -3737,7 +3737,7 @@ function _calcDecTercPreview(emp,mesesDir){
   const bruto=Math.round(salBase*mesesDir/12*100)/100;
   const parc1=Math.round(bruto/2*100)/100;
   const inss=calcINSS(bruto);
-  const irrf=calcIRRF(bruto/2,emp.dependentesIRRF||0,emp.pensaoAlimenticia||0,0,inss);
+  const irrf=calcIRRF(bruto,emp.dependentesIRRF||0,emp.pensaoAlimenticia||0,0,inss);  // 13o tributa o BRUTO CHEIO (exclusivo na fonte), nao metade. #fix-irrf13
   const fgts=calcFGTS(bruto);
   const parc2=Math.round((bruto/2-inss-irrf)*100)/100;
   const liq=Math.round((bruto-inss-irrf)*100)/100;
@@ -4421,6 +4421,11 @@ function _resumoContabilidadePdf(){
     const f=tr.firstElementChild;
     if(f && (f.classList?.contains('col-check') || f.querySelector('input[type="checkbox"]'))) f.remove();
   });
+  // O tfoot (caminho 'todos') tem a 1ª célula com colspan que cobria a coluna do
+  // checkbox; como essa coluna saiu das demais linhas, reduz o colspan em 1 pra os
+  // TOTAIS não ficarem deslocados uma coluna à direita no PDF. #fix-contab-pdf
+  const tfTd = clone.querySelector('tfoot tr > td[colspan]');
+  if(tfTd){ const c=parseInt(tfTd.getAttribute('colspan'))||1; if(c>1) tfTd.setAttribute('colspan', String(c-1)); }
   const qtd = soSel ? sel.length : clone.querySelectorAll('tbody tr').length;
   const empresaNome=_e('nomeEmpresa')||''; const empresaEnd=_empresaEnderecoLinha()||'';
   const w=window.open('','_blank','width=1200,height=800');
@@ -9741,9 +9746,10 @@ function recalculate(){
   setVal('payroll-vr-total',(numVal('payroll-vr-dia')*vrMult).toFixed(2));
 
   // --- Comissão de Boa Permanência ---
-  // Devida só se o MÊS ANTERIOR foi sem faltas e o colaborador não foi
-  // admitido no mês anterior. Senão → N/C (não cabível). A flag
-  // "bonificacaoSemprePagar" no cadastro força o pagamento.
+  // Regra REAL (decisões do usuário 2026-05): devida se NÃO houve falta (just. ou
+  // injust.) no PRÓPRIO mês da competência; qualquer falta → perde (tudo-ou-nada).
+  // A flag "bonificacaoSemprePagar" no cadastro força o pagamento. (Comentário antigo
+  // citava "mês anterior" — divergia da implementação real.) #fix-comentario-bp
   const bonusCard=document.getElementById('bonus-card');
   const bonusInput=document.getElementById('payroll-bonus');
   const bonusAlert=document.getElementById('bonus-alert');
@@ -10210,8 +10216,11 @@ async function savePayroll(){
   const vtFreq = empSel?.vtFreq || 'diario';
   const vrFreq = empSel?.vrFreq || 'diario';
   const semanas = _semanasTrabalhadas(dias, empSel?.escala);
-  const valeTransporteTotal = (vtFreq === 'semanal') ? vtDia*semanas : vtDia*dias;
-  const valeRefeicaoTotal   = (vrFreq === 'semanal') ? vrDia*semanas : vrDia*dias;
+  // VT/VR PERSISTIDOS leem os campos canonicos de recalculate (payroll-vt-total/payroll-vr-total),
+  // que ja aplicam a regra >6h (CLT Art.71) e o caso isento — igual ao VA. Antes recomputava
+  // vtDia*dias com dias crus e gravava/imprimia A MAIOR (divergente da tela). #fix-vtvr-save
+  const valeTransporteTotal = numVal('payroll-vt-total');
+  const valeRefeicaoTotal   = numVal('payroll-vr-total');
   const record={
     id:existing?existing.id:genId(), employeeId:empId,
     mes:parseInt(mes), ano:parseInt(ano),
@@ -10371,15 +10380,21 @@ function _bancoFifoStatus(empId){
     .sort((a,b)=>String(a.validade).localeCompare(String(b.validade)));
   let debito=movs.filter(m=>m.tipo==='debito').reduce((s,m)=>s+(parseFloat(m.horas)||0),0);
   const hojeISO=new Date().toISOString().substring(0,10);
+  // Débitos (compensação) consomem créditos VÁLIDOS primeiro; créditos VENCIDOS NÃO são
+  // abatidos por compensação — viram HE a pagar (regra #14). Antes o FIFO por validade
+  // comia os vencidos primeiro, fazendo o colaborador PERDER as horas devidas. #fix-banco-venc
+  const _vencido = c => c.validade && c.validade < hojeISO;
+  const validos  = creditos.filter(c=>!_vencido(c));   // já ordenados por validade asc
+  const vencidos = creditos.filter(_vencido);
   let saldoValido=0, horasVencidas=0;
-  for(const c of creditos){
+  for(const c of validos){
     let rem=c.horas;
     if(debito>0){ const use=Math.min(rem,debito); rem-=use; debito-=use; }
-    if(rem>0.0001){
-      if(c.validade && c.validade < hojeISO) horasVencidas+=rem; // crédito já passou da validade e não foi compensado
-      else saldoValido+=rem;
-    }
+    if(rem>0.0001) saldoValido+=rem;
   }
+  horasVencidas = vencidos.reduce((s,c)=>s+c.horas,0);
+  // Débito remanescente (excede os válidos — raro, barrado pelo gate) abate as vencidas por último.
+  if(debito>0.0001) horasVencidas = Math.max(0, horasVencidas - debito);
   const r=x=>Math.round(x*1e6)/1e6;
   return { saldoValido:r(saldoValido), horasVencidas:r(horasVencidas) };
 }

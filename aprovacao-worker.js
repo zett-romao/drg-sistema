@@ -362,16 +362,26 @@ async function temPermAprovar(user, token){
 async function asaasTransfer(body, env){
   if (!env || !env.ASAAS_API_KEY)
     throw new Error('ASAAS_API_KEY nao configurado no Worker drg-aprovacao');
-  const res = await fetch('https://api.asaas.com/v3/transfers', {
-    method:  'POST',
-    headers: {
-      'access_token': env.ASAAS_API_KEY,
-      'Content-Type': 'application/json',
-      'User-Agent':   'DRG-Kronos/3.0',
-    },
-    body: JSON.stringify(body),
-  });
-  const txt = await res.text();
+  // Distingue FALHA DE REDE (a transferencia PODE ter sido efetivada e a resposta
+  // se perdeu) de REJEICAO do Asaas (res.ok=false = nao saiu). A de rede marca
+  // err.rede=true pra NAO permitir retentativa automatica (evita pagar em dobro). #fix-pix-idem
+  let res, txt;
+  try {
+    res = await fetch('https://api.asaas.com/v3/transfers', {
+      method:  'POST',
+      headers: {
+        'access_token': env.ASAAS_API_KEY,
+        'Content-Type': 'application/json',
+        'User-Agent':   'DRG-Kronos/3.0',
+      },
+      body: JSON.stringify(body),
+    });
+    txt = await res.text();
+  } catch (e) {
+    const err = new Error('falha de rede ao falar com o Asaas (a transferencia pode ter saido): ' + (e && e.message || e));
+    err.rede = true;
+    throw err;
+  }
   let data = {};
   try { data = JSON.parse(txt); } catch (_) { /* corpo não-JSON */ }
   if (!res.ok) {
@@ -662,10 +672,13 @@ async function handleLogin(body, token, env){
 // Substitui o signInAnonymously() do operator.html. Senha master
 // armazenada em `operator/config.senhaHash` (SHA-256). No 1º acesso
 // cria o doc com a senha digitada. uid estável = 'operator-default'.
-async function handleOperatorLogin(body, token, env){
+async function handleOperatorLogin(body, token, env, ip){
   const password = String(body.password || '');
   if (!password) return { ok:false, erro:'digite a senha' };
-  if (await rlBlocked(env, 'op:operator')) return { ok:false, erro: RL_MSG };   // #rate-limit
+  // Rate-limit POR IP (antes era chave global 'op:operator' → qualquer um na internet
+  // travava o operador legitimo). Agora um atacante so trava o proprio IP. #fix-rl-operator
+  const opK = 'op:' + (ip || 'noip');
+  if (await rlBlocked(env, opK)) return { ok:false, erro: RL_MSG };
 
   const cfg  = await fsGetDoc('operator/config', token);
 
@@ -679,12 +692,12 @@ async function handleOperatorLogin(body, token, env){
       senhaHash: await hashPassword(password), criadoEm: new Date().toISOString(),
     }, token);
   } else if (!(await verifyPassword(password, cfg.senhaHash))) {
-    await rlFail(env, 'op:operator');   // #rate-limit
+    await rlFail(env, opK);   // #rate-limit
     return { ok:false, erro:'senha incorreta' };
   } else if (isLegacyHash(cfg.senhaHash)) {
     await fsUpdate('operator/config', { senhaHash: await hashPassword(password) }, token);  // migra #pbkdf2
   }
-  await rlClear(env, 'op:operator');   // senha correta → zera o contador
+  await rlClear(env, opK);   // senha correta → zera o contador
 
   const customToken = await mintCustomToken('operator-default',
     { role: 'operator', drg: true }, env);
@@ -1006,13 +1019,20 @@ async function handleAprovarPagamento(auth, body, token, env){
       pixAddressKey:     sol.pixKey,
       pixAddressKeyType: sol.keyType || 'CPF',
       description:       sol.descricao || 'Pagamento DRG-Kronos',
+      externalReference: solId,   // rastreio/idempotencia no Asaas. #fix-pix-idem
     };
     if (sol.scheduleDate) tBody.scheduleDate = sol.scheduleDate;
     resp = await asaasTransfer(tBody, env);
   } catch (e) {
-    await fsUpdate(path, { status: 'erro', erro: String(e.message || e),
+    // Falha de REDE (e.rede): a transferencia PODE ter sido efetivada → status 'incerto',
+    // que o guard NAO aceita p/ retentativa automatica (evita pagar em dobro). Rejeicao do
+    // Asaas (sem e.rede) = nao saiu → 'erro' (retentavel com seguranca). #fix-pix-idem
+    const incerto = !!(e && e.rede);
+    await fsUpdate(path, { status: incerto ? 'incerto' : 'erro', erro: String(e.message || e),
       aprovadoPor: auth.uid, aprovadoPorNome: nome, aprovadoEm: agora }, token);
-    return { ok: false, erro: String(e.message || e) };
+    return { ok: false, erro: incerto
+      ? 'Falha de rede APOS o possivel envio. NAO repita automaticamente — confira no painel do Asaas se o PIX saiu antes de tentar de novo (status: incerto).'
+      : String(e.message || e) };
   }
 
   // 5. grava a aprovação na solicitação
@@ -1069,7 +1089,7 @@ export default {
       }
       if (url.pathname === '/operator-login') {
         const t = await getAccessToken(env);
-        return json(await handleOperatorLogin(body, t, env), 200, origin);
+        return json(await handleOperatorLogin(body, t, env, request.headers.get('CF-Connecting-IP') || ''), 200, origin);
       }
       if (url.pathname === '/tenant-cadastrar') {
         const t = await getAccessToken(env);

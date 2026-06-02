@@ -114,10 +114,16 @@ if (typeof firebase !== 'undefined' && firebase.apps && !firebase.apps.length) {
 //        allow write: if isStaff();
 //      }
 //
-//      // autorizações de ponto (pedido do colaborador / liberação do supervisor)
+//      // autorizações de ponto: colaborador cria/cancela/expira o PRÓPRIO pedido; só
+//      // STAFF (supervisor com permissão) aprova (status 'autorizada'/'recusada').
+//      // Colaborador NÃO pode auto-aprovar (antes update:authed() permitia o bypass). #fix-autoriza
 //      match /autorizacoesPonto/{id} {
-//        allow read, create, update: if authed();
-//        allow delete:               if isStaff();
+//        allow read:   if authed();
+//        allow create: if isStaff() || (isColab() && request.resource.data.employeeId == request.auth.token.empId);
+//        allow update: if isStaff() || (isColab()
+//                         && resource.data.employeeId == request.auth.token.empId
+//                         && request.resource.data.status in ['cancelada','expirada']);
+//        allow delete: if isStaff();
 //      }
 //
 //      // recibos enviados: SÓ staff. O link público #/recibo/<token> agora é

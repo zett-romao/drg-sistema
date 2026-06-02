@@ -1074,6 +1074,7 @@ function showSection(name){
   if(name==='contratos'      && !mods.contratos)    return;
   if(name==='comunicacao'    && !mods.comunicacao)  return;
   if(name==='autorizacoes'   && !mods.autorizarPonto) return;
+  if(name==='monitorfaltas'  && !mods.monitorarFaltas) return;
   if(name==='documentos'     && !mods.employees) return;
   if(name==='configuracoes'  && Auth.currentUser?.role!=='master') return;
   // Empilha seção atual antes de trocar (exceto se estiver voltando ou já está na mesma seção)
@@ -1094,7 +1095,7 @@ function showSection(name){
   applyNavGroupsState(name);
   const titles={dashboard:'Dashboard',employees:'Colaboradores',payroll:'Folha de Ponto',escalas:'Escalas',
                 pagamentos:'Pagamentos',beneficios:'Benefícios',recibos:'Recibos Enviados',adiantamentos:'Adiantamentos',aprovacoes:'Aprovações de Pagamentos',decimoterceiro:'13º Salário',ferias:'Férias',rescisao:'Rescisões',
-                contabilidade:'Contabilidade',banco:'Banco de Dados',users:'Usuários & Acessos',postos:'Postos de Trabalho',rubricas:'Rubricas',contratos:'Contratos',comunicacao:'Comunicação',autorizacoes:'Autorizações de Ponto',documentos:'Documentos do Colaborador',configuracoes:'Configurações'};
+                contabilidade:'Contabilidade',banco:'Banco de Dados',users:'Usuários & Acessos',postos:'Postos de Trabalho',rubricas:'Rubricas',contratos:'Contratos',comunicacao:'Comunicação',autorizacoes:'Autorizações de Ponto',monitorfaltas:'Monitor de Faltas',documentos:'Documentos do Colaborador',configuracoes:'Configurações'};
   document.getElementById('topbar-title').textContent=titles[name]||name;
   State.currentSection=name;
   if(name==='employees') renderEmployeeTable();
@@ -1121,6 +1122,7 @@ function showSection(name){
   if(name==='banco')           renderBancoDados();
   if(name==='comunicacao')     renderComunicacaoSection();
   if(name==='autorizacoes')    renderAutorizacoesSection();
+  if(name==='monitorfaltas')   renderMonitorFaltas();
   if(name==='documentos')      renderDocumentosPendentes();
   if(name==='configuracoes')  renderConfiguracoes();
   if(name==='postos')    renderPostosTable();
@@ -1580,6 +1582,10 @@ function applyUserSession(user){
   const autzLi=document.getElementById('nav-autorizacoes-li');
   if(autzLi) autzLi.classList.toggle('hidden', !mods.autorizarPonto);
   if(mods.autorizarPonto) _initAutzBadge();   // contador de pendentes ao vivo no nav. #autz-badge
+  // Monitor de Faltas: permissao dedicada (eu escolho quem). #monitor-faltas
+  const mfLi=document.getElementById('nav-monitorfaltas-li');
+  if(mfLi) mfLi.classList.toggle('hidden', !mods.monitorarFaltas);
+  if(mods.monitorarFaltas) _initMonitorFaltasBadge();
   // Postos de Trabalho: master ou gestor
   const postosLi=document.getElementById('nav-postos-li');
   if(postosLi) postosLi.classList.toggle('hidden', !mods.postos);
@@ -18197,6 +18203,106 @@ function _comuAbrirRegistroDoCard(empId){
 }
 
 // ===========================================================================
+// MONITOR DE FALTAS — quem deveria ter batido entrada hoje e nao bateu. #monitor-faltas
+// ===========================================================================
+// S1a (visibilidade, SO LEITURA): usa o motor real de escala (_getExpectedDay)
+// + o ponto efetivamente batido (_pontoDiaReal) p/ listar, AO ABRIR/ATUALIZAR,
+// os colaboradores cuja entrada prevista ja passou +15min e que ainda nao
+// bateram. Nao grava nada na folha. As acoes Informar/Abonar (que mexem em
+// pagamento) e o robo no servidor (cron 24h) entram nas etapas S1b/S2.
+const MONITOR_FALTAS_TOLERANCIA_MIN = 15;   // so alerta 15min apos o horario previsto
+
+// Detecta as faltas de entrada de HOJE (em memoria, sem gravar).
+function _monitorFaltasHoje(){
+  const now = new Date();
+  const ano = now.getFullYear(), mes = now.getMonth()+1, dia = now.getDate();
+  const nowMin = now.getHours()*60 + now.getMinutes();
+  const out = [];
+  (State.employees||[]).forEach(emp=>{
+    if((emp.status||'ativo') !== 'ativo') return;   // so ativos
+    if(emp.isentoPonto) return;                     // isento nao bate ponto
+    const exp = _getExpectedDay(emp, mes, ano, dia);
+    if(!exp || exp.tipo==='folga' || !exp.entrada) return;   // nao trabalha hoje
+    const entMin = toMin(exp.entrada);
+    if(!Number.isFinite(entMin)) return;
+    if(nowMin < entMin + MONITOR_FALTAS_TOLERANCIA_MIN) return;  // ainda dentro da tolerancia
+    const reg = _pontoDiaReal(emp, ano, mes, dia);
+    if(reg && reg.entrada) return;                  // ja bateu a entrada
+    out.push({ id:emp.id, nome:emp.nome||'(sem nome)', setor:emp.setor||'', cargo:emp.cargo||'',
+               previsto:exp.entrada, atrasoMin: nowMin - entMin });
+  });
+  return out.sort((a,b)=> b.atrasoMin - a.atrasoMin);
+}
+
+function _fmtAtraso(min){
+  const h = Math.floor(min/60), m = min%60;
+  return h>0 ? `${h}h ${String(m).padStart(2,'0')}min` : `${m}min`;
+}
+
+// Badge AO VIVO no nav: recalcula periodicamente (deteccao e baseada em relogio).
+let _mfBadgeTimer = null;
+function _initMonitorFaltasBadge(){
+  const tick = ()=>{ try{ _setMonitorFaltasBadge(_monitorFaltasHoje().length); }catch(e){} };
+  tick();
+  if(!_mfBadgeTimer) _mfBadgeTimer = setInterval(tick, 5*60*1000);  // a cada 5 min
+}
+function _setMonitorFaltasBadge(n){
+  const b = document.getElementById('mf-nav-badge');
+  if(!b) return;
+  if(n>0){ b.textContent = n>99?'99+':String(n); b.classList.remove('hidden'); b.title = n+' colaborador(es) sem entrada batida'; }
+  else { b.classList.add('hidden'); }
+}
+
+function renderMonitorFaltas(){
+  const box = document.getElementById('monitorfaltas-content');
+  if(!box) return;
+  const lista = _monitorFaltasHoje();
+  _setMonitorFaltasBadge(lista.length);
+  const now = new Date();
+  const hhmm = String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
+  const dataBR = now.toLocaleDateString('pt-BR');
+
+  let corpo;
+  if(!lista.length){
+    corpo = `<div style="text-align:center;padding:48px 16px;color:#16a34a">
+        <i class="fa-solid fa-circle-check" style="font-size:40px"></i>
+        <p style="margin-top:12px;font-size:15px;font-weight:600">Ninguém em falta até agora.</p>
+        <p style="color:#777;font-size:13px">Todos que tinham entrada prevista até ${hhmm} já bateram (ou ainda estão dentro dos ${MONITOR_FALTAS_TOLERANCIA_MIN} min de tolerância).</p>
+      </div>`;
+  } else {
+    const rows = lista.map(f=>`<tr style="border-bottom:1px solid #eee">
+        <td style="padding:10px 8px;font-weight:600">${_esc(f.nome)}</td>
+        <td style="padding:10px 8px;color:#555">${_esc(f.setor||f.cargo||'—')}</td>
+        <td style="padding:10px 8px;text-align:center;font-variant-numeric:tabular-nums">${_esc(f.previsto)}</td>
+        <td style="padding:10px 8px;text-align:center;color:#dc2626;font-weight:700;font-variant-numeric:tabular-nums">${_fmtAtraso(f.atrasoMin)}</td>
+      </tr>`).join('');
+    corpo = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:14px">
+        <thead><tr style="background:#fafafa;border-bottom:2px solid #e5e7eb;text-align:left">
+          <th style="padding:10px 8px">Colaborador</th>
+          <th style="padding:10px 8px">Setor / Cargo</th>
+          <th style="padding:10px 8px;text-align:center">Entrada prevista</th>
+          <th style="padding:10px 8px;text-align:center">Atraso</th>
+        </tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  box.innerHTML = `
+    <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
+      <div>
+        <h2 style="margin:0"><i class="fa-solid fa-user-clock" style="color:#dc2626"></i> Monitor de Faltas</h2>
+        <p style="margin:4px 0 0;color:#666">Quem deveria ter batido a entrada e ainda não bateu — ${dataBR}, conferido às ${hhmm} (tolerância de ${MONITOR_FALTAS_TOLERANCIA_MIN} min).</p>
+      </div>
+      <button class="btn btn-secondary" onclick="renderMonitorFaltas()"><i class="fa-solid fa-rotate"></i> Atualizar</button>
+    </div>
+    <div style="margin:14px 0;padding:10px 14px;border-radius:8px;background:${lista.length?'#fef2f2':'#f0fdf4'};border:1px solid ${lista.length?'#fecaca':'#bbf7d0'};font-weight:600;color:${lista.length?'#b91c1c':'#15803d'}">
+      ${lista.length ? `<i class="fa-solid fa-triangle-exclamation"></i> ${lista.length} colaborador(es) sem entrada registrada` : `<i class="fa-solid fa-circle-check"></i> Nenhuma falta de entrada no momento`}
+    </div>
+    ${corpo}
+    <div style="margin-top:18px;padding:10px 14px;border-radius:8px;background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;font-size:13px">
+      <i class="fa-solid fa-circle-info"></i> Esta é a tela de <strong>visibilidade</strong>. A verificação automática 24h (robô no servidor) e os botões <strong>Informar falta</strong> / <strong>Abonar</strong> entram nas próximas etapas. Por enquanto a lista atualiza ao abrir a tela e a cada 5 min.
+    </div>`;
+}
+
+// ===========================================================================
 // AUTORIZACOES DE PONTO — historico de pedidos (Bloco D)
 // ===========================================================================
 // Espelha o padrao da secao Comunicacao: cards stats clicaveis + filtros +
@@ -24218,13 +24324,14 @@ const MODULOS_LABELS={
   comunicacao:        'Comunicação (Enviar mensagens)',
   comunicacoesApagar: 'Apagar Mensagens (Comunicações)',
   disciplinaApagar:   'Anular Atos Disciplinares (Disciplina)',
-  autorizarPonto:     'Autorizar Batidas Fora do Horário (Supervisor)'
+  autorizarPonto:     'Autorizar Batidas Fora do Horário (Supervisor)',
+  monitorarFaltas:    'Monitorar Faltas (quem não bateu entrada)'
 };
 
 // Retorna os módulos permitidos para o usuário
 function getUserModules(user){
   if(!user) return {};
-  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,escalas:true,criarEscalas:true,aprovaHE:true,reports:true,pagamentos:true,pagamentosLancar:true,pagamentosAprovar:true,decimoterceiro:true,ferias:true,rescisao:true,contabilidade:true,postos:true,contratos:true,users:true,log:true,comunicacao:true,comunicacoesApagar:true,disciplinaApagar:true,autorizarPonto:true,revisarContrato:true};
+  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,escalas:true,criarEscalas:true,aprovaHE:true,reports:true,pagamentos:true,pagamentosLancar:true,pagamentosAprovar:true,decimoterceiro:true,ferias:true,rescisao:true,contabilidade:true,postos:true,contratos:true,users:true,log:true,comunicacao:true,comunicacoesApagar:true,disciplinaApagar:true,autorizarPonto:true,monitorarFaltas:true,revisarContrato:true};
   if(user.role==='operador') return {dashboard:true,employees:false,payroll:true,escalas:true,criarEscalas:false,aprovaHE:false,reports:true,pagamentos:true,pagamentosLancar:false,pagamentosAprovar:false,decimoterceiro:true,ferias:true,rescisao:false,contabilidade:true,postos:false,contratos:false,users:false,log:!!user.showLog};
   if(user.role&&user.role.startsWith('p_')){
     const perfilId=user.role.replace('p_','');

@@ -259,6 +259,13 @@
               <span>Autorizações</span>
             </a>
           </li>
+          <li id="nav-monitorfaltas-li" class="hidden">
+            <a class="nav-link" id="nav-monitorfaltas" onclick="showSection('monitorfaltas')">
+              <i class="fa-solid fa-user-clock"></i>
+              <span>Monitor de Faltas</span>
+              <span id="mf-nav-badge" class="hidden" style="margin-left:auto;background:#dc2626;color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;font-weight:700"></span>
+            </a>
+          </li>
         </ul>
       </li>
 
@@ -2334,6 +2341,11 @@
       <!-- ===== AUTORIZAÇÕES — historico de pedidos de batida fora do horario ===== -->
       <section id="section-autorizacoes" class="section">
         <div id="autorizacoes-content" style="padding:20px"></div>
+      </section>
+
+      <!-- ===== MONITOR DE FALTAS — quem deveria ter batido entrada e nao bateu ===== -->
+      <section id="section-monitorfaltas" class="section">
+        <div id="monitorfaltas-content" style="padding:20px"></div>
       </section>
 
       <section id="section-configuracoes" class="section">
@@ -5711,6 +5723,7 @@
           <label class="checkbox-label"><input type="checkbox" name="mod" value="comunicacoesApagar"> <span><i class="fa-solid fa-trash" style="width:14px;color:#c62828"></i> Apagar Mensagens (Comunicações)</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="disciplinaApagar"> <span><i class="fa-solid fa-gavel" style="width:14px;color:#7e22ce"></i> Anular Atos Disciplinares</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="autorizarPonto"> <span><i class="fa-solid fa-user-shield" style="width:14px;color:#1976D2"></i> Autorizar Batidas Fora do Horário (Supervisor)</span></label>
+          <label class="checkbox-label"><input type="checkbox" name="mod" value="monitorarFaltas"> <span><i class="fa-solid fa-user-clock" style="width:14px;color:#dc2626"></i> Monitorar Faltas (quem não bateu entrada)</span></label>
         </div>
       </div>
     </div>
@@ -6408,6 +6421,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260602e-autz-a3"></script>
+<script src="app.js?v=20260602f-monitor-faltas"></script>
 </body>
 </html>

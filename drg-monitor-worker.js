@@ -30,9 +30,11 @@ function strToB64url(str){ return btoa(unescape(encodeURIComponent(str))).replac
 
 // ───────── Firebase: OAuth via conta de serviço (RS256) ─────────
 let _token=null;
+// Aceita FIREBASE_SERVICE_ACCOUNT como Text (string JSON) OU como JSON (objeto). #robusto
+function getSA(env){ const s=env.FIREBASE_SERVICE_ACCOUNT; return typeof s==='string'?JSON.parse(s):s; }
 async function getAccessToken(env){
   if(_token && _token.exp>Date.now()+60000) return _token.v;
-  const sa=JSON.parse(env.FIREBASE_SERVICE_ACCOUNT);
+  const sa=getSA(env);
   const now=Math.floor(Date.now()/1000);
   const header=strToB64url(JSON.stringify({alg:'RS256',typ:'JWT'}));
   const claim=strToB64url(JSON.stringify({
@@ -51,7 +53,7 @@ async function getAccessToken(env){
   _token={v:data.access_token, exp:Date.now()+ (data.expires_in||3600)*1000};
   return _token.v;
 }
-function projectId(env){ return JSON.parse(env.FIREBASE_SERVICE_ACCOUNT).project_id; }
+function projectId(env){ return getSA(env).project_id; }
 function fsBase(env){ return `https://firestore.googleapis.com/v1/projects/${projectId(env)}/databases/(default)/documents`; }
 
 // Converte um doc REST do Firestore p/ objeto JS simples (campos comuns).

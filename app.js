@@ -522,7 +522,69 @@ function renderConfiguracoes(){
   setVal('cfg-cep',                e.cep||'');
   setVal('cfg-telefone',           e.telefone||'');
   setVal('cfg-email',              e.email||'');
+  renderFeriadosConfig();
   renderPainelRecursos();
+}
+
+// ===== Feriados — UI de configuração (folga/trabalha + extras). #feriados =====
+function renderFeriadosConfig(){
+  const sel=document.getElementById('feriados-ano');
+  const body=document.getElementById('feriados-config-body');
+  if(!sel || !body) return;
+  const anoAtual = (typeof currentAno==='function') ? currentAno() : new Date().getFullYear();
+  if(!sel.options.length){
+    let opts='';
+    for(let a=anoAtual-1; a<=anoAtual+2; a++) opts+=`<option value="${a}"${a===anoAtual?' selected':''}>${a}</option>`;
+    sel.innerHTML=opts;
+  }
+  const ano=parseInt(sel.value)||anoAtual;
+  const lista=_feriadosDoAno(ano);
+  const diaSemNome=['dom','seg','ter','qua','qui','sex','sáb'];
+  body.innerHTML = lista.map(f=>{
+    const [yy,mm,dd]=f.ymd.split('-');
+    const ds=diaSemNome[new Date(+yy,+mm-1,+dd).getDay()];
+    const folga=f.folga;
+    return `<div style="display:flex;align-items:center;gap:10px;padding:6px 4px;border-bottom:1px solid #f0f0f0;font-size:13px">
+      <span style="min-width:96px;font-weight:600">${dd}/${mm} <span style="color:#999;font-weight:400">${ds}</span></span>
+      <span style="flex:1">${f.nome}${f.oficial?'':' <span style="font-size:10px;color:#6A1B9A">(extra)</span>'}</span>
+      <button class="btn btn-sm" onclick="toggleFeriadoFolga('${f.ymd}')" style="font-size:11px;padding:3px 10px;background:${folga?'#E8F5E9':'#FFF3E0'};color:${folga?'#2E7D32':'#E65100'};border:1px solid ${folga?'#A5D6A7':'#FFCC80'}">${folga?'🏖️ Folga':'💼 Trabalha'}</button>
+      ${f.oficial?'':`<button class="btn btn-sm btn-outline" onclick="removerFeriadoExtra('${f.ymd}')" title="Remover" style="font-size:11px;padding:3px 8px;color:#c62828;border-color:#ef9a9a"><i class="fa-solid fa-trash"></i></button>`}
+    </div>`;
+  }).join('') || '<div style="color:#999;font-size:13px;padding:8px">Nenhum feriado neste ano.</div>';
+}
+async function _salvarFeriadosConfig(){
+  State.feriadosConfig = State.feriadosConfig || {trabalha:[],extras:[]};
+  try{ await DB.saveDoc('configuracoes','feriados',State.feriadosConfig,true); }
+  catch(e){ toast('Erro ao salvar feriados: '+(e.message||e),'error'); }
+}
+function toggleFeriadoFolga(ymd){
+  const cfg=State.feriadosConfig=State.feriadosConfig||{trabalha:[],extras:[]};
+  cfg.trabalha=cfg.trabalha||[];
+  const i=cfg.trabalha.indexOf(ymd);
+  if(i>=0) cfg.trabalha.splice(i,1); else cfg.trabalha.push(ymd);
+  _salvarFeriadosConfig(); renderFeriadosConfig();
+  toast(i>=0?'Feriado: equipe FOLGA (sem VT/VR p/ 5x2 e 6x1).':'Feriado: equipe TRABALHA (VT/VR normal).','success');
+}
+function adicionarFeriadoExtra(){
+  const data=val('feriado-novo-data'), nome=(val('feriado-novo-nome')||'').trim();
+  if(!data){ toast('Escolha a data do feriado.','warning'); return; }
+  if(!nome){ toast('Informe o nome do feriado.','warning'); return; }
+  const cfg=State.feriadosConfig=State.feriadosConfig||{trabalha:[],extras:[]};
+  cfg.extras=cfg.extras||[];
+  if(cfg.extras.some(e=>e.ymd===data)){ toast('Já existe um feriado nessa data.','warning'); return; }
+  cfg.extras.push({ymd:data,nome});
+  setVal('feriado-novo-data',''); setVal('feriado-novo-nome','');
+  // pula o ano selecionado pro ano da data nova, se diferente
+  const sel=document.getElementById('feriados-ano'); if(sel && data.slice(0,4)!==sel.value){ sel.value=data.slice(0,4); }
+  _salvarFeriadosConfig(); renderFeriadosConfig();
+  toast('Feriado adicionado.','success');
+}
+function removerFeriadoExtra(ymd){
+  const cfg=State.feriadosConfig=State.feriadosConfig||{trabalha:[],extras:[]};
+  cfg.extras=(cfg.extras||[]).filter(e=>e.ymd!==ymd);
+  cfg.trabalha=(cfg.trabalha||[]).filter(d=>d!==ymd);
+  _salvarFeriadosConfig(); renderFeriadosConfig();
+  toast('Feriado removido.','success');
 }
 
 // Estimativa de preço do Gemini 2.5 Flash (US$ por 1 milhão de tokens) e
@@ -8076,7 +8138,8 @@ function openBeneficioDetalhe(empId, _ignEscopo, _ignIni, _ignFim){
     `<strong>Posto:</strong> ${posto} &nbsp;|&nbsp; <strong>Setor:</strong> ${emp.setor||'—'} &nbsp;|&nbsp; ` +
     `<strong>Escala:</strong> ${escalaLabel(emp.escala||'5x2A')}${emp.turnoNoturno?' (Noturno)':''}<br>` +
     `<strong>Dias — VT:</strong> ${b.diasVt} &nbsp;|&nbsp; <strong>VR (jornada &gt; 6h):</strong> <span style="color:#E65100">${b.diasVr}</span>` +
-    `${b.semanas>0?` &nbsp;|&nbsp; <strong>Semanas:</strong> ${b.semanas}`:''}<br>` +
+    `${b.semanas>0?` &nbsp;|&nbsp; <strong>Semanas:</strong> ${b.semanas}`:''}` +
+    `${_escalaRespeitaFeriado(emp.escala)?_feriadosNotaPeriodo(dataIni,dataFim):''}<br>` +
     `<strong style="color:#00695C"><i class="fa-brands fa-pix"></i> Chave PIX:</strong> <span style="font-family:monospace">${pixDet}</span>` +
     usoInfo;
   const tbody = document.getElementById('benef-det-tbody');
@@ -20038,6 +20101,79 @@ function _segmentosLotacao(emp, mes, ano, pontoDias, atestDias){
   return arr;
 }
 
+// ===========================================================================
+// FERIADOS NACIONAIS — tabela auto-calculada p/ QUALQUER ano + config folga/trabalha. #feriados
+// ===========================================================================
+// Páscoa (Meeus/Butcher) → base da Sexta-feira Santa (único móvel oficial).
+function _calcularPascoa(ano){
+  const a=ano%19,b=Math.floor(ano/100),c=ano%100,d=Math.floor(b/4),e=b%4,
+    f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),h=(19*a+b-d-g+15)%30,
+    i=Math.floor(c/4),k=c%4,l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451),
+    mes=Math.floor((h+l-7*m+114)/31),dia=((h+l-7*m+114)%31)+1;
+  return {mes,dia};
+}
+let _feriadosNacCache={};
+const _zpF=n=>String(n).padStart(2,'0');
+// Feriados nacionais OFICIAIS do ano (fixos + Sexta-feira Santa). Cacheado por ano. [{ymd,nome}]
+function _feriadosNacionais(ano){
+  if(_feriadosNacCache[ano]) return _feriadosNacCache[ano];
+  const lista=[
+    {m:1,d:1,nome:'Confraternização Universal'},
+    {m:4,d:21,nome:'Tiradentes'},
+    {m:5,d:1,nome:'Dia do Trabalho'},
+    {m:9,d:7,nome:'Independência'},
+    {m:10,d:12,nome:'N. Sra. Aparecida'},
+    {m:11,d:2,nome:'Finados'},
+    {m:11,d:15,nome:'Proclamação da República'},
+    {m:11,d:20,nome:'Consciência Negra'},
+    {m:12,d:25,nome:'Natal'},
+  ].map(f=>({ymd:`${ano}-${_zpF(f.m)}-${_zpF(f.d)}`,nome:f.nome}));
+  const p=_calcularPascoa(ano);
+  const sx=new Date(ano,p.mes-1,p.dia); sx.setDate(sx.getDate()-2);  // Sexta-feira Santa = Páscoa − 2
+  lista.push({ymd:`${sx.getFullYear()}-${_zpF(sx.getMonth()+1)}-${_zpF(sx.getDate())}`,nome:'Sexta-feira Santa'});
+  _feriadosNacCache[ano]=lista;
+  return lista;
+}
+// Lista completa do ano (nacionais + extras manuais da config), c/ flag folga. Pra UI.
+function _feriadosDoAno(ano){
+  const cfg=State.feriadosConfig||{};
+  const trabalha=cfg.trabalha||[];
+  const out=_feriadosNacionais(ano).map(f=>({...f,oficial:true,folga:!trabalha.includes(f.ymd)}));
+  (cfg.extras||[]).forEach(e=>{ if(e.ymd && e.ymd.startsWith(ano+'-')) out.push({ymd:e.ymd,nome:e.nome||'Feriado',oficial:false,folga:!trabalha.includes(e.ymd)}); });
+  return out.sort((a,b)=>a.ymd.localeCompare(b.ymd));
+}
+// É feriado? → {nome,folga,oficial} ou null. folga=padrão; vira false se a data está em cfg.trabalha.
+function _ehFeriado(ano,mes,dia){
+  const ymd=`${ano}-${_zpF(mes)}-${_zpF(dia)}`;
+  const cfg=State.feriadosConfig||{};
+  const nac=_feriadosNacionais(ano).find(f=>f.ymd===ymd);
+  let nome=nac?nac.nome:null, oficial=!!nac;
+  if(!nome){ const ex=(cfg.extras||[]).find(e=>e.ymd===ymd); if(ex){ nome=ex.nome||'Feriado'; oficial=false; } }
+  if(!nome) return null;
+  return { nome, folga:!((cfg.trabalha||[]).includes(ymd)), oficial };
+}
+// Só 5x2 e 6x1 respeitam feriado; 12x36 e modelos custom ignoram (rodam direto). #feriados
+function _escalaRespeitaFeriado(escala){
+  const fam=escalaFamilia(escala);
+  return fam==='5x2'||fam==='6x1';
+}
+// Nota HTML dos feriados-folga num período [ini,fim] ISO (p/ visibilidade no modal de benefícios). #feriados
+function _feriadosNotaPeriodo(iniISO,fimISO){
+  try{
+    const ini=new Date(String(iniISO).substring(0,10)+'T12:00:00');
+    const fim=new Date(String(fimISO).substring(0,10)+'T12:00:00');
+    if(isNaN(ini.getTime())||isNaN(fim.getTime())) return '';
+    const achados=[]; const cur=new Date(ini);
+    while(cur<=fim){
+      const f=_ehFeriado(cur.getFullYear(),cur.getMonth()+1,cur.getDate());
+      if(f && f.folga) achados.push(`${_zpF(cur.getDate())}/${_zpF(cur.getMonth()+1)} ${f.nome}`);
+      cur.setDate(cur.getDate()+1);
+    }
+    if(!achados.length) return '';
+    return `<br><span style="color:#6A1B9A;font-size:12px"><i class="fa-solid fa-calendar-day"></i> Feriado(s) no período — <strong>VT/VR não pagos</strong> (folga): ${achados.join(' · ')}</span>`;
+  }catch(_){ return ''; }
+}
+
 function _getExpectedDay(emp, mes, ano, dia, ignoreAdmissao){
   if(!emp) return null;
   // Antes da admissão não havia jornada esperada (não era colaborador ainda) —
@@ -20068,6 +20204,14 @@ function _getExpectedDay(emp, mes, ano, dia, ignoreAdmissao){
       intIni:  lot.semRefeicao ? '' : (ov.horarioRefIni || ''),
       intFim:  lot.semRefeicao ? '' : (ov.horarioRefFim || '')
     };
+  }
+  // 0b) Feriado nacional (modo folga) → 5x2 e 6x1 FOLGAM: sem VT/VR, não é falta,
+  //     salário mensal não cai (o feriado sai do numerador e do denominador). 12x36 e
+  //     modelos custom ignoram. Override avulso (acima) vence o feriado. Se o feriado
+  //     estiver marcado "trabalha" na config (_fer.folga=false), segue o fluxo normal. #feriados
+  if(_escalaRespeitaFeriado(lot.escala)){
+    const _fer=_ehFeriado(ano,mes,dia);
+    if(_fer && _fer.folga) return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'', feriado:_fer.nome };
   }
   // 1) Tenta escala salva. As escalas são gravadas keyed pela COMPETÊNCIA (26→25),
   //    não pelo mês de calendário. Um dia 26-31 pertence ao mês real ANTERIOR, mas
@@ -21664,6 +21808,7 @@ function printFolhaPonto(isPreview=false){
       const _ods=_obsDiaSemBatida(emp, mes, ano, cd, d, isWknd, is12x36);
       obsdia=_ods.txt; obscor=_ods.cor;
     }
+    if(exp && exp.feriado){ obsdia='FERIADO: '+exp.feriado+((entrada&&saida)?' (trabalhado)':''); obscor='#6A1B9A'; }  // #feriados
     const rowBg=isWknd?'background:#F8F9FA;color:#999':'';
     const _cel='text-align:center;padding:3px 5px;border:1px solid #DEE2E6';
     tabelaDias+=`<tr style="${rowBg}">
@@ -22026,6 +22171,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
       const _ods=_obsDiaSemBatida(emp, mes, ano, cd, d, isWknd, is12x36);
       obsdia=_ods.txt; obscor=_ods.cor;
     }
+    if(exp && exp.feriado){ obsdia='FERIADO: '+exp.feriado+((entrada&&saida)?' (trabalhado)':''); obscor='#6A1B9A'; }  // #feriados
     const rowBg=isWknd?'background:#F8F9FA;color:#999':'';
     const _cel='text-align:center;padding:3px 5px;border:1px solid #DEE2E6';
     tabelaDias+=`<tr style="${rowBg}">
@@ -24891,6 +25037,8 @@ async function _carregarDadosPosLogin(){
     Auth.accessLog  = logs;
     State.cct = cctDocs.find(c=>c.id==='current')||null;
     State.perfis = perfisDocs;
+    try{ State.feriadosConfig = (await DB.getDoc('configuracoes','feriados')) || {trabalha:[],extras:[]}; }  // #feriados
+    catch(_){ State.feriadosConfig = {trabalha:[],extras:[]}; }
   } catch(e){
     console.error('Erro ao carregar dados:', e);
     const msg = e && e.message ? e.message : String(e);

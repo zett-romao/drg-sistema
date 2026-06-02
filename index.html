@@ -2375,6 +2375,27 @@
             <div style="color:#94A3B8;font-size:13px;padding:8px">Carregando medidores...</div>
           </div>
         </div>
+        <div class="card" style="max-width:680px;margin-bottom:18px">
+          <div class="card-header">
+            <h3><i class="fa-solid fa-calendar-day" style="color:#6A1B9A"></i> Feriados Nacionais</h3>
+          </div>
+          <div class="card-body">
+            <p style="font-size:12px;color:#666;margin-bottom:10px">Calculados automaticamente para qualquer ano. Em <strong>5x2 e 6x1</strong>, no feriado o colaborador <strong>folga e não recebe VT/VR</strong>. <strong>12x36 ignora</strong> (trabalha normal). Marque <em>"Trabalha"</em> se a equipe vai trabalhar nesse feriado. Pode adicionar municipais/estaduais.</p>
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+              <label style="font-size:13px;font-weight:600">Ano:</label>
+              <select id="feriados-ano" onchange="renderFeriadosConfig()" style="padding:5px 8px;border:1px solid var(--border);border-radius:5px"></select>
+            </div>
+            <div id="feriados-config-body"></div>
+            <div style="margin-top:12px;padding-top:10px;border-top:1px dashed var(--border)">
+              <div style="font-size:12px;font-weight:600;margin-bottom:6px">Adicionar feriado (municipal/estadual):</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                <input type="date" id="feriado-novo-data" style="padding:5px 8px;border:1px solid var(--border);border-radius:5px">
+                <input type="text" id="feriado-novo-nome" placeholder="Nome do feriado" style="flex:1;min-width:160px;padding:5px 8px;border:1px solid var(--border);border-radius:5px">
+                <button class="btn btn-outline btn-sm" onclick="adicionarFeriadoExtra()"><i class="fa-solid fa-plus"></i> Adicionar</button>
+              </div>
+            </div>
+          </div>
+        </div>
         <div class="card" style="max-width:680px">
           <div class="card-header">
             <h3><i class="fa-solid fa-building"></i> Dados da Empresa</h3>
@@ -6435,6 +6456,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260602h-contab-apuracao"></script>
+<script src="app.js?v=20260602j-feriados-ref"></script>
 </body>
 </html>

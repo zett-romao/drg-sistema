@@ -18430,7 +18430,7 @@ function _monitorFaltasHoje(){
     if(_temAtestadoNoDia(emp.id, ymd)) return;       // justificado por atestado/abono cobrindo o dia
     const exp = _getExpectedDay(emp, mes, ano, dia);
     if(!exp || exp.tipo==='folga' || !exp.entrada) return;   // nao trabalha hoje (inclui feriado-folga)
-    const entMin = toMin(exp.entrada);
+    const entMin = timeToMinutes(exp.entrada);
     if(!Number.isFinite(entMin)) return;
     if(nowMin < entMin + MONITOR_FALTAS_TOLERANCIA_MIN) return;  // ainda dentro da tolerancia
     const reg = _pontoDiaReal(emp, ano, mes, dia);

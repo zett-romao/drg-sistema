@@ -4203,7 +4203,8 @@ function _apuracaoPontoTotais(emp, p){
     let minLiq=0;
     if(entrada&&saida){ let mb=timeToMinutes(saida)-timeToMinutes(entrada); if(mb<=0)mb+=24*60; minLiq=mb-_calcIntervaloMin(intIni,intFim,entrada,saida); }
     const exp=_getExpectedDay(emp,cd.mes,cd.ano,d);   // mês REAL do dia (fronteira 26-31). #fronteira
-    const ehFolga=!exp||exp.tipo==='folga'||!exp.entrada;
+    const _emFerias=_emFeriasNoDia(emp, `${cd.ano}-${String(cd.mes).padStart(2,'0')}-${String(d).padStart(2,'0')}`);
+    const ehFolga=_emFerias||!exp||exp.tipo==='folga'||!exp.entrada;
     let prevMin=0, contratualIntMin=0;
     if(!ehFolga){ let mbE=timeToMinutes(exp.saida)-timeToMinutes(exp.entrada); if(mbE<=0)mbE+=24*60; contratualIntMin=_calcIntervaloMin(exp.intIni,exp.intFim,exp.entrada,exp.saida); if(emp.semRefeicao&&contratualIntMin===0&&mbE>360)contratualIntMin=60; prevMin=Math.max(0,mbE-contratualIntMin); }
     const temBatida=!!(entrada&&saida);
@@ -18454,6 +18455,7 @@ function _monitorFaltasHoje(){
     const r = _mfResolv[emp.id];
     if(r && (r.status==='informada' || r.status==='abonada')) return;  // ja decidido hoje
     if(_temAtestadoNoDia(emp.id, ymd)) return;       // justificado por atestado/abono cobrindo o dia
+    if(_emFeriasNoDia(emp, ymd)) return;             // de férias/abono no dia → não é falta. #monitor-ferias
     const exp = _getExpectedDay(emp, mes, ano, dia);
     if(!exp || exp.tipo==='folga' || !exp.entrada) return;   // nao trabalha hoje (inclui feriado-folga)
     const entMin = timeToMinutes(exp.entrada);
@@ -18470,6 +18472,10 @@ function _monitorFaltasHoje(){
 function _temAtestadoNoDia(empId, ymd){
   return (State.atestados||[]).some(a=> a && a.employeeId===empId && a.status!=='pendente'
     && a.tipo!=='horas' && a.dataInicio && a.dataInicio<=ymd && (a.dataFim||a.dataInicio)>=ymd);
+}
+// Colaborador de FÉRIAS/abono cobrindo a data ymd → não é falta. #monitor-ferias
+function _emFeriasNoDia(emp, ymd){
+  return (emp && emp.ferias||[]).some(f=> f && f.inicio && f.inicio<=ymd && (f.fim||f.inicio)>=ymd);
 }
 
 function _fmtAtraso(min){
@@ -20966,6 +20972,8 @@ function _diaEmBrancoEhFalta(emp, mes, ano, dia, isWeekend, is12x36){
   const _ymdOv = `${ano}-${String(mes).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
   const _ov = (emp.overridesHorario||[]).find(o => o.data === _ymdOv);
   if(_ov && _ov.tipo === 'folga') return false;
+  // De FÉRIAS/abono cobrindo o dia → não é falta (período pago, registrado em Férias). #monitor-ferias
+  if(_emFeriasNoDia(emp, _ymdOv)) return false;
   let deveriaTrabalhar;
   // Escala salva é keyed pela COMPETÊNCIA (26→25); converte a data real do dia pra
   // competência antes de buscar (senão dias 26-31 leem a escala do mês errado e
@@ -22014,7 +22022,8 @@ function printFolhaPonto(isPreview=false){
     }
     // --- Métricas dia-a-dia: Previstas / Atraso / Extras / Faltas / Refeição não rendida ---
     const exp     = _getExpectedDay(emp, cd.mes, cd.ano, d);   // cd.mes/ano = mês REAL (dias 26-31 são do mês anterior). #fronteira
-    const ehFolga = !exp || exp.tipo==='folga' || !exp.entrada;
+    const _emFerias = _emFeriasNoDia(emp, `${cd.ano}-${String(cd.mes).padStart(2,'0')}-${String(d).padStart(2,'0')}`);   // #monitor-ferias
+    const ehFolga = _emFerias || !exp || exp.tipo==='folga' || !exp.entrada;
     let prevMin=0, contratualIntMin=0;
     if(!ehFolga){
       let mbE = timeToMinutes(exp.saida)-timeToMinutes(exp.entrada);
@@ -22051,6 +22060,7 @@ function printFolhaPonto(isPreview=false){
       obsdia=_ods.txt; obscor=_ods.cor;
     }
     if(exp && exp.feriado){ obsdia='FERIADO: '+exp.feriado+((entrada&&saida)?' (trabalhado)':''); obscor='#6A1B9A'; }  // #feriados
+    if(_emFerias){ obsdia='FÉRIAS'; obscor='#0288D1'; }  // #monitor-ferias
     const rowBg=isWknd?'background:#F8F9FA;color:#999':'';
     const _cel='text-align:center;padding:3px 5px;border:1px solid #DEE2E6';
     tabelaDias+=`<tr style="${rowBg}">
@@ -22375,7 +22385,8 @@ function _buildFolhaHtmlFromRecord(emp, p){
     }
     // --- Métricas dia-a-dia: Previstas / Atraso / Extras / Faltas / Refeição não rendida ---
     const exp     = _getExpectedDay(emp, cd.mes, cd.ano, d);   // cd.mes/ano = mês REAL (dias 26-31 são do mês anterior). #fronteira
-    const ehFolga = !exp || exp.tipo==='folga' || !exp.entrada;
+    const _emFerias = _emFeriasNoDia(emp, `${cd.ano}-${String(cd.mes).padStart(2,'0')}-${String(d).padStart(2,'0')}`);   // #monitor-ferias
+    const ehFolga = _emFerias || !exp || exp.tipo==='folga' || !exp.entrada;
     let prevMin=0, contratualIntMin=0;
     if(!ehFolga){
       let mbE = timeToMinutes(exp.saida)-timeToMinutes(exp.entrada);
@@ -22414,6 +22425,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
       obsdia=_ods.txt; obscor=_ods.cor;
     }
     if(exp && exp.feriado){ obsdia='FERIADO: '+exp.feriado+((entrada&&saida)?' (trabalhado)':''); obscor='#6A1B9A'; }  // #feriados
+    if(_emFerias){ obsdia='FÉRIAS'; obscor='#0288D1'; }  // #monitor-ferias
     const rowBg=isWknd?'background:#F8F9FA;color:#999':'';
     const _cel='text-align:center;padding:3px 5px;border:1px solid #DEE2E6';
     tabelaDias+=`<tr style="${rowBg}">

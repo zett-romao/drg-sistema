@@ -18780,8 +18780,13 @@ function _renderAutzUI(){
           }
         }catch(_){}
       }
-      const diffTxt = diff===0 ? '' :
-        diff > 0 ? `+${diff} min` : `${diff} min`;
+      // Saída/início de pausa mais TARDE = hora extra; entrada/volta mais tarde = atraso. #autz-extra-atraso
+      const _maisTrabA = (p.tipoBatida==='saida' || p.tipoBatida==='intIni');
+      const _ad = Math.abs(diff);
+      const diffTxt = diff===0 ? '' : (diff>0
+        ? (_maisTrabA ? `+${_ad} min (extra)` : `+${_ad} min (atraso)`)
+        : (_maisTrabA ? `−${_ad} min (saiu antes)` : `−${_ad} min (adiant.)`));
+      const diffCorA = (diff>0 && !_maisTrabA) ? '#c62828' : '#1976D2';
       const isPend = st==='pendente';   // só pendente ATIVO (dentro dos 15 min) tem ação. #autz-expira
       const supUrl = 'supervisor.html?autz=' + encodeURIComponent(p.id);
       const _nome  = (p.employeeNome||'—').replace(/</g,'&lt;');
@@ -18817,7 +18822,7 @@ function _renderAutzUI(){
           <div><div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;font-weight:600">Batida</div><div style="font-size:13px;color:var(--text);font-weight:600">${NOMES[p.tipoBatida]||p.tipoBatida||'—'}</div></div>
           <div><div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;font-weight:600">Hora real</div><div style="font-size:13px;color:var(--text);font-weight:600">${p.horarioReal||'—'}</div></div>
           ${previstoEf ? `<div><div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;font-weight:600">Previsto${(previstoEf!==p.horarioPrevisto)?' <span style="color:#16a34a;font-size:8px">(escala atual)</span>':''}</div><div style="font-size:13px;color:var(--text);font-weight:600">${previstoEf}</div></div>` : ''}
-          ${diffTxt ? `<div><div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;font-weight:600">Diferença</div><div style="font-size:13px;font-weight:600;color:${diff>0?'#c62828':'#1976D2'}">${diffTxt}</div></div>` : ''}
+          ${diffTxt ? `<div><div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;font-weight:600">Diferença</div><div style="font-size:13px;font-weight:600;color:${diffCorA}">${diffTxt}</div></div>` : ''}
           ${p.ehFolga ? `<div><div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;font-weight:600">Folga</div><div style="font-size:13px;font-weight:600;color:#7e22ce">SIM</div></div>` : ''}
         </div>
         ${motivoBox}

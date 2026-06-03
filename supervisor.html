@@ -470,10 +470,26 @@ function _previstoDoDiaSup(emp, mesComp, anoComp, diaBatida, tipoBatida){
     const per=pers.find(x=> (x.de||'')<=ymd && (!x.ate || x.ate>=ymd));
     const src=per||emp;
     hor={entrada:src.horarioEntrada,saida:src.horarioSaida,intIni:src.horarioRefIni,intFim:src.horarioRefFim};
+    // Variantes com horário diferenciado por dia (parte da DEFINIÇÃO da escala):
+    // 6x1A sáb 07–11 (4h), 6x1C sáb 08–12 (4h, sem refeição), 5x2A/B sexta 16:00.
+    const esc=(per&&per.escala)||emp.escala||'';
+    const dsem=new Date(r.ano, r.mes-1, r.dia).getDay();
+    if(dsem===6 && esc==='6x1A'){ hor.saida='11:00'; hor.intIni=''; hor.intFim=''; }
+    if(dsem===6 && esc==='6x1C'){ hor.saida='12:00'; hor.intIni=''; hor.intFim=''; }
+    if(dsem===5 && (esc==='5x2A'||esc==='5x2B')){ hor.saida='16:00'; }
   }
   return hor[tipoBatida] || '';
 }
 function _toMinSup(hhmm){ const x=String(hhmm||'').split(':'); const h=parseInt(x[0]),m=parseInt(x[1]); return (isNaN(h)||isNaN(m))?null:h*60+m; }
+// Rótulo da diferença conforme o TIPO da batida: sair/iniciar-pausa mais tarde = HORA EXTRA;
+// entrar/voltar mais tarde = ATRASO. diff = real − previsto. #autz-extra-atraso
+function _diffLabelSup(tipoBatida, diff){
+  if(!diff) return '';
+  const a=Math.abs(diff);
+  const maisTrab = (tipoBatida==='saida' || tipoBatida==='intIni');
+  if(diff>0) return maisTrab ? `+${a} min (hora extra)` : `+${a} min de atraso`;
+  return maisTrab ? `−${a} min (saiu antes)` : `−${a} min adiantado`;
+}
 
 function _cardPedido(p){
   const ehFolga = p.tipoBloqueio === 'folga' || p.ehFolga;
@@ -489,8 +505,9 @@ function _cardPedido(p){
     const _re=_toMinSup(p.horarioReal), _pe=_toMinSup(_pl);
     if(_re!=null && _pe!=null) diff = _re - _pe;
   }
-  const diffTxt = diff === 0 ? '' :
-    (diff > 0 ? `+${diff} min de atraso` : `${diff} min adiantado`);
+  const diffTxt = _diffLabelSup(p.tipoBatida, diff);
+  const _maisTrab = (p.tipoBatida==='saida' || p.tipoBatida==='intIni');
+  const diffCor = (diff>0 && !_maisTrab) ? '#c62828' : '#1976D2';   // só atraso real em vermelho; extra em azul
   const motivoBox = p.motivo
     ? `<div class="card-motivo"><strong>📝 Motivo do colaborador:</strong> ${p.motivo.replace(/</g,'&lt;')}</div>`
     : '';
@@ -519,7 +536,7 @@ function _cardPedido(p){
         </div>` : ''}
         ${diffTxt ? `<div>
           <small>Diferença</small>
-          <strong style="color:${diff>0?'#c62828':'#1976D2'}">${diffTxt}</strong>
+          <strong style="color:${diffCor}">${diffTxt}</strong>
         </div>` : ''}
       </div>
       ${motivoBox}

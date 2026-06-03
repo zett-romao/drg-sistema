@@ -14294,6 +14294,10 @@ function _fmtDtBr(ymd){
 
 // Render principal da aba "Horários/Escalas" — chamada pelo loadEmployee
 function renderHorariosTab(empId){
+  // Permissão dedicada: esconde os botões de folga/dia avulso/troca-mudança de escala
+  // pra quem não tem `gerirFolgasEscala` (as funções também têm guarda). #folga-avulsa
+  const _podeFE = _podeGerirFolgasEscala();
+  document.querySelectorAll('.js-gerir-folga-escala').forEach(b=>{ b.style.display = _podeFE ? '' : 'none'; });
   // Preview do horario padrao do cadastro
   const prev = document.getElementById('hor-padrao-preview');
   if(prev){
@@ -14388,6 +14392,7 @@ function renderHorariosTab(empId){
 
 // ── Periodo de escala — abrir/editar/salvar/remover ──────────────────────
 function abrirNovoPeriodoEscala(){
+  if(!_podeGerirFolgasEscala()){ toast('Seu perfil não tem permissão para incluir folgas / dia avulso / troca de escala.','error'); return; }
   const empId = val('emp-id');
   if(!empId){ toast('Salve o colaborador primeiro.','warning'); return; }
   setVal('per-esc-id','');
@@ -14476,6 +14481,7 @@ async function removerPeriodoEscala(periodoId){
 
 // ── Override por dia — abrir/editar/salvar/remover ───────────────────────
 function abrirNovoOverrideEscala(){
+  if(!_podeGerirFolgasEscala()){ toast('Seu perfil não tem permissão para incluir folgas / dia avulso / troca de escala.','error'); return; }
   const empId = val('emp-id');
   if(!empId){ toast('Salve o colaborador primeiro.','warning'); return; }
   setVal('ovr-esc-id','');
@@ -14505,6 +14511,7 @@ function _ovrEscTipoChange(){
 
 // Atalho: abre o modal de dia avulso JÁ como FOLGA (com o checkbox de remunerada visível). #folga-avulsa
 function abrirNovaFolga(){
+  if(!_podeGerirFolgasEscala()){ toast('Seu perfil não tem permissão para incluir folgas / dia avulso / troca de escala.','error'); return; }
   const empId = val('emp-id');
   if(!empId){ toast('Salve o colaborador primeiro.','warning'); return; }
   setVal('ovr-esc-id','');
@@ -14616,6 +14623,7 @@ function _horarioPlantaoDia(emp, dateStr){
 }
 
 function abrirTrocaPlantao(empIdPre){
+  if(!_podeGerirFolgasEscala()){ toast('Seu perfil não tem permissão para incluir folgas / dia avulso / troca de escala.','error'); return; }
   const ativos = (State.employees||[]).filter(e=>(e.status||'ativo')==='ativo')
     .sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
   const opts = ativos.map(e=>`<option value="${e.id}">${e.nome}${e.registro?` (${String(e.registro).padStart(4,'0')})`:''}</option>`).join('');
@@ -25660,13 +25668,14 @@ const MODULOS_LABELS={
   comunicacoesApagar: 'Apagar Mensagens (Comunicações)',
   disciplinaApagar:   'Anular Atos Disciplinares (Disciplina)',
   autorizarPonto:     'Autorizar Batidas Fora do Horário (Supervisor)',
-  monitorarFaltas:    'Monitorar Faltas (quem não bateu entrada)'
+  monitorarFaltas:    'Monitorar Faltas (quem não bateu entrada)',
+  gerirFolgasEscala:  'Folgas / Dia avulso / Troca e mudança de escala'
 };
 
 // Retorna os módulos permitidos para o usuário
 function getUserModules(user){
   if(!user) return {};
-  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,escalas:true,criarEscalas:true,aprovaHE:true,reports:true,pagamentos:true,pagamentosLancar:true,pagamentosAprovar:true,decimoterceiro:true,ferias:true,rescisao:true,contabilidade:true,postos:true,contratos:true,users:true,log:true,comunicacao:true,comunicacoesApagar:true,disciplinaApagar:true,autorizarPonto:true,monitorarFaltas:true,revisarContrato:true};
+  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,escalas:true,criarEscalas:true,aprovaHE:true,reports:true,pagamentos:true,pagamentosLancar:true,pagamentosAprovar:true,decimoterceiro:true,ferias:true,rescisao:true,contabilidade:true,postos:true,contratos:true,users:true,log:true,comunicacao:true,comunicacoesApagar:true,disciplinaApagar:true,autorizarPonto:true,monitorarFaltas:true,revisarContrato:true,gerirFolgasEscala:true};
   if(user.role==='operador') return {dashboard:true,employees:false,payroll:true,escalas:true,criarEscalas:false,aprovaHE:false,reports:true,pagamentos:true,pagamentosLancar:false,pagamentosAprovar:false,decimoterceiro:true,ferias:true,rescisao:false,contabilidade:true,postos:false,contratos:false,users:false,log:!!user.showLog};
   if(user.role&&user.role.startsWith('p_')){
     const perfilId=user.role.replace('p_','');
@@ -25708,6 +25717,15 @@ function canEditModule(mod){
   if(u.role==='master') return true;
   if(!CRUD_MODULES.includes(mod)) return true;
   return getUserPerms(u)[mod]!=='view';
+}
+
+// true se o usuário pode incluir FOLGAS, dia avulso (override) e troca/mudança de
+// escala no cadastro. Permissão dedicada `gerirFolgasEscala` (master sempre pode). #folga-avulsa
+function _podeGerirFolgasEscala(){
+  const u=Auth.currentUser;
+  if(!u) return false;
+  if(u.role==='master') return true;
+  return !!getUserModules(u).gerirFolgasEscala;
 }
 
 // true se o usuário pode gerir perfis de acesso: master, ou perfil com o módulo

@@ -3474,7 +3474,7 @@
               <strong style="font-size:14px;color:var(--text)"><i class="fa-solid fa-calendar-range" style="color:#1976D2"></i> Períodos de mudança</strong>
               <div style="font-size:11px;color:#888;margin-top:2px">Para mudanças que duram dias seguidos (ex: trocou de turno por 1 semana).</div>
             </div>
-            <button type="button" class="btn btn-sm btn-primary" onclick="abrirNovoPeriodoEscala()" style="font-size:12px"><i class="fa-solid fa-plus"></i> Novo período</button>
+            <button type="button" class="btn btn-sm btn-primary js-gerir-folga-escala" onclick="abrirNovoPeriodoEscala()" style="font-size:12px"><i class="fa-solid fa-plus"></i> Novo período</button>
           </div>
           <div id="hor-periodos-list">
             <div class="empty-state small"><i class="fa-solid fa-calendar"></i><p>Salve o colaborador para cadastrar períodos</p></div>
@@ -3489,9 +3489,9 @@
               <div style="font-size:11px;color:#888;margin-top:2px">Para um único dia (ex.: plantão noturno excepcional). Tem prioridade sobre o período.</div>
             </div>
             <div style="display:flex;gap:6px;flex-wrap:wrap">
-              <button type="button" class="btn btn-sm" style="font-size:12px;background:#1B5E20;color:#fff;border-color:#1B5E20" onclick="abrirNovaFolga()"><i class="fa-solid fa-mug-hot"></i> Adicionar folga</button>
-              <button type="button" class="btn btn-sm" style="font-size:12px;background:#6D28D9;color:#fff;border-color:#6D28D9" onclick="abrirTrocaPlantao()"><i class="fa-solid fa-right-left"></i> Troca de plantão</button>
-              <button type="button" class="btn btn-sm" style="font-size:12px;background:#E65100;color:#fff;border-color:#E65100" onclick="abrirNovoOverrideEscala()"><i class="fa-solid fa-plus"></i> Novo dia avulso</button>
+              <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;background:#1B5E20;color:#fff;border-color:#1B5E20" onclick="abrirNovaFolga()"><i class="fa-solid fa-mug-hot"></i> Adicionar folga</button>
+              <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;background:#6D28D9;color:#fff;border-color:#6D28D9" onclick="abrirTrocaPlantao()"><i class="fa-solid fa-right-left"></i> Troca de plantão</button>
+              <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;background:#E65100;color:#fff;border-color:#E65100" onclick="abrirNovoOverrideEscala()"><i class="fa-solid fa-plus"></i> Novo dia avulso</button>
             </div>
           </div>
           <div id="hor-overrides-list">
@@ -5818,6 +5818,7 @@
           <label class="checkbox-label"><input type="checkbox" name="mod" value="disciplinaApagar"> <span><i class="fa-solid fa-gavel" style="width:14px;color:#7e22ce"></i> Anular Atos Disciplinares</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="autorizarPonto"> <span><i class="fa-solid fa-user-shield" style="width:14px;color:#1976D2"></i> Autorizar Batidas Fora do Horário (Supervisor)</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="monitorarFaltas"> <span><i class="fa-solid fa-user-clock" style="width:14px;color:#dc2626"></i> Monitorar Faltas (quem não bateu entrada)</span></label>
+          <label class="checkbox-label"><input type="checkbox" name="mod" value="gerirFolgasEscala"> <span><i class="fa-solid fa-mug-hot" style="width:14px;color:#1B5E20"></i> Folgas / Dia avulso / Troca e mudança de escala</span></label>
         </div>
       </div>
     </div>
@@ -6525,6 +6526,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260603an-folga-pagto"></script>
+  <script src="app.js?v=20260603ao-perm-folga"></script>
 </body>
 </html>

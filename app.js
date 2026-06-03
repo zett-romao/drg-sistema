@@ -4239,10 +4239,10 @@ function _apuracaoPontoTotais(emp, p){
     const _emFerias=_emFeriasNoDia(emp, `${cd.ano}-${String(cd.mes).padStart(2,'0')}-${String(d).padStart(2,'0')}`);
     const ehFolga=_emFerias||!exp||exp.tipo==='folga'||!exp.entrada;
     let prevMin=0, contratualIntMin=0;
-    if(!ehFolga){ let mbE=timeToMinutes(exp.saida)-timeToMinutes(exp.entrada); if(mbE<=0)mbE+=24*60; contratualIntMin=_calcIntervaloMin(exp.intIni,exp.intFim,exp.entrada,exp.saida); if(emp.semRefeicao&&contratualIntMin===0&&mbE>360)contratualIntMin=60; prevMin=Math.max(0,mbE-contratualIntMin); }
+    if(!ehFolga){ let mbE=timeToMinutes(exp.saida)-timeToMinutes(exp.entrada); if(mbE<=0)mbE+=24*60; contratualIntMin=_calcIntervaloMin(exp.intIni,exp.intFim,exp.entrada,exp.saida); if((emp.semRefeicao||is12x36)&&contratualIntMin===0&&mbE>360)contratualIntMin=60; prevMin=Math.max(0,mbE-contratualIntMin); }
     if(!ehFolga) diasPrevistosCnt++;
     const temBatida=!!(entrada&&saida);
-    if(!ehFolga&&temBatida){ const delta=minLiq-prevMin; if(Math.abs(delta)>HE_TOLERANCIA_DIA_MIN){ if(delta>0)out.extraMin+=delta; else out.atrasoMin+=-delta; } out.naoRendMin+=Math.max(0,contratualIntMin-_calcIntervaloMin(intIni,intFim,entrada,saida)); }
+    if(!ehFolga&&temBatida){ const _ir=_calcIntervaloMin(intIni,intFim,entrada,saida); const delta=is12x36?((minLiq+_ir)-(prevMin+contratualIntMin)):(minLiq-prevMin); if(Math.abs(delta)>HE_TOLERANCIA_DIA_MIN){ if(delta>0)out.extraMin+=delta; else out.atrasoMin+=-delta; } out.naoRendMin+=Math.max(0,contratualIntMin-_ir); }
     else if(!ehFolga&&!temBatida&&temPonto&&_diaEmBrancoEhFalta(emp,cd.mes,cd.ano,d,isWknd,is12x36)){ out.faltaMin+=prevMin; out.faltaQtd++; }
     out.trabMin+=(minLiq>0?minLiq:0); out.prevMin+=prevMin;
   }
@@ -21088,6 +21088,17 @@ function _liqMin(d){
   return Math.max(0, mb - mi);
 }
 
+// Minutos de PRESENÇA de um dia (entrada→saída, SEM descontar intervalo). Em plantão
+// 12x36 o atraso é medido pela presença (jornada cumprida), não pelo líquido: a
+// refeição de 60min é descanso dentro da jornada (sem horário fixo de bater) e fazer
+// os 60min NÃO pode virar atraso. Refeição a menos vira "ref. não rendida". #plantao-refeicao
+function _presencaMin(d){
+  if(!d || !d.entrada || !d.saida) return 0;
+  let mb = timeToMinutes(d.saida) - timeToMinutes(d.entrada);
+  if(mb <= 0) mb += 24*60;
+  return Math.max(0, mb);
+}
+
 // Helper: calcula minutos de intervalo, tratando intervalo cross-midnight
 // (ex: intIni 23:30, intFim 00:30 num turno noturno → 60min, antes retornava 0)
 // Só aplica +24h se o turno também cruza meia-noite (evita inflar HE em typos diurnos)
@@ -21520,9 +21531,11 @@ function calcResumoManual(){
       } else {
         // Baseline da HE = jornada esperada do próprio colaborador no dia.
         totalHEmin += _heMinDia(realDay, expectedDay, minContratados);
-        // Atraso automático: déficit do dia (trabalhou menos que o previsto), além da tolerância CLT (10min)
+        // Atraso automático: déficit do dia (trabalhou menos que o previsto), além da tolerância CLT (10min).
+        // Plantão 12x36: jornada sem horário fixo, com 60min de refeição DENTRO → atraso pela PRESENÇA
+        // (jornada cumprida), não pelo líquido, senão fazer o almoço viraria atraso. #plantao-refeicao
         if(expectedDay && expectedDay.tipo!=='folga' && expectedDay.entrada && expectedDay.saida){
-          const faltaDia=_liqMin(expectedDay)-effLiq;
+          const faltaDia = is12x36 ? (_presencaMin(expectedDay)-_presencaMin(realDay)) : (_liqMin(expectedDay)-effLiq);
           if(faltaDia>HE_TOLERANCIA_DIA_MIN) totalAtrasoMin+=faltaDia;
         }
         const detec=_detectHEDivergencia(realDay,expectedDay);
@@ -22149,9 +22162,11 @@ async function applyPontoManual(){
       // Baseline da HE = jornada esperada do próprio colaborador no dia
       // (horário contratual / escala), não um mínimo fixo da família.
       totalHEmin += _heMinDia(realDay, expectedDay, minContratados);
-      // Atraso automático: déficit do dia além da tolerância CLT (10min)
+      // Atraso automático: déficit do dia além da tolerância CLT (10min). Plantão 12x36:
+      // jornada sem horário fixo, com 60min de refeição DENTRO → atraso pela PRESENÇA
+      // (jornada cumprida), não pelo líquido, senão fazer o almoço viraria atraso. #plantao-refeicao
       if(expectedDay && expectedDay.tipo!=='folga' && expectedDay.entrada && expectedDay.saida){
-        const faltaDia=_liqMin(expectedDay)-effLiq;
+        const faltaDia = is12x36 ? (_presencaMin(expectedDay)-_presencaMin(realDay)) : (_liqMin(expectedDay)-effLiq);
         if(faltaDia>HE_TOLERANCIA_DIA_MIN){
           totalAtrasoMin+=faltaDia;
           atrasosDoPonto.push({dia, minutos:Math.round(faltaDia)});
@@ -22490,15 +22505,17 @@ function printFolhaPonto(isPreview=false){
       let mbE = timeToMinutes(exp.saida)-timeToMinutes(exp.entrada);
       if(mbE<=0) mbE+=24*60;
       contratualIntMin = _calcIntervaloMin(exp.intIni, exp.intFim, exp.entrada, exp.saida);
-      if(emp.semRefeicao && contratualIntMin===0 && mbE>360) contratualIntMin = 60;
+      if((emp.semRefeicao || is12x36) && contratualIntMin===0 && mbE>360) contratualIntMin = 60;   // 12x36: plantão tem 60min de refeição legal dentro da jornada #plantao-refeicao
       prevMin = Math.max(0, mbE - contratualIntMin);
     }
     const temBatida = !!(entrada&&saida);
     let atrasoMin=0, extraMin=0, faltaMin=0, naoRendMin=0;
     if(!ehFolga && temBatida){
-      const delta = minLiq - prevMin;
-      if(Math.abs(delta) > HE_TOLERANCIA_DIA_MIN){ if(delta>0) extraMin=delta; else atrasoMin=-delta; }   // tolerância CLT 10min/dia (Art. 58 §1 / Súmula 366)
       const realIntMin = _calcIntervaloMin(intIni,intFim,entrada,saida);
+      // Plantão 12x36: jornada sem horário fixo, com 60min de refeição DENTRO → atraso/HE
+      // pela PRESENÇA (jornada cumprida), não pelo líquido, senão fazer o almoço viraria atraso. #plantao-refeicao
+      const delta = is12x36 ? ((minLiq+realIntMin)-(prevMin+contratualIntMin)) : (minLiq - prevMin);
+      if(Math.abs(delta) > HE_TOLERANCIA_DIA_MIN){ if(delta>0) extraMin=delta; else atrasoMin=-delta; }   // tolerância CLT 10min/dia (Art. 58 §1 / Súmula 366)
       naoRendMin = Math.max(0, contratualIntMin - realIntMin);
     } else if(!ehFolga && !temBatida && _diaEmBrancoEhFalta(emp,cd.mes,cd.ano,d,isWknd,is12x36)){
       faltaMin = prevMin; totFaltaQtd++;
@@ -22857,7 +22874,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
       if(mbE<=0) mbE+=24*60;
       contratualIntMin = _calcIntervaloMin(exp.intIni, exp.intFim, exp.entrada, exp.saida);
       // Trabalha sozinho não tem intervalo no contrato → usa o intervalo LEGAL (1h p/ jornada > 6h)
-      if(emp.semRefeicao && contratualIntMin===0 && mbE>360) contratualIntMin = 60;
+      if((emp.semRefeicao || is12x36) && contratualIntMin===0 && mbE>360) contratualIntMin = 60;   // 12x36: plantão tem 60min de refeição legal dentro da jornada #plantao-refeicao
       prevMin = Math.max(0, mbE - contratualIntMin);
     }
     const temBatida = !!(entrada&&saida);

@@ -20660,6 +20660,17 @@ function _getExpectedDay(emp, mes, ano, dia, ignoreAdmissao){
   const fam = escalaFamilia(lot.escala||'5x2A');
   // 12x36 sem escala salva → projeta pela âncora do ciclo informada no cadastro
   if(fam==='12x36'){
+    // Rede de segurança anti-FANTASMA: se o 12x36 foi adotado no meio do contrato
+    // direto no cadastro (SEM segmento de transferência), os dias ANTES do início
+    // informado (`ciclo12x36Inicio`) não eram 12x36 → folga (não viram falta/HE).
+    // Com segmento de lotação, o trecho anterior já usa a escala antiga (não cai aqui).
+    // O jeito certo é registrar a mudança via "Registrar mudança de lotação". #fix-12x36-fantasma
+    const _temSeg = Array.isArray(emp.historicoLotacao) && emp.historicoLotacao.some(h=>h&&h.dataInicio);
+    if(!_temSeg && emp.ciclo12x36Inicio){
+      const _dIni=new Date(emp.ciclo12x36Inicio+'T00:00:00');
+      if(!isNaN(_dIni.getTime()) && new Date(ano,mes-1,dia) < _dIni)
+        return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
+    }
     const ehTrab = _ciclo12x36EhTrabalho(emp, ano, mes, dia);
     if(ehTrab === false) return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
     if(ehTrab === true){
@@ -21170,6 +21181,14 @@ function _diaEmBrancoEhFalta(emp, mes, ano, dia, isWeekend, is12x36){
     const _exp = _getExpectedDay(emp, mes, ano, dia, true);
     deveriaTrabalhar = !!(_exp && _exp.tipo!=='folga' && _exp.entrada);
   } else if(_is12x36Dia){
+    // Rede de segurança anti-FANTASMA (mesma do _getExpectedDay): 12x36 adotado no
+    // meio do contrato SEM segmento de transferência → dia antes do início informado
+    // NÃO é falta (a pessoa ainda não estava nesta escala). #fix-12x36-fantasma
+    const _temSeg = Array.isArray(emp.historicoLotacao) && emp.historicoLotacao.some(h=>h&&h.dataInicio);
+    if(!_temSeg && emp.ciclo12x36Inicio){
+      const _dIni=new Date(emp.ciclo12x36Inicio+'T00:00:00');
+      if(!isNaN(_dIni.getTime()) && new Date(ano,mes-1,dia) < _dIni) return false;
+    }
     // 12x36 sem escala salva → usa a âncora do ciclo informada no cadastro
     deveriaTrabalhar = (_ciclo12x36EhTrabalho(emp, ano, mes, dia) === true);
   } else if(_escDia.startsWith('6x1ALT') || _escDia==='6x1B'){

@@ -3490,6 +3490,7 @@
             </div>
             <div style="display:flex;gap:6px;flex-wrap:wrap">
               <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;background:#1B5E20;color:#fff;border-color:#1B5E20" onclick="abrirNovaFolga()"><i class="fa-solid fa-mug-hot"></i> Adicionar folga</button>
+              <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;background:#00897B;color:#fff;border-color:#00897B" onclick="abrirCompensacaoSolo()" title="Ela trocou de dia só ela mesma: não veio num dia (vira folga paga) e trabalhou em outro (vira dia de trabalho). Sem falta nem hora extra."><i class="fa-solid fa-arrow-right-arrow-left"></i> Compensação solo</button>
               <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;background:#6D28D9;color:#fff;border-color:#6D28D9" onclick="abrirTrocaPlantao()"><i class="fa-solid fa-right-left"></i> Troca de plantão</button>
               <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;background:#E65100;color:#fff;border-color:#E65100" onclick="abrirNovoOverrideEscala()"><i class="fa-solid fa-plus"></i> Novo dia avulso</button>
             </div>
@@ -6360,6 +6361,50 @@
   </div>
 </div>
 
+<!-- ===== MODAL: COMPENSAÇÃO SOLO (deslocar dia) ===== -->
+<div class="modal-overlay hidden" id="modal-compensacao-solo" onclick="closeModal('modal-compensacao-solo', event)">
+  <div class="modal-dialog">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-arrow-right-arrow-left" style="color:#00897B"></i> Compensação solo (deslocar dia)</h3>
+      <button class="modal-close" onclick="closeModal('modal-compensacao-solo')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="info-banner" style="background:#E0F2F1;border-color:#80CBC4;color:#00695C;margin-bottom:12px">
+        <i class="fa-solid fa-circle-info"></i> Ela remanejou o próprio dia (autorizado): <strong>não veio num dia</strong> (vira <strong>folga paga</strong>, sem falta/desconto) e <strong>trabalhou em outro</strong> (vira <strong>dia de trabalho</strong>, sem hora extra). Net zero.
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Dia que NÃO veio <span class="required">*</span><br><small style="color:#888;font-weight:400">→ vira folga paga</small></label>
+          <input type="date" id="comp-solo-folga-data">
+        </div>
+        <div class="form-group">
+          <label>Dia que TRABALHOU no lugar <span class="required">*</span><br><small style="color:#888;font-weight:400">→ vira dia de trabalho</small></label>
+          <input type="date" id="comp-solo-trab-data">
+        </div>
+      </div>
+      <div style="font-size:12px;font-weight:600;color:#00695C;margin:6px 0 4px"><i class="fa-solid fa-clock"></i> Horário do dia trabalhado</div>
+      <div class="form-row">
+        <div class="form-group"><label>Entrada</label><input type="time" id="comp-solo-entrada"></div>
+        <div class="form-group"><label>Saída</label><input type="time" id="comp-solo-saida"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Início refeição</label><input type="time" id="comp-solo-ref-ini"></div>
+        <div class="form-group"><label>Retorno refeição</label><input type="time" id="comp-solo-ref-fim"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="grid-column:1 / -1">
+          <label>Motivo / observação</label>
+          <input type="text" id="comp-solo-obs" maxlength="200" placeholder="Ex.: Autorizado pela síndica — troca de dia">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-compensacao-solo')">Cancelar</button>
+      <button class="btn btn-primary" style="background:#00897B;border-color:#00897B" onclick="salvarCompensacaoSolo()"><i class="fa-solid fa-floppy-disk"></i> Lançar compensação</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== MODAL RUBRICA ===== -->
 <div class="modal-overlay hidden" id="modal-rubrica" onclick="closeModal('modal-rubrica', event)">
   <div class="modal-dialog">
@@ -6526,6 +6571,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260603ao-perm-folga"></script>
+  <script src="app.js?v=20260603ap-comp-solo"></script>
 </body>
 </html>

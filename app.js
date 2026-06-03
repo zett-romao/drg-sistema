@@ -14371,6 +14371,7 @@ function renderHorariosTab(empId){
               <span style="background:${ehFolga?'#7e22ce':'#E65100'};color:#fff;padding:1px 8px;border-radius:9px;font-size:10px;font-weight:700;margin-left:6px">${ehFolga?'FOLGA':'HORÁRIO DIFERENTE'}</span>
               ${ehFolga ? `<span style="background:${o.remunerada?'#1B5E20':'#90a4ae'};color:#fff;padding:1px 8px;border-radius:9px;font-size:10px;font-weight:700;margin-left:4px">${o.remunerada?'💰 REMUNERADA':'NÃO REMUNERADA (desconta o dia)'}</span>` : ''}
               ${ehFolga && o.pagaBeneficios ? `<span style="background:#1565C0;color:#fff;padding:1px 8px;border-radius:9px;font-size:10px;font-weight:700;margin-left:4px">🎫 c/ benefícios</span>` : ''}
+              ${o.compensacaoSolo ? `<span style="background:#00897B;color:#fff;padding:1px 8px;border-radius:9px;font-size:10px;font-weight:700;margin-left:4px">↔ compensação</span>` : ''}
             </div>
             ${!ehFolga ? `<div style="font-size:11px;color:#64748b;margin-top:3px">
               <strong>Entrada:</strong> ${o.horarioEntrada||'—'} ·
@@ -14480,6 +14481,67 @@ async function removerPeriodoEscala(periodoId){
 }
 
 // ── Override por dia — abrir/editar/salvar/remover ───────────────────────
+// ── Compensação solo (deslocar dia) — pareia 1 folga paga + 1 dia de trabalho ──
+// Ela trocou de dia só ela mesma (autorizado): não veio num dia → folga remunerada
+// (sem falta/desconto); trabalhou em outro → override de trabalho (sem HE). Net zero. #folga-avulsa
+function abrirCompensacaoSolo(){
+  if(!_podeGerirFolgasEscala()){ toast('Seu perfil não tem permissão para incluir folgas / dia avulso / troca de escala.','error'); return; }
+  const empId = val('emp-id');
+  if(!empId){ toast('Salve o colaborador primeiro.','warning'); return; }
+  setVal('comp-solo-folga-data','');
+  setVal('comp-solo-trab-data','');
+  // Pré-preenche o horário do plantão a partir do cadastro
+  setVal('comp-solo-entrada', val('emp-horario-entrada')||'');
+  setVal('comp-solo-saida',   val('emp-horario-saida')||'');
+  setVal('comp-solo-ref-ini', val('emp-horario-ref-ini')||'');
+  setVal('comp-solo-ref-fim', val('emp-horario-ref-fim')||'');
+  setVal('comp-solo-obs','');
+  document.getElementById('modal-compensacao-solo').classList.remove('hidden');
+}
+
+async function salvarCompensacaoSolo(){
+  if(!_podeGerirFolgasEscala()){ toast('Sem permissão.','error'); return; }
+  const empId = val('emp-id');
+  const emp = State.employees.find(e=>e.id===empId);
+  if(!emp){ toast('Colaborador não encontrado.','error'); return; }
+  const dFolga = val('comp-solo-folga-data');
+  const dTrab  = val('comp-solo-trab-data');
+  if(!dFolga || !dTrab){ toast('Informe os dois dias (o que não veio e o que trabalhou).','warning'); return; }
+  if(dFolga===dTrab){ toast('Os dois dias precisam ser diferentes.','warning'); return; }
+  const ent = val('comp-solo-entrada'), sai = val('comp-solo-saida');
+  if(!ent || !sai){ toast('Informe entrada e saída do dia trabalhado.','warning'); return; }
+  const obs = (val('comp-solo-obs')||'').trim();
+  const quem = (Auth.currentUser && (Auth.currentUser.username||Auth.currentUser.id))||'—';
+  const nowISO = new Date().toISOString();
+  const parId = genId();
+  // Substitui qualquer override que já exista nessas duas datas (evita duplicidade).
+  emp.overridesHorario = (emp.overridesHorario||[]).filter(o => o && o.data!==dFolga && o.data!==dTrab);
+  // 1) Dia que NÃO veio → folga REMUNERADA (sem falta, sem desconto, sem benefício do dia)
+  emp.overridesHorario.push({
+    id: genId(), data: dFolga, tipo: 'folga', remunerada: true, pagaBeneficios: false,
+    horarioEntrada:'', horarioSaida:'', horarioRefIni:'', horarioRefFim:'',
+    compensacaoSolo: parId,
+    observacao: (obs?obs+' — ':'') + `Compensação solo: trabalhou ${_fmtDtBr(dTrab)} no lugar`,
+    criadoEm: nowISO, criadoPorNome: quem, updatedAt: nowISO,
+  });
+  // 2) Dia que TRABALHOU → dia de trabalho (horário diferente) → batida casa, sem HE
+  emp.overridesHorario.push({
+    id: genId(), data: dTrab, tipo: 'diferente',
+    horarioEntrada: ent, horarioSaida: sai,
+    horarioRefIni: val('comp-solo-ref-ini')||'', horarioRefFim: val('comp-solo-ref-fim')||'',
+    compensacaoSolo: parId,
+    observacao: (obs?obs+' — ':'') + `Compensação solo: folga em ${_fmtDtBr(dFolga)}`,
+    criadoEm: nowISO, criadoPorNome: quem, updatedAt: nowISO,
+  });
+  try{
+    await DB.merge('employees', emp.id, { overridesHorario: emp.overridesHorario, updatedAt: nowISO });
+    try{ Auth.log('COMP_SOLO', null, `${emp.nome} | folga ${dFolga} ↔ trabalho ${dTrab}`); }catch(_){}
+    closeModal('modal-compensacao-solo');
+    toast(`Compensação lançada: folga paga em ${_fmtDtBr(dFolga)} + trabalho em ${_fmtDtBr(dTrab)} (sem falta nem HE).`,'success');
+    renderHorariosTab(emp.id);
+  }catch(e){ toast('Erro ao salvar: '+(e.message||e),'error'); }
+}
+
 function abrirNovoOverrideEscala(){
   if(!_podeGerirFolgasEscala()){ toast('Seu perfil não tem permissão para incluir folgas / dia avulso / troca de escala.','error'); return; }
   const empId = val('emp-id');

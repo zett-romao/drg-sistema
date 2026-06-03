@@ -14344,6 +14344,7 @@ function renderHorariosTab(empId){
           <div style="flex:1;min-width:0">
             <div style="font-size:13px;font-weight:600;color:var(--text)">${_fmtDtBr(o.data)}
               <span style="background:${ehFolga?'#7e22ce':'#E65100'};color:#fff;padding:1px 8px;border-radius:9px;font-size:10px;font-weight:700;margin-left:6px">${ehFolga?'FOLGA':'HORÁRIO DIFERENTE'}</span>
+              ${ehFolga ? `<span style="background:${o.remunerada?'#1B5E20':'#90a4ae'};color:#fff;padding:1px 8px;border-radius:9px;font-size:10px;font-weight:700;margin-left:4px">${o.remunerada?'💰 REMUNERADA':'NÃO REMUNERADA'}</span>` : ''}
             </div>
             ${!ehFolga ? `<div style="font-size:11px;color:#64748b;margin-top:3px">
               <strong>Entrada:</strong> ${o.horarioEntrada||'—'} ·
@@ -14463,6 +14464,7 @@ function abrirNovoOverrideEscala(){
   setVal('ovr-esc-ref-ini','');
   setVal('ovr-esc-ref-fim','');
   setVal('ovr-esc-obs','');
+  const _rem = document.getElementById('ovr-esc-remunerada'); if(_rem) _rem.checked = false;
   _ovrEscTipoChange();
   document.getElementById('modal-override-escala').classList.remove('hidden');
   // Hook do change para mostrar/esconder campos de horario quando vira folga
@@ -14473,6 +14475,25 @@ function _ovrEscTipoChange(){
   const tipo = val('ovr-esc-tipo');
   const campos = document.getElementById('ovr-esc-campos-horario');
   if(campos) campos.style.display = (tipo==='folga') ? 'none' : '';
+  // Checkbox "folga remunerada" só faz sentido quando o tipo é folga. #folga-avulsa
+  const remWrap = document.getElementById('ovr-esc-remunerada-wrap');
+  if(remWrap) remWrap.style.display = (tipo==='folga') ? '' : 'none';
+}
+
+// Atalho: abre o modal de dia avulso JÁ como FOLGA (com o checkbox de remunerada visível). #folga-avulsa
+function abrirNovaFolga(){
+  const empId = val('emp-id');
+  if(!empId){ toast('Salve o colaborador primeiro.','warning'); return; }
+  setVal('ovr-esc-id','');
+  setVal('ovr-esc-data','');
+  setVal('ovr-esc-tipo','folga');
+  setVal('ovr-esc-entrada',''); setVal('ovr-esc-saida','');
+  setVal('ovr-esc-ref-ini',''); setVal('ovr-esc-ref-fim','');
+  setVal('ovr-esc-obs','');
+  const rem = document.getElementById('ovr-esc-remunerada'); if(rem) rem.checked = false;
+  _ovrEscTipoChange();
+  document.getElementById('modal-override-escala').classList.remove('hidden');
+  document.getElementById('ovr-esc-tipo').onchange = _ovrEscTipoChange;
 }
 
 function editarOverrideEscala(overrideId){
@@ -14489,6 +14510,7 @@ function editarOverrideEscala(overrideId){
   setVal('ovr-esc-ref-ini', o.horarioRefIni||'');
   setVal('ovr-esc-ref-fim', o.horarioRefFim||'');
   setVal('ovr-esc-obs', o.observacao||'');
+  const _remE = document.getElementById('ovr-esc-remunerada'); if(_remE) _remE.checked = !!o.remunerada;
   _ovrEscTipoChange();
   document.getElementById('modal-override-escala').classList.remove('hidden');
   document.getElementById('ovr-esc-tipo').onchange = _ovrEscTipoChange;
@@ -14515,6 +14537,7 @@ async function salvarOverrideEscala(){
     horarioRefIni:   tipo==='folga' ? '' : (val('ovr-esc-ref-ini')||''),
     horarioRefFim:   tipo==='folga' ? '' : (val('ovr-esc-ref-fim')||''),
     horarioSaida:    tipo==='folga' ? '' : (val('ovr-esc-saida')||''),
+    remunerada:      tipo==='folga' ? !!document.getElementById('ovr-esc-remunerada')?.checked : false,   // folga paga o dia (vs só não-falta). #folga-avulsa
     observacao:      val('ovr-esc-obs')||'',
     criadoEm:        ja ? ja.criadoEm : new Date().toISOString(),
     criadoPorNome:   ja ? ja.criadoPorNome : quem,

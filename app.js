@@ -9959,6 +9959,32 @@ function _diasUteisMes(mes, ano){
   return n;
 }
 
+// Nº de SEMANAS (seg→dom) com pelo menos 1 falta INJUSTIFICADA no mês — base do
+// DSR perdido (Lei 605/49: falta injustificada na semana → perde o repouso da
+// semana). Detecta os dias de falta pelo ponto (dia que deveria trabalhar, sem
+// batida, sem atestado/férias — _diaEmBrancoEhFalta) e agrupa por semana. Vale
+// p/ TODAS as escalas (inclusive 12x36, onde o DSR é embutido mas a falta o
+// desconta). Fallback: faltas lançadas à mão sem ponto → 1 DSR por falta. #fix-dsr-falta
+function _dsrSemanasComFalta(emp, mes, ano, pontoDias, faltasInjustCount){
+  if(!emp || !(faltasInjustCount>0)) return 0;
+  const is12 = escalaFamilia(emp.escala||'5x2A')==='12x36';
+  const semanas = new Set();
+  let detectadas = 0;
+  for(const cd of _compDias(mes, ano)){
+    const pd = (pontoDias||[]).find(x=>x.dia===cd.dia);
+    if(pd && (pd.entrada || pd.saida)) continue;   // tem batida → não é falta
+    const isWknd = cd.diaSem===0 || cd.diaSem===6;
+    if(_diaEmBrancoEhFalta(emp, cd.mes, cd.ano, cd.dia, isWknd, is12)){
+      detectadas++;
+      const d = new Date(cd.ano, cd.mes-1, cd.dia);
+      const seg = new Date(d); seg.setDate(d.getDate() - ((d.getDay()+6)%7));  // segunda da semana
+      semanas.add(`${seg.getFullYear()}-${seg.getMonth()}-${seg.getDate()}`);
+    }
+  }
+  if(detectadas===0) return faltasInjustCount;   // faltas manuais sem ponto: estrito = 1 DSR por falta
+  return semanas.size;
+}
+
 // Flag global: true só durante o ato de FECHAR a folha (fecharFolhaIndividual).
 // Libera a apuração da bonificação no `recalculate` no momento do fechamento,
 // pra ela ser computada e persistida antes de a folha virar 'fechada'.
@@ -10068,7 +10094,18 @@ function recalculate(){
   let remuneracaoProp;
   if(isentoPonto) remuneracaoProp = salBase;
   else if(_multiSeg) remuneracaoProp = _segs.reduce((s,x)=> s + (x.lot.salarioBase||0)*(x.diasPagos/diasPrevistos), 0);
-  else remuneracaoProp = (diasPrevistos>0) ? salBase*(diasPagos/diasPrevistos) : 0;
+  else if(diasPrevistos>0){
+    // MODELO ESTRITO de falta injustificada (Lei 605/49, decisão do usuário 2026-06-03):
+    // paga os dias EMPREGADOS no mês (admissão/desligamento seguem proporcionais) e
+    // desconta cada falta injustificada como DIA (salário÷30) + DSR da semana (salário÷30).
+    // remuneração mantém o sentido de "salário líquido já descontado" → recibo/INSS/IRRF/
+    // folha continuam corretos sem alteração (descFaltas = salBase − remuneração). #fix-dsr-falta
+    const diasEmpregado = Math.min(diasPrevistos, diasPagos + faltasInjust);
+    const baseEmpregado = salBase*(diasEmpregado/diasPrevistos);
+    const valorDiaDSR   = salBase/30;
+    const dsrSemanas    = _dsrSemanasComFalta(emp, _mesR, _anoR, _pontoDiasR, faltasInjust);
+    remuneracaoProp = baseEmpregado - faltasInjust*valorDiaDSR - dsrSemanas*valorDiaDSR;
+  } else remuneracaoProp = 0;
   const remuneracaoBase = Math.max(0, remuneracaoProp);
   if(salBase>0){
     setVal('payroll-remuneracao', remuneracaoBase.toFixed(2));

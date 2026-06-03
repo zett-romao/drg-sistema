@@ -4325,6 +4325,13 @@ function renderContabilidade(){
   const folhaMap={};
   folhasMes.forEach(p=>{ folhaMap[p.employeeId]=p; });
 
+  // Filtro "Somente competências fechadas": mostra só quem tem folha FECHADA nesta competência. #planilha-contador
+  const soFechadas=document.getElementById('cont-so-fechadas')?.checked;
+  if(soFechadas){
+    emps=emps.filter(e=>{ const p=folhaMap[e.id]; return p && p.status==='fechada'; });
+    if(emps.length===0){ toast(`Nenhuma folha FECHADA em ${MESES[mes]}/${ano}.`,'warning'); }
+  }
+
   // Cabeçalho no MODELO DO CONTADOR (códigos editáveis). #planilha-contador
   const thead=document.getElementById('cont-thead');
   if(thead){
@@ -4370,7 +4377,7 @@ function renderContabilidade(){
       <td class="col-check" style="text-align:center"><input type="checkbox" class="cont-row-check" data-emp-id="${e.id}" onclick="updateContSelCount()"></td>
       <td style="text-align:center;font-weight:600">${L.tipoCalculo}</td>
       <td style="text-align:center">${L.codFolha||dash}</td>
-      <td><strong>${esc(L.nome)}</strong>${!p?' <span style="font-size:10px;color:#B71C1C">(s/ folha)</span>':''}</td>
+      <td><a href="javascript:void(0)" onclick="openPayrollForEmployee('${e.id}',{mes:${mes},ano:${ano}})" title="Abrir a folha de ponto de ${esc(L.nome)}" style="color:#1a3a6b;font-weight:700;text-decoration:none;border-bottom:1px dotted #1a3a6b">${esc(L.nome)}</a>${!p?' <span style="font-size:10px;color:#B71C1C">(s/ folha)</span>':''}</td>
       <td style="text-align:center">${adNotCell}</td>
       <td style="text-align:center">${L.heAdNotMin>0?_minToHHMM(L.heAdNotMin):dash}</td>
       <td style="text-align:center;color:${L.he50Min>0?'#1B5E20':'inherit'}">${L.he50Min>0?_minToHHMM(L.he50Min):dash}</td>
@@ -4471,6 +4478,9 @@ function exportContabilidadeCsv(){
   const folhasMes=State.payrolls.filter(p=>p.mes===mes&&p.ano===ano);
   const folhaMap={};
   folhasMes.forEach(p=>{ folhaMap[p.employeeId]=p; });
+  if(document.getElementById('cont-so-fechadas')?.checked){
+    emps=emps.filter(e=>{ const p=folhaMap[e.id]; return p && p.status==='fechada'; });
+  }
 
   // CSV no MODELO DO CONTADOR — mesmas colunas/códigos da tela. #planilha-contador
   const C=k=>_contCod(k);

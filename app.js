@@ -9950,9 +9950,13 @@ async function _sincronizarAtrasosDoPonto(empId, mes, ano, detectados){
   const idDe = dia => `atr_p_${empId}_${ano}_${String(mes).padStart(2,'0')}_${String(dia).padStart(2,'0')}`;
   const diasDetectados = new Set(detectados.map(d=>d.dia));
   const tarefas = [];
-  // Remove ocorrências do ponto de dias que não têm mais atraso
+  // Remove ocorrências do ponto de dias que não têm mais atraso. Reconhece como "do
+  // ponto" por origem='ponto' OU pelo PREFIXO do id (atr_p_...) — assim limpa também
+  // registros antigos gravados antes de a origem ser marcada. Manual usa genId() (id
+  // aleatório, sem esse prefixo), então nunca é tocado por engano. #atraso-fonte-unica
+  const _ehDoPonto = a => a.origem==='ponto' || /^atr_p_/.test(String(a.id||''));
   const removerIds = State.atrasos
-    .filter(a=>a.employeeId===empId && a.mes==mes && a.ano==ano && a.origem==='ponto' && !diasDetectados.has(a.dia))
+    .filter(a=>a.employeeId===empId && a.mes==mes && a.ano==ano && _ehDoPonto(a) && !diasDetectados.has(a.dia))
     .map(a=>a.id);
   removerIds.forEach(id=>tarefas.push(DB.remove('atrasos', id)));
   // Cria/atualiza os detectados (preserva a decisão do operador)
@@ -10020,7 +10024,7 @@ async function recalcularAtrasosCompetencia(mesArg, anoArg){
   for(const p of afetadas){
     const emp=State.employees.find(e=>e.id===p.employeeId);
     if(!emp) continue;
-    const antes=(State.atrasos||[]).filter(a=>a.employeeId===p.employeeId && a.mes==mes && a.ano==ano && a.origem==='ponto').length;
+    const antes=(State.atrasos||[]).filter(a=>a.employeeId===p.employeeId && a.mes==mes && a.ano==ano && (a.origem==='ponto' || /^atr_p_/.test(String(a.id||'')))).length;
     const detect=_detectAtrasosPonto(emp, p);
     try{
       await _sincronizarAtrasosDoPonto(p.employeeId, mes, ano, detect);

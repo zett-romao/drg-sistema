@@ -4242,7 +4242,7 @@ function _apuracaoPontoTotais(emp, p){
     if(!ehFolga){ let mbE=timeToMinutes(exp.saida)-timeToMinutes(exp.entrada); if(mbE<=0)mbE+=24*60; contratualIntMin=_calcIntervaloMin(exp.intIni,exp.intFim,exp.entrada,exp.saida); if((emp.semRefeicao||is12x36)&&contratualIntMin===0&&mbE>360)contratualIntMin=60; prevMin=Math.max(0,mbE-contratualIntMin); }
     if(!ehFolga) diasPrevistosCnt++;
     const temBatida=!!(entrada&&saida);
-    if(!ehFolga&&temBatida){ const _ir=_calcIntervaloMin(intIni,intFim,entrada,saida); const delta=is12x36?((minLiq+_ir)-(prevMin+contratualIntMin)):(minLiq-prevMin); if(Math.abs(delta)>HE_TOLERANCIA_DIA_MIN){ if(delta>0)out.extraMin+=delta; else out.atrasoMin+=-delta; } out.naoRendMin+=Math.max(0,contratualIntMin-_ir); }
+    if(!ehFolga&&temBatida){ const _ir=_calcIntervaloMin(intIni,intFim,entrada,saida); const delta=is12x36?((minLiq+_ir)-(prevMin+contratualIntMin)):(minLiq-prevMin); if(Math.abs(delta)>HE_TOLERANCIA_DIA_MIN){ if(delta>0)out.extraMin+=delta; else out.atrasoMin+=-delta; } const _nr=Math.max(0,contratualIntMin-_ir); out.naoRendMin+=(_nr>HE_TOLERANCIA_DIA_MIN?_nr:0); }   /* ref. não rendida só conta acima da tolerância 10min/dia (Súmula 366). #ref-tolerancia */
     else if(!ehFolga&&!temBatida&&temPonto&&_diaEmBrancoEhFalta(emp,cd.mes,cd.ano,d,isWknd,is12x36)){ out.faltaMin+=prevMin; out.faltaQtd++; }
     out.trabMin+=(minLiq>0?minLiq:0); out.prevMin+=prevMin;
   }
@@ -4550,17 +4550,11 @@ function renderContabilidade(){
 
   // Título
   if(title) title.innerHTML=`<span><i class="fa-solid fa-table"></i> Planilha Contábil (modelo do contador) — ${MESES[mes]}/${ano}</span>`;
-  // Ferramentas de manutenção (master) numa faixa PRÓPRIA — fora da barra de botões,
-  // pra não apertar/cortar o título e os botões de export. #ui-contab #planilha-contador
-  const _mt=document.getElementById('cont-master-tools');
-  if(_mt){
-    if(Auth.currentUser?.role==='master'){
-      _mt.style.display='flex';
-      _mt.innerHTML=`<span style="font-size:11px;color:#90a4ae;font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-right:auto"><i class="fa-solid fa-screwdriver-wrench"></i> Manutenção (master)</span>`
-        +`<button class="btn btn-sm btn-outline" style="font-size:11.5px;border-color:#5C6BC0;color:#5C6BC0" onclick="sanearFolhasIsentos(${mes},${ano})" title="Zerar restrições de ponto para colaboradores livres de jornada nesta competência"><i class="fa-solid fa-shield-halved"></i> Sanear livres de jornada</button>`
-        +`<button class="btn btn-sm btn-outline" style="font-size:11.5px;border-color:#B71C1C;color:#B71C1C" onclick="recalcularAtrasosCompetencia(${mes},${ano})" title="Reaplica a regra atual de atraso a TODAS as folhas desta competência e re-sincroniza os atrasos (apaga os falsos, ex.: 12x36 com refeição). Preserva justificativas/abonos e atrasos lançados à mão."><i class="fa-solid fa-wrench"></i> Recalcular atrasos</button>`;
-    } else { _mt.style.display='none'; _mt.innerHTML=''; }
-  }
+  // Botões de manutenção (master) ficam NA própria barra (padronizados c/ os demais),
+  // escondidos para quem não é master. #ui-contab #planilha-contador
+  const _master = Auth.currentUser?.role==='master';
+  const _bSan = document.getElementById('btn-cont-sanear');          if(_bSan) _bSan.style.display = _master?'':'none';
+  const _bRec = document.getElementById('btn-cont-recalc-atrasos');  if(_bRec) _bRec.style.display = _master?'':'none';
   const subEl=document.getElementById('cont-report-subtitle');
   const dateEl=document.getElementById('cont-report-date');
   if(subEl) subEl.textContent=`Competência: ${MESES[mes]}/${ano} · ${emps.length} colaborador(es)`;
@@ -22591,7 +22585,8 @@ function printFolhaPonto(isPreview=false){
       // pela PRESENÇA (jornada cumprida), não pelo líquido, senão fazer o almoço viraria atraso. #plantao-refeicao
       const delta = is12x36 ? ((minLiq+realIntMin)-(prevMin+contratualIntMin)) : (minLiq - prevMin);
       if(Math.abs(delta) > HE_TOLERANCIA_DIA_MIN){ if(delta>0) extraMin=delta; else atrasoMin=-delta; }   // tolerância CLT 10min/dia (Art. 58 §1 / Súmula 366)
-      naoRendMin = Math.max(0, contratualIntMin - realIntMin);
+      const _nrShort = Math.max(0, contratualIntMin - realIntMin);
+      naoRendMin = (_nrShort > HE_TOLERANCIA_DIA_MIN) ? _nrShort : 0;   // tolerância 10min/dia (Súmula 366) — resíduo de poucos min não conta. #ref-tolerancia
     } else if(!ehFolga && !temBatida && _diaEmBrancoEhFalta(emp,cd.mes,cd.ano,d,isWknd,is12x36)){
       faltaMin = prevMin; totFaltaQtd++;
     }
@@ -22959,7 +22954,8 @@ function _buildFolhaHtmlFromRecord(emp, p){
       if(Math.abs(delta) > HE_TOLERANCIA_DIA_MIN){ if(delta>0) extraMin=delta; else atrasoMin=-delta; }   // tolerância CLT 10min/dia (Art. 58 §1 / Súmula 366)
       // Refeição não rendida = intervalo contratual − intervalo realmente tirado
       const realIntMin = _calcIntervaloMin(intIni,intFim,entrada,saida);
-      naoRendMin = Math.max(0, contratualIntMin - realIntMin);
+      const _nrShort = Math.max(0, contratualIntMin - realIntMin);
+      naoRendMin = (_nrShort > HE_TOLERANCIA_DIA_MIN) ? _nrShort : 0;   // tolerância 10min/dia (Súmula 366) — resíduo de poucos min não conta. #ref-tolerancia
     } else if(!ehFolga && !temBatida && _diaEmBrancoEhFalta(emp,cd.mes,cd.ano,d,isWknd,is12x36)){
       faltaMin = prevMin; totFaltaQtd++;
     }

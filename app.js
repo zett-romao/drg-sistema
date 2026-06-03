@@ -4189,6 +4189,30 @@ function recarregarDadosFirestore(){
   catch(e){ toast('Erro ao recarregar: '+(e.message||e), 'error'); }
 }
 
+// Repara batidas mal-encaixadas numa jornada SEM intervalo contratual (sábado
+// curto de 4h do 6x1A/6x1C, plantão 12x36, fds curto etc.). O app de ponto
+// (ponto.html) decide a sequência das batidas pela flag GERAL `semRefeicao` do
+// colaborador — ele não sabe que AQUELE dia específico não tem almoço. Então a
+// 2ª batida de um plantão curto cai no slot "Int. Início" em vez de "Saída",
+// deixando a saída vazia. Como a apuração exige entrada E saída, o dia vira "sem
+// batida" e fabrica uma FALTA fantasma mesmo com o horário explícito na folha.
+// Aqui reordenamos as batidas presentes pela jornada ESPERADA do dia: se o dia
+// não prevê intervalo e a saída está vazia mas há batida no slot de intervalo,
+// a 1ª batida é a entrada e a ÚLTIMA é a saída. #falta-fantasma
+function _repararBatidasDia(pd, exp){
+  const entrada=(pd&&pd.entrada)||'', saida=(pd&&pd.saida)||'', intIni=(pd&&pd.intIni)||'', intFim=(pd&&pd.intFim)||'';
+  const expTemIntervalo = !!(exp && exp.intIni && exp.intFim);
+  // Só reparamos o sinal CLÁSSICO do bug: saída vazia + batida presa no slot de
+  // intervalo, num dia cuja jornada esperada NÃO tem intervalo. Mantém intacto
+  // qualquer dia bem-formado (com saída) e qualquer jornada que prevê almoço.
+  if(!saida && (intIni||intFim) && !expTemIntervalo){
+    const marcas=[entrada,intIni,intFim].filter(Boolean);   // ordem de preenchimento = cronológica
+    if(marcas.length>=2) return { entrada:marcas[0], saida:marcas[marcas.length-1], intIni:'', intFim:'' };
+    if(marcas.length===1) return { entrada:marcas[0], saida:'', intIni:'', intFim:'' };
+  }
+  return { entrada, saida, intIni, intFim };
+}
+
 // Totais de apuração de ponto do período (horas), por colaborador. MESMA LÓGICA
 // do espelho da folha (_buildFolhaHtmlFromRecord) — manter em sincronia p/ os
 // números da Contabilidade baterem com a folha impressa. #folha-detalhada
@@ -4207,10 +4231,11 @@ function _apuracaoPontoTotais(emp, p){
   for(const cd of _compDias(mes,ano)){
     const d=cd.dia, dow=cd.diaSem, isWknd=dow===0||dow===6;
     const pd=diasPonto.find(x=>x.dia===d)||{};
-    const entrada=pd.entrada||'', saida=pd.saida||'', intIni=pd.intIni||'', intFim=pd.intFim||'';
+    const exp=_getExpectedDay(emp,cd.mes,cd.ano,d);   // mês REAL do dia (fronteira 26-31). #fronteira
+    const _bat=_repararBatidasDia(pd, exp);           // sábado curto: 2ª batida no slot errado → falta fantasma. #falta-fantasma
+    const entrada=_bat.entrada, saida=_bat.saida, intIni=_bat.intIni, intFim=_bat.intFim;
     let minLiq=0;
     if(entrada&&saida){ let mb=timeToMinutes(saida)-timeToMinutes(entrada); if(mb<=0)mb+=24*60; minLiq=mb-_calcIntervaloMin(intIni,intFim,entrada,saida); }
-    const exp=_getExpectedDay(emp,cd.mes,cd.ano,d);   // mês REAL do dia (fronteira 26-31). #fronteira
     const _emFerias=_emFeriasNoDia(emp, `${cd.ano}-${String(cd.mes).padStart(2,'0')}-${String(d).padStart(2,'0')}`);
     const ehFolga=_emFerias||!exp||exp.tipo==='folga'||!exp.entrada;
     let prevMin=0, contratualIntMin=0;
@@ -21411,10 +21436,9 @@ function calcResumoManual(){
     const diaSem=parseInt(card.dataset.semana);
     const rmes=parseInt(card.dataset.realmes)||mes;
     const rano=parseInt(card.dataset.realano)||ano;
-    const entrada=card.querySelector('.pm-entrada')?.value;
-    const saida=card.querySelector('.pm-saida')?.value;
-    const intIni=card.querySelector('.pm-int-ini')?.value;
-    const intFim=card.querySelector('.pm-int-fim')?.value;
+    const _expBat=emp?_getExpectedDay(emp,rmes,rano,dia):null;
+    const _bat=_repararBatidasDia({entrada:card.querySelector('.pm-entrada')?.value, saida:card.querySelector('.pm-saida')?.value, intIni:card.querySelector('.pm-int-ini')?.value, intFim:card.querySelector('.pm-int-fim')?.value}, _expBat);   // sábado curto: 2ª batida no slot errado → falta fantasma. #falta-fantasma
+    const entrada=_bat.entrada, saida=_bat.saida, intIni=_bat.intIni, intFim=_bat.intFim;
     const isWeekend=diaSem===0||diaSem===6;
     // Toggle dicas visuais "no dia seguinte"
     const saidaHint=card.querySelector('.pm-saida-nextday');
@@ -22051,17 +22075,16 @@ async function applyPontoManual(){
     const diaSem=parseInt(card.dataset.semana);
     const rmes=parseInt(card.dataset.realmes)||mes;
     const rano=parseInt(card.dataset.realano)||ano;
-    const entrada=card.querySelector('.pm-entrada')?.value;
-    const saida=card.querySelector('.pm-saida')?.value;
-    const intIni=card.querySelector('.pm-int-ini')?.value;
-    const intFim=card.querySelector('.pm-int-fim')?.value;
+    const _expBat=emp?_getExpectedDay(emp,rmes,rano,dia):null;
+    const _bat=_repararBatidasDia({entrada:card.querySelector('.pm-entrada')?.value, saida:card.querySelector('.pm-saida')?.value, intIni:card.querySelector('.pm-int-ini')?.value, intFim:card.querySelector('.pm-int-fim')?.value}, _expBat);   // sábado curto: 2ª batida no slot errado → falta fantasma. #falta-fantasma
+    const entrada=_bat.entrada, saida=_bat.saida, intIni=_bat.intIni, intFim=_bat.intFim;
     const isWeekend=diaSem===0||diaSem===6;
     if(entrada&&saida){
       diasTrabalhados++;
       const realDay={dia,diaSem,entrada,saida,intIni,intFim};
       const existingDay=existingPayroll?.pontoManualDias?.find(d=>d.dia===dia);
       if(existingDay?.heReview) realDay.heReview=existingDay.heReview;
-      const expectedDay=emp?_getExpectedDay(emp,rmes,rano,dia):null;
+      const expectedDay=_expBat;
       const effLiq=_effectiveMinLiq(realDay,expectedDay,minContratados);
       // Baseline da HE = jornada esperada do próprio colaborador no dia
       // (horário contratual / escala), não um mínimo fixo da família.
@@ -22164,8 +22187,9 @@ function printPreviewParcial(){
     const diaSem=parseInt(card.dataset.semana);
     const rmes=parseInt(card.dataset.realmes)||_pvMes;
     const rano=parseInt(card.dataset.realano)||_pvAno;
-    const entrada=card.querySelector('.pm-entrada')?.value;
-    const saida=card.querySelector('.pm-saida')?.value;
+    const _expBat=emp?_getExpectedDay(emp,rmes,rano,dia):null;
+    const _bat=_repararBatidasDia({entrada:card.querySelector('.pm-entrada')?.value, saida:card.querySelector('.pm-saida')?.value, intIni:card.querySelector('.pm-int-ini')?.value, intFim:card.querySelector('.pm-int-fim')?.value}, _expBat);   // sábado curto: 2ª batida no slot errado → falta fantasma. #falta-fantasma
+    const entrada=_bat.entrada, saida=_bat.saida;
     const isWeekend=diaSem===0||diaSem===6;
     if(entrada&&saida){
       diasTrabalhados++;
@@ -22376,10 +22400,13 @@ function printFolhaPonto(isPreview=false){
     const nomeDia=diasSemana[dow];
     const isWknd=dow===0||dow===6;
     const pontodia=diasPonto.find(x=>x.dia===d)||{};
-    const entrada=pontodia.entrada||'';
-    const saida=pontodia.saida||'';
-    const intIni=pontodia.intIni||'';
-    const intFim=pontodia.intFim||'';
+    // --- Métricas dia-a-dia: Previstas / Atraso / Extras / Faltas / Refeição não rendida ---
+    const exp     = _getExpectedDay(emp, cd.mes, cd.ano, d);   // cd.mes/ano = mês REAL (dias 26-31 são do mês anterior). #fronteira
+    const _bat    = _repararBatidasDia(pontodia, exp);   // sábado curto: 2ª batida no slot errado → falta fantasma. #falta-fantasma
+    const entrada = _bat.entrada;
+    const saida   = _bat.saida;
+    const intIni  = _bat.intIni;
+    const intFim  = _bat.intFim;
     let minLiq=0;
     if(entrada&&saida){
       let mb=timeToMinutes(saida)-timeToMinutes(entrada);
@@ -22387,8 +22414,6 @@ function printFolhaPonto(isPreview=false){
       const mi=_calcIntervaloMin(intIni,intFim,entrada,saida);
       minLiq=mb-mi;
     }
-    // --- Métricas dia-a-dia: Previstas / Atraso / Extras / Faltas / Refeição não rendida ---
-    const exp     = _getExpectedDay(emp, cd.mes, cd.ano, d);   // cd.mes/ano = mês REAL (dias 26-31 são do mês anterior). #fronteira
     const _emFerias = _emFeriasNoDia(emp, `${cd.ano}-${String(cd.mes).padStart(2,'0')}-${String(d).padStart(2,'0')}`);   // #monitor-ferias
     const ehFolga = isentoPonto || _emFerias || !exp || exp.tipo==='folga' || !exp.entrada;
     let prevMin=0, contratualIntMin=0;
@@ -22741,10 +22766,13 @@ function _buildFolhaHtmlFromRecord(emp, p){
     const nomeDia  = diasSemana[dow];
     const isWknd   = dow===0||dow===6;
     const pontodia = diasPonto.find(x=>x.dia===d)||{};
-    const entrada  = pontodia.entrada||'';
-    const saida    = pontodia.saida||'';
-    const intIni   = pontodia.intIni||'';
-    const intFim   = pontodia.intFim||'';
+    // --- Métricas dia-a-dia: Previstas / Atraso / Extras / Faltas / Refeição não rendida ---
+    const exp     = _getExpectedDay(emp, cd.mes, cd.ano, d);   // cd.mes/ano = mês REAL (dias 26-31 são do mês anterior). #fronteira
+    const _bat    = _repararBatidasDia(pontodia, exp);   // sábado curto: 2ª batida no slot errado → falta fantasma. #falta-fantasma
+    const entrada  = _bat.entrada;
+    const saida    = _bat.saida;
+    const intIni   = _bat.intIni;
+    const intFim   = _bat.intFim;
     let minLiq=0;
     if(entrada&&saida){
       let mb=timeToMinutes(saida)-timeToMinutes(entrada);
@@ -22752,8 +22780,6 @@ function _buildFolhaHtmlFromRecord(emp, p){
       const mi=_calcIntervaloMin(intIni,intFim,entrada,saida);
       minLiq=mb-mi;
     }
-    // --- Métricas dia-a-dia: Previstas / Atraso / Extras / Faltas / Refeição não rendida ---
-    const exp     = _getExpectedDay(emp, cd.mes, cd.ano, d);   // cd.mes/ano = mês REAL (dias 26-31 são do mês anterior). #fronteira
     const _emFerias = _emFeriasNoDia(emp, `${cd.ano}-${String(cd.mes).padStart(2,'0')}-${String(d).padStart(2,'0')}`);   // #monitor-ferias
     const ehFolga = isentoPonto || _emFerias || !exp || exp.tipo==='folga' || !exp.entrada;
     let prevMin=0, contratualIntMin=0;

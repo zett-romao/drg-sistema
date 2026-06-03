@@ -4202,13 +4202,13 @@ function _apuracaoPontoTotais(emp, p){
     const entrada=pd.entrada||'', saida=pd.saida||'', intIni=pd.intIni||'', intFim=pd.intFim||'';
     let minLiq=0;
     if(entrada&&saida){ let mb=timeToMinutes(saida)-timeToMinutes(entrada); if(mb<=0)mb+=24*60; minLiq=mb-_calcIntervaloMin(intIni,intFim,entrada,saida); }
-    const exp=_getExpectedDay(emp,mes,ano,d);
+    const exp=_getExpectedDay(emp,cd.mes,cd.ano,d);   // mês REAL do dia (fronteira 26-31). #fronteira
     const ehFolga=!exp||exp.tipo==='folga'||!exp.entrada;
     let prevMin=0, contratualIntMin=0;
     if(!ehFolga){ let mbE=timeToMinutes(exp.saida)-timeToMinutes(exp.entrada); if(mbE<=0)mbE+=24*60; contratualIntMin=_calcIntervaloMin(exp.intIni,exp.intFim,exp.entrada,exp.saida); if(emp.semRefeicao&&contratualIntMin===0&&mbE>360)contratualIntMin=60; prevMin=Math.max(0,mbE-contratualIntMin); }
     const temBatida=!!(entrada&&saida);
     if(!ehFolga&&temBatida){ const delta=minLiq-prevMin; if(delta>0)out.extraMin+=delta; else if(delta<0)out.atrasoMin+=-delta; out.naoRendMin+=Math.max(0,contratualIntMin-_calcIntervaloMin(intIni,intFim,entrada,saida)); }
-    else if(!ehFolga&&!temBatida&&_diaEmBrancoEhFalta(emp,mes,ano,d,isWknd,is12x36)){ out.faltaMin+=prevMin; out.faltaQtd++; }
+    else if(!ehFolga&&!temBatida&&_diaEmBrancoEhFalta(emp,cd.mes,cd.ano,d,isWknd,is12x36)){ out.faltaMin+=prevMin; out.faltaQtd++; }
     out.trabMin+=(minLiq>0?minLiq:0); out.prevMin+=prevMin;
   }
   return out;
@@ -21993,7 +21993,7 @@ function printFolhaPonto(isPreview=false){
       minLiq=mb-mi;
     }
     // --- Métricas dia-a-dia: Previstas / Atraso / Extras / Faltas / Refeição não rendida ---
-    const exp     = _getExpectedDay(emp, mes, ano, d);
+    const exp     = _getExpectedDay(emp, cd.mes, cd.ano, d);   // cd.mes/ano = mês REAL (dias 26-31 são do mês anterior). #fronteira
     const ehFolga = !exp || exp.tipo==='folga' || !exp.entrada;
     let prevMin=0, contratualIntMin=0;
     if(!ehFolga){
@@ -22010,7 +22010,7 @@ function printFolhaPonto(isPreview=false){
       if(delta>0) extraMin=delta; else if(delta<0) atrasoMin=-delta;
       const realIntMin = _calcIntervaloMin(intIni,intFim,entrada,saida);
       naoRendMin = Math.max(0, contratualIntMin - realIntMin);
-    } else if(!ehFolga && !temBatida && _diaEmBrancoEhFalta(emp,mes,ano,d,isWknd,is12x36)){
+    } else if(!ehFolga && !temBatida && _diaEmBrancoEhFalta(emp,cd.mes,cd.ano,d,isWknd,is12x36)){
       faltaMin = prevMin; totFaltaQtd++;
     }
     totTrab += (minLiq>0?minLiq:0); totPrev += prevMin; totAtraso += atrasoMin;
@@ -22354,7 +22354,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
       minLiq=mb-mi;
     }
     // --- Métricas dia-a-dia: Previstas / Atraso / Extras / Faltas / Refeição não rendida ---
-    const exp     = _getExpectedDay(emp, mes, ano, d);
+    const exp     = _getExpectedDay(emp, cd.mes, cd.ano, d);   // cd.mes/ano = mês REAL (dias 26-31 são do mês anterior). #fronteira
     const ehFolga = !exp || exp.tipo==='folga' || !exp.entrada;
     let prevMin=0, contratualIntMin=0;
     if(!ehFolga){
@@ -22373,7 +22373,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
       // Refeição não rendida = intervalo contratual − intervalo realmente tirado
       const realIntMin = _calcIntervaloMin(intIni,intFim,entrada,saida);
       naoRendMin = Math.max(0, contratualIntMin - realIntMin);
-    } else if(!ehFolga && !temBatida && _diaEmBrancoEhFalta(emp,mes,ano,d,isWknd,is12x36)){
+    } else if(!ehFolga && !temBatida && _diaEmBrancoEhFalta(emp,cd.mes,cd.ano,d,isWknd,is12x36)){
       faltaMin = prevMin; totFaltaQtd++;
     }
     totTrab += (minLiq>0?minLiq:0); totPrev += prevMin; totAtraso += atrasoMin;

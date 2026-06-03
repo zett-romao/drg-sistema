@@ -525,6 +525,42 @@ function renderConfiguracoes(){
   setVal('cfg-email',              e.email||'');
   renderFeriadosConfig();
   renderPainelRecursos();
+  renderLinksAcesso();
+}
+
+// ===== Links de Acesso (Configurações) — endereço de cada app/perfil, derivado do
+// próprio host (funciona em qualquer hospedagem). Botões copiar/abrir. #links-acesso =====
+function renderLinksAcesso(){
+  const el = document.getElementById('links-acesso-body');
+  if(!el) return;
+  // Base = diretório atual (tira query/hash e o nome do arquivo). Ex.: .../drg-sistema/
+  const base = location.href.replace(/[?#].*$/,'').replace(/[^/]*$/,'');
+  const links = [
+    {icon:'fa-table-columns', cor:'#1565C0', nome:'Portal (todos os acessos)', desc:'Página inicial com os apps — boa para deixar salva.', arq:'portal.html'},
+    {icon:'fa-user-shield',   cor:'#7B1FA2', nome:'Master',      desc:'App principal — acesso total. Entra com o login master.', arq:'index.html'},
+    {icon:'fa-user-gear',     cor:'#5C6BC0', nome:'Gestor',      desc:'Mesmo app principal — acesso conforme o perfil. Entra com o próprio login.', arq:'index.html'},
+    {icon:'fa-headset',       cor:'#C62828', nome:'Operador',    desc:'Painel do Operador (login próprio).', arq:'operator.html'},
+    {icon:'fa-user-check',    cor:'#1B5E20', nome:'Supervisor',  desc:'Aprova/recusa as batidas de ponto fora do horário.', arq:'supervisor.html'},
+    {icon:'fa-clock',         cor:'#00897B', nome:'Colaborador', desc:'App de ponto eletrônico (instala no celular).', arq:'ponto.html'},
+  ];
+  el.innerHTML = links.map(l=>{
+    const url = base + l.arq;
+    return `<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #eef1f4">
+      <div style="width:34px;height:34px;flex-shrink:0;border-radius:8px;display:flex;align-items:center;justify-content:center;background:${l.cor}1A;color:${l.cor}"><i class="fa-solid ${l.icon}"></i></div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;font-size:13px;color:var(--text)">${l.nome}</div>
+        <div style="font-size:11px;color:#778;margin-bottom:2px">${l.desc}</div>
+        <div style="font-size:11px;color:#1565C0;font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${url}">${url}</div>
+      </div>
+      <button class="btn btn-sm btn-outline" style="flex-shrink:0;font-size:11px;padding:5px 9px" onclick="_copiarLink('${url}')" title="Copiar link"><i class="fa-solid fa-copy"></i></button>
+      <a class="btn btn-sm btn-outline" style="flex-shrink:0;font-size:11px;padding:5px 9px" href="${url}" target="_blank" rel="noopener" title="Abrir em nova aba"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>
+    </div>`;
+  }).join('');
+}
+function _copiarLink(url){
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(url).then(()=>toast('Link copiado!','success')).catch(()=>toast('Não consegui copiar — copie manualmente: '+url,'warning'));
+  } else { toast('Copie manualmente: '+url,'info'); }
 }
 
 // ===== Feriados — UI de configuração (folga/trabalha + extras). #feriados =====

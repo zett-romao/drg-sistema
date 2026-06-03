@@ -451,12 +451,44 @@ function _focarAutzDeepLink(){
   }catch(_){}
 }
 
+// Recalcula o horário PREVISTO da batida pela escala ATUAL do colaborador (override →
+// período vigente → cadastro). Sem o motor completo do app: cobre a correção de
+// horário no contrato/cadastro/período (não trata variações de ciclo). #autz-previsto-vivo
+function _compRealSup(mesComp, anoComp, diaBatida){
+  if(diaBatida >= 26){ let m=mesComp-1, a=anoComp; if(m<1){m=12;a--;} return {mes:m, ano:a, dia:diaBatida}; }
+  return {mes:mesComp, ano:anoComp, dia:diaBatida};
+}
+function _previstoDoDiaSup(emp, mesComp, anoComp, diaBatida, tipoBatida){
+  if(!emp || !mesComp || !anoComp || !diaBatida) return '';
+  const r=_compRealSup(mesComp, anoComp, diaBatida);
+  const ymd = r.ano+'-'+String(r.mes).padStart(2,'0')+'-'+String(r.dia).padStart(2,'0');
+  let hor;
+  const ov=(emp.overridesHorario||[]).find(o=>o.data===ymd);
+  if(ov){ if(ov.tipo==='folga') return ''; hor={entrada:ov.horarioEntrada,saida:ov.horarioSaida,intIni:ov.horarioRefIni,intFim:ov.horarioRefFim}; }
+  else {
+    const pers=(emp.historicoEscalas||[]).slice().sort((a,b)=>(b.de||'').localeCompare(a.de||''));
+    const per=pers.find(x=> (x.de||'')<=ymd && (!x.ate || x.ate>=ymd));
+    const src=per||emp;
+    hor={entrada:src.horarioEntrada,saida:src.horarioSaida,intIni:src.horarioRefIni,intFim:src.horarioRefFim};
+  }
+  return hor[tipoBatida] || '';
+}
+function _toMinSup(hhmm){ const x=String(hhmm||'').split(':'); const h=parseInt(x[0]),m=parseInt(x[1]); return (isNaN(h)||isNaN(m))?null:h*60+m; }
+
 function _cardPedido(p){
   const ehFolga = p.tipoBloqueio === 'folga' || p.ehFolga;
   const nomeBat = NOMES_BATIDA[p.tipoBatida] || p.tipoBatida;
   const tag = ehFolga ? 'DIA DE FOLGA' : 'FORA DO HORÁRIO';
   const classExtra = ehFolga ? 'folga' : (((Date.now() - new Date(p.tentativaEm||0).getTime()) < 60000) ? ' recente' : '');
-  const diff = p.diferencaMinutos || 0;
+  // Previsto/diferença AO VIVO pela escala atual (o pedido guarda o previsto congelado).
+  const _empSup = employeesCache.find(e=>e.id===p.employeeId);
+  let previstoEf = p.horarioPrevisto || '', diff = p.diferencaMinutos || 0;
+  const _pl = _previstoDoDiaSup(_empSup, p.mesComp, p.anoComp, p.diaBatida, p.tipoBatida);
+  if(_pl){
+    previstoEf = _pl;
+    const _re=_toMinSup(p.horarioReal), _pe=_toMinSup(_pl);
+    if(_re!=null && _pe!=null) diff = _re - _pe;
+  }
   const diffTxt = diff === 0 ? '' :
     (diff > 0 ? `+${diff} min de atraso` : `${diff} min adiantado`);
   const motivoBox = p.motivo
@@ -481,9 +513,9 @@ function _cardPedido(p){
           <small>Hora real</small>
           <strong>${p.horarioReal||'—'}</strong>
         </div>
-        ${p.horarioPrevisto ? `<div>
-          <small>Previsto</small>
-          <strong>${p.horarioPrevisto}</strong>
+        ${previstoEf ? `<div>
+          <small>Previsto${(previstoEf!==p.horarioPrevisto)?' (escala atual)':''}</small>
+          <strong>${previstoEf}</strong>
         </div>` : ''}
         ${diffTxt ? `<div>
           <small>Diferença</small>
@@ -556,10 +588,12 @@ async function autorizarPedido(pedidoId){
 async function editarERegistrar(pedidoId){
   const p = pedidos.find(x => x.id === pedidoId);
   if(!p) return;
-  const sugestao = p.horarioPrevisto || p.horarioReal || '';
+  const _empE = employeesCache.find(e=>e.id===p.employeeId);
+  const prevEf = _previstoDoDiaSup(_empE, p.mesComp, p.anoComp, p.diaBatida, p.tipoBatida) || p.horarioPrevisto || '';
+  const sugestao = prevEf || p.horarioReal || '';
   const txt = prompt(
     'Horário a REGISTRAR na folha (HH:MM):\n\n'
-    + '• Real da batida: ' + (p.horarioReal||'—') + (p.horarioPrevisto ? '\n• Previsto: ' + p.horarioPrevisto : '')
+    + '• Real da batida: ' + (p.horarioReal||'—') + (prevEf ? '\n• Previsto (escala atual): ' + prevEf : '')
     + '\n\nDica: use o PREVISTO para abonar o desvio (sem atraso/HE).',
     sugestao);
   if(txt === null) return;
@@ -693,7 +727,7 @@ setInterval(() => {
 if('serviceWorker' in navigator){
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('supervisor-sw.js?v=3').then(reg => {
+    navigator.serviceWorker.register('supervisor-sw.js?v=4').then(reg => {
       const checar = () => { try{ reg.update(); }catch(_){} };
       document.addEventListener('visibilitychange', () => {
         if(document.visibilityState === 'visible') checar();

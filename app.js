@@ -830,6 +830,8 @@ const AutoBackup = {
     const btn = document.getElementById('btn-auto-backup');
     btn.classList.add('active');
     document.getElementById('auto-backup-label').textContent = 'Auto-backup: ativo';
+    this._renderLast();   // mostra o último horário salvo na hora que ativa. #auto-backup-relogio
+    this._renderModalStatus();
   },
 
   tick() {
@@ -848,8 +850,49 @@ const AutoBackup = {
       await writable.write(JSON.stringify(backup, null, 2));
       await writable.close();
       this.nextIn = this.INTERVAL;
+      this._markDone();   // relógio do último backup feito — prova p/ o usuário de que rodou. #auto-backup-relogio
       Auth.log('BACKUP_AUTO', null, this.fileHandle.name);
     } catch(e) { console.error('Auto-backup write:', e); }
+  },
+
+  // Marca o horário do último backup AUTOMÁTICO bem-sucedido (persiste e mostra na tela).
+  _markDone() {
+    const now = new Date();
+    try { localStorage.setItem('ab_last_backup', now.toISOString()); } catch(_){}
+    this._renderLast(now);
+    this._renderModalStatus();
+  },
+  // Mostra "✓ Último backup ..." no status da sidebar. Sem argumento, lê o último horário salvo.
+  _renderLast(dt) {
+    const el = document.getElementById('ab-last-label');
+    if (!el) return;
+    let d = dt || null;
+    if (!d) { try { const s = localStorage.getItem('ab_last_backup'); if (s) d = new Date(s); } catch(_){} }
+    if (!d || isNaN(d.getTime())) { el.textContent = ''; return; }
+    const hora = d.toLocaleTimeString('pt-BR');
+    el.textContent = (d.toDateString() === new Date().toDateString())
+      ? `✓ Último backup hoje às ${hora}`
+      : `✓ Último backup ${d.toLocaleDateString('pt-BR')} ${hora}`;
+    el.title = 'Último backup automático gravado em ' + d.toLocaleString('pt-BR');
+  },
+  // Status do auto-backup no MODAL "Banco de Dados" (card Backup) — ativo/desligado +
+  // relógio do último backup. É a "prova de que funfou" que o usuário pediu. #auto-backup-relogio
+  _renderModalStatus() {
+    const el = document.getElementById('ab-modal-info');
+    if (!el) return;
+    const ativo = !!this.fileHandle;
+    let last = null;
+    try { const s = localStorage.getItem('ab_last_backup'); if (s) last = new Date(s); } catch(_){}
+    const lastTxt = (last && !isNaN(last.getTime()))
+      ? ((last.toDateString() === new Date().toDateString()) ? `hoje às ${last.toLocaleTimeString('pt-BR')}` : last.toLocaleString('pt-BR'))
+      : null;
+    if (ativo) {
+      el.innerHTML = `<div style="display:flex;align-items:center;gap:7px;color:#1B5E20;font-weight:700;font-size:13px"><span style="width:9px;height:9px;border-radius:50%;background:#2E7D32;display:inline-block;box-shadow:0 0 0 3px #C8E6C9"></span> Auto-backup ATIVO — salva a cada 5 min</div>`
+        + `<div style="margin-top:5px;font-size:12px;color:#333"><i class="fa-regular fa-clock" style="color:#1565C0"></i> Último backup: <strong>${lastTxt || 'salvando…'}</strong></div>`;
+    } else {
+      el.innerHTML = `<div style="color:#B26A00;font-weight:700;font-size:13px"><i class="fa-solid fa-circle-pause"></i> Auto-backup desligado</div>`
+        + (lastTxt ? `<div style="margin-top:5px;font-size:12px;color:#777"><i class="fa-regular fa-clock"></i> Último backup (antes de desligar/recarregar): <strong>${lastTxt}</strong></div>` : `<div style="margin-top:5px;font-size:12px;color:#777">Clique no botão acima para ativar — ele salva sozinho a cada 5 min.</div>`);
+    }
   },
 
   async stop() {
@@ -860,6 +903,7 @@ const AutoBackup = {
     const btn = document.getElementById('btn-auto-backup');
     btn.classList.remove('active');
     document.getElementById('auto-backup-label').textContent = 'Auto-backup: desligado';
+    this._renderModalStatus();
   }
 };
 
@@ -4142,6 +4186,7 @@ function printFeriasModulo(){
 // BANCO DE DADOS — página de CCT, backup e estatísticas
 // ============================================
 function renderBancoDados(){
+  try { AutoBackup._renderModalStatus(); } catch(_){}   // relógio do último auto-backup no card Backup. #auto-backup-relogio
   // Card da CCT — mostra valores atuais (ou alerta se a CCT nao carregou)
   const cctInfo = document.getElementById('banco-cct-info');
   if(cctInfo){

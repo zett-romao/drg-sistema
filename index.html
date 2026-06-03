@@ -419,6 +419,7 @@
         <div class="auto-backup-status hidden" id="auto-backup-status">
           <span class="ab-dot"></span>
           <span id="ab-next-label">Próximo em 5:00</span>
+          <span id="ab-last-label" style="display:block;margin-top:3px;font-size:11px;color:#1B5E20;font-weight:600"></span>
         </div>
         <button class="db-btn db-btn-cct" onclick="openCctModal()" title="Convenção Coletiva de Trabalho">
           <i class="fa-solid fa-file-contract"></i>
@@ -1315,6 +1316,7 @@
               <button class="btn btn-success" onclick="exportDatabase()" style="width:100%;margin-bottom:8px"><i class="fa-solid fa-download"></i> Exportar backup agora</button>
               <button class="btn btn-outline" onclick="importDatabase()" style="width:100%;margin-bottom:8px"><i class="fa-solid fa-upload"></i> Importar backup</button>
               <button class="btn btn-outline" onclick="setupAutoBackup()" style="width:100%"><i class="fa-solid fa-clock-rotate-left"></i> Configurar auto-backup</button>
+              <div id="ab-modal-info" style="margin-top:10px;padding:10px 12px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;line-height:1.35"></div>
             </div>
           </div>
           <div class="card">
@@ -6503,6 +6505,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260603aj-botoes-ref"></script>
+  <script src="app.js?v=20260603ak-backup-relogio"></script>
 </body>
 </html>

@@ -4549,7 +4549,18 @@ function renderContabilidade(){
   </tr>`;
 
   // Título
-  if(title) title.innerHTML=`<span><i class="fa-solid fa-table"></i> Planilha Contábil (modelo do contador) — ${MESES[mes]}/${ano}</span>${Auth.currentUser?.role==='master'?` <button class="btn btn-outline" style="margin-left:10px;font-size:12px;padding:6px 10px" onclick="sanearFolhasIsentos(${mes},${ano})" title="Zerar restrições de ponto para colaboradores livres de jornada nesta competência"><i class="fa-solid fa-shield-halved"></i> Sanear livres de jornada</button>`:''}`;
+  if(title) title.innerHTML=`<span><i class="fa-solid fa-table"></i> Planilha Contábil (modelo do contador) — ${MESES[mes]}/${ano}</span>`;
+  // Ferramentas de manutenção (master) numa faixa PRÓPRIA — fora da barra de botões,
+  // pra não apertar/cortar o título e os botões de export. #ui-contab #planilha-contador
+  const _mt=document.getElementById('cont-master-tools');
+  if(_mt){
+    if(Auth.currentUser?.role==='master'){
+      _mt.style.display='flex';
+      _mt.innerHTML=`<span style="font-size:11px;color:#90a4ae;font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-right:auto"><i class="fa-solid fa-screwdriver-wrench"></i> Manutenção (master)</span>`
+        +`<button class="btn btn-sm btn-outline" style="font-size:11.5px;border-color:#5C6BC0;color:#5C6BC0" onclick="sanearFolhasIsentos(${mes},${ano})" title="Zerar restrições de ponto para colaboradores livres de jornada nesta competência"><i class="fa-solid fa-shield-halved"></i> Sanear livres de jornada</button>`
+        +`<button class="btn btn-sm btn-outline" style="font-size:11.5px;border-color:#B71C1C;color:#B71C1C" onclick="recalcularAtrasosCompetencia(${mes},${ano})" title="Reaplica a regra atual de atraso a TODAS as folhas desta competência e re-sincroniza os atrasos (apaga os falsos, ex.: 12x36 com refeição). Preserva justificativas/abonos e atrasos lançados à mão."><i class="fa-solid fa-wrench"></i> Recalcular atrasos</button>`;
+    } else { _mt.style.display='none'; _mt.innerHTML=''; }
+  }
   const subEl=document.getElementById('cont-report-subtitle');
   const dateEl=document.getElementById('cont-report-date');
   if(subEl) subEl.textContent=`Competência: ${MESES[mes]}/${ano} · ${emps.length} colaborador(es)`;

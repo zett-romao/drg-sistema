@@ -2101,9 +2101,6 @@
               <button class="btn btn-outline" onclick="exportContabilidadeCsv()" title="Exportar CSV no modelo do contador">
                 <i class="fa-solid fa-file-csv"></i> CSV
               </button>
-              <button class="btn btn-outline" onclick="recalcularAtrasosCompetencia()" style="border-color:#B71C1C;color:#B71C1C" title="MASTER: Reaplica a regra atual de atraso a TODAS as folhas desta competência e re-sincroniza os atrasos (apaga os falsos, ex.: 12x36 com refeição). Preserva justificativas/abonos e atrasos lançados à mão. Conserta o card de Atrasos e esta planilha de uma vez.">
-                <i class="fa-solid fa-wrench"></i> Recalcular atrasos
-              </button>
               <button class="btn btn-success" onclick="printContabilidade()" title="Imprimir a planilha (todos)">
                 <i class="fa-solid fa-print"></i> Imprimir
               </button>
@@ -2121,6 +2118,8 @@
               </button>
             </div>
           </div>
+          <!-- Faixa de manutenção (master) — ferramentas administrativas fora da barra principal p/ não apertar/cortar os botões. #ui-contab -->
+          <div id="cont-master-tools" style="display:none;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 16px;border-top:1px solid #eef1f4;background:#fbfcfd"></div>
           <div class="card-body p0">
             <div id="cont-printable">
               <div class="cont-report-header" style="display:none;padding:16px 20px;border-bottom:2px solid #e8f0fe;display:none">
@@ -6499,6 +6498,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260603ag-recalc-atrasos"></script>
+  <script src="app.js?v=20260603ah-contab-ui"></script>
 </body>
 </html>

@@ -4305,6 +4305,10 @@ function resetarContCodigos(){
 function _contLinhaContador(e, p){
   const ap = p ? _apuracaoPontoTotais(e,p) : null;
   const not = p ? _apuracaoNoturnoTotais(e,p) : {noturnoMin:0,noturnoHeMin:0};
+  // ATRASOS — fonte ÚNICA = coleção `atrasos` (mesma do card e do desconto no recibo),
+  // sincronizada do ponto por _sincronizarAtrasosDoPonto. Garante que a coluna 0217 e o
+  // card mostrem o MESMO valor, fidedigno ao que é pago. #planilha-contador #atraso-fonte-unica
+  const atr = p ? _atrasoTotais(e.id, p.mes, p.ano) : {minutos:0,minutosDesc:0,count:0};
   const hePerc = p ? (parseInt(p.horasExtrasPerc||50)) : 50;
   const heH    = p ? (+p.horasExtrasTotal||0) : 0;          // horas extras lançadas na folha
   const heMin  = Math.round(heH*60);
@@ -4333,7 +4337,9 @@ function _contLinhaContador(e, p){
     heAdNotMin: not.noturnoHeMin,    // horas noturnas que caíram em HE
     he50Min, he100Min,
     vt, vr,
-    atrasoMin: ap?ap.atrasoMin:0,
+    atrasoMin: atr.minutos,           // total registrado (coleção) — bate com o card
+    atrasoDescMin: atr.minutosDesc,   // descontável (não abonado)
+    atrasoQtd: atr.count,
     valeAvulso: adiant,
     emprest,
     faltaMin: ap?ap.faltaMin:0,
@@ -4454,7 +4460,7 @@ function renderContabilidade(){
       <td style="text-align:center;color:${L.he100Min>0?'#1B5E20':'inherit'}">${L.he100Min>0?_minToHHMM(L.he100Min):dash}</td>
       <td style="text-align:right">${L.vt>0?fmtMoney(L.vt):dash}</td>
       <td style="text-align:right">${L.vr>0?fmtMoney(L.vr):dash}</td>
-      <td style="text-align:center">${L.atrasoMin>0?`<a href="javascript:void(0)" onclick="openPayrollForEmployee('${e.id}',{mes:${mes},ano:${ano},fieldKey:'atraso',color:'#B71C1C'})" title="Ver os atrasos de ${esc(L.nome)} na folha de ponto" style="color:#B71C1C;font-weight:700;text-decoration:none;border-bottom:1px dotted #B71C1C">${_minToHHMM(L.atrasoMin)}</a>`:dash}</td>
+      <td style="text-align:center">${L.atrasoMin>0?`<a href="javascript:void(0)" onclick="openPayrollForEmployee('${e.id}',{mes:${mes},ano:${ano},fieldKey:'atraso',color:'#B71C1C'})" title="${L.atrasoQtd} ocorrência(s) de atraso · ${_minToHHMM(L.atrasoDescMin)} com desconto (não abonado). Clique para ver no card de Atrasos." style="color:#B71C1C;font-weight:700;text-decoration:none;border-bottom:1px dotted #B71C1C">${_minToHHMM(L.atrasoMin)}</a>`:dash}</td>
       <td style="text-align:right">${L.valeAvulso>0?fmtMoney(L.valeAvulso):dash}</td>
       <td style="text-align:right">${L.emprest>0?fmtMoney(L.emprest):dash}</td>
       <td style="text-align:center">${L.faltaMin>0?`<a href="javascript:void(0)" onclick="openPayrollForEmployee('${e.id}',{mes:${mes},ano:${ano},fieldKey:'falta',color:'#B71C1C'})" title="Ver as faltas de ${esc(L.nome)} (${L.faltaQtd} dia(s)) na folha de ponto" style="color:#B71C1C;font-weight:700;text-decoration:none;border-bottom:1px dotted #B71C1C">${_minToHHMM(L.faltaMin)}</a>`:dash}</td>

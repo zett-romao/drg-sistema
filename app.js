@@ -4207,7 +4207,7 @@ function _apuracaoPontoTotais(emp, p){
     let prevMin=0, contratualIntMin=0;
     if(!ehFolga){ let mbE=timeToMinutes(exp.saida)-timeToMinutes(exp.entrada); if(mbE<=0)mbE+=24*60; contratualIntMin=_calcIntervaloMin(exp.intIni,exp.intFim,exp.entrada,exp.saida); if(emp.semRefeicao&&contratualIntMin===0&&mbE>360)contratualIntMin=60; prevMin=Math.max(0,mbE-contratualIntMin); }
     const temBatida=!!(entrada&&saida);
-    if(!ehFolga&&temBatida){ const delta=minLiq-prevMin; if(delta>0)out.extraMin+=delta; else if(delta<0)out.atrasoMin+=-delta; out.naoRendMin+=Math.max(0,contratualIntMin-_calcIntervaloMin(intIni,intFim,entrada,saida)); }
+    if(!ehFolga&&temBatida){ const delta=minLiq-prevMin; if(Math.abs(delta)>HE_TOLERANCIA_DIA_MIN){ if(delta>0)out.extraMin+=delta; else out.atrasoMin+=-delta; } out.naoRendMin+=Math.max(0,contratualIntMin-_calcIntervaloMin(intIni,intFim,entrada,saida)); }
     else if(!ehFolga&&!temBatida&&_diaEmBrancoEhFalta(emp,cd.mes,cd.ano,d,isWknd,is12x36)){ out.faltaMin+=prevMin; out.faltaQtd++; }
     out.trabMin+=(minLiq>0?minLiq:0); out.prevMin+=prevMin;
   }
@@ -22007,7 +22007,7 @@ function printFolhaPonto(isPreview=false){
     let atrasoMin=0, extraMin=0, faltaMin=0, naoRendMin=0;
     if(!ehFolga && temBatida){
       const delta = minLiq - prevMin;
-      if(delta>0) extraMin=delta; else if(delta<0) atrasoMin=-delta;
+      if(Math.abs(delta) > HE_TOLERANCIA_DIA_MIN){ if(delta>0) extraMin=delta; else atrasoMin=-delta; }   // tolerância CLT 10min/dia (Art. 58 §1 / Súmula 366)
       const realIntMin = _calcIntervaloMin(intIni,intFim,entrada,saida);
       naoRendMin = Math.max(0, contratualIntMin - realIntMin);
     } else if(!ehFolga && !temBatida && _diaEmBrancoEhFalta(emp,cd.mes,cd.ano,d,isWknd,is12x36)){
@@ -22369,7 +22369,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
     let atrasoMin=0, extraMin=0, faltaMin=0, naoRendMin=0;
     if(!ehFolga && temBatida){
       const delta = minLiq - prevMin;
-      if(delta>0) extraMin=delta; else if(delta<0) atrasoMin=-delta;
+      if(Math.abs(delta) > HE_TOLERANCIA_DIA_MIN){ if(delta>0) extraMin=delta; else atrasoMin=-delta; }   // tolerância CLT 10min/dia (Art. 58 §1 / Súmula 366)
       // Refeição não rendida = intervalo contratual − intervalo realmente tirado
       const realIntMin = _calcIntervaloMin(intIni,intFim,entrada,saida);
       naoRendMin = Math.max(0, contratualIntMin - realIntMin);

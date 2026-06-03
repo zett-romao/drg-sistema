@@ -21374,6 +21374,31 @@ function _vizinho12x36Batido(emp, ano, mes, dia, compEsc){
   return viz.some(c => batido(c.dia));
 }
 
+// Detecta que o colaborador 12x36 TROCOU o dia de plantão dentro da competência —
+// a "assinatura" é ter plantões batidos em DUAS paridades (dias pares E ímpares no
+// calendário). Num 12x36 estrito, todos os plantões caem numa só paridade (1 sim, 1
+// não); plantões nas duas paridades = ele virou o ciclo no meio do mês. Quando isso
+// acontece, a âncora fixa de paridade deixa de valer pro período — os dias sem batida
+// são FOLGA (a rotina se ajustou às batidas reais), não falta. Lê só o ponto salvo da
+// competência; sem 2 plantões não há como ter virado. #falta-fantasma-12x36
+function _ciclo12x36ParidadeQuebrada(emp, comp){
+  if(!emp || !comp) return false;
+  const pay = (State.payrolls||[]).find(p => p.employeeId===emp.id && p.mes==comp.mes && p.ano==comp.ano);
+  const dias = (pay && Array.isArray(pay.pontoManualDias)) ? pay.pontoManualDias : [];
+  if(dias.length < 2) return false;
+  const seq = _compDias(comp.mes, comp.ano);
+  const paridades = new Set();
+  for(const c of seq){
+    const e = dias.find(x => x && x.dia===c.dia);
+    if(e && e.entrada && e.saida){
+      const absDia = Math.floor(new Date(c.ano, c.mes-1, c.dia).getTime()/86400000);
+      paridades.add(((absDia % 2) + 2) % 2);
+      if(paridades.size > 1) return true;   // plantões nas duas paridades → virou o ciclo
+    }
+  }
+  return false;
+}
+
 function _diaEmBrancoEhFalta(emp, mes, ano, dia, isWeekend, is12x36){
   if(!emp) return false;
   // Override de folga avulsa — prioridade máxima (vence escala salva e ciclo
@@ -21426,6 +21451,12 @@ function _diaEmBrancoEhFalta(emp, mes, ano, dia, isWeekend, is12x36){
     // ESTE dia é descanso obrigatório → nunca falta, independente da âncora. Limpa as
     // faltas falsas do trecho de paridade antiga sem precisar de override manual. #falta-fantasma-12x36
     if(deveriaTrabalhar && _vizinho12x36Batido(emp, ano, mes, dia, _compEsc)) deveriaTrabalhar = false;
+    // E quando as batidas mostram que ele VIROU o dia de plantão no meio do mês
+    // (plantões em duas paridades), a âncora fixa não vale mais: os dias sem batida
+    // do trecho da virada são folga, não falta. Pega inclusive o "miolo" da troca
+    // (dias não colados a um plantão, ex.: o vão entre o último plantão antigo e o
+    // primeiro novo) — sem precisar marcar nada à mão. #falta-fantasma-12x36
+    if(deveriaTrabalhar && _ciclo12x36ParidadeQuebrada(emp, _compEsc)) deveriaTrabalhar = false;
   } else if(_escDia.startsWith('6x1ALT') || _escDia==='6x1B'){
     // 6x1 Alternado / 6x1B → ciclo deslizante 6x1 (máx 6 dias seguidos).
     deveriaTrabalhar = !_ehFolga6x1Ciclo(emp, ano, mes, dia);
@@ -22183,6 +22214,15 @@ function _obsDiaSemBatida(emp, mes, ano, cd, d, isWknd, is12x36){
   // Dia de trabalho sem batida: FALTA se já passou; A CUMPRIR se ainda é futuro
   // (plantão não cumprido numa competência em andamento — não é folga nem falta).
   if(_diaEmBrancoEhFalta(emp, cd.mes, cd.ano, d, isWknd, is12x36)) return { txt:'Falta', cor:'#C62828' };
+  // 12x36: dia JÁ PASSADO que deixou de ser falta porque a virada de paridade
+  // reposicionou o descanso (batidas em duas paridades, ou plantão colado) → é
+  // FOLGA, não "a cumprir" (que é só p/ plantão futuro ainda não cumprido). #falta-fantasma-12x36
+  const _passou = new Date(cd.ano, cd.mes-1, d) < new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+  if(_passou && is12x36){
+    const _cmp = _competenciaDe(new Date(cd.ano, cd.mes-1, d));
+    if(_vizinho12x36Batido(emp, cd.ano, cd.mes, d, _cmp) || _ciclo12x36ParidadeQuebrada(emp, _cmp))
+      return { txt:'Folga', cor:'#7e22ce' };
+  }
   return { txt:'A cumprir', cor:'#1565C0' };
 }
 

@@ -2070,6 +2070,11 @@
               <div class="form-group form-group-sm"><label>Insalubridade</label><input type="text" id="contcod-insalubridade"></div>
               <div class="form-group form-group-sm"><label>Outros Eventos</label><input type="text" id="contcod-outros"></div>
             </div>
+            <div style="margin-top:12px;padding-top:10px;border-top:1px dashed #e0e0e0">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:500;font-size:13px" title="CLT art. 73 §1º: cada hora noturna vale 52min30s. Ligado, as horas das colunas Adic. Not. (0219) e HE c/ Adic Not (0237) saem JÁ com a redução aplicada (quantidade maior).">
+                <input type="checkbox" id="cont-noturno-reduzida" style="width:auto"> <i class="fa-solid fa-moon" style="color:#5C6BC0"></i> Aplicar hora noturna reduzida (52min30s) nas colunas 0219 / 0237
+              </label>
+            </div>
             <div style="display:flex;gap:8px;margin-top:12px">
               <button class="btn btn-primary btn-sm" onclick="salvarContCodigos()"><i class="fa-solid fa-floppy-disk"></i> Salvar códigos</button>
               <button class="btn btn-outline btn-sm" onclick="resetarContCodigos()"><i class="fa-solid fa-rotate-left"></i> Restaurar padrão</button>
@@ -6489,6 +6494,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260603n-contab-seletor"></script>
+<script src="app.js?v=20260603o-noturno-horas"></script>
 </body>
 </html>

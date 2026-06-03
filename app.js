@@ -494,7 +494,8 @@ async function saveEmpresaConfig(){
   };
   try {
     await DB.saveDoc('configuracoes','empresa',dados,true);
-    State.empresa = { ...EMPRESA_DEFAULTS, ...dados };
+    // preserva campos gravados fora deste form (contCodigos/contNoturnoReduzida da planilha contábil etc.). #planilha-contador
+    State.empresa = { ...EMPRESA_DEFAULTS, ...(State.empresa||{}), ...dados };
     applyEmpresaConfig();
     _applyModoBanners(dados.modoContabilidade||'ambas');
     toast('Configurações salvas com sucesso!','success');
@@ -4218,6 +4219,43 @@ function _apuracaoPontoTotais(emp, p){
 }
 // Minutos → "H:MM" (suporta > 24h)
 function _minToHM(mm){ const x=Math.max(0,Math.round(mm||0)); return Math.floor(x/60)+':'+String(x%60).padStart(2,'0'); }
+
+// Sobreposição (minutos) entre [a,b] e [c,d].
+function _overlapMin(a,b,c,d){ return Math.max(0, Math.min(b,d)-Math.max(a,c)); }
+// Apuração de horas NOTURNAS (CLT art. 73) a partir das batidas reais: minutos
+// trabalhados na janela 22:00–05:00, descontando intervalo. noturnoHeMin = parte
+// noturna que cai em HORA EXTRA (antes da entrada prevista ou após a saída prevista).
+// Hora noturna REDUZIDA (52'30") aplicada quando empresa.contNoturnoReduzida!==false. #planilha-contador
+function _apuracaoNoturnoTotais(emp,p){
+  const out={noturnoMin:0, noturnoHeMin:0};
+  if(!emp||!p) return out;
+  const dias=Array.isArray(p.pontoManualDias)?p.pontoManualDias:[];
+  const nz=[[0,300],[1320,1740]];   // zonas noturnas: 00:00–05:00 e 22:00–(05:00 do dia seguinte)
+  for(const cd of _compDias(p.mes,p.ano)){
+    const d=cd.dia;
+    const pd=dias.find(x=>x.dia===d)||{};
+    const ent=pd.entrada||'', sai=pd.saida||'';
+    if(!ent||!sai) continue;
+    let ws=timeToMinutes(ent), we=timeToMinutes(sai); if(we<=ws) we+=1440;
+    let nightDia=0; nz.forEach(z=>{ nightDia+=_overlapMin(ws,we,z[0],z[1]); });
+    const ii=pd.intIni||'', iff=pd.intFim||'';
+    if(ii&&iff){ let bs=timeToMinutes(ii), be=timeToMinutes(iff); if(bs<ws)bs+=1440; if(be<bs)be+=1440;
+      nz.forEach(z=>{ nightDia-=_overlapMin(bs,be,z[0],z[1]); }); }
+    out.noturnoMin+=Math.max(0,nightDia);
+    // HE noturna (0237): trecho trabalhado fora da jornada prevista que cai na zona noturna.
+    const exp=_getExpectedDay(emp,cd.mes,cd.ano,d);
+    if(exp&&exp.entrada&&exp.saida){
+      let es=timeToMinutes(exp.entrada), ee=timeToMinutes(exp.saida); if(ee<=es) ee+=1440;
+      let heNight=0;
+      if(we>ee){ const xs=Math.max(ws,ee); nz.forEach(z=>{ heNight+=_overlapMin(xs,we,z[0],z[1]); }); }
+      if(ws<es){ const xe=Math.min(we,es); nz.forEach(z=>{ heNight+=_overlapMin(ws,xe,z[0],z[1]); }); }
+      out.noturnoHeMin+=Math.max(0,heNight);
+    }
+  }
+  const reduz=(State.empresa&&State.empresa.contNoturnoReduzida!==false);  // default ON (hora reduzida 52'30")
+  if(reduz){ const f=60/52.5; out.noturnoMin=Math.round(out.noturnoMin*f); out.noturnoHeMin=Math.round(out.noturnoHeMin*f); }
+  return out;
+}
 // Minutos → "HH:MM" (horas zero-padded — formato da planilha do contador). #planilha-contador
 function _minToHHMM(mm){ const x=Math.max(0,Math.round(mm||0)); return String(Math.floor(x/60)).padStart(2,'0')+':'+String(x%60).padStart(2,'0'); }
 
@@ -4237,15 +4275,18 @@ function _contCod(k){ const c=(State.empresa&&State.empresa.contCodigos)||{}; re
 // Preenche os inputs do editor de códigos com os valores vigentes.
 function _preencherContCodigos(){
   CONT_COD_KEYS.forEach(k=>{ const el=document.getElementById('contcod-'+k); if(el) el.value=_contCod(k); });
+  const red=document.getElementById('cont-noturno-reduzida');
+  if(red) red.checked=(State.empresa?.contNoturnoReduzida!==false);  // default ON
 }
 // Salva os códigos editados no doc empresa.
 async function salvarContCodigos(){
   if(Auth.currentUser?.role!=='master'){ toast('Apenas o master pode alterar os códigos','error'); return; }
   const obj={};
   CONT_COD_KEYS.forEach(k=>{ const v=(val('contcod-'+k)||'').trim(); if(v) obj[k]=v; });
+  const reduz=document.getElementById('cont-noturno-reduzida')?.checked!==false;
   try{
-    await DB.saveDoc('configuracoes','empresa',{contCodigos:obj},true);
-    State.empresa = State.empresa||{}; State.empresa.contCodigos = obj;
+    await DB.saveDoc('configuracoes','empresa',{contCodigos:obj, contNoturnoReduzida:reduz},true);
+    State.empresa = State.empresa||{}; State.empresa.contCodigos = obj; State.empresa.contNoturnoReduzida = reduz;
     toast('Códigos da planilha contábil salvos!','success');
     renderContabilidade();
   }catch(e){ toast('Erro ao salvar códigos: '+e.message,'error'); }
@@ -4261,6 +4302,7 @@ function resetarContCodigos(){
 // tanto na tabela da tela quanto na exportação CSV. #planilha-contador
 function _contLinhaContador(e, p){
   const ap = p ? _apuracaoPontoTotais(e,p) : null;
+  const not = p ? _apuracaoNoturnoTotais(e,p) : {noturnoMin:0,noturnoHeMin:0};
   const hePerc = p ? (parseInt(p.horasExtrasPerc||50)) : 50;
   const heH    = p ? (+p.horasExtrasTotal||0) : 0;          // horas extras lançadas na folha
   const heMin  = Math.round(heH*60);
@@ -4284,9 +4326,9 @@ function _contLinhaContador(e, p){
     tipoCalculo: _contCod('tipoCalculo'),
     codFolha: e.registro?String(e.registro).padStart(4,'0'):'',
     nome: e.nome||'',
-    adNotMin: 0,            // Etapa 3: derivar horas noturnas do ponto (hoje só temos R$)
-    adNotPend: (p && (+p.adNoturno||0)>0),   // sinaliza que há adic. noturno em R$ mas falta a hora
-    heAdNotMin: 0,          // Etapa 3
+    adNotMin: not.noturnoMin,        // horas noturnas (22h–05h) derivadas do ponto
+    adNotPend: false,
+    heAdNotMin: not.noturnoHeMin,    // horas noturnas que caíram em HE
     he50Min, he100Min,
     vt, vr,
     atrasoMin: ap?ap.atrasoMin:0,
@@ -4385,7 +4427,7 @@ function renderContabilidade(){
   _preencherContCodigos();
 
   // Totais (só os relevantes ao modelo do contador)
-  let tHe50=0,tHe100=0,tAtraso=0,tFalta=0,tVT=0,tVR=0,tValeAvulso=0,tEmprest=0,tAcu=0,tIns=0,tAdNotPend=0;
+  let tHe50=0,tHe100=0,tAtraso=0,tFalta=0,tVT=0,tVR=0,tValeAvulso=0,tEmprest=0,tAcu=0,tIns=0,tAdNot=0,tHeAdNot=0;
   let semFolha=[];
 
   const rows=emps.map((e,i)=>{
@@ -4394,11 +4436,11 @@ function renderContabilidade(){
     const L=_contLinhaContador(e,p);
     tHe50+=L.he50Min; tHe100+=L.he100Min; tAtraso+=L.atrasoMin; tFalta+=L.faltaMin;
     tVT+=L.vt; tVR+=L.vr; tValeAvulso+=L.valeAvulso; tEmprest+=L.emprest; tAcu+=L.acuVal; tIns+=L.insVal;
-    if(L.adNotPend) tAdNotPend++;
+    tAdNot+=L.adNotMin; tHeAdNot+=L.heAdNotMin;
     const rowBg=i%2===0?'#ffffff':'#EEF2FF';
     const semFolhaBorder=!p?'border-left:3px solid #EF9A9A':'';
     const dash='<span style="color:#bbb">—</span>';
-    const adNotCell=L.adNotPend?'<span style="color:#E65100;cursor:help" title="Há adicional noturno (R$) lançado na folha; a conversão para HORAS (col. 0219) entra na Etapa 3">⧖ pend.</span>':dash;
+    const adNotCell=L.adNotMin>0?`<span style="color:#5C6BC0;font-weight:600">${_minToHHMM(L.adNotMin)}</span>`:dash;
     return `<tr style="background:${rowBg};${semFolhaBorder}" data-nome="${(e.nome||'').toLowerCase()}" data-reg="${L.codFolha}">
       <td class="col-check" style="text-align:center"><input type="checkbox" class="cont-row-check" data-emp-id="${e.id}" onclick="updateContSelCount()"></td>
       <td style="text-align:center;font-weight:600">${L.tipoCalculo}</td>
@@ -4423,8 +4465,8 @@ function renderContabilidade(){
   tbody.innerHTML=rows;
   tfoot.innerHTML=`<tr style="background:#EEF4FF;font-weight:700">
     <td colspan="4" style="padding:8px 10px">TOTAIS — ${emps.length} colaborador(es)</td>
-    <td style="text-align:center;color:#E65100">${tAdNotPend>0?tAdNotPend+' pend.':''}</td>
-    <td></td>
+    <td style="text-align:center;color:#5C6BC0">${_minToHHMM(tAdNot)}</td>
+    <td style="text-align:center;color:#5C6BC0">${_minToHHMM(tHeAdNot)}</td>
     <td style="text-align:center;color:#1B5E20">${_minToHHMM(tHe50)}</td>
     <td style="text-align:center;color:#1B5E20">${_minToHHMM(tHe100)}</td>
     <td style="text-align:right">${fmtMoney(tVT)}</td>
@@ -4526,7 +4568,7 @@ function exportContabilidadeCsv(){
     const L=_contLinhaContador(e,p);
     return [
       L.tipoCalculo, L.codFolha, L.nome,
-      L.adNotPend?'(pend.)':'', L.heAdNotMin>0?_minToHHMM(L.heAdNotMin):'',
+      L.adNotMin>0?_minToHHMM(L.adNotMin):'', L.heAdNotMin>0?_minToHHMM(L.heAdNotMin):'',
       L.he50Min>0?_minToHHMM(L.he50Min):'', L.he100Min>0?_minToHHMM(L.he100Min):'',
       moneyCsv(L.vt), moneyCsv(L.vr),
       L.atrasoMin>0?_minToHHMM(L.atrasoMin):'', moneyCsv(L.valeAvulso),

@@ -4645,6 +4645,7 @@
       </div>
       <div class="form-row">
         <div class="form-group"><label>Último salário (R$)</label><input type="text" id="resc-emp-salario" readonly class="input-readonly"></div>
+        <div class="form-group"><label title="Salário + adicionais habituais (insalubridade, acúmulo, média de noturno/HE). Base de aviso, 13º e férias — Súmulas TST.">Base de cálculo c/ adicionais (R$) <i class="fa-solid fa-circle-info" style="color:#1565C0;font-size:0.85em"></i></label><input type="text" id="resc-base-calculo" readonly class="input-readonly" style="font-weight:700;color:#1a3a6b"></div>
         <div class="form-group"><label>Aviso prévio (dias)</label><input type="text" id="resc-aviso-dias" readonly class="input-readonly"></div>
         <div class="form-group">
           <label>Dias de férias vencidas</label>
@@ -4741,6 +4742,7 @@
       </div>
       <div class="form-row">
         <div class="form-group"><label>Pensão alimentícia (R$)</label><input type="number" id="resc-pensao" min="0" step="0.01" placeholder="0,00" oninput="recalcRescisaoModal()"></div>
+        <div class="form-group"><label title="Média mensal de adicionais variáveis (noturno + horas extras) dos últimos 12 meses. Pré-preenchido automaticamente — ajuste se o contador indicar. Entra na base de aviso, 13º e férias.">Média adicionais variáveis (noturno/HE) (R$) <i class="fa-solid fa-circle-info" style="color:#1565C0;font-size:0.85em"></i></label><input type="number" id="resc-media-adicionais" min="0" step="0.01" placeholder="0,00" oninput="recalcRescisaoModal()"></div>
         <div class="form-group"><label>Adiantamentos (R$)</label><input type="number" id="resc-adiantamentos" min="0" step="0.01" placeholder="0,00" oninput="recalcRescisaoModal()"></div>
       </div>
       <div class="form-row" id="resc-aviso-descontado-wrap" style="display:none">
@@ -6494,6 +6496,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260603u-dsr-falta"></script>
+<script src="app.js?v=20260603w-resc-adicionais"></script>
 </body>
 </html>

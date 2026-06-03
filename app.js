@@ -16341,6 +16341,24 @@ function _formatTempoServico(adm, dem){
 }
 
 // Motor de cálculo da rescisão — retorna todas as verbas e descontos
+// Média mensal dos adicionais VARIÁVEIS (noturno + HE) dos últimos 12 meses de folha
+// lançados até a data de demissão — base habitual p/ aviso/13º/férias na rescisão
+// (Súmulas TST). Pré-preenche o campo editável da rescisão. #fix-resc-adicionais
+function _mediaAdicionaisRescisao(empId, dataDemissaoISO){
+  if(!empId) return 0;
+  const ref = dataDemissaoISO ? new Date(dataDemissaoISO+'T00:00:00') : new Date();
+  const folhas = (State.payrolls||[]).filter(p=>{
+    if(p.employeeId!==empId) return false;
+    const d = new Date(p.ano, (p.mes||1)-1, 1);
+    if(isNaN(d.getTime())) return false;
+    const diff = (ref.getFullYear()-d.getFullYear())*12 + (ref.getMonth()-d.getMonth());
+    return diff>=0 && diff<12;
+  });
+  if(!folhas.length) return 0;
+  const soma = folhas.reduce((s,p)=> s + (+p.adNoturno||0) + (+p.horasExtrasValor||0) + (+p.heCorridoValor||0), 0);
+  return +(soma/folhas.length).toFixed(2);
+}
+
 function _calcRescisao(r){
   const pl=_pl();
   const emp=r.emp||{};
@@ -16362,6 +16380,18 @@ function _calcRescisao(r){
     if(_m<0||(_m===0&&dem.getDate()<adm.getDate())) _a--;
     o.anos=Math.max(0,_a); }
   o.tempoServico=_formatTempoServico(adm,dem);
+  // Base de cálculo com adicionais HABITUAIS (Súmulas TST 60/139/264): aviso prévio,
+  // 13º e férias usam salário + insalubridade + acúmulo (fixos) + média dos variáveis
+  // (noturno/HE). Saldo de salário usa só os FIXOS (proporcional aos dias do mês). A
+  // média dos variáveis vem do campo (pré-preenchido pelos últimos 12 meses). Decisão
+  // do usuário 2026-06-03. #fix-resc-adicionais
+  const _salMinR   = (State.cct && State.cct.salarioMinimo) || 1518;
+  const _insalubHab= (parseFloat(emp.insalubridade)||0) > 0 ? _salMinR*((parseFloat(emp.insalubridade)||0)/100) : 0;
+  const _acumuloHab= emp.acumuloFuncao ? sal*0.20 : 0;
+  const _mediaVar  = parseFloat(r.mediaAdicionais)||0;
+  const _baseHabFixa = sal + _insalubHab + _acumuloHab;   // salário + adicionais fixos habituais
+  const baseCalc   = _baseHabFixa + _mediaVar;            // + média dos variáveis (aviso/13º/férias)
+  o.insalubHab=_insalubHab; o.acumuloHab=_acumuloHab; o.mediaVar=_mediaVar; o.baseCalc=baseCalc;
   // Aviso prévio (dias)
   const avisoCheio=Math.min(pl.avisoMax, pl.avisoBase+pl.avisoPorAno*o.anos);
   if(cfg.aviso==='empregador') o.avisoDias=avisoCheio;
@@ -16375,29 +16405,29 @@ function _calcRescisao(r){
   // (inclusive), e não o mês corrido — senão pagaria dias anteriores à admissão.
   const _mesmoMesAdm = adm.getFullYear()===dem.getFullYear() && adm.getMonth()===dem.getMonth();
   const _diasSaldo = _mesmoMesAdm ? (dem.getDate()-adm.getDate()+1) : dem.getDate();
-  o.saldoSalario=(sal/30)*Math.max(0,_diasSaldo);
+  o.saldoSalario=(_baseHabFixa/30)*Math.max(0,_diasSaldo);
   // Aviso prévio indenizado (valor)
-  if(indeniza && o.avisoDias>0) o.avisoValor=(sal/30)*o.avisoDias;
+  if(indeniza && o.avisoDias>0) o.avisoValor=(baseCalc/30)*o.avisoDias;
   // 13º proporcional (avos do ano-calendário até a data projetada)
   if(cfg.m13){
     const jan1=new Date(dataProj.getFullYear(),0,1);
     const ini13=adm>jan1?adm:jan1;
     o.decimoAvos=_contaAvos(ini13, dataProj);
-    o.decimo=(sal/12)*o.decimoAvos;
+    o.decimo=(baseCalc/12)*o.decimoAvos;
   }
   // Férias vencidas + 1/3 (dias informados manualmente)
   const fvDias=parseFloat(r.feriasVencidasDias)||0;
-  o.feriasVenc=(sal/30)*fvDias*(4/3);
+  o.feriasVenc=(baseCalc/30)*fvDias*(4/3);
   // Férias proporcionais + 1/3 (avos do período aquisitivo em curso)
   if(cfg.feriasProp){
     let aniv=new Date(adm); aniv.setFullYear(dataProj.getFullYear());
     if(aniv>dataProj) aniv.setFullYear(aniv.getFullYear()-1);
     if(aniv<adm) aniv=new Date(adm);
     o.feriasPropAvos=_contaAvos(aniv, dataProj);
-    o.feriasProp=(sal/12)*o.feriasPropAvos*(4/3);
+    o.feriasProp=(baseCalc/12)*o.feriasPropAvos*(4/3);
   }
-  // Indenização adicional — art. 9º Lei 7.238/84 (1 salário)
-  if(r.indenizacaoAdicional) o.indenizAdic=sal;
+  // Indenização adicional — art. 9º Lei 7.238/84 (1 remuneração, c/ adicionais habituais)
+  if(r.indenizacaoAdicional) o.indenizAdic=baseCalc;
   // Indenização Art. 479 — rescisão antecipada de contrato de experiência.
   // (metade da remuneração dos dias que faltavam até o término do contrato)
   if(r.tipo==='experiencia_antecipada' && emp.tipoContrato==='experiencia'){
@@ -16513,6 +16543,7 @@ function _rescisaoFromModal(){
     saldoFgts:numVal('resc-saldo-fgts'),
     indenizacaoAdicional:!!document.getElementById('resc-indeniz-adic')?.checked,
     pensao:numVal('resc-pensao'),
+    mediaAdicionais:numVal('resc-media-adicionais'),
     adiantamentos:numVal('resc-adiantamentos'),
     avisoDescontado:numVal('resc-aviso-descontado'),
     outrasVerbas:collectRescItens('verbas'),
@@ -16543,7 +16574,14 @@ function recalcRescisaoModal(){
   setVal('resc-emp-cargo', emp.cargo||emp.setor||'—');
   setVal('resc-emp-admissao', emp.dataAdmissao?formatDateBr(emp.dataAdmissao):'—');
   setVal('resc-emp-salario', (parseFloat(emp.salarioBase)||0).toFixed(2));
+  // Pré-preenche a média de adicionais variáveis (noturno/HE, últimos 12 meses) se
+  // o campo estiver vazio — fica EDITÁVEL pra ajuste do contador. #fix-resc-adicionais
+  if(!val('resc-media-adicionais')){
+    const _med=_mediaAdicionaisRescisao(r.employeeId, r.dataDemissao);
+    if(_med>0){ setVal('resc-media-adicionais', _med.toFixed(2)); r.mediaAdicionais=_med; }
+  }
   const o=_calcRescisao(r);
+  setVal('resc-base-calculo', o.baseCalc>0 ? o.baseCalc.toFixed(2) : (parseFloat(emp.salarioBase)||0).toFixed(2));
   setVal('resc-tempo-servico', o.tempoServico||'—');
   setVal('resc-aviso-dias', o.avisoDias>0?`${o.avisoDias} dias`:'—');
   // Verbas
@@ -16600,7 +16638,7 @@ function openRescisaoModal(id){
   const titleEl=document.getElementById('modal-rescisao-title');
   // Reset
   ['resc-id','resc-data-demissao','resc-ferias-venc-dias','resc-saldo-fgts',
-   'resc-pensao','resc-adiantamentos','resc-aviso-descontado',
+   'resc-pensao','resc-media-adicionais','resc-adiantamentos','resc-aviso-descontado',
    'resc-observacoes','resc-situacao-inicio','resc-situacao-fim',
    'resc-situacao-motivo','resc-estab-valor'].forEach(f=>setVal(f,''));
   setVal('resc-tipo','sem_justa_causa');
@@ -16625,6 +16663,7 @@ function openRescisaoModal(id){
     if(indChk) indChk.checked=!!r.indenizacaoAdicional;
     if(pagoChk) pagoChk.checked=!!r.pago;
     setVal('resc-pensao',r.pensao||'');
+    setVal('resc-media-adicionais',r.mediaAdicionais||'');
     setVal('resc-adiantamentos',r.adiantamentos||'');
     setVal('resc-aviso-descontado',r.avisoDescontado||'');
     renderRescItens('verbas',r.outrasVerbas);
@@ -16708,7 +16747,7 @@ function onRescEstabModoChange(){
 
 function _toggleRescisaoLock(locked){
   const ids=['resc-tipo','resc-data-demissao','resc-aviso-tipo','resc-ferias-venc-dias',
-    'resc-saldo-fgts','resc-indeniz-adic','resc-pensao','resc-adiantamentos',
+    'resc-saldo-fgts','resc-indeniz-adic','resc-pensao','resc-media-adicionais','resc-adiantamentos',
     'resc-aviso-descontado','resc-observacoes','resc-situacao-tipo','resc-situacao-inicio',
     'resc-situacao-fim','resc-situacao-motivo','resc-estab-modo','resc-estab-valor'];
   ids.forEach(i=>{ const el=document.getElementById(i); if(el) el.disabled=locked; });
@@ -16747,7 +16786,7 @@ async function saveRescisao(fechar){
     feriasVencidasDias:r.feriasVencidasDias||0,
     saldoFgts:r.saldoFgts||0,
     indenizacaoAdicional:r.indenizacaoAdicional,
-    pensao:r.pensao||0, adiantamentos:r.adiantamentos||0,
+    pensao:r.pensao||0, mediaAdicionais:r.mediaAdicionais||0, adiantamentos:r.adiantamentos||0,
     avisoDescontado:r.avisoDescontado||0,
     outrasVerbas:r.outrasVerbas||[],
     outrosDescontos:r.outrosDescontos||[],

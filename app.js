@@ -4309,6 +4309,11 @@ function _contLinhaContador(e, p){
   // sincronizada do ponto por _sincronizarAtrasosDoPonto. Garante que a coluna 0217 e o
   // card mostrem o MESMO valor, fidedigno ao que é pago. #planilha-contador #atraso-fonte-unica
   const atr = p ? _atrasoTotais(e.id, p.mes, p.ano) : {minutos:0,minutosDesc:0,count:0};
+  // Atraso DESCONTÁVEL DE FATO (= o que aparece na contabilidade): tira abonados/justificados
+  // (já fora do minutosDesc) E as horas cobertas por atestado — igual ao desconto do recibo
+  // (minutosAtrasoEf). Abono/justificação/atestado de qualquer forma → some da contabilidade. #fix-atraso-justificado
+  const _atestAtrasoMin = p ? (_atestadoTotais(e.id, p.mes, p.ano).horasMin||0) : 0;
+  const atrasoEfetivo = Math.max(0, atr.minutosDesc - _atestAtrasoMin);
   const hePerc = p ? (parseInt(p.horasExtrasPerc||50)) : 50;
   const heH    = p ? (+p.horasExtrasTotal||0) : 0;          // horas extras lançadas na folha
   const heMin  = Math.round(heH*60);
@@ -4337,8 +4342,8 @@ function _contLinhaContador(e, p){
     heAdNotMin: not.noturnoHeMin,    // horas noturnas que caíram em HE
     he50Min, he100Min,
     vt, vr,
-    atrasoMin: atr.minutos,           // total registrado (coleção) — bate com o card
-    atrasoDescMin: atr.minutosDesc,   // descontável (não abonado)
+    atrasoMin: atrasoEfetivo,         // SÓ o descontável de fato (abonado/justificado/atestado fora)
+    atrasoTotalMin: atr.minutos,      // total registrado (p/ tooltip)
     atrasoQtd: atr.count,
     valeAvulso: adiant,
     emprest,
@@ -4460,7 +4465,7 @@ function renderContabilidade(){
       <td style="text-align:center;color:${L.he100Min>0?'#1B5E20':'inherit'}">${L.he100Min>0?_minToHHMM(L.he100Min):dash}</td>
       <td style="text-align:right">${L.vt>0?fmtMoney(L.vt):dash}</td>
       <td style="text-align:right">${L.vr>0?fmtMoney(L.vr):dash}</td>
-      <td style="text-align:center">${L.atrasoMin>0?`<a href="javascript:void(0)" onclick="openPayrollForEmployee('${e.id}',{mes:${mes},ano:${ano},fieldKey:'atraso',color:'#B71C1C'})" title="${L.atrasoQtd} ocorrência(s) de atraso · ${_minToHHMM(L.atrasoDescMin)} com desconto (não abonado). Clique para ver no card de Atrasos." style="color:#B71C1C;font-weight:700;text-decoration:none;border-bottom:1px dotted #B71C1C">${_minToHHMM(L.atrasoMin)}</a>`:dash}</td>
+      <td style="text-align:center">${L.atrasoMin>0?`<a href="javascript:void(0)" onclick="openPayrollForEmployee('${e.id}',{mes:${mes},ano:${ano},fieldKey:'atraso',color:'#B71C1C'})" title="Atraso DESCONTÁVEL ${_minToHHMM(L.atrasoMin)} (de ${L.atrasoQtd} atraso(s), total ${_minToHHMM(L.atrasoTotalMin)} — abonados/justificados/atestado já fora). Clique para ver no card de Atrasos." style="color:#B71C1C;font-weight:700;text-decoration:none;border-bottom:1px dotted #B71C1C">${_minToHHMM(L.atrasoMin)}</a>`:dash}</td>
       <td style="text-align:right">${L.valeAvulso>0?fmtMoney(L.valeAvulso):dash}</td>
       <td style="text-align:right">${L.emprest>0?fmtMoney(L.emprest):dash}</td>
       <td style="text-align:center">${L.faltaMin>0?`<a href="javascript:void(0)" onclick="openPayrollForEmployee('${e.id}',{mes:${mes},ano:${ano},fieldKey:'falta',color:'#B71C1C'})" title="Ver as faltas de ${esc(L.nome)} (${L.faltaQtd} dia(s)) na folha de ponto" style="color:#B71C1C;font-weight:700;text-decoration:none;border-bottom:1px dotted #B71C1C">${_minToHHMM(L.faltaMin)}</a>`:dash}</td>
@@ -9717,7 +9722,9 @@ function _atrasoTotais(empId, mes, ano){
     if(a.employeeId!==empId || a.mes!=mes || a.ano!=ano) return;
     const m=parseInt(a.minutos)||0;
     minutos+=m; count++;
-    if(!a.abonado) minutosDesc+=m;
+    // Descontável = NEM abonado NEM justificado. Qualquer abono/justificação tira o
+    // atraso do desconto (e, por tabela, da contabilidade). Decisão do usuário 2026-06-03. #fix-atraso-justificado
+    if(!a.abonado && !a.justificado) minutosDesc+=m;
   });
   return {minutos, minutosDesc, count};
 }
@@ -9734,7 +9741,7 @@ function renderAtrasosFolha(){
     .sort((a,b)=>_compDiaOrd(a.dia)-_compDiaOrd(b.dia));
   const tot=_atrasoTotais(empId,mes,ano);
   resumo.innerHTML = tot.count
-    ? `<i class="fa-solid fa-circle-info"></i> <strong>${tot.count} atraso(s) · ${minutesToStr(tot.minutos)}</strong> — ${tot.minutosDesc>0?minutesToStr(tot.minutosDesc)+' com desconto':'todos abonados'}.`
+    ? `<i class="fa-solid fa-circle-info"></i> <strong>${tot.count} atraso(s) · ${minutesToStr(tot.minutos)}</strong> — ${tot.minutosDesc>0?minutesToStr(tot.minutosDesc)+' com desconto':'todos abonados/justificados (sem desconto)'}.`
     : 'Nenhum atraso registrado neste mês.';
   if(!arr.length){ lista.innerHTML=''; return; }
   lista.innerHTML=arr.map(a=>{

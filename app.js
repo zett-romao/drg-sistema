@@ -2992,9 +2992,9 @@ function _reciboOficialLinhas(emp, p){
   const _fixProvNtrib = _fixas.filter(f=>f.tipo==='P' && !f.incideINSS).reduce((s,f)=>s+(f.valor||0),0);
   const baseINSS  = Math.max(0, totalPr - descFaltas - _fixProvNtrib - _refNR);  // proventos tributáveis (faltas/proporcional já descontados; ref. não rendida é indenizatória → fora da base)
   const baseFGTS  = baseINSS;
-  // Base IRRF espelha calcIRRF (8382-8386): bruto - INSS - (dependentes × dedução) - pensão. Plano de saúde NÃO entra na base neste sistema.
+  // Base IRRF espelha calcIRRF: bruto - INSS - (dependentes × dedução) - pensão - plano de saúde (Lei 9.250/95). #fix-plano-irrf
   const dedDep    = (parseInt(emp.dependentesIRRF||0)||0) * (_pl().irrfDedDependente||0);
-  const baseIRRF  = Math.max(0, baseINSS - inss - dedDep - pensao);
+  const baseIRRF  = Math.max(0, baseINSS - inss - dedDep - pensao - plano);
   return { linhas, totalPr, totalDe, liquido, baseINSS, baseFGTS, baseIRRF, fgtsDepositado: fgts };
 }
 
@@ -9324,9 +9324,11 @@ function calcFGTS(bruto){
 
 function calcIRRF(bruto, dependentes, pensao, planoSaude, inss){
   const pl=_pl();
-  // Base IRRF = bruto - INSS - deduções por dependente - pensão alimentícia
+  // Base IRRF = bruto - INSS - deduções por dependente - pensão alimentícia - plano de saúde
+  // Plano de saúde (parte descontada do colaborador) é dedutível na base do IRRF
+  // (Lei 9.250/95). Decisão do usuário 2026-06-03. #fix-plano-irrf
   const dedDep=(dependentes||0)*pl.irrfDedDependente;
-  const base=Math.max(0, bruto-(inss||0)-dedDep-(pensao||0));
+  const base=Math.max(0, bruto-(inss||0)-dedDep-(pensao||0)-(planoSaude||0));
   // Tabela progressiva IRRF
   if(base<=pl.irrf1Lim) return 0;
   if(base<=pl.irrf2Lim) return Math.max(0, Math.round((base*pl.irrf2Aliq/100-pl.irrf2Ded)*100)/100);
@@ -10184,13 +10186,19 @@ function recalculate(){
     setVal('payroll-noturno','');
   }
 
+  // Fator de PROPORCIONALIDADE dos adicionais (insalubridade/acúmulo) = mesma
+  // proporção da remuneração: dias pagos ÷ dias previstos. Admissão/desligamento no
+  // meio do mês (ou faltas) reduzem o adicional na mesma medida do salário — antes
+  // saíam CHEIOS e pagavam a maior. Isento = integral. Decisão do usuário 2026-06-03. #fix-adic-proporcional
+  const _fatorAdic = isentoPonto ? 1 : (diasPrevistos>0 ? Math.min(1, diasPagos/diasPrevistos) : 0);
+
   // --- Acúmulo de Função (+20% sobre salário base) — por período ---
   const acumuloCard=document.getElementById('acumulo-card');
   // Valor: por segmento de lotação (só os períodos com acúmulo), proporcional aos
-  // dias previstos de cada um. Fast-path (1 segmento) = salBase*20% como antes.
+  // dias PAGOS de cada um. Fast-path (1 segmento) = salBase*20% × fator.
   const acumuloVal = _multiSeg
-    ? _segs.reduce((s,x)=> s + (x.lot.acumuloFuncao ? (x.lot.salarioBase||0)*0.20*(x.diasPrevistos/diasPrevistos) : 0), 0)
-    : ((emp&&emp.acumuloFuncao&&salBase>0) ? salBase*0.20 : 0);
+    ? _segs.reduce((s,x)=> s + (x.lot.acumuloFuncao ? (x.lot.salarioBase||0)*0.20*(x.diasPagos/diasPrevistos) : 0), 0)
+    : ((emp&&emp.acumuloFuncao&&salBase>0) ? salBase*0.20*_fatorAdic : 0);
   if(acumuloVal>0){
     if(acumuloCard) acumuloCard.classList.remove('hidden');
     setVal('payroll-acumulo',acumuloVal.toFixed(2));
@@ -10204,11 +10212,11 @@ function recalculate(){
   const insalubGrau=document.getElementById('insalubridade-grau');
   const insalubPerc=emp?(emp.insalubridade||0):0;
   const salMin=(State.cct&&State.cct.salarioMinimo)||1518;
-  // Valor: por segmento (cada período usa seu grau), proporcional aos dias
-  // previstos. Fast-path (1 segmento) = salMin*perc/100 como antes.
+  // Valor: por segmento (cada período usa seu grau), proporcional aos dias PAGOS.
+  // Fast-path (1 segmento) = salMin*perc/100 × fator de proporcionalidade.
   const insalubVal = _multiSeg
-    ? _segs.reduce((s,x)=> s + salMin*((x.lot.insalubridade||0)/100)*(x.diasPrevistos/diasPrevistos), 0)
-    : (insalubPerc>0 ? salMin*(insalubPerc/100) : 0);
+    ? _segs.reduce((s,x)=> s + salMin*((x.lot.insalubridade||0)/100)*(x.diasPagos/diasPrevistos), 0)
+    : (insalubPerc>0 ? salMin*(insalubPerc/100)*_fatorAdic : 0);
   if(insalubVal>0){
     if(insalubCard) insalubCard.classList.remove('hidden');
     setVal('payroll-insalubridade',insalubVal.toFixed(2));
@@ -16386,8 +16394,12 @@ function _calcRescisao(r){
   const inssSaldo=calcINSS(o.saldoSalario);
   const inss13=cfg.m13?calcINSS(o.decimo):0;
   o.inss=Math.round((inssSaldo+inss13)*100)/100;
-  const irrfSaldo=calcIRRF(o.saldoSalario, deps, 0, 0, inssSaldo);
-  const irrf13=cfg.m13?calcIRRF(o.decimo, deps, 0, 0, inss13):0;
+  // Pensão alimentícia deduz da base do IRRF também na rescisão (saldo de salário e
+  // 13º), igual à folha mensal e ao 13º normal — antes usava 0 e divergia. Decisão do
+  // usuário 2026-06-03. Férias indenizadas são não-tributáveis → sem IRRF. #fix-pensao-irrf-resc
+  const _pensaoMensal=parseFloat(emp.pensaoAlimenticia)||0;
+  const irrfSaldo=calcIRRF(o.saldoSalario, deps, _pensaoMensal, 0, inssSaldo);
+  const irrf13=cfg.m13?calcIRRF(o.decimo, deps, _pensaoMensal, 0, inss13):0;
   o.irrf=Math.round((irrfSaldo+irrf13)*100)/100;
   o.inssSaldo=Math.round(inssSaldo*100)/100;
   o.inss13=Math.round(inss13*100)/100;

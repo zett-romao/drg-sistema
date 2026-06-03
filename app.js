@@ -23985,7 +23985,12 @@ function _projectEscala6x1ALT(emp, mes, ano){
   const dias = [];
   for(const cd of _compDias(mes, ano)){
     const ds = cd.diaSem;
-    const tipo = _6x1ALTEhFolga(emp, cd.ano, cd.mes, cd.dia) ? 'folga' : 'trabalho';
+    // Usa o MESMO motor do _getExpectedDay (ciclo deslizante 6+1 a partir da âncora),
+    // garantindo no máx. 6 dias seguidos de trabalho. Antes a projeção usava
+    // _6x1ALTEhFolga (paridade sáb↔dom), que ao migrar a folga de domingo→sábado
+    // entre semanas gerava até 12 dias seguidos na tela — divergindo da folha (que
+    // já calcula pelo ciclo deslizante). #fix-6x1alt-12dias
+    const tipo = _ehFolga6x1Ciclo(emp, cd.ano, cd.mes, cd.dia) ? 'folga' : 'trabalho';
     const h = (tipo==='trabalho') ? _escalaHorariosDia(emp, ds) : {entrada:'',intIni:'',intFim:'',saida:''};
     dias.push({ dia:cd.dia, diaSem:ds, tipo, ...h });
   }

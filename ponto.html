@@ -995,6 +995,7 @@ function linkMaps(geo) {
 //   (regra trabalhista de descanso minimo de 1h — CLT Art. 71)
 // - Dia de folga: bloqueia, exige autorizacao
 const TOLERANCIA_MIN     = 5;   // entrada/saida — tolerancia de 5min antes/depois
+const TOLERANCIA_DIA_MIN = 10;  // SOMATORIA do dia (entrada+saida+atraso refeicao) — Sumula 366 TST
 const DESCANSO_MIN       = 60;  // tempo minimo de intervalo (CLT Art. 71)
 const DESCANSO_MAX       = 65;  // tolerancia de 5min sobre o minimo (refeicao nao passa de 1h05)
 
@@ -1103,6 +1104,28 @@ function _ehDiaDeFolga(emp, dataObj){
 //  Quando NAO e' 'ok', a batida deve ser bloqueada.
 //  'descansoInsuficiente' = CLT, supervisor nao pode autorizar.
 //  'foraJanela' / 'folga' = pode pedir autorizacao ao supervisor (Bloco B).
+// Somatoria das divergencias do DIA (entrada + saida + atraso de refeicao), JA incluindo
+// a batida atual. Regra do dono: mesmo cada batida dentro dos +/-5min, se a SOMA passar de
+// 10min/dia a batida vira pedido de autorizacao ao supervisor (Sumula 366 TST).
+function _somatoriaDivergenciaDia(prox, atualMin){
+  const p = getDiaHoje() || {};
+  const espEntStr = _horarioEsperado('entrada'), espSaiStr = _horarioEsperado('saida');
+  const espEnt = espEntStr ? timeToMin(espEntStr) : null;
+  const espSai = espSaiStr ? timeToMin(espSaiStr) : null;
+  let soma = 0;
+  // Entrada (registrada ou a atual)
+  const entReg = (prox==='entrada') ? atualMin : (p.entrada ? timeToMin(p.entrada) : null);
+  if(entReg!=null && espEnt!=null) soma += Math.abs(entReg - espEnt);
+  // Saida (registrada ou a atual)
+  const saiReg = (prox==='saida') ? atualMin : (p.saida ? timeToMin(p.saida) : null);
+  if(saiReg!=null && espSai!=null) soma += Math.abs(saiReg - espSai);
+  // Refeicao — so' o que passou de 60min (atraso na volta)
+  const iIni = p.intIni ? timeToMin(p.intIni) : null;
+  const iFim = (prox==='intFim') ? atualMin : (p.intFim ? timeToMin(p.intFim) : null);
+  if(iIni!=null && iFim!=null){ const dur = iFim - iIni; if(dur > DESCANSO_MIN) soma += (dur - DESCANSO_MIN); }
+  return soma;
+}
+
 function analisarHorario(prox, now){
   const e = currentEmp || {};
   const atualMin = now.getHours()*60 + now.getMinutes();
@@ -1162,6 +1185,12 @@ function analisarHorario(prox, now){
         msg: `O intervalo passou de 1h05 (você saiu às ${horaIda}, já faz ${decorrido} min). Solicite autorização ao supervisor.`
       };
     }
+    // Volta dentro de 1h05, mas a SOMA do dia pode estourar 10min → autorização.
+    const _somaInt = _somatoriaDivergenciaDia('intFim', atualMin);
+    if(_somaInt > TOLERANCIA_DIA_MIN){
+      return { tipo:'foraJanela', esperado:horaIda, diff:decorrido,
+        msg:`A soma dos minutos fora do horário no dia já passou de 10min (${_somaInt} min). Solicite autorização ao supervisor.` };
+    }
     return { tipo:'ok', esperado:horaIda, diff:decorrido };
   }
 
@@ -1173,6 +1202,13 @@ function analisarHorario(prox, now){
   // 4. Entrada e Saida — +/- 5 min do horario previsto
   const diff = atualMin - timeToMin(esp);
   if(Math.abs(diff) <= TOLERANCIA_MIN){
+    // Mesmo dentro dos +/-5min, checa a SOMATORIA do dia (Sumula 366: 10min/dia).
+    // Ex.: entrou 4min cedo + saiu 4min depois + almoco 4min a mais = 12min → autorizacao.
+    const _somaDia = _somatoriaDivergenciaDia(prox, atualMin);
+    if(_somaDia > TOLERANCIA_DIA_MIN){
+      return { tipo:'foraJanela', esperado:esp, diff,
+        msg:`A soma dos minutos fora do horário no dia (${_somaDia} min) passou de 10min. Solicite autorização ao supervisor.` };
+    }
     return { tipo:'ok', esperado:esp, diff };
   }
   const nome = (prox==='entrada') ? 'entrada' : 'saída';

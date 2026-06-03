@@ -33,3 +33,11 @@ node_modules/
 
 # Pasta de distribuição gerada pelo montar_pendrive.bat (não versionar)
 _pendrive/
+
+# Chaves e credenciais locais (NUNCA versionar)
+*firebase-adminsdk*.json
+*service-account*.json
+*.private.json
+*.secret.json
+.env
+.env.*

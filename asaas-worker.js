@@ -74,7 +74,9 @@ async function verifyIdToken(idToken){
   if (payload.aud !== PROJECT_ID)   throw new Error('projeto invalido');
   if (payload.iss !== TOKEN_ISSUER) throw new Error('emissor invalido');
   if (!payload.sub || !payload.exp || payload.exp <= agora) throw new Error('token expirado');
-  return { uid: payload.sub, email: payload.email || '' };
+  if (payload.drg !== true) throw new Error('claim drg ausente');
+  if (payload.role === 'colaborador') throw new Error('perfil sem permissao para Asaas');
+  return { uid: payload.sub, email: payload.email || '', role: payload.role || '' };
 }
 
 export default {

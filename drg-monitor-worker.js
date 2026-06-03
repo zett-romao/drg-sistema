@@ -18,13 +18,26 @@ export default {
   // Permite disparo manual p/ teste: GET https://<worker>/?run=1
   async fetch(req, env) {
     const u = new URL(req.url);
-    if (u.searchParams.get('run')  === '1') { const r = await rodar(env);        return new Response(JSON.stringify(r), {headers:{'content-type':'application/json'}}); }
-    if (u.searchParams.get('test') === '1') { const r = await enviarTeste(env);  return new Response(JSON.stringify(r), {headers:{'content-type':'application/json'}}); }
+    if (u.searchParams.get('run')  === '1') {
+      if(!_manualRunAllowed(req, env, u)) return new Response('forbidden', {status:403});
+      const r = await rodar(env); return new Response(JSON.stringify(r), {headers:{'content-type':'application/json'}});
+    }
+    if (u.searchParams.get('test') === '1') {
+      if(!_manualRunAllowed(req, env, u)) return new Response('forbidden', {status:403});
+      const r = await enviarTeste(env); return new Response(JSON.stringify(r), {headers:{'content-type':'application/json'}});
+    }
     return new Response('drg-monitor-worker ok', {status:200});
   }
 };
 
 // Teste de entrega: manda uma notificação de teste a TODOS os inscritos (ignora faltas/dedupe).
+function _manualRunAllowed(req, env, url){
+  const secret=String(env.MONITOR_RUN_SECRET||'');
+  if(!secret) return false;
+  const got=String(req.headers.get('x-monitor-secret')||url.searchParams.get('secret')||'');
+  return !!got && got===secret;
+}
+
 async function enviarTeste(env){
   const cfgs=await fsListCol(env,'configuracoes');
   const subs=cfgs.filter(c=>c.id.startsWith('pushsub_') && c.data && c.data.sub && c.data.sub.endpoint);

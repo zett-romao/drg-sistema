@@ -238,6 +238,24 @@ const NOMES_BATIDA = {
   saida:   'Saída'
 };
 
+function _payrollScore(p){
+  if(!p) return -1;
+  const dias=Array.isArray(p.pontoManualDias)?p.pontoManualDias:[];
+  const diasComBatida=dias.filter(d=>d&&(d.entrada||d.saida||d.intIni||d.intFim)).length;
+  const valores=['valeTransporte','valeRefeicao','adiantamentoValor','adiantamento','insalubridade','acumuloFuncao','horasExtrasTotal']
+    .reduce((s,k)=>s+(+p[k]>0?1:0),0);
+  return (p.status==='fechada'?100000:0) + dias.length*1000 + diasComBatida*10 + valores;
+}
+
+function _pickPayrollDoc(docs){
+  let best=null;
+  docs.forEach(doc=>{
+    const p={id:doc.id, ...doc.data()};
+    if(!best || _payrollScore(p)>_payrollScore(best)) best=p;
+  });
+  return best;
+}
+
 // ─── AUTH ──────────────────────────────────────────────────────────────────
 // ID do dispositivo (resiliente: localStorage → cookie → memória). O worker exige
 // deviceId pra usuário não-master; sem ele dava "dispositivo não identificado" no
@@ -557,9 +575,9 @@ async function _gravarBatidaNaFolha(p, horarioEfetivo){
   if(!empId || !mes || !ano || !dia || !tp)
     throw new Error('pedido antigo sem competência/dia — recuse e peça novo');
   const snap = await dbCol('payrolls')
-    .where('employeeId','==',empId).where('mes','==',mes).where('ano','==',ano).limit(1).get();
+    .where('employeeId','==',empId).where('mes','==',mes).where('ano','==',ano).get();
   let docId, dias, createdAt;
-  if(!snap.empty){ const d0=snap.docs[0]; docId=d0.id; dias=[...((d0.data().pontoManualDias)||[])]; createdAt=d0.data().createdAt||new Date().toISOString(); }
+  if(!snap.empty){ const folha=_pickPayrollDoc(snap.docs); docId=folha.id; dias=[...((folha.pontoManualDias)||[])]; createdAt=folha.createdAt||new Date().toISOString(); }
   else { docId = Date.now().toString(36)+Math.random().toString(36).slice(2,8); dias=[]; createdAt=new Date().toISOString(); }
   let entry = dias.find(d => d.dia === dia);
   if(!entry){ entry = { dia, diaSem: (p.diaSem!=null?p.diaSem:new Date(ano,mes-1,dia).getDay()), entrada:'', saida:'', intIni:'', intFim:'' }; dias.push(entry); }

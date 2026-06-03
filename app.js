@@ -10112,6 +10112,20 @@ async function recalcularAtrasosCompetencia(mesArg, anoArg){
   if(val('payroll-employee')) onPayrollEmployeeChange();
 }
 
+// Folgas avulsas (override tipo='folga') que caem na competência, com suas flags.
+// remunerada=false → desconta o dia (salário/30) sem virar falta; pagaBeneficios=true
+// → recebe VT/VR/VA do dia. Ambas NÃO são falta (já garantido pelo override folga). #folga-avulsa
+function _folgasAvulsasComp(emp, mes, ano){
+  if(!emp || !Array.isArray(emp.overridesHorario)) return [];
+  const out=[];
+  for(const cd of _compDias(mes, ano)){
+    const ymd = `${cd.ano}-${String(cd.mes).padStart(2,'0')}-${String(cd.dia).padStart(2,'0')}`;
+    const ov = emp.overridesHorario.find(o => o && o.data===ymd && o.tipo==='folga');
+    if(ov) out.push({ dia:cd.dia, remunerada:!!ov.remunerada, pagaBeneficios:!!ov.pagaBeneficios });
+  }
+  return out;
+}
+
 // Conta os dias de TRABALHO previstos no mês para o colaborador, conforme a
 // escala (escala salva > âncora 12x36 > contratual). Base do proporcional.
 function _diasPrevistosEscala(emp, mes, ano){
@@ -10263,11 +10277,15 @@ function recalculate(){
   // proporção dos dias previstos com >6h sobre o total de dias previstos
   // (ex.: 6x1A com sábado curto recebe VT no sábado mas não VR). Isento
   // recebe ambos integrais.
-  const diasBeneficio = isentoPonto ? (diasPrevistos || _diasUteisMes(_mesR, _anoR)) : dias;
+  // Folgas avulsas: NÃO remunerada desconta o dia (sal/30); pagaBeneficios soma VT/VR/VA. #folga-avulsa
+  const _folgasAv        = (emp && !isentoPonto) ? _folgasAvulsasComp(emp, _mesR, _anoR) : [];
+  const folgasNaoRemDias = _folgasAv.filter(f=>!f.remunerada).length;
+  const folgasBenefDias  = _folgasAv.filter(f=>f.pagaBeneficios).length;
+  const diasBeneficio = isentoPonto ? (diasPrevistos || _diasUteisMes(_mesR, _anoR)) : (dias + folgasBenefDias);
   const diasPrevistosVr = emp ? _diasPrevistosComVR(emp, _mesR, _anoR) : 0;
   const diasBeneficioVr = isentoPonto
     ? diasBeneficio
-    : (diasPrevistos > 0 ? Math.round(dias * (diasPrevistosVr / diasPrevistos)) : 0);
+    : ((diasPrevistos > 0 ? Math.round(dias * (diasPrevistosVr / diasPrevistos)) : 0) + folgasBenefDias);
 
   // Segmentos de lotação no período — base do salário/insalubridade/acúmulo POR
   // PERÍODO (ex.: troca de função/salário no meio do mês). Fast-path: 1 segmento
@@ -10323,7 +10341,10 @@ function recalculate(){
     const dsrSemanas    = _dsrSemanasComFalta(emp, _mesR, _anoR, _pontoDiasR, faltasInjust);
     remuneracaoProp = baseEmpregado - faltasInjust*valorDiaDSR - dsrSemanas*valorDiaDSR;
   } else remuneracaoProp = 0;
-  const remuneracaoBase = Math.max(0, remuneracaoProp);
+  // Folga NÃO remunerada: desconta o dia (salário/30) da remuneração — reduz a base
+  // (e por tabela INSS/IRRF, como um dia não trabalhado/não pago). NÃO é falta → sem DSR. #folga-avulsa
+  const descFolgaNaoRem = (folgasNaoRemDias>0 && salBase>0) ? folgasNaoRemDias*(salBase/30) : 0;
+  const remuneracaoBase = Math.max(0, remuneracaoProp - descFolgaNaoRem);
   if(salBase>0){
     setVal('payroll-remuneracao', remuneracaoBase.toFixed(2));
   }
@@ -14344,7 +14365,8 @@ function renderHorariosTab(empId){
           <div style="flex:1;min-width:0">
             <div style="font-size:13px;font-weight:600;color:var(--text)">${_fmtDtBr(o.data)}
               <span style="background:${ehFolga?'#7e22ce':'#E65100'};color:#fff;padding:1px 8px;border-radius:9px;font-size:10px;font-weight:700;margin-left:6px">${ehFolga?'FOLGA':'HORÁRIO DIFERENTE'}</span>
-              ${ehFolga ? `<span style="background:${o.remunerada?'#1B5E20':'#90a4ae'};color:#fff;padding:1px 8px;border-radius:9px;font-size:10px;font-weight:700;margin-left:4px">${o.remunerada?'💰 REMUNERADA':'NÃO REMUNERADA'}</span>` : ''}
+              ${ehFolga ? `<span style="background:${o.remunerada?'#1B5E20':'#90a4ae'};color:#fff;padding:1px 8px;border-radius:9px;font-size:10px;font-weight:700;margin-left:4px">${o.remunerada?'💰 REMUNERADA':'NÃO REMUNERADA (desconta o dia)'}</span>` : ''}
+              ${ehFolga && o.pagaBeneficios ? `<span style="background:#1565C0;color:#fff;padding:1px 8px;border-radius:9px;font-size:10px;font-weight:700;margin-left:4px">🎫 c/ benefícios</span>` : ''}
             </div>
             ${!ehFolga ? `<div style="font-size:11px;color:#64748b;margin-top:3px">
               <strong>Entrada:</strong> ${o.horarioEntrada||'—'} ·
@@ -14465,6 +14487,7 @@ function abrirNovoOverrideEscala(){
   setVal('ovr-esc-ref-fim','');
   setVal('ovr-esc-obs','');
   const _rem = document.getElementById('ovr-esc-remunerada'); if(_rem) _rem.checked = false;
+  const _ben = document.getElementById('ovr-esc-paga-beneficios'); if(_ben) _ben.checked = false;
   _ovrEscTipoChange();
   document.getElementById('modal-override-escala').classList.remove('hidden');
   // Hook do change para mostrar/esconder campos de horario quando vira folga
@@ -14491,6 +14514,7 @@ function abrirNovaFolga(){
   setVal('ovr-esc-ref-ini',''); setVal('ovr-esc-ref-fim','');
   setVal('ovr-esc-obs','');
   const rem = document.getElementById('ovr-esc-remunerada'); if(rem) rem.checked = false;
+  const ben = document.getElementById('ovr-esc-paga-beneficios'); if(ben) ben.checked = false;
   _ovrEscTipoChange();
   document.getElementById('modal-override-escala').classList.remove('hidden');
   document.getElementById('ovr-esc-tipo').onchange = _ovrEscTipoChange;
@@ -14511,6 +14535,7 @@ function editarOverrideEscala(overrideId){
   setVal('ovr-esc-ref-fim', o.horarioRefFim||'');
   setVal('ovr-esc-obs', o.observacao||'');
   const _remE = document.getElementById('ovr-esc-remunerada'); if(_remE) _remE.checked = !!o.remunerada;
+  const _benE = document.getElementById('ovr-esc-paga-beneficios'); if(_benE) _benE.checked = !!o.pagaBeneficios;
   _ovrEscTipoChange();
   document.getElementById('modal-override-escala').classList.remove('hidden');
   document.getElementById('ovr-esc-tipo').onchange = _ovrEscTipoChange;
@@ -14537,7 +14562,8 @@ async function salvarOverrideEscala(){
     horarioRefIni:   tipo==='folga' ? '' : (val('ovr-esc-ref-ini')||''),
     horarioRefFim:   tipo==='folga' ? '' : (val('ovr-esc-ref-fim')||''),
     horarioSaida:    tipo==='folga' ? '' : (val('ovr-esc-saida')||''),
-    remunerada:      tipo==='folga' ? !!document.getElementById('ovr-esc-remunerada')?.checked : false,   // folga paga o dia (vs só não-falta). #folga-avulsa
+    remunerada:      tipo==='folga' ? !!document.getElementById('ovr-esc-remunerada')?.checked : false,   // folga paga o dia (vs descontar). #folga-avulsa
+    pagaBeneficios:  tipo==='folga' ? !!document.getElementById('ovr-esc-paga-beneficios')?.checked : false,  // VT/VR/VA do dia. #folga-avulsa
     observacao:      val('ovr-esc-obs')||'',
     criadoEm:        ja ? ja.criadoEm : new Date().toISOString(),
     criadoPorNome:   ja ? ja.criadoPorNome : quem,

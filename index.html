@@ -6336,9 +6336,13 @@
         </div>
       </div>
       <div id="ovr-esc-remunerada-wrap" style="display:none;margin-bottom:12px">
-        <label style="display:flex;align-items:flex-start;gap:9px;cursor:pointer;font-size:13px;background:#E8F5E9;border:1px solid #A5D6A7;border-radius:8px;padding:10px 12px">
+        <label style="display:flex;align-items:flex-start;gap:9px;cursor:pointer;font-size:13px;background:#E8F5E9;border:1px solid #A5D6A7;border-radius:8px;padding:10px 12px;margin-bottom:8px">
           <input type="checkbox" id="ovr-esc-remunerada" style="width:auto;margin-top:2px">
-          <span><i class="fa-solid fa-money-bill-wave" style="color:#1B5E20"></i> <strong>Folga remunerada</strong> — recebe normalmente pelo dia.<br><span style="color:#666;font-weight:400;font-size:12px">Desmarcado: o dia <strong>só não conta como falta</strong> (não recebe por ele).</span></span>
+          <span><i class="fa-solid fa-money-bill-wave" style="color:#1B5E20"></i> <strong>Folga remunerada</strong> — recebe o dia normalmente (sem desconto).<br><span style="color:#666;font-weight:400;font-size:12px">Desmarcado: <strong>não é falta</strong>, mas o dia <strong>é descontado</strong> (salário ÷ 30), sem perder DSR/Boa Permanência.</span></span>
+        </label>
+        <label style="display:flex;align-items:flex-start;gap:9px;cursor:pointer;font-size:13px;background:#E3F2FD;border:1px solid #90CAF9;border-radius:8px;padding:10px 12px">
+          <input type="checkbox" id="ovr-esc-paga-beneficios" style="width:auto;margin-top:2px">
+          <span><i class="fa-solid fa-ticket" style="color:#1565C0"></i> <strong>Pagar benefícios do dia</strong> (VT/VR/VA)<br><span style="color:#666;font-weight:400;font-size:12px">Marque se o colaborador deve receber os benefícios desse dia. Desmarcado: sem benefícios no dia (padrão da folga).</span></span>
         </label>
       </div>
       <div class="form-row">
@@ -6521,6 +6525,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260603am-add-folga"></script>
+  <script src="app.js?v=20260603an-folga-pagto"></script>
 </body>
 </html>

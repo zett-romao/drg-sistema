@@ -9962,6 +9962,66 @@ async function _sincronizarAtrasosDoPonto(empId, mes, ano, detectados){
   await Promise.all(tarefas);
 }
 
+// Detecta os atrasos do ponto de UMA folha SEM DOM (lê p.pontoManualDias). MESMA regra
+// do applyPontoManual: déficit do dia além da tolerância CLT (10min). 12x36 mede pela
+// PRESENÇA (jornada), não pelo líquido — refeição de 60min não é atraso. Base do
+// recálculo de atrasos em lote. #plantao-refeicao #atraso-fonte-unica
+function _detectAtrasosPonto(emp, p){
+  const out=[];
+  if(!emp || !p || emp.isentoPonto) return out;
+  const dias=Array.isArray(p.pontoManualDias)?p.pontoManualDias:[];
+  if(!dias.length) return out;
+  const fam=escalaFamilia(emp.escala||'5x2A');
+  const is12x36=fam==='12x36';
+  let minContratados=480; if(fam==='6x1')minContratados=440; else if(fam==='12x36')minContratados=660;
+  const _mod=_escalaModelo(emp.escala); if(_mod)minContratados=_modeloMinContratados(_mod);
+  for(const cd of _compDias(p.mes,p.ano)){
+    const pd=dias.find(x=>x && x.dia===cd.dia);
+    if(!pd) continue;
+    const exp=_getExpectedDay(emp,cd.mes,cd.ano,cd.dia);
+    const _bat=_repararBatidasDia(pd, exp);
+    const entrada=_bat.entrada, saida=_bat.saida, intIni=_bat.intIni, intFim=_bat.intFim;
+    if(!entrada || !saida) continue;
+    if(!exp || exp.tipo==='folga' || !exp.entrada || !exp.saida) continue;
+    const realDay={dia:cd.dia, diaSem:cd.diaSem, entrada, saida, intIni, intFim};
+    if(pd.heReview) realDay.heReview=pd.heReview;
+    const effLiq=_effectiveMinLiq(realDay, exp, minContratados);
+    const faltaDia = is12x36 ? (_presencaMin(exp)-_presencaMin(realDay)) : (_liqMin(exp)-effLiq);
+    if(faltaDia>HE_TOLERANCIA_DIA_MIN) out.push({dia:cd.dia, minutos:Math.round(faltaDia)});
+  }
+  return out;
+}
+
+// RECÁLCULO EM LOTE dos atrasos do ponto de uma competência (master). Reaplica a regra
+// atual de atraso a TODAS as folhas e re-sincroniza a coleção `atrasos` — apaga os
+// automáticos que não existem mais (ex.: atraso falso de 12x36 pré-correção da refeição)
+// e PRESERVA justificativas/abonos e atrasos lançados à mão. Conserta o card de Atrasos
+// e a Contabilidade de uma vez (ambos lêem a coleção). #plantao-refeicao #atraso-fonte-unica
+async function recalcularAtrasosCompetencia(mesArg, anoArg){
+  toast('Iniciando recálculo de atrasos...','info');
+  if(Auth.currentUser?.role!=='master'){ toast('Apenas o usuário master pode rodar o recálculo.','error'); return; }
+  const mes = parseInt(mesArg || val('payroll-mes') || val('cont-mes') || currentMes());
+  const ano = parseInt(anoArg || val('payroll-ano') || val('cont-ano') || currentAno());
+  const afetadas=(State.payrolls||[]).filter(p=>p.mes==mes&&p.ano==ano);
+  if(!afetadas.length){ toast(`Nenhuma folha encontrada em ${MESES[mes]}/${ano}.`,'warning'); return; }
+  if(!confirm(`Recalcular os ATRASOS detectados do ponto de ${afetadas.length} folha(s) da competência ${MESES[mes]}/${ano} (${_compLabel(mes,ano)})?\n\n• Reaplica a regra ATUAL (12x36: refeição de 60min dentro da jornada NÃO é atraso).\n• Remove os atrasos automáticos que não existem mais; PRESERVA justificativas/abonos e atrasos lançados à mão.\n• Atualiza o card de Atrasos e a Contabilidade. O desconto no recibo se ajusta ao abrir/salvar cada folha.\n• Roda mesmo em folhas FECHADAS.\n\nContinuar?`)) return;
+  let nAlteradas=0, nSemMudanca=0, totalRemovidos=0;
+  for(const p of afetadas){
+    const emp=State.employees.find(e=>e.id===p.employeeId);
+    if(!emp) continue;
+    const antes=(State.atrasos||[]).filter(a=>a.employeeId===p.employeeId && a.mes==mes && a.ano==ano && a.origem==='ponto').length;
+    const detect=_detectAtrasosPonto(emp, p);
+    try{
+      await _sincronizarAtrasosDoPonto(p.employeeId, mes, ano, detect);
+      if(detect.length !== antes){ nAlteradas++; if(detect.length < antes) totalRemovidos += (antes - detect.length); }
+      else nSemMudanca++;
+    }catch(e){ console.error('recalc atrasos', emp.nome, e); }
+  }
+  try{ Auth.log('RECALC_ATRASOS', null, `${MESES[mes]}/${ano} — ${nAlteradas} folha(s) alterada(s), ${totalRemovidos} atraso(s) removido(s)`); }catch(_){}
+  toast(`Recálculo de atrasos concluído: ${nAlteradas} folha(s) alterada(s) · ${totalRemovidos} atraso(s) falso(s) removido(s) · ${nSemMudanca} sem mudança. Reabra a Contabilidade pra ver o efeito.`, 'success');
+  if(val('payroll-employee')) onPayrollEmployeeChange();
+}
+
 // Conta os dias de TRABALHO previstos no mês para o colaborador, conforme a
 // escala (escala salva > âncora 12x36 > contratual). Base do proporcional.
 function _diasPrevistosEscala(emp, mes, ano){

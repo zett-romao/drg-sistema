@@ -4646,14 +4646,14 @@ function renderBirthdays(){
   const ativos=State.employees.filter(e=>(e.status||'ativo')==='ativo'&&e.dataNascimento);
   const aniversariantes=ativos.filter(e=>{
     const [,m,d]=(e.dataNascimento||'').split('-');
-    return parseInt(m)===mesAtual;
+    return parseInt(m)===mesAtual && parseInt(d)>=diaAtual;   // só de hoje em diante (some após o aniversário)
   }).sort((a,b)=>{
     const da=parseInt((a.dataNascimento||'').split('-')[2]);
     const db=parseInt((b.dataNascimento||'').split('-')[2]);
     return da-db;
   });
   if(aniversariantes.length===0){
-    el.innerHTML=`<div class="empty-state small"><i class="fa-solid fa-cake-candles"></i><p>Nenhum aniversariante em ${MESES[mesAtual]}</p></div>`;
+    el.innerHTML=`<div class="empty-state small"><i class="fa-solid fa-cake-candles"></i><p>Nenhum aniversariante a partir de hoje em ${MESES[mesAtual]}</p></div>`;
     return;
   }
   el.innerHTML=aniversariantes.map(e=>{

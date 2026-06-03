@@ -6462,6 +6462,7 @@ function escalaLabel(escala){
     '6x1A':'6x1 — Var. A (07h–16h / Sáb 4h)',
     '6x1B':'6x1 — Var. B (08h–16h20)',
     '6x1C':'6x1 — Var. C (08h–17h / Sáb 4h)',
+    '6x1D':'6x1 — Var. D (Seg–Sáb mesmo horário / folga dom)',
     '6x1ALT':'6x1 — Alternado (sáb ↔ dom)',
     '6x1ALT-0900-1720':'6x1 Alternado (09h–17h20)',
     '6x1ALT-0800-1620':'6x1 Alternado (08h–16h20)',
@@ -23230,8 +23231,10 @@ function renderHistoricoLotacao(emp){
           <td>${fmtMoney(h.salarioBase||0)}</td>
           <td style="font-size:11px">${adic}</td>
           <td style="font-size:11px;white-space:nowrap">${benef}</td>
-          <td><button class="btn-icon btn-danger-icon" title="Remover este período"
-            onclick="removeHistoricoLotacao('${h.id}')"><i class="fa-solid fa-trash"></i></button></td>
+          <td style="white-space:nowrap">
+            <button class="btn-icon" title="Editar este período" onclick="editarPeriodoLotacao('${h.id}')"><i class="fa-solid fa-pen" style="color:#1565C0"></i></button>
+            <button class="btn-icon btn-danger-icon" title="Remover este período" onclick="removeHistoricoLotacao('${h.id}')"><i class="fa-solid fa-trash"></i></button>
+          </td>
         </tr>`;
       }).join('')}
       </tbody>
@@ -23362,6 +23365,38 @@ function openTransferenciaModal(){
   setVal('transf-va-valor', emp.valorMensalVa||'');
   setVal('transf-obs','');
   document.getElementById('modal-transferencia').classList.remove('hidden');
+}
+
+// Editar um período EXISTENTE da linha do tempo: abre o modal pré-preenchido com os
+// dados do período (inclusive a DATA). Salvar com a mesma data SUBSTITUI o período
+// (saveTransferencia filtra por dataInicio). #editar-periodo-lotacao
+function editarPeriodoLotacao(id){
+  const empId=State.editingEmployeeId;
+  const emp=State.employees.find(e=>e.id===empId); if(!emp) return;
+  const p=(emp.historicoLotacao||[]).find(h=>h.id===id);
+  if(!p){ toast('Período não encontrado.','error'); return; }
+  openTransferenciaModal();                       // monta postos/escala/etc.
+  setVal('transf-data-entrada', p.dataInicio||'');
+  const escSel=document.getElementById('transf-escala');
+  if(escSel){ escSel.value=p.escala||emp.escala||'5x2A'; if(typeof escSel.onchange==='function') escSel.onchange(); }
+  const selP=document.getElementById('transf-novo-posto'); if(selP) selP.value=p.posto||'';
+  setVal('transf-ciclo-12x36', p.ciclo12x36Inicio||'');
+  setVal('transf-cargo', p.cargo||'');
+  setVal('transf-salario', p.salarioBase||'');
+  const tn=document.getElementById('transf-turno-noturno'); if(tn) tn.checked=!!p.turnoNoturno;
+  setVal('transf-h-entrada', p.horarioEntrada||'');
+  setVal('transf-h-saida', p.horarioSaida||'');
+  setVal('transf-h-ref-ini', p.horarioRefIni||'');
+  setVal('transf-h-ref-fim', p.horarioRefFim||'');
+  setVal('transf-insalubridade', String(p.insalubridade||0));
+  const ac=document.getElementById('transf-acumulo'); if(ac) ac.checked=!!p.acumuloFuncao;
+  setVal('transf-vt-valor', p.valorDiarioVt||'');
+  setVal('transf-vt-freq', p.vtFreq||'diario');
+  setVal('transf-vr-valor', p.valorDiarioVr||'');
+  setVal('transf-vr-freq', p.vrFreq||'diario');
+  setVal('transf-va-valor', p.valorMensalVa||'');
+  setVal('transf-obs', p.obs||'');
+  toast(`Editando o período de ${formatDateBr(p.dataInicio)} — salvar substitui esse período (mantém a data).`,'info');
 }
 
 async function saveTransferencia(){

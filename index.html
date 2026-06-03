@@ -2001,6 +2001,12 @@
         <div class="card">
           <div class="card-body">
             <div class="form-row" style="align-items:flex-end;flex-wrap:wrap;gap:12px">
+              <div class="form-group">
+                <label><i class="fa-solid fa-bolt" style="color:#F9A825"></i> Competência (com folha)</label>
+                <select id="cont-competencia-rapida" onchange="onContCompetenciaChange()" title="Carrega rapidamente qualquer competência que já tem folha lançada — inclusive as fechadas (🔒)">
+                  <option value="">— escolher rápido —</option>
+                </select>
+              </div>
               <div class="form-group form-group-sm">
                 <label>Mês</label>
                 <select id="cont-mes">
@@ -6483,6 +6489,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260603m-contab-ui"></script>
+<script src="app.js?v=20260603n-contab-seletor"></script>
 </body>
 </html>

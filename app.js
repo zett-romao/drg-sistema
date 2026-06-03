@@ -4299,10 +4299,36 @@ function _contLinhaContador(e, p){
   };
 }
 
+// Popula o seletor rápido com as competências que têm folha lançada (🔒 = fechada). #planilha-contador
+function _popularCompetenciasContab(selMes,selAno){
+  const sel=document.getElementById('cont-competencia-rapida'); if(!sel) return;
+  const map={};
+  (State.payrolls||[]).forEach(p=>{
+    if(!p||!p.mes||!p.ano) return;
+    const k=`${p.ano}-${String(p.mes).padStart(2,'0')}`;
+    if(!map[k]) map[k]={mes:p.mes,ano:p.ano,fechada:false,total:0};
+    map[k].total++; if(p.status==='fechada') map[k].fechada=true;
+  });
+  const lista=Object.values(map).sort((a,b)=> b.ano-a.ano || b.mes-a.mes);
+  const cur=`${selAno}-${String(selMes).padStart(2,'0')}`;
+  sel.innerHTML='<option value="">— escolher rápido —</option>'+lista.map(c=>{
+    const k=`${c.ano}-${String(c.mes).padStart(2,'0')}`;
+    return `<option value="${k}"${k===cur?' selected':''}>${MESES[c.mes]}/${c.ano}${c.fechada?' 🔒':''} · ${c.total} folha(s)</option>`;
+  }).join('');
+}
+// Ao escolher no seletor rápido: aplica mês/ano e recarrega a planilha.
+function onContCompetenciaChange(){
+  const sel=document.getElementById('cont-competencia-rapida'); if(!sel||!sel.value) return;
+  const [ano,mes]=sel.value.split('-');
+  setVal('cont-ano',parseInt(ano,10)); setVal('cont-mes',parseInt(mes,10));
+  renderContabilidade();
+}
+
 function renderContabilidade(){
   const mes=parseInt(val('cont-mes')||currentMes());
   const ano=parseInt(val('cont-ano')||currentAno());
   const statusFilt=val('cont-status-filter')||'ativo';
+  _popularCompetenciasContab(mes,ano);
 
   let emps=_filtrarEmpsPorEscopo(State.employees).slice();
   if(statusFilt!=='all') emps=emps.filter(e=>(e.status||'ativo')===statusFilt);

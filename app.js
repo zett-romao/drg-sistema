@@ -18560,7 +18560,7 @@ async function renderMonitorFaltas(){
           <button class="btn btn-sm" onclick="_monitorAguardar('${f.id}')" title="Continuar monitorando" style="font-size:11px;padding:4px 9px;background:#FFF8E1;color:#E65100;border:1px solid #FFE082"><i class="fa-solid fa-hourglass-half"></i> Aguardar</button>
         </div>`;
       return `<tr style="border-bottom:1px solid #eee">
-        <td style="padding:10px 8px;font-weight:600">${esc(f.nome)}${tag}</td>
+        <td style="padding:10px 8px;font-weight:600"><a href="javascript:void(0)" onclick="openPayrollForEmployee('${f.id}')" title="Abrir a folha de ponto de ${esc(f.nome)}" style="color:#dc2626;text-decoration:none;border-bottom:1px dotted #dc2626">${esc(f.nome)}</a>${tag}</td>
         <td style="padding:10px 8px;color:#555">${esc(f.setor||f.cargo||'—')}</td>
         <td style="padding:10px 8px;text-align:center;font-variant-numeric:tabular-nums">${esc(f.previsto)}</td>
         <td style="padding:10px 8px;text-align:center;color:#dc2626;font-weight:700;font-variant-numeric:tabular-nums">${_fmtAtraso(f.atrasoMin)}</td>

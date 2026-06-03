@@ -18539,6 +18539,17 @@ async function _monitorAguardar(empId){
   catch(e){ toast('Erro: '+(e.message||e),'error'); }
 }
 
+// Botão "Atualizar": força reler as resoluções do dia (pega o que outro dispositivo/o
+// robô mudou) + re-grava a expectativa + re-renderiza, com feedback. #monitor-faltas
+async function atualizarMonitorFaltas(){
+  try{
+    await _mfCarregarResolv(true);
+    try{ _mfPrecomputarExpectativas(); }catch(_){}
+    await renderMonitorFaltas();
+    toast('Monitor de Faltas atualizado.','success');
+  }catch(e){ toast('Erro ao atualizar: '+(e&&e.message||e),'error'); }
+}
+
 async function renderMonitorFaltas(){
   const box = document.getElementById('monitorfaltas-content');
   if(!box) return;
@@ -18593,7 +18604,7 @@ async function renderMonitorFaltas(){
         ${_pushAtivoNesteAparelho()
           ? `<span style="align-self:center;font-size:12px;color:#16a34a;font-weight:600"><i class="fa-solid fa-bell"></i> Notificações ativas neste aparelho</span>`
           : `<button class="btn btn-outline" onclick="_ativarNotificacoesFaltas()" title="Receber aviso no celular mesmo com o app fechado (robô 24h)"><i class="fa-solid fa-bell"></i> Ativar notificações</button>`}
-        <button class="btn btn-secondary" onclick="renderMonitorFaltas()"><i class="fa-solid fa-rotate"></i> Atualizar</button>
+        <button class="btn btn-secondary" onclick="atualizarMonitorFaltas()"><i class="fa-solid fa-rotate"></i> Atualizar</button>
       </div>
     </div>
     <div style="margin:14px 0;padding:10px 14px;border-radius:8px;background:${lista.length?'#fef2f2':'#f0fdf4'};border:1px solid ${lista.length?'#fecaca':'#bbf7d0'};font-weight:600;color:${lista.length?'#b91c1c':'#15803d'}">

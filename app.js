@@ -5974,6 +5974,10 @@ async function saveEmployee(){
       // preserva periodos/overrides de escala (gerenciados em aba propria)
       data.historicoEscalas = existing.historicoEscalas || [];
       data.overridesHorario = existing.overridesHorario || [];
+      // preserva LOTAÇÃO/TRANSFERÊNCIAS (geridas no modal de transferência) — sem isto
+      // o save do cadastro apagava o histórico de lotação. #fix-historico-lotacao
+      data.historicoLotacao = existing.historicoLotacao || [];
+      data.historicoPostos  = existing.historicoPostos  || [];
     }
   }
   const btn=document.querySelector('#modal-employee .modal-footer .btn-primary');

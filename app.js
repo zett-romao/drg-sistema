@@ -2552,6 +2552,8 @@ function _highlightPayrollField(fieldKey, color){
     valeAlimentacaoLiquido:  'payroll-va-total',
     adNoturno:               'payroll-noturno',
     bonificacao:             'payroll-bonus',
+    atraso:                  'atrasos-card',                 // drill-down da planilha contábil → card de Atrasos. #planilha-contador
+    falta:                   'payroll-faltas-injustificadas',
   };
   const targetId = map[fieldKey];
   if(!targetId) return;
@@ -4452,10 +4454,10 @@ function renderContabilidade(){
       <td style="text-align:center;color:${L.he100Min>0?'#1B5E20':'inherit'}">${L.he100Min>0?_minToHHMM(L.he100Min):dash}</td>
       <td style="text-align:right">${L.vt>0?fmtMoney(L.vt):dash}</td>
       <td style="text-align:right">${L.vr>0?fmtMoney(L.vr):dash}</td>
-      <td style="text-align:center;color:${L.atrasoMin>0?'#B71C1C':'inherit'}">${L.atrasoMin>0?_minToHHMM(L.atrasoMin):dash}</td>
+      <td style="text-align:center">${L.atrasoMin>0?`<a href="javascript:void(0)" onclick="openPayrollForEmployee('${e.id}',{mes:${mes},ano:${ano},fieldKey:'atraso',color:'#B71C1C'})" title="Ver os atrasos de ${esc(L.nome)} na folha de ponto" style="color:#B71C1C;font-weight:700;text-decoration:none;border-bottom:1px dotted #B71C1C">${_minToHHMM(L.atrasoMin)}</a>`:dash}</td>
       <td style="text-align:right">${L.valeAvulso>0?fmtMoney(L.valeAvulso):dash}</td>
       <td style="text-align:right">${L.emprest>0?fmtMoney(L.emprest):dash}</td>
-      <td style="text-align:center;color:${L.faltaMin>0?'#B71C1C':'inherit'}" title="${L.faltaQtd} dia(s)">${L.faltaMin>0?_minToHHMM(L.faltaMin):dash}</td>
+      <td style="text-align:center">${L.faltaMin>0?`<a href="javascript:void(0)" onclick="openPayrollForEmployee('${e.id}',{mes:${mes},ano:${ano},fieldKey:'falta',color:'#B71C1C'})" title="Ver as faltas de ${esc(L.nome)} (${L.faltaQtd} dia(s)) na folha de ponto" style="color:#B71C1C;font-weight:700;text-decoration:none;border-bottom:1px dotted #B71C1C">${_minToHHMM(L.faltaMin)}</a>`:dash}</td>
       <td style="text-align:right">${L.acuVal>0?fmtMoney(L.acuVal):dash}</td>
       <td style="text-align:center">${L.grauIns>0?(L.grauIns+'%'+(L.insVal>0?' · '+fmtMoney(L.insVal):'')):dash}</td>
       <td style="font-size:11px;max-width:200px;white-space:normal">${esc(L.outros)||dash}</td>

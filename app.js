@@ -12710,6 +12710,23 @@ function _adiantMesAno(){
   return {mes,ano,comp:String(mes).padStart(2,'0')+'/'+ano};
 }
 
+// Adiantamento ATIVO numa folha: a folha já marcada OU o colaborador é OPTANTE
+// (recebeAdiantamento no cadastro) e está ativo — assim o optante aparece TODO mês,
+// mesmo que a folha tenha sido salva antes de marcar. #adiant-optante
+function _adiantAtivoDe(emp, p){
+  if(p && p.adiantamentoAtivo) return true;
+  return !!(emp && emp.recebeAdiantamento && (emp.status||'ativo')==='ativo');
+}
+// Valor do adiantamento: o salvo na folha; senão, p/ optante, deriva do salário (% padrão 40).
+function _adiantValorDe(emp, p){
+  if(p && (p.adiantamentoValor||0)>0) return p.adiantamentoValor;
+  if(emp && emp.recebeAdiantamento){
+    const perc=parseInt((p&&p.adiantamentoPerc) || emp.adiantamentoPerc || 40)||40;
+    return +(((emp.salarioBase||0)*(perc/100))).toFixed(2);
+  }
+  return 0;
+}
+
 function renderAdiantamentos(){
   const tbody=document.getElementById('adiant-tbody'); if(!tbody) return;
   const selAno=document.getElementById('adiant-ano');
@@ -12740,16 +12757,19 @@ function renderAdiantamentos(){
   const passouDoDia=new Date()>cutoff;
 
   const lista=(State.payrolls||[])
-    .filter(p=>p.mes==mes && p.ano==ano && p.adiantamentoAtivo && (p.adiantamentoValor||0)>0)
+    .filter(p=>p.mes==mes && p.ano==ano)
     .map(p=>{
       const emp=State.employees.find(e=>e.id===p.employeeId)||{};
+      if(!_adiantAtivoDe(emp,p)) return null;          // folha marcada OU optante ativo
+      const valor=_adiantValorDe(emp,p);
+      if(!(valor>0)) return null;
       const sol=(State.solicitacoes||[]).find(s=>s.origem==='adiantamento' && s.employeeId===p.employeeId
         && s.competencia===comp && (s.status==='pendente'||s.status==='pago'));
       const pagoExterno=p.adiantamentoPagoExterno||null;
       const naoPago=!sol && !pagoExterno;
-      return {emp, valor:p.adiantamentoValor||0, sol, pagoExterno, vencido:naoPago && passouDoDia};
+      return {emp, valor, sol, pagoExterno, vencido:naoPago && passouDoDia};
     })
-    .filter(x=>x.emp.id)
+    .filter(x=>x && x.emp.id)
     .sort((a,b)=>(a.emp.nome||'').localeCompare(b.emp.nome||''));
 
   const cnt=document.getElementById('adiant-contador');
@@ -12775,9 +12795,7 @@ function renderAdiantamentos(){
   const _semFolha=[], _semAdiantNaFolha=[], _semValor=[];
   _marcados.forEach(e=>{
     const p=(State.payrolls||[]).find(pp=>pp.employeeId===e.id&&pp.mes==mes&&pp.ano==ano);
-    if(!p) _semFolha.push(e);
-    else if(!p.adiantamentoAtivo) _semAdiantNaFolha.push(e);
-    else if(!((p.adiantamentoValor||0)>0)) _semValor.push(e);
+    if(!p) _semFolha.push(e);   // sem folha → não dá p/ derivar aqui; com folha já aparecem na lista (optante). #adiant-optante
   });
   const _diagEl=document.getElementById('adiant-diagnostico');
   if(_diagEl){
@@ -12958,7 +12976,7 @@ async function confirmarPagoExterno(){
         await DB.save('payrolls', updated);
         const ix=State.payrolls.findIndex(x=>x.id===p.id);
         if(ix>=0) State.payrolls[ix]=updated;
-        Auth.log('ADIANT_PAGO_EXTERNO', null, `${emp?.nome||'—'} | ${String(mL).padStart(2,'0')}/${aL} | R$ ${(p.adiantamentoValor||0).toFixed(2)}${obs?' | '+obs:''}`);
+        Auth.log('ADIANT_PAGO_EXTERNO', null, `${emp?.nome||'—'} | ${String(mL).padStart(2,'0')}/${aL} | R$ ${_adiantValorDe(emp,p).toFixed(2)}${obs?' | '+obs:''}`);
         ok++;
       }catch(e){ console.error('lote pago fora', e); erros++; }
     }
@@ -13044,10 +13062,11 @@ async function pagarAdiantamento(empId){
   const {mes,ano,comp}=_adiantMesAno();
   const p=(State.payrolls||[]).find(x=>x.employeeId===empId && x.mes==mes && x.ano==ano);
   const emp=State.employees.find(e=>e.id===empId);
-  if(!p||!emp||!p.adiantamentoAtivo){ toast('Adiantamento não encontrado.','error'); return; }
+  if(!emp || !_adiantAtivoDe(emp,p)){ toast('Adiantamento não encontrado.','error'); return; }
+  const _val=_adiantValorDe(emp,p);
   try{
-    const sol=await _criarSolicAdiantamento(emp, p.adiantamentoValor||0, comp);
-    Auth.log('PAGAMENTO_SOLICITADO', null, `Adiantamento ${comp} | ${emp.nome} | R$ ${(p.adiantamentoValor||0).toFixed(2)} | sol ${sol.id}`);
+    const sol=await _criarSolicAdiantamento(emp, _val, comp);
+    Auth.log('PAGAMENTO_SOLICITADO', null, `Adiantamento ${comp} | ${emp.nome} | R$ ${_val.toFixed(2)} | sol ${sol.id}`);
     toast(`Adiantamento de ${emp.nome}: solicitação criada — aguardando aprovação.`,'success');
     renderAdiantamentos();
   }catch(e){
@@ -13067,10 +13086,11 @@ async function pagarAdiantamentosLote(){
     const empId=c.dataset.emp;
     const p=(State.payrolls||[]).find(x=>x.employeeId===empId && x.mes==mes && x.ano==ano);
     const emp=State.employees.find(e=>e.id===empId);
-    if(!p||!emp){ erros++; continue; }
+    if(!emp || !_adiantAtivoDe(emp,p)){ erros++; continue; }
+    const _val=_adiantValorDe(emp,p);
     try{
-      const sol=await _criarSolicAdiantamento(emp, p.adiantamentoValor||0, comp);
-      Auth.log('PAGAMENTO_SOLICITADO', null, `Adiantamento ${comp} | ${emp.nome} | R$ ${(p.adiantamentoValor||0).toFixed(2)} | sol ${sol.id}`);
+      const sol=await _criarSolicAdiantamento(emp, _val, comp);
+      Auth.log('PAGAMENTO_SOLICITADO', null, `Adiantamento ${comp} | ${emp.nome} | R$ ${_val.toFixed(2)} | sol ${sol.id}`);
       ok++;
     }catch(e){ erros++; }
   }

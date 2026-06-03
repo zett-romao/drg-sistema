@@ -4200,7 +4200,12 @@ function _apuracaoPontoTotais(emp, p){
   if(!emp || !p) return out;
   const mes=p.mes, ano=p.ano;
   const diasPonto=Array.isArray(p.pontoManualDias)?p.pontoManualDias:[];
+  // SEM ponto lançado, NÃO se fabrica falta de todo dia previsto (senão a folha
+  // sem ponto aparece com TODAS as horas como falta — ex.: 185h pra quem tem 0
+  // faltas). Sem ponto, as faltas vêm do nº SALVO (faltasInjustificadas). #fix-falta-sem-ponto
+  const temPonto = diasPonto.length>0;
   const is12x36=escalaFamilia(emp.escala||'5x2A')==='12x36';
+  let diasPrevistosCnt=0;
   for(const cd of _compDias(mes,ano)){
     const d=cd.dia, dow=cd.diaSem, isWknd=dow===0||dow===6;
     const pd=diasPonto.find(x=>x.dia===d)||{};
@@ -4212,10 +4217,19 @@ function _apuracaoPontoTotais(emp, p){
     const ehFolga=_emFerias||!exp||exp.tipo==='folga'||!exp.entrada;
     let prevMin=0, contratualIntMin=0;
     if(!ehFolga){ let mbE=timeToMinutes(exp.saida)-timeToMinutes(exp.entrada); if(mbE<=0)mbE+=24*60; contratualIntMin=_calcIntervaloMin(exp.intIni,exp.intFim,exp.entrada,exp.saida); if(emp.semRefeicao&&contratualIntMin===0&&mbE>360)contratualIntMin=60; prevMin=Math.max(0,mbE-contratualIntMin); }
+    if(!ehFolga) diasPrevistosCnt++;
     const temBatida=!!(entrada&&saida);
     if(!ehFolga&&temBatida){ const delta=minLiq-prevMin; if(Math.abs(delta)>HE_TOLERANCIA_DIA_MIN){ if(delta>0)out.extraMin+=delta; else out.atrasoMin+=-delta; } out.naoRendMin+=Math.max(0,contratualIntMin-_calcIntervaloMin(intIni,intFim,entrada,saida)); }
-    else if(!ehFolga&&!temBatida&&_diaEmBrancoEhFalta(emp,cd.mes,cd.ano,d,isWknd,is12x36)){ out.faltaMin+=prevMin; out.faltaQtd++; }
+    else if(!ehFolga&&!temBatida&&temPonto&&_diaEmBrancoEhFalta(emp,cd.mes,cd.ano,d,isWknd,is12x36)){ out.faltaMin+=prevMin; out.faltaQtd++; }
     out.trabMin+=(minLiq>0?minLiq:0); out.prevMin+=prevMin;
+  }
+  // SEM ponto lançado no registro → NÃO conta todo dia previsto como falta (isso fazia
+  // a contabilidade mostrar Faltas = Horas Previstas pra quem tem 0 faltas). Usa o nº de
+  // faltas injustificadas SALVO (em horas, pela jornada média prevista). #fix-falta-sem-ponto
+  if(!temPonto){
+    const fInj = +(p.faltasInjustificadas||0);
+    out.faltaQtd = fInj;
+    out.faltaMin = (fInj>0 && diasPrevistosCnt>0) ? Math.round(fInj*(out.prevMin/diasPrevistosCnt)) : 0;
   }
   return out;
 }

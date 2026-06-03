@@ -2596,8 +2596,7 @@ function renderPagamentos(){
 
   const mesLabel=MESES[mes]||'';
   const folhasMes=State.payrolls.filter(p=>p.mes===mes&&p.ano===ano);
-  const folhaMap={};
-  folhasMes.forEach(p=>{ folhaMap[p.employeeId]=p; });
+  const folhaMap=_buildFolhaMap(folhasMes);
 
   // Totais
   let tBruto=0,tINSS=0,tIRRF=0,tFGTS=0,tAdiant=0,tLiquido=0,comFolha=0,semFolhaCount=0;
@@ -2794,8 +2793,7 @@ function exportPagamentosCsv(){
   let emps=_filtrarEmpsPorEscopo(State.employees).slice();
   if(statusFilt!=='all') emps=emps.filter(e=>(e.status||'ativo')===statusFilt);
   emps.sort((a,b)=>a.nome.localeCompare(b.nome));
-  const folhaMap={};
-  State.payrolls.filter(p=>p.mes===mes&&p.ano===ano).forEach(p=>{ folhaMap[p.employeeId]=p; });
+  const folhaMap=_buildFolhaMap(State.payrolls.filter(p=>p.mes===mes&&p.ano===ano));
   const header=['#','Registro','Nome','Cargo','Salario Base','Total Bruto','INSS','IRRF','FGTS','Liquido Final','Status'];
   const rows=emps.map((e,i)=>{
     const p=folhaMap[e.id];
@@ -3218,8 +3216,7 @@ function _relatHoleritesColeta(){
   if(statusFilt!=='all') emps=emps.filter(e=>(e.status||'ativo')===statusFilt);
   if(useSel) emps=emps.filter(e=>selSet.has(e.id));
   emps.sort((a,b)=>a.nome.localeCompare(b.nome));
-  const folhaMap={};
-  State.payrolls.filter(p=>p.mes===mes&&p.ano===ano).forEach(p=>{ folhaMap[p.employeeId]=p; });
+  const folhaMap=_buildFolhaMap(State.payrolls.filter(p=>p.mes===mes&&p.ano===ano));
   const itens=[]; let semFolha=0;
   emps.forEach(e=>{ const p=folhaMap[e.id]; if(p) itens.push({emp:e,p}); else semFolha++; });
   return { mes, ano, itens, semFolha, useSel };
@@ -4198,6 +4195,7 @@ function recarregarDadosFirestore(){
 function _apuracaoPontoTotais(emp, p){
   const out={trabMin:0,prevMin:0,atrasoMin:0,extraMin:0,faltaMin:0,faltaQtd:0,naoRendMin:0};
   if(!emp || !p) return out;
+  if(emp.isentoPonto) return out;
   const mes=p.mes, ano=p.ano;
   const diasPonto=Array.isArray(p.pontoManualDias)?p.pontoManualDias:[];
   // SEM ponto lançado, NÃO se fabrica falta de todo dia previsto (senão a folha
@@ -4245,6 +4243,7 @@ function _overlapMin(a,b,c,d){ return Math.max(0, Math.min(b,d)-Math.max(a,c)); 
 function _apuracaoNoturnoTotais(emp,p){
   const out={noturnoMin:0, noturnoHeMin:0};
   if(!emp||!p) return out;
+  if(emp.isentoPonto) return out;
   const dias=Array.isArray(p.pontoManualDias)?p.pontoManualDias:[];
   const nz=[[0,300],[1320,1740]];   // zonas noturnas: 00:00–05:00 e 22:00–(05:00 do dia seguinte)
   for(const cd of _compDias(p.mes,p.ano)){
@@ -4288,6 +4287,25 @@ const CONT_COD_DEFAULTS = {
 const CONT_COD_KEYS = ['tipoCalculo','adNot','heAdNot','he50','he100','vt','vr','atrasos','valeAvulso','emprestimo','faltas','acumulo','insalubridade','outros'];
 function _contCod(k){ const c=(State.empresa&&State.empresa.contCodigos)||{}; return (c[k]!=null&&c[k]!=='')?String(c[k]):CONT_COD_DEFAULTS[k]; }
 
+function _payrollScore(p){
+  if(!p) return -1;
+  const dias=Array.isArray(p.pontoManualDias)?p.pontoManualDias:[];
+  const diasComBatida=dias.filter(d=>d&&(d.entrada||d.saida||d.intIni||d.intFim)).length;
+  const valores=['valeTransporte','valeRefeicao','adiantamentoValor','adiantamento','insalubridade','acumuloFuncao','horasExtrasTotal']
+    .reduce((s,k)=>s+(+p[k]>0?1:0),0);
+  return (p.status==='fechada'?100000:0) + dias.length*1000 + diasComBatida*10 + valores;
+}
+
+function _buildFolhaMap(folhasMes){
+  const map={};
+  (folhasMes||[]).forEach(p=>{
+    if(!p||!p.employeeId) return;
+    const cur=map[p.employeeId];
+    if(!cur || _payrollScore(p)>_payrollScore(cur)) map[p.employeeId]=p;
+  });
+  return map;
+}
+
 // Preenche os inputs do editor de códigos com os valores vigentes.
 function _preencherContCodigos(){
   CONT_COD_KEYS.forEach(k=>{ const el=document.getElementById('contcod-'+k); if(el) el.value=_contCod(k); });
@@ -4322,17 +4340,16 @@ function _contLinhaContador(e, p){
   // ATRASOS — fonte ÚNICA = coleção `atrasos` (mesma do card e do desconto no recibo),
   // sincronizada do ponto por _sincronizarAtrasosDoPonto. Garante que a coluna 0217 e o
   // card mostrem o MESMO valor, fidedigno ao que é pago. #planilha-contador #atraso-fonte-unica
-  const atr = p ? _atrasoTotais(e.id, p.mes, p.ano) : {minutos:0,minutosDesc:0,count:0};
+  const atr = (p && !e.isentoPonto) ? _atrasoTotais(e.id, p.mes, p.ano) : {minutos:0,minutosDesc:0,count:0};
   // Atraso DESCONTÁVEL DE FATO (= o que aparece na contabilidade): tira abonados/justificados
   // (já fora do minutosDesc) E as horas cobertas por atestado — igual ao desconto do recibo
   // (minutosAtrasoEf). Abono/justificação/atestado de qualquer forma → some da contabilidade. #fix-atraso-justificado
-  const _atestAtrasoMin = p ? (_atestadoTotais(e.id, p.mes, p.ano).horasMin||0) : 0;
+  const _atestAtrasoMin = (p && !e.isentoPonto) ? (_atestadoTotais(e.id, p.mes, p.ano).horasMin||0) : 0;
   const atrasoEfetivo = Math.max(0, atr.minutosDesc - _atestAtrasoMin);
   const hePerc = p ? (parseInt(p.horasExtrasPerc||50)) : 50;
-  const heH    = p ? (+p.horasExtrasTotal||0) : 0;          // horas extras lançadas na folha
-  const heMin  = Math.round(heH*60);
-  const he50Min  = (heH>0 && hePerc<100) ? heMin : 0;
-  const he100Min = (heH>0 && hePerc>=100)? heMin : 0;
+  const heMin  = ap ? ap.extraMin : 0;                      // mesma apuracao diaria do espelho da folha
+  const he50Min  = (heMin>0 && hePerc<100) ? heMin : 0;
+  const he100Min = (heMin>0 && hePerc>=100)? heMin : 0;
   const grauIns = parseFloat(e.insalubridade||0)||0;         // grau % (do cadastro)
   const insVal  = p ? (+p.insalubridade||0) : 0;             // valor R$ (da folha)
   const acuVal  = p ? (+p.acumuloFuncao||0) : 0;
@@ -4417,8 +4434,7 @@ function renderContabilidade(){
 
   // Mapear folhas do mês
   const folhasMes=State.payrolls.filter(p=>p.mes===mes&&p.ano===ano);
-  const folhaMap={};
-  folhasMes.forEach(p=>{ folhaMap[p.employeeId]=p; });
+  const folhaMap=_buildFolhaMap(folhasMes);
 
   // Filtro "Somente competências fechadas": mostra só quem tem folha FECHADA nesta competência. #planilha-contador
   const soFechadas=document.getElementById('cont-so-fechadas')?.checked;
@@ -4508,7 +4524,7 @@ function renderContabilidade(){
   </tr>`;
 
   // Título
-  if(title) title.innerHTML=`<i class="fa-solid fa-table"></i> Planilha Contábil (modelo do contador) — ${MESES[mes]}/${ano}`;
+  if(title) title.innerHTML=`<span><i class="fa-solid fa-table"></i> Planilha Contábil (modelo do contador) — ${MESES[mes]}/${ano}</span>${Auth.currentUser?.role==='master'?` <button class="btn btn-outline" style="margin-left:10px;font-size:12px;padding:6px 10px" onclick="sanearFolhasIsentos(${mes},${ano})" title="Zerar restrições de ponto para colaboradores livres de jornada nesta competência"><i class="fa-solid fa-shield-halved"></i> Sanear livres de jornada</button>`:''}`;
   const subEl=document.getElementById('cont-report-subtitle');
   const dateEl=document.getElementById('cont-report-date');
   if(subEl) subEl.textContent=`Competência: ${MESES[mes]}/${ano} · ${emps.length} colaborador(es)`;
@@ -4519,7 +4535,7 @@ function renderContabilidade(){
     <div class="stat-card blue"><div class="stat-icon"><i class="fa-solid fa-users"></i></div>
       <div><div class="stat-value">${emps.length}</div><div class="stat-label">Colaboradores</div></div></div>
     <div class="stat-card green"><div class="stat-icon"><i class="fa-solid fa-file-circle-check"></i></div>
-      <div><div class="stat-value">${folhasMes.filter(f=>emps.find(e=>e.id===f.employeeId)).length}</div><div class="stat-label">Com folha lançada</div></div></div>
+      <div><div class="stat-value">${emps.filter(e=>folhaMap[e.id]).length}</div><div class="stat-label">Com folha lançada</div></div></div>
     <div class="stat-card amber"><div class="stat-icon"><i class="fa-solid fa-bus"></i></div>
       <div><div class="stat-value" style="font-size:14px">${fmtMoney(tVT)}</div><div class="stat-label">Total Vale Transporte</div></div></div>
     <div class="stat-card" style="border-color:#1565C0;border-left-width:4px"><div class="stat-icon" style="background:#E3F2FD;color:#1565C0"><i class="fa-solid fa-utensils"></i></div>
@@ -4571,8 +4587,7 @@ function exportContabilidadeCsv(){
   if(statusFilt!=='all') emps=emps.filter(e=>(e.status||'ativo')===statusFilt);
   emps.sort((a,b)=>a.nome.localeCompare(b.nome));
   const folhasMes=State.payrolls.filter(p=>p.mes===mes&&p.ano===ano);
-  const folhaMap={};
-  folhasMes.forEach(p=>{ folhaMap[p.employeeId]=p; });
+  const folhaMap=_buildFolhaMap(folhasMes);
   if(document.getElementById('cont-so-fechadas')?.checked){
     emps=emps.filter(e=>{ const p=folhaMap[e.id]; return p && p.status==='fechada'; });
   }
@@ -9988,6 +10003,7 @@ function _diasUteisMes(mes, ano){
 // desconta). Fallback: faltas lançadas à mão sem ponto → 1 DSR por falta. #fix-dsr-falta
 function _dsrSemanasComFalta(emp, mes, ano, pontoDias, faltasInjustCount){
   if(!emp || !(faltasInjustCount>0)) return 0;
+  if(emp.isentoPonto) return 0;
   const is12 = escalaFamilia(emp.escala||'5x2A')==='12x36';
   const semanas = new Set();
   let detectadas = 0;
@@ -10035,10 +10051,9 @@ function _boaPermanenciaElegivel(emp, mes, ano, totalFaltasLive){
 
 function recalculate(){
   const dias=numVal('payroll-dias');
-  const faltasJust=numVal('payroll-faltas-justificadas');
-  const faltasInjust=numVal('payroll-faltas-injustificadas');
-  const totalFaltas=faltasJust+faltasInjust;
-  setVal('payroll-faltas', totalFaltas);
+  let faltasJust=numVal('payroll-faltas-justificadas');
+  let faltasInjust=numVal('payroll-faltas-injustificadas');
+  let totalFaltas=faltasJust+faltasInjust;
 
   const empId=val('payroll-employee');
   const emp=State.employees.find(e=>e.id===empId);
@@ -10047,6 +10062,12 @@ function recalculate(){
   // cheio, sem desconto de falta/atraso, sem HE/adic. noturno, benefícios
   // integrais. Não bate ponto. As travas abaixo respeitam essa flag.
   const isentoPonto = !!(emp && emp.isentoPonto);
+  if(isentoPonto){
+    faltasJust=0; faltasInjust=0; totalFaltas=0;
+    setVal('payroll-faltas-justificadas',0);
+    setVal('payroll-faltas-injustificadas',0);
+  }
+  setVal('payroll-faltas', totalFaltas);
 
   // --- Descontos CLT ---
   const valorDia   = salBase/30;          // CLT: divisor 30 para faltas
@@ -10620,13 +10641,17 @@ async function savePayroll(){
     toast('Esta folha está fechada. Clique em "Reabrir esta Folha" para editar.','error'); return;
   }
   const dias=numVal('payroll-dias');
-  const faltasJust=numVal('payroll-faltas-justificadas');
-  const faltasInjust=numVal('payroll-faltas-injustificadas');
-  const totalFaltas=faltasJust+faltasInjust;
+  let faltasJust=numVal('payroll-faltas-justificadas');
+  let faltasInjust=numVal('payroll-faltas-injustificadas');
+  let totalFaltas=faltasJust+faltasInjust;
   const vtDia=numVal('payroll-vt-dia'), vrDia=numVal('payroll-vr-dia');
   const existing=State.payrolls.find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
   // Frequência: lê do cadastro do colaborador
   const empSel = State.employees.find(e=>e.id===empId);
+  const isentoPontoSave = !!(empSel && empSel.isentoPonto);
+  if(isentoPontoSave){
+    faltasJust=0; faltasInjust=0; totalFaltas=0;
+  }
   const vtFreq = empSel?.vtFreq || 'diario';
   const vrFreq = empSel?.vrFreq || 'diario';
   const semanas = _semanasTrabalhadas(dias, empSel?.escala);
@@ -10654,13 +10679,13 @@ async function savePayroll(){
       if(totalFaltas>0 && !sempreP) return 0;
       return numVal('payroll-bonus')||0;
     })(),
-    adNoturno:numVal('payroll-noturno'),
+    adNoturno:isentoPontoSave?0:numVal('payroll-noturno'),
     acumuloFuncao:numVal('payroll-acumulo')||0,
     insalubridade:numVal('payroll-insalubridade')||0,
     emprestimo:numVal('payroll-emprestimo')||0,   // consignado — só informativo na planilha contábil (cód. 0218). #planilha-contador
     // Atrasos — detalhe na coleção `atrasos`; aqui ficam só os totais.
-    minutosAtraso:numVal('payroll-atraso-min')||0,
-    descontoAtraso:numVal('payroll-desconto-atraso')||0,
+    minutosAtraso:isentoPontoSave?0:(numVal('payroll-atraso-min')||0),
+    descontoAtraso:isentoPontoSave?0:(numVal('payroll-desconto-atraso')||0),
     adiantamentoAtivo:val('payroll-adiantamento-ativo')==='sim',
     adiantamentoPerc:parseInt(val('payroll-adiantamento-perc')||'40'),
     adiantamentoValor:val('payroll-adiantamento-ativo')==='sim'?numVal('payroll-adiantamento-valor'):0,
@@ -10671,14 +10696,14 @@ async function savePayroll(){
     intervaloFim:val('payroll-intervalo-fim')||'',
     horasLiquidasDia:val('payroll-horas-liquidas')||'',
     horasExtrasDia:val('payroll-horas-extras-dia')||'',
-    horasExtrasTotal:numVal('payroll-he-total')||0,
+    horasExtrasTotal:isentoPontoSave?0:(numVal('payroll-he-total')||0),
     horasExtrasPerc:parseInt(val('payroll-he-perc')||'50'),
-    horasExtrasValor:numVal('payroll-he-valor')||0,
+    horasExtrasValor:isentoPontoSave?0:(numVal('payroll-he-valor')||0),
     heDestino:val('payroll-he-destino')||'folha',
     // HE Corrido (vinda da Escala — somatório de minutos por % de adicional)
-    heCorridoMin:    numVal('payroll-he-corrido-min')||0,
-    heCorridoDetalhe:val('payroll-he-corrido-detalhe')||'',
-    heCorridoValor:  numVal('payroll-he-corrido-valor')||0,
+    heCorridoMin:    isentoPontoSave?0:(numVal('payroll-he-corrido-min')||0),
+    heCorridoDetalhe:isentoPontoSave?'':(val('payroll-he-corrido-detalhe')||''),
+    heCorridoValor:  isentoPontoSave?0:(numVal('payroll-he-corrido-valor')||0),
     pdfName:State.currentPdfFile?State.currentPdfFile.name:(existing?existing.pdfName:''),
     // Encargos Legais
     totalBruto:          numVal('payroll-total-bruto')||0,
@@ -10690,8 +10715,8 @@ async function savePayroll(){
     planoSaudeDesc:      numVal('payroll-plano-saude-desc')||0,
     pensaoAlimenticiaDesc:numVal('payroll-pensao')||0,
     // Saídas durante o expediente (detalhe na coleção `saidas`)
-    minutosSaida:        numVal('payroll-saida-min')||0,
-    descontoSaida:       numVal('payroll-desconto-saida')||0,
+    minutosSaida:        isentoPontoSave?0:(numVal('payroll-saida-min')||0),
+    descontoSaida:       isentoPontoSave?0:(numVal('payroll-desconto-saida')||0),
     totalLiquidoFinal:   numVal('payroll-total-liquido-final')||0,
     // Snapshot das rubricas fixas p/ todos (Seguro de Vida etc.) aplicadas nesta folha —
     // congela o que foi descontado, mesmo que o catálogo mude depois. #rubricas-fixas
@@ -10702,8 +10727,8 @@ async function savePayroll(){
     // Observação/ajuste manual da folha (impressa no espelho + Contabilidade). #folha-detalhada
     observacaoFolha: val('payroll-observacao-folha')||'',
     // Refeição não rendida (indenizatória, 50%) — snapshot p/ recibo/folha/contab. #ref-nao-rendida
-    refNaoRendidaMin:   numVal('payroll-ref-nao-rendida-min')||0,
-    refNaoRendidaValor: numVal('payroll-ref-nao-rendida-valor')||0,
+    refNaoRendidaMin:   isentoPontoSave?0:(numVal('payroll-ref-nao-rendida-min')||0),
+    refNaoRendidaValor: isentoPontoSave?0:(numVal('payroll-ref-nao-rendida-valor')||0),
     // Período e status
     periodoDe: val('payroll-periodo-de')||'',
     periodoAte: val('payroll-periodo-ate')||'',
@@ -12177,6 +12202,65 @@ async function recalcularFaltasCompetencia(mesArg, anoArg){
 // dias 26-31 de todas as folhas da competência usando a escala ATUAL de cada
 // colaborador (5x2→08-17, 12x36→07-19 etc.). Os dias 1-25 (batidas reais do mês)
 // NÃO são tocados. Reversível via backup.
+// ============================================
+// SANEAR LIVRES DE JORNADA
+// Colaborador com `isentoPonto` nao deve levar restricoes da apuracao de ponto.
+// ============================================
+async function sanearFolhasIsentos(mesArg, anoArg){
+  if(Auth.currentUser?.role!=='master'){ toast('Apenas o usuario master pode sanear livres de jornada.','error'); return; }
+  const mes=parseInt(mesArg || val('cont-mes') || val('payroll-mes') || currentMes());
+  const ano=parseInt(anoArg || val('cont-ano') || val('payroll-ano') || currentAno());
+  const isentos=new Set((State.employees||[]).filter(e=>e.isentoPonto).map(e=>e.id));
+  const afetadas=(State.payrolls||[]).filter(p=>p.mes==mes&&p.ano==ano&&isentos.has(p.employeeId));
+  if(!afetadas.length){
+    toast(`Nenhuma folha de colaborador livre de jornada em ${MESES[mes]}/${ano}.`,'info');
+    return;
+  }
+  const comRestricao=afetadas.filter(p=>
+    (+p.faltas||0)>0 || (+p.faltasJustificadas||0)>0 || (+p.faltasInjustificadas||0)>0 ||
+    (+p.horasExtrasTotal||0)>0 || (+p.horasExtrasValor||0)>0 ||
+    (+p.heCorridoMin||0)>0 || (+p.heCorridoValor||0)>0 ||
+    (+p.adNoturno||0)>0 || (+p.minutosAtraso||0)>0 || (+p.descontoAtraso||0)>0 ||
+    (+p.minutosSaida||0)>0 || (+p.descontoSaida||0)>0 ||
+    (+p.refNaoRendidaMin||0)>0 || (+p.refNaoRendidaValor||0)>0
+  );
+  if(!comRestricao.length){
+    toast(`Livres de jornada ja estao sem restricoes em ${MESES[mes]}/${ano}.`,'success');
+    return;
+  }
+  if(!confirm(`Sanear ${comRestricao.length} folha(s) de colaborador(es) livre(s) de jornada em ${MESES[mes]}/${ano}?\n\nSerao zerados: faltas, atrasos, saidas, horas extras, adicional noturno e refeicao nao rendida.\nBeneficios, emprestimos, acumulo, insalubridade e observacoes serao preservados.\n\nContinuar?`)) return;
+
+  const patch={
+    faltas:0, faltasJustificadas:0, faltasInjustificadas:0,
+    horasExtrasTotal:0, horasExtrasValor:0,
+    heCorridoMin:0, heCorridoDetalhe:'', heCorridoValor:0,
+    adNoturno:0,
+    minutosAtraso:0, descontoAtraso:0,
+    minutosSaida:0, descontoSaida:0,
+    refNaoRendidaMin:0, refNaoRendidaValor:0,
+    updatedAt:new Date().toISOString()
+  };
+  let n=0;
+  for(const p of comRestricao){
+    const record={...p,...patch};
+    try{
+      await DB.save('payrolls', _sanitizeForFirestore(record));
+      const ix=State.payrolls.findIndex(r=>r.id===record.id);
+      if(ix>=0) State.payrolls[ix]=record;
+      n++;
+    }catch(e){
+      const emp=State.employees.find(x=>x.id===p.employeeId);
+      console.error('sanear livres de jornada', emp?.nome||p.employeeId, e);
+    }
+  }
+  try{ Auth.log('SANEAMENTO_ISENTOS', null, `${MESES[mes]}/${ano} - ${n} folha(s) saneada(s)`); }catch(_){}
+  toast(`Saneamento concluido: ${n} folha(s) livre(s) de jornada limpa(s).`,'success');
+  try{ renderContabilidade(); }catch(_){}
+  try{ renderPagamentos(); }catch(_){}
+  if(val('payroll-employee')) onPayrollEmployeeChange();
+  try{ renderDashboard(); }catch(_){}
+}
+
 async function reprojetarDiasMigrados(){
   if(Auth.currentUser?.role!=='master'){ toast('Apenas o usuário master pode rodar.','error'); return; }
   const mes=parseInt(val('payroll-mes')||currentMes());
@@ -22279,6 +22363,7 @@ function printFolhaPonto(isPreview=false){
   const diasPonto=usandoModal ? _collectPontoManualDias() : (payrollReg?.pontoManualDias||[]);
   const fam=escalaFamilia(emp.escala||'5x2A');
   const is12x36=fam==='12x36';
+  const isentoPonto=!!emp.isentoPonto;
 
   // Monta tabela de dias da competência (26/mês-anterior → 25/mês)
   const diasSemana=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
@@ -22305,7 +22390,7 @@ function printFolhaPonto(isPreview=false){
     // --- Métricas dia-a-dia: Previstas / Atraso / Extras / Faltas / Refeição não rendida ---
     const exp     = _getExpectedDay(emp, cd.mes, cd.ano, d);   // cd.mes/ano = mês REAL (dias 26-31 são do mês anterior). #fronteira
     const _emFerias = _emFeriasNoDia(emp, `${cd.ano}-${String(cd.mes).padStart(2,'0')}-${String(d).padStart(2,'0')}`);   // #monitor-ferias
-    const ehFolga = _emFerias || !exp || exp.tipo==='folga' || !exp.entrada;
+    const ehFolga = isentoPonto || _emFerias || !exp || exp.tipo==='folga' || !exp.entrada;
     let prevMin=0, contratualIntMin=0;
     if(!ehFolga){
       let mbE = timeToMinutes(exp.saida)-timeToMinutes(exp.entrada);
@@ -22646,6 +22731,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
   const diasSemana   = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
   const fam          = escalaFamilia(emp.escala||'5x2A');
   const is12x36      = fam==='12x36';
+  const isentoPonto  = !!emp.isentoPonto;
   let tabelaDias='';
   // Acumuladores do período (rodapé "Apuração do Período"). #folha-detalhada
   let totTrab=0, totPrev=0, totAtraso=0, totExtra=0, totFaltaMin=0, totFaltaQtd=0, totNaoRend=0;
@@ -22669,7 +22755,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
     // --- Métricas dia-a-dia: Previstas / Atraso / Extras / Faltas / Refeição não rendida ---
     const exp     = _getExpectedDay(emp, cd.mes, cd.ano, d);   // cd.mes/ano = mês REAL (dias 26-31 são do mês anterior). #fronteira
     const _emFerias = _emFeriasNoDia(emp, `${cd.ano}-${String(cd.mes).padStart(2,'0')}-${String(d).padStart(2,'0')}`);   // #monitor-ferias
-    const ehFolga = _emFerias || !exp || exp.tipo==='folga' || !exp.entrada;
+    const ehFolga = isentoPonto || _emFerias || !exp || exp.tipo==='folga' || !exp.entrada;
     let prevMin=0, contratualIntMin=0;
     if(!ehFolga){
       let mbE = timeToMinutes(exp.saida)-timeToMinutes(exp.entrada);

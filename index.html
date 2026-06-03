@@ -1215,6 +1215,10 @@
                       <label><i class="fa-solid fa-building-columns" style="color:#1a73e8"></i> FGTS (empregador)</label>
                       <input type="number" id="payroll-fgts" readonly class="input-readonly" placeholder="0,00">
                     </div>
+                    <div class="form-group">
+                      <label><i class="fa-solid fa-money-bill-transfer" style="color:#c0392b"></i> Empréstimo / Consignado <span style="font-weight:400;color:#888;font-size:0.8em">(desconta do líquido · planilha contábil cód. 0218)</span></label>
+                      <input type="number" id="payroll-emprestimo" min="0" step="0.01" placeholder="0,00" oninput="recalculate()">
+                    </div>
                   </div>
                   <div class="form-row">
                     <div class="form-group">
@@ -2028,6 +2032,40 @@
           </div>
         </div>
 
+        <!-- Códigos das rubricas (modelo do contador) — editáveis -->
+        <details class="card" style="margin-bottom:16px">
+          <summary style="cursor:pointer;padding:12px 16px;font-weight:600;color:#1a3a6b;list-style:none">
+            <i class="fa-solid fa-hashtag"></i> Códigos das colunas (modelo do contador)
+            <span style="font-weight:400;color:#888;font-size:0.85em"> — clique para editar. Padrão = códigos do sistema do contador.</span>
+          </summary>
+          <div class="card-body" style="border-top:1px solid #eee">
+            <div style="font-size:12px;color:#666;margin-bottom:10px">
+              <i class="fa-solid fa-circle-info" style="color:#1565C0"></i>
+              Esses códigos saem no cabeçalho da planilha e no CSV. Se o sistema do seu contador usa outros códigos (ou códigos do Ministério/eSocial), troque aqui e clique em Salvar.
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px">
+              <div class="form-group form-group-sm"><label>Tipo de Cálculo</label><input type="text" id="contcod-tipoCalculo"></div>
+              <div class="form-group form-group-sm"><label>Adic. Noturno 20%</label><input type="text" id="contcod-adNot"></div>
+              <div class="form-group form-group-sm"><label>HE 50% c/ Adic Not</label><input type="text" id="contcod-heAdNot"></div>
+              <div class="form-group form-group-sm"><label>Hora Extra 50%</label><input type="text" id="contcod-he50"></div>
+              <div class="form-group form-group-sm"><label>Hora Extra 100%</label><input type="text" id="contcod-he100"></div>
+              <div class="form-group form-group-sm"><label>Vale Transporte</label><input type="text" id="contcod-vt"></div>
+              <div class="form-group form-group-sm"><label>Vale Refeição</label><input type="text" id="contcod-vr"></div>
+              <div class="form-group form-group-sm"><label>Atrasos</label><input type="text" id="contcod-atrasos"></div>
+              <div class="form-group form-group-sm"><label>Vale Avulso (adiant.)</label><input type="text" id="contcod-valeAvulso"></div>
+              <div class="form-group form-group-sm"><label>Empréstimo</label><input type="text" id="contcod-emprestimo"></div>
+              <div class="form-group form-group-sm"><label>Faltas</label><input type="text" id="contcod-faltas"></div>
+              <div class="form-group form-group-sm"><label>Acúmulo de Função</label><input type="text" id="contcod-acumulo"></div>
+              <div class="form-group form-group-sm"><label>Insalubridade</label><input type="text" id="contcod-insalubridade"></div>
+              <div class="form-group form-group-sm"><label>Outros Eventos</label><input type="text" id="contcod-outros"></div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:12px">
+              <button class="btn btn-primary btn-sm" onclick="salvarContCodigos()"><i class="fa-solid fa-floppy-disk"></i> Salvar códigos</button>
+              <button class="btn btn-outline btn-sm" onclick="resetarContCodigos()"><i class="fa-solid fa-rotate-left"></i> Restaurar padrão</button>
+            </div>
+          </div>
+        </details>
+
         <!-- Resumo de totais -->
         <div class="stats-grid" id="cont-stats" style="margin-bottom:20px"></div>
 
@@ -2070,45 +2108,11 @@
               </div>
               <div style="overflow-x:auto">
                 <table class="data-table" id="cont-table" style="min-width:1200px;font-size:12px">
-                  <thead>
-                    <tr>
-                      <th class="col-check" style="width:30px;text-align:center"><input type="checkbox" id="cont-check-all" onclick="toggleAllContabilidade(this)" title="Selecionar todos (visíveis)"></th>
-                      <th>Nº</th>
-                      <th>Matrícula</th>
-                      <th>Nome do Colaborador</th>
-                      <th>CPF</th>
-                      <th>Cargo / Setor</th>
-                      <th>Posto</th>
-                      <th>Escala</th>
-                      <th>Admissão</th>
-                      <th>Sal. Base</th>
-                      <th>Dias Trab.</th>
-                      <th>Faltas</th>
-                      <th style="background:#37474F" title="Horas efetivamente trabalhadas no período">Trab. (h)</th>
-                      <th style="background:#37474F" title="Total de atrasos (trabalhou menos que o previsto)">Atrasos (h)</th>
-                      <th style="background:#37474F" title="Horas extras realizadas (trabalhou mais que o previsto)">Extras (h)</th>
-                      <th style="background:#37474F" title="Faltas convertidas em horas">Faltas (h)</th>
-                      <th style="background:#37474F" title="Refeições não rendidas (intervalo contratual não usufruído)">Ref. n/r (h)</th>
-                      <th>Remuneração</th>
-                      <th>VT / AM</th>
-                      <th>VR</th>
-                      <th>VA</th>
-                      <th>HE</th>
-                      <th>Bonificação</th>
-                      <th>Ad. Noturno</th>
-                      <th>Insalub.</th>
-                      <th>Acúmulo</th>
-                      <th>Adiantamento</th>
-                      <th>Total Espécie</th>
-                      <th style="background:#0D47A1" title="Soma dos proventos (salário + HE + adicionais + outros + seguro), conforme o recibo">Total Bruto</th>
-                      <th style="background:#B71C1C" title="Soma dos descontos (INSS, IRRF, pensão, plano, faltas, atraso, saída, seguro, VT co-part., outros)">Total Descontos</th>
-                      <th style="background:#1B5E20" title="Líquido a receber = Total Bruto − Total Descontos (igual ao recibo)">Líquido</th>
-                      <th>Chave PIX</th>
-                      <th>Obs.</th>
-                    </tr>
+                  <thead id="cont-thead">
+                    <!-- Cabeçalho renderizado por renderContabilidade() no modelo do contador (códigos editáveis) -->
                   </thead>
                   <tbody id="cont-tbody">
-                    <tr><td colspan="30" style="text-align:center;padding:40px;color:var(--text-muted)">
+                    <tr><td colspan="17" style="text-align:center;padding:40px;color:var(--text-muted)">
                       <i class="fa-solid fa-calculator" style="font-size:2rem;display:block;margin-bottom:8px"></i>
                       Selecione mês/ano e clique em "Carregar"
                     </td></tr>
@@ -6466,6 +6470,6 @@
 })();
 </script>
 
-<script src="app.js?v=20260603k-monitor-atualizar"></script>
+<script src="app.js?v=20260603l-planilha-contador"></script>
 </body>
 </html>

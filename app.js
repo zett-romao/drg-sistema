@@ -2927,6 +2927,7 @@ function _reciboOficialLinhas(emp, p){
   const plano       = +p.planoSaudeDesc||0;          // plano de saúde (9622)
   const pensao      = +p.pensaoAlimenticiaDesc||0;   // pensão alimentícia (9623)
   const outDesc     = +p.outrosDescontosTotal||0;    // outros descontos lançados (9618)
+  const emprest     = +p.emprestimo||0;              // empréstimo/consignado (0218) — desconto pós-tributação. #planilha-contador
   const faltasNum   = +(p.faltas||0);
   const descFaltas  = Math.max(0, salBase - remuneracao);
   const grauInsal   = parseFloat(emp.insalubridade||0) || 20;
@@ -2963,6 +2964,7 @@ function _reciboOficialLinhas(emp, p){
   if(plano>0)      linhas.push({cod:'0920', nome:'Plano de Saúde',           ref:'—',                                              pr:0, de:plano});
   if(pensao>0)     linhas.push({cod:'0930', nome:'Pensão Alimentícia',       ref:'—',                                              pr:0, de:pensao});
   if(outDesc>0)    linhas.push({cod:'0960', nome:'Outros Descontos',         ref:'—',                                              pr:0, de:outDesc});
+  if(emprest>0)    linhas.push({cod:'0961', nome:'Empréstimo / Consignado',  ref:'—',                                              pr:0, de:emprest});
   if(vt>0){
     // Co-participação CLT (Lei 7.418/85): desconta o MENOR entre 6% do salário-base
     // e o custo do VT. Antes descontava o VT cheio (passava do teto e anulava o
@@ -4216,6 +4218,86 @@ function _apuracaoPontoTotais(emp, p){
 }
 // Minutos → "H:MM" (suporta > 24h)
 function _minToHM(mm){ const x=Math.max(0,Math.round(mm||0)); return Math.floor(x/60)+':'+String(x%60).padStart(2,'0'); }
+// Minutos → "HH:MM" (horas zero-padded — formato da planilha do contador). #planilha-contador
+function _minToHHMM(mm){ const x=Math.max(0,Math.round(mm||0)); return String(Math.floor(x/60)).padStart(2,'0')+':'+String(x%60).padStart(2,'0'); }
+
+// ============================================================
+// PLANILHA CONTÁBIL (modelo do contador) — códigos das rubricas.
+// Códigos padrão são os do sistema do contador; editáveis em
+// Configurações/Contabilidade e persistidos em empresa.contCodigos. #planilha-contador
+// ============================================================
+const CONT_COD_DEFAULTS = {
+  tipoCalculo:'11', adNot:'0219', heAdNot:'0237', he50:'0150', he100:'0200',
+  vt:'0203', vr:'0209', atrasos:'0217', valeAvulso:'0214', emprestimo:'0218',
+  faltas:'8792', acumulo:'0999', insalubridade:'0999', outros:'0999'
+};
+const CONT_COD_KEYS = ['tipoCalculo','adNot','heAdNot','he50','he100','vt','vr','atrasos','valeAvulso','emprestimo','faltas','acumulo','insalubridade','outros'];
+function _contCod(k){ const c=(State.empresa&&State.empresa.contCodigos)||{}; return (c[k]!=null&&c[k]!=='')?String(c[k]):CONT_COD_DEFAULTS[k]; }
+
+// Preenche os inputs do editor de códigos com os valores vigentes.
+function _preencherContCodigos(){
+  CONT_COD_KEYS.forEach(k=>{ const el=document.getElementById('contcod-'+k); if(el) el.value=_contCod(k); });
+}
+// Salva os códigos editados no doc empresa.
+async function salvarContCodigos(){
+  if(Auth.currentUser?.role!=='master'){ toast('Apenas o master pode alterar os códigos','error'); return; }
+  const obj={};
+  CONT_COD_KEYS.forEach(k=>{ const v=(val('contcod-'+k)||'').trim(); if(v) obj[k]=v; });
+  try{
+    await DB.saveDoc('configuracoes','empresa',{contCodigos:obj},true);
+    State.empresa = State.empresa||{}; State.empresa.contCodigos = obj;
+    toast('Códigos da planilha contábil salvos!','success');
+    renderContabilidade();
+  }catch(e){ toast('Erro ao salvar códigos: '+e.message,'error'); }
+}
+// Restaura os códigos padrão do contador.
+function resetarContCodigos(){
+  CONT_COD_KEYS.forEach(k=>{ const el=document.getElementById('contcod-'+k); if(el) el.value=CONT_COD_DEFAULTS[k]; });
+  toast('Códigos padrão restaurados. Clique em Salvar para aplicar.','info');
+}
+
+// Monta UMA linha da planilha do contador para um colaborador (e sua folha p).
+// Retorna campos já calculados (valores numéricos + textos formatados) usados
+// tanto na tabela da tela quanto na exportação CSV. #planilha-contador
+function _contLinhaContador(e, p){
+  const ap = p ? _apuracaoPontoTotais(e,p) : null;
+  const hePerc = p ? (parseInt(p.horasExtrasPerc||50)) : 50;
+  const heH    = p ? (+p.horasExtrasTotal||0) : 0;          // horas extras lançadas na folha
+  const heMin  = Math.round(heH*60);
+  const he50Min  = (heH>0 && hePerc<100) ? heMin : 0;
+  const he100Min = (heH>0 && hePerc>=100)? heMin : 0;
+  const grauIns = parseFloat(e.insalubridade||0)||0;         // grau % (do cadastro)
+  const insVal  = p ? (+p.insalubridade||0) : 0;             // valor R$ (da folha)
+  const acuVal  = p ? (+p.acumuloFuncao||0) : 0;
+  const emprest = p ? (+p.emprestimo||0) : 0;
+  const adiant  = p ? (p.adiantamentoValor||p.adiantamento||0) : 0;
+  const vt      = p ? (+p.valeTransporte||0) : 0;
+  const vr      = p ? (+p.valeRefeicao||0) : 0;
+  // Outros Eventos (texto livre): pensão, afastamentos e a observação manual da folha.
+  const outros=[];
+  if((p && (+p.pensaoAlimenticiaDesc||0)>0) || (+e.pensaoAlimenticia||0)>0) outros.push('Pensão alimentícia');
+  if(e.status==='afastamento_inss' || e.status==='afastado') outros.push('Afastamento INSS');
+  const obsTxt = p ? (p.observacaoFolha||p.observacoes||'').trim() : '';
+  if(obsTxt) outros.push(obsTxt);
+  return {
+    semFolha: !p,
+    tipoCalculo: _contCod('tipoCalculo'),
+    codFolha: e.registro?String(e.registro).padStart(4,'0'):'',
+    nome: e.nome||'',
+    adNotMin: 0,            // Etapa 3: derivar horas noturnas do ponto (hoje só temos R$)
+    adNotPend: (p && (+p.adNoturno||0)>0),   // sinaliza que há adic. noturno em R$ mas falta a hora
+    heAdNotMin: 0,          // Etapa 3
+    he50Min, he100Min,
+    vt, vr,
+    atrasoMin: ap?ap.atrasoMin:0,
+    valeAvulso: adiant,
+    emprest,
+    faltaMin: ap?ap.faltaMin:0,
+    faltaQtd: ap?ap.faltaQtd:0,
+    acuVal, grauIns, insVal,
+    outros: outros.join(' · ')
+  };
+}
 
 function renderContabilidade(){
   const mes=parseInt(val('cont-mes')||currentMes());
@@ -4243,103 +4325,88 @@ function renderContabilidade(){
   const folhaMap={};
   folhasMes.forEach(p=>{ folhaMap[p.employeeId]=p; });
 
-  // Totais
-  let tR=0,tVT=0,tVR=0,tVA=0,tHE=0,tB=0,tAN=0,tIns=0,tAcu=0,tAdiant=0,tTotal=0;
-  let tBruto=0,tDesc=0,tLiq=0;  // bruto/descontos/líquido pelo motor do recibo (inclui seguro e encargos)
-  let tTrabMin=0,tAtrasoMin=0,tExtraMin=0,tFaltaMin=0,tNaoRendMin=0;  // apuração de ponto em horas. #folha-detalhada
+  // Cabeçalho no MODELO DO CONTADOR (códigos editáveis). #planilha-contador
+  const thead=document.getElementById('cont-thead');
+  if(thead){
+    const ch=(lbl,cod)=>`<th title="código ${cod}">${lbl}<br><small style="font-weight:400;opacity:.7">${cod}</small></th>`;
+    thead.innerHTML=`<tr>
+      <th class="col-check" style="width:30px;text-align:center"><input type="checkbox" id="cont-check-all" onclick="toggleAllContabilidade(this)" title="Selecionar todos (visíveis)"></th>
+      <th>Tipo de Cálculo<br><small style="font-weight:400;opacity:.7">${_contCod('tipoCalculo')}</small></th>
+      <th>Código Folha</th>
+      <th>Nome do Colaborador</th>
+      ${ch('Adic. Not. 20%',_contCod('adNot'))}
+      ${ch('HE 50% c/ Adic Not',_contCod('heAdNot'))}
+      ${ch('Hora Extra 50%',_contCod('he50'))}
+      ${ch('Hora Extra 100%',_contCod('he100'))}
+      ${ch('Vale Transporte',_contCod('vt'))}
+      ${ch('Vale Refeição',_contCod('vr'))}
+      ${ch('Atrasos',_contCod('atrasos'))}
+      ${ch('Vale Avulso',_contCod('valeAvulso'))}
+      ${ch('Empréstimo',_contCod('emprestimo'))}
+      ${ch('Faltas',_contCod('faltas'))}
+      ${ch('Acúmulo de Função',_contCod('acumulo'))}
+      ${ch('Insalubridade',_contCod('insalubridade'))}
+      ${ch('Outros Eventos',_contCod('outros'))}
+    </tr>`;
+  }
+  _preencherContCodigos();
+
+  // Totais (só os relevantes ao modelo do contador)
+  let tHe50=0,tHe100=0,tAtraso=0,tFalta=0,tVT=0,tVR=0,tValeAvulso=0,tEmprest=0,tAcu=0,tIns=0,tAdNotPend=0;
   let semFolha=[];
 
   const rows=emps.map((e,i)=>{
     const p=folhaMap[e.id];
-    if(!p){ semFolha.push(e); }
-    const rem=p?p.remuneracao||0:0;
-    const vt=p?p.valeTransporte||0:0;
-    const vr=p?p.valeRefeicao||0:0;
-    const va=p?p.valeAlimentacaoLiquido||0:0;
-    const he=p?p.horasExtrasValor||0:0;
-    const bon=p?p.bonificacao||0:0;
-    const an=p?p.adNoturno||0:0;
-    const ins=p?p.insalubridade||0:0;
-    const acu=p?p.acumuloFuncao||0:0;
-    const adiant=p?(p.adiantamentoValor||p.adiantamento||0):0;
-    const totalFaltas=p?('faltasJustificadas' in p?(p.faltasJustificadas||0)+(p.faltasInjustificadas||0):(p.faltas||0)):0;
-    // Boa Permanência (bon) é benefício pago no VR — NÃO entra na espécie (dinheiro).
-    // Adiantamento ja foi pago no meio do mes -> descontado do TOTAL ESPECIE (restante a receber).
-    const especie=rem+an+ins+acu+he-adiant;
-    // Bruto/Descontos/Líquido FIÉIS ao recibo (proventos, todos os descontos legais + seguro). #cont-liquido
-    let _br=0,_de=0,_li=0;
-    if(p){ try{ const _r=_reciboOficialLinhas(e,p); _br=_r.totalPr; _de=_r.totalDe; _li=_r.liquido; }catch(_){} }
-    const ap = p ? _apuracaoPontoTotais(e,p) : null;
-    tR+=rem; tVT+=vt; tVR+=vr; tVA+=va; tHE+=he; tB+=bon; tAN+=an; tIns+=ins; tAcu+=acu; tAdiant+=adiant;
-    tTotal+=especie+vt+vr+va+bon;
-    tBruto+=_br; tDesc+=_de; tLiq+=_li;
-    if(ap){ tTrabMin+=ap.trabMin; tAtrasoMin+=ap.atrasoMin; tExtraMin+=ap.extraMin; tFaltaMin+=ap.faltaMin; tNaoRendMin+=ap.naoRendMin; }
+    if(!p) semFolha.push(e);
+    const L=_contLinhaContador(e,p);
+    tHe50+=L.he50Min; tHe100+=L.he100Min; tAtraso+=L.atrasoMin; tFalta+=L.faltaMin;
+    tVT+=L.vt; tVR+=L.vr; tValeAvulso+=L.valeAvulso; tEmprest+=L.emprest; tAcu+=L.acuVal; tIns+=L.insVal;
+    if(L.adNotPend) tAdNotPend++;
     const rowBg=i%2===0?'#ffffff':'#EEF2FF';
     const semFolhaBorder=!p?'border-left:3px solid #EF9A9A':'';
-    return `<tr style="background:${rowBg};${semFolhaBorder}" data-nome="${(e.nome||'').toLowerCase()}" data-reg="${e.registro?String(e.registro).padStart(4,'0'):''}">
+    const dash='<span style="color:#bbb">—</span>';
+    const adNotCell=L.adNotPend?'<span style="color:#E65100;cursor:help" title="Há adicional noturno (R$) lançado na folha; a conversão para HORAS (col. 0219) entra na Etapa 3">⧖ pend.</span>':dash;
+    return `<tr style="background:${rowBg};${semFolhaBorder}" data-nome="${(e.nome||'').toLowerCase()}" data-reg="${L.codFolha}">
       <td class="col-check" style="text-align:center"><input type="checkbox" class="cont-row-check" data-emp-id="${e.id}" onclick="updateContSelCount()"></td>
-      <td>${i+1}</td>
-      <td>${e.registro?String(e.registro).padStart(4,'0'):'—'}</td>
-      <td><strong>${e.nome}</strong></td>
-      <td style="font-size:11px">${e.cpf||'—'}</td>
-      <td style="font-size:11px">${e.setor||'—'}</td>
-      <td style="font-size:10px;max-width:120px;white-space:normal">${e.posto||'—'}</td>
-      <td style="font-size:11px">${escalaLabel(e.escala||'5x2A')}</td>
-      <td style="font-size:11px">${formatDateBr(e.dataAdmissao)}</td>
-      <td>${e.salarioBase?fmtMoney(e.salarioBase):'—'}</td>
-      <td style="text-align:center">${p?p.diasTrabalhados||0:'—'}</td>
-      <td style="text-align:center;color:${totalFaltas>0?'var(--danger)':'inherit'}">${p?totalFaltas:'—'}</td>
-      <td style="text-align:center;font-weight:600">${ap?_minToHM(ap.trabMin):'—'}</td>
-      <td style="text-align:center;color:${ap&&ap.atrasoMin>0?'#B71C1C':'inherit'}">${ap?_minToHM(ap.atrasoMin):'—'}</td>
-      <td style="text-align:center;color:${ap&&ap.extraMin>0?'#1B5E20':'inherit'}">${ap?_minToHM(ap.extraMin):'—'}</td>
-      <td style="text-align:center;color:${ap&&ap.faltaMin>0?'#B71C1C':'inherit'}">${ap?_minToHM(ap.faltaMin):'—'}</td>
-      <td style="text-align:center;color:${ap&&ap.naoRendMin>0?'#E65100':'inherit'}">${ap?_minToHM(ap.naoRendMin):'—'}</td>
-      <td style="font-weight:700">${p?fmtMoney(rem):'<span style="color:#ccc">S/ folha</span>'}</td>
-      <td>${vt?fmtMoney(vt):'—'}</td>
-      <td>${vr?fmtMoney(vr):'—'}</td>
-      <td>${va?fmtMoney(va):'—'}</td>
-      <td>${he?fmtMoney(he):'—'}</td>
-      <td>${bon?fmtMoney(bon):'—'}</td>
-      <td>${an?fmtMoney(an):'—'}</td>
-      <td>${ins?fmtMoney(ins):'—'}</td>
-      <td>${acu?fmtMoney(acu):'—'}</td>
-      <td>${adiant?fmtMoney(adiant):'—'}</td>
-      <td style="font-weight:700;color:#1B5E20">${p?fmtMoney(especie):'—'}</td>
-      <td style="font-weight:600;color:#0D47A1">${p?fmtMoney(_br):'—'}</td>
-      <td style="color:#B71C1C">${p?fmtMoney(_de):'—'}</td>
-      <td style="font-weight:700;color:#1B5E20">${p?fmtMoney(_li):'—'}</td>
-      <td style="font-size:11px">${e.chavePix||'—'}</td>
-      <td style="font-size:11px">${p?esc(p.observacaoFolha||p.observacoes||''):''}</td>
+      <td style="text-align:center;font-weight:600">${L.tipoCalculo}</td>
+      <td style="text-align:center">${L.codFolha||dash}</td>
+      <td><strong>${esc(L.nome)}</strong>${!p?' <span style="font-size:10px;color:#B71C1C">(s/ folha)</span>':''}</td>
+      <td style="text-align:center">${adNotCell}</td>
+      <td style="text-align:center">${L.heAdNotMin>0?_minToHHMM(L.heAdNotMin):dash}</td>
+      <td style="text-align:center;color:${L.he50Min>0?'#1B5E20':'inherit'}">${L.he50Min>0?_minToHHMM(L.he50Min):dash}</td>
+      <td style="text-align:center;color:${L.he100Min>0?'#1B5E20':'inherit'}">${L.he100Min>0?_minToHHMM(L.he100Min):dash}</td>
+      <td style="text-align:right">${L.vt>0?fmtMoney(L.vt):dash}</td>
+      <td style="text-align:right">${L.vr>0?fmtMoney(L.vr):dash}</td>
+      <td style="text-align:center;color:${L.atrasoMin>0?'#B71C1C':'inherit'}">${L.atrasoMin>0?_minToHHMM(L.atrasoMin):dash}</td>
+      <td style="text-align:right">${L.valeAvulso>0?fmtMoney(L.valeAvulso):dash}</td>
+      <td style="text-align:right">${L.emprest>0?fmtMoney(L.emprest):dash}</td>
+      <td style="text-align:center;color:${L.faltaMin>0?'#B71C1C':'inherit'}" title="${L.faltaQtd} dia(s)">${L.faltaMin>0?_minToHHMM(L.faltaMin):dash}</td>
+      <td style="text-align:right">${L.acuVal>0?fmtMoney(L.acuVal):dash}</td>
+      <td style="text-align:center">${L.grauIns>0?(L.grauIns+'%'+(L.insVal>0?' · '+fmtMoney(L.insVal):'')):dash}</td>
+      <td style="font-size:11px;max-width:200px;white-space:normal">${esc(L.outros)||dash}</td>
     </tr>`;
   }).join('');
 
   tbody.innerHTML=rows;
   tfoot.innerHTML=`<tr style="background:#EEF4FF;font-weight:700">
-    <td colspan="12" style="padding:8px 10px">TOTAIS — ${emps.length} colaborador(es)</td>
-    <td style="text-align:center">${_minToHM(tTrabMin)}</td>
-    <td style="text-align:center;color:#B71C1C">${_minToHM(tAtrasoMin)}</td>
-    <td style="text-align:center;color:#1B5E20">${_minToHM(tExtraMin)}</td>
-    <td style="text-align:center;color:#B71C1C">${_minToHM(tFaltaMin)}</td>
-    <td style="text-align:center;color:#E65100">${_minToHM(tNaoRendMin)}</td>
-    <td>${fmtMoney(tR)}</td>
-    <td>${fmtMoney(tVT)}</td>
-    <td>${fmtMoney(tVR)}</td>
-    <td>${fmtMoney(tVA)}</td>
-    <td>${fmtMoney(tHE)}</td>
-    <td>${fmtMoney(tB)}</td>
-    <td>${fmtMoney(tAN)}</td>
-    <td>${fmtMoney(tIns)}</td>
-    <td>${fmtMoney(tAcu)}</td>
-    <td>${fmtMoney(tAdiant)}</td>
-    <td style="color:#1B5E20">${fmtMoney(tTotal)}</td>
-    <td style="color:#0D47A1">${fmtMoney(tBruto)}</td>
-    <td style="color:#B71C1C">${fmtMoney(tDesc)}</td>
-    <td style="color:#1B5E20">${fmtMoney(tLiq)}</td>
-    <td colspan="2"></td>
+    <td colspan="4" style="padding:8px 10px">TOTAIS — ${emps.length} colaborador(es)</td>
+    <td style="text-align:center;color:#E65100">${tAdNotPend>0?tAdNotPend+' pend.':''}</td>
+    <td></td>
+    <td style="text-align:center;color:#1B5E20">${_minToHHMM(tHe50)}</td>
+    <td style="text-align:center;color:#1B5E20">${_minToHHMM(tHe100)}</td>
+    <td style="text-align:right">${fmtMoney(tVT)}</td>
+    <td style="text-align:right">${fmtMoney(tVR)}</td>
+    <td style="text-align:center;color:#B71C1C">${_minToHHMM(tAtraso)}</td>
+    <td style="text-align:right">${fmtMoney(tValeAvulso)}</td>
+    <td style="text-align:right">${fmtMoney(tEmprest)}</td>
+    <td style="text-align:center;color:#B71C1C">${_minToHHMM(tFalta)}</td>
+    <td style="text-align:right">${fmtMoney(tAcu)}</td>
+    <td style="text-align:right">${fmtMoney(tIns)}</td>
+    <td></td>
   </tr>`;
 
   // Título
-  if(title) title.innerHTML=`<i class="fa-solid fa-table"></i> Planilha de Contabilidade — ${MESES[mes]}/${ano}`;
+  if(title) title.innerHTML=`<i class="fa-solid fa-table"></i> Planilha Contábil (modelo do contador) — ${MESES[mes]}/${ano}`;
   const subEl=document.getElementById('cont-report-subtitle');
   const dateEl=document.getElementById('cont-report-date');
   if(subEl) subEl.textContent=`Competência: ${MESES[mes]}/${ano} · ${emps.length} colaborador(es)`;
@@ -4351,10 +4418,10 @@ function renderContabilidade(){
       <div><div class="stat-value">${emps.length}</div><div class="stat-label">Colaboradores</div></div></div>
     <div class="stat-card green"><div class="stat-icon"><i class="fa-solid fa-file-circle-check"></i></div>
       <div><div class="stat-value">${folhasMes.filter(f=>emps.find(e=>e.id===f.employeeId)).length}</div><div class="stat-label">Com folha lançada</div></div></div>
-    <div class="stat-card amber"><div class="stat-icon"><i class="fa-solid fa-money-bill-wave"></i></div>
-      <div><div class="stat-value">${fmtMoney(tR)}</div><div class="stat-label">Total Remunerações</div></div></div>
-    <div class="stat-card" style="border-color:#1565C0;border-left-width:4px"><div class="stat-icon" style="background:#E3F2FD;color:#1565C0"><i class="fa-solid fa-wallet"></i></div>
-      <div><div class="stat-value" style="font-size:14px">${fmtMoney(tTotal)}</div><div class="stat-label">Total Geral</div></div></div>
+    <div class="stat-card amber"><div class="stat-icon"><i class="fa-solid fa-bus"></i></div>
+      <div><div class="stat-value" style="font-size:14px">${fmtMoney(tVT)}</div><div class="stat-label">Total Vale Transporte</div></div></div>
+    <div class="stat-card" style="border-color:#1565C0;border-left-width:4px"><div class="stat-icon" style="background:#E3F2FD;color:#1565C0"><i class="fa-solid fa-utensils"></i></div>
+      <div><div class="stat-value" style="font-size:14px">${fmtMoney(tVR)}</div><div class="stat-label">Total Vale Refeição</div></div></div>
   `;
 
   if(card) card.style.display='';
@@ -4405,29 +4472,32 @@ function exportContabilidadeCsv(){
   const folhaMap={};
   folhasMes.forEach(p=>{ folhaMap[p.employeeId]=p; });
 
-  const headers=['Nº','Matrícula','Nome','CPF','Setor','Posto','Escala','Admissão','Sal.Base','Dias','Faltas','Trab.(h)','Atrasos(h)','Extras(h)','Faltas(h)','Ref.não rend.(h)','Remuneração','VT/AM','VR','VA','HE','Bonificação','Ad.Noturno','Insalub.','Acúmulo','Adiantamento','Total Espécie','Total Bruto','Total Descontos','Líquido','Chave PIX'];
-  const rows=emps.map((e,i)=>{
+  // CSV no MODELO DO CONTADOR — mesmas colunas/códigos da tela. #planilha-contador
+  const C=k=>_contCod(k);
+  const headers=[
+    `Tipo de Calculo (${C('tipoCalculo')})`,'Codigo Folha','Nome',
+    `Adic Not 20% (${C('adNot')})`, `HE 50% c/ Adic Not (${C('heAdNot')})`,
+    `Hora Extra 50% (${C('he50')})`, `Hora Extra 100% (${C('he100')})`,
+    `Vale Transporte (${C('vt')})`, `Vale Refeicao (${C('vr')})`,
+    `Atrasos (${C('atrasos')})`, `Vale Avulso (${C('valeAvulso')})`,
+    `Emprestimo (${C('emprestimo')})`, `Faltas (${C('faltas')})`,
+    `Acumulo de Funcao (${C('acumulo')})`, `Insalubridade (${C('insalubridade')})`,
+    `Outros Eventos (${C('outros')})`
+  ];
+  const moneyCsv=v=>(v>0?String((+v).toFixed(2)).replace('.',','):'');
+  const rows=emps.map((e)=>{
     const p=folhaMap[e.id];
-    const rem=p?p.remuneracao||0:0;
-    const totalFaltas=p?('faltasJustificadas' in p?(p.faltasJustificadas||0)+(p.faltasInjustificadas||0):(p.faltas||0)):0;
-    // Boa Permanência é benefício (VR), não espécie
-    const especie=rem+(p?p.adNoturno||0:0)+(p?p.insalubridade||0:0)+(p?p.acumuloFuncao||0:0)+(p?p.horasExtrasValor||0:0);
-    // Bruto/Descontos/Líquido fiéis ao recibo (inclui seguro + encargos). #cont-liquido
-    let _br=0,_de=0,_li=0;
-    if(p){ try{ const _r=_reciboOficialLinhas(e,p); _br=_r.totalPr;_de=_r.totalDe;_li=_r.liquido; }catch(_){} }
-    const ap = p ? _apuracaoPontoTotais(e,p) : null;
+    const L=_contLinhaContador(e,p);
     return [
-      i+1,
-      e.registro?String(e.registro).padStart(4,'0'):'',
-      e.nome, e.cpf||'', e.setor||'', e.posto||'',
-      escalaLabel(e.escala||'5x2A'), e.dataAdmissao||'',
-      e.salarioBase||0,
-      p?p.diasTrabalhados||0:'', p?totalFaltas:'',
-      ap?_minToHM(ap.trabMin):'', ap?_minToHM(ap.atrasoMin):'', ap?_minToHM(ap.extraMin):'', ap?_minToHM(ap.faltaMin):'', ap?_minToHM(ap.naoRendMin):'',
-      rem, p?p.valeTransporte||0:0, p?p.valeRefeicao||0:0, p?p.valeAlimentacaoLiquido||0:0,
-      p?p.horasExtrasValor||0:0, p?p.bonificacao||0:0, p?p.adNoturno||0:0, p?p.insalubridade||0:0, p?p.acumuloFuncao||0:0, p?(p.adiantamentoValor||p.adiantamento||0):0,
-      especie, p?_br:'', p?_de:'', p?_li:'', e.chavePix||''
-    ].map(v=>typeof v==='string'&&v.includes(',')? `"${v}"`:v);
+      L.tipoCalculo, L.codFolha, L.nome,
+      L.adNotPend?'(pend.)':'', L.heAdNotMin>0?_minToHHMM(L.heAdNotMin):'',
+      L.he50Min>0?_minToHHMM(L.he50Min):'', L.he100Min>0?_minToHHMM(L.he100Min):'',
+      moneyCsv(L.vt), moneyCsv(L.vr),
+      L.atrasoMin>0?_minToHHMM(L.atrasoMin):'', moneyCsv(L.valeAvulso),
+      moneyCsv(L.emprest), L.faltaMin>0?_minToHHMM(L.faltaMin):'',
+      moneyCsv(L.acuVal), L.grauIns>0?(L.grauIns+'%'):'',
+      L.outros
+    ].map(v=>{ const s=String(v==null?'':v); return s.includes(';')||s.includes(',')||s.includes('"') ? `"${s.replace(/"/g,'""')}"` : s; });
   });
 
   const csv=[headers,...rows].map(r=>r.join(';')).join('\n');
@@ -4435,7 +4505,7 @@ function exportContabilidadeCsv(){
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
   a.href=url;
-  a.download=`Contabilidade_${MESES[mes]}_${ano}.csv`;
+  a.download=`Planilha_Contabil_${MESES[mes]}_${ano}.csv`;
   a.click();
   URL.revokeObjectURL(url);
   toast('CSV exportado com sucesso!');
@@ -4492,11 +4562,7 @@ function printContabilidadeSelecionados(){
     const cb = tr.querySelector('.cont-row-check');
     if(!cb || !set.has(cb.dataset.empId)) tr.remove();
   });
-  // Renumera o "Nº" (a 2ª coluna depois do checkbox)
-  Array.from(clone.querySelectorAll('tbody tr')).forEach((tr,i)=>{
-    const td = tr.children[1]; // checkbox=0, Nº=1
-    if(td) td.textContent = String(i+1);
-  });
+  // (modelo do contador não tem coluna "Nº" — sem renumeração)
   // Remove a coluna de checkbox (1ª) de thead/tbody
   clone.querySelectorAll('tr').forEach(tr=>{
     const first = tr.firstElementChild;
@@ -4546,7 +4612,6 @@ function _resumoContabilidadePdf(){
     Array.from(clone.querySelectorAll('tbody tr')).forEach(tr=>{
       const cb=tr.querySelector('.cont-row-check'); if(!cb || !set.has(cb.dataset.empId)) tr.remove();
     });
-    Array.from(clone.querySelectorAll('tbody tr')).forEach((tr,i)=>{ const td=tr.children[1]; if(td) td.textContent=String(i+1); });
     const tf=clone.querySelector('tfoot'); if(tf) tf.remove();  // totais não batem com a seleção
   }
   // remove a coluna de checkbox (1ª) de thead/tbody
@@ -6337,7 +6402,7 @@ function _resetPayrollFieldsOnly(){
   ['payroll-dias','payroll-faltas','payroll-faltas-justificadas','payroll-faltas-injustificadas',
    'payroll-remuneracao','payroll-vt-total','payroll-vr-total','payroll-va-total','payroll-va-liquido',
    'payroll-bonus','payroll-adiantamento-valor','payroll-atraso-min','payroll-desconto-atraso','payroll-atraso-justificativa',
-   'payroll-acumulo','payroll-insalubridade','payroll-horas-liquidas','payroll-horas-extras-dia',
+   'payroll-acumulo','payroll-insalubridade','payroll-emprestimo','payroll-horas-liquidas','payroll-horas-extras-dia',
    'payroll-he-total','payroll-he-valor','payroll-he-corrido-min','payroll-he-corrido-detalhe',
    'payroll-he-corrido-valor','payroll-outros-proventos','payroll-outros-descontos',
    'payroll-inss','payroll-irrf','payroll-fgts','payroll-pensao','payroll-plano-saude-desc',
@@ -10259,7 +10324,8 @@ function recalculate(){
     // (tela, Pagamentos, folha, holerite) baterem. #vt-coparticipacao
     const _vtTotEnc=numVal('payroll-vt-total')||0;
     const vtCoPartEnc=_vtTotEnc>0?Math.min(+(salBase*0.06).toFixed(2), _vtTotEnc):0;
-    const totalLiqFinal=Math.max(0,totalBruto+_rfT.provNtrib+refNaoRendidaValor-inss-irrf-pensaoEnc-planoEnc-outDesc-_rfT.desc-adiantEnc-atrasoEnc-descontoSaida-vtCoPartEnc);
+    const emprestEnc=numVal('payroll-emprestimo')||0;   // empréstimo/consignado — desconta do líquido. #planilha-contador
+    const totalLiqFinal=Math.max(0,totalBruto+_rfT.provNtrib+refNaoRendidaValor-inss-irrf-pensaoEnc-planoEnc-outDesc-emprestEnc-_rfT.desc-adiantEnc-atrasoEnc-descontoSaida-vtCoPartEnc);
     setVal('payroll-total-bruto',       totalBruto.toFixed(2));
     setVal('payroll-outros-proventos',  outProv.toFixed(2));
     setVal('payroll-outros-descontos',  outDesc.toFixed(2));
@@ -10321,6 +10387,7 @@ function loadPayrollRecord(id){
   setVal('payroll-noturno',p.adNoturno||'');
   setVal('payroll-acumulo',p.acumuloFuncao||'');
   setVal('payroll-insalubridade',p.insalubridade||'');
+  setVal('payroll-emprestimo',p.emprestimo||'');
   // Atrasos: ocorrências vêm da coleção `atrasos`; o recalculate preenche os
   // campos ocultos de total/desconto. Aqui só restaura o total salvo.
   setVal('payroll-atraso-min',p.minutosAtraso||'');
@@ -10438,6 +10505,7 @@ async function savePayroll(){
     adNoturno:numVal('payroll-noturno'),
     acumuloFuncao:numVal('payroll-acumulo')||0,
     insalubridade:numVal('payroll-insalubridade')||0,
+    emprestimo:numVal('payroll-emprestimo')||0,   // consignado — só informativo na planilha contábil (cód. 0218). #planilha-contador
     // Atrasos — detalhe na coleção `atrasos`; aqui ficam só os totais.
     minutosAtraso:numVal('payroll-atraso-min')||0,
     descontoAtraso:numVal('payroll-desconto-atraso')||0,
@@ -21984,6 +22052,7 @@ function printFolhaPonto(isPreview=false){
   const planoDesc=numVal('payroll-plano-saude-desc')||0;
   const pensaoDesc=numVal('payroll-pensao')||0;
   const outrosDescF=numVal('payroll-outros-descontos')||0;
+  const emprestimoF=numVal('payroll-emprestimo')||0;        // empréstimo/consignado — desconta no líquido. #planilha-contador
   const outrosProvF=numVal('payroll-outros-proventos')||0;  // prêmios/ajudas — o holerite já somava; a folha não. #liquido-bate-holerite
   const refNaoRendidaValorF=numVal('payroll-ref-nao-rendida-valor')||0;  // indenizatória (não-trib), soma só no líquido. #ref-nao-rendida
   // VT entra como CO-PARTICIPAÇÃO (menor entre 6% do salário e o custo do VT) —
@@ -21997,7 +22066,7 @@ function printFolhaPonto(isPreview=false){
     : `<tr><td class="fin-label">${esc(f.descricao)}</td><td class="fin-value" style="color:#c0392b">${fmtMoney(f.valor)}</td></tr>`).join('');
   // VR/VA e Boa Permanência são benefícios pagos à parte — não somam no líquido
   const totalLiquido=remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade+outrosProvF+refNaoRendidaValorF+_ftF.provTrib+_ftF.provNtrib
-    -adiantamento-descontoAtraso-descontoSaida-inssDesc-irrfDesc-planoDesc-pensaoDesc-outrosDescF-_ftF.desc-vtCoPart;
+    -adiantamento-descontoAtraso-descontoSaida-inssDesc-irrfDesc-planoDesc-pensaoDesc-outrosDescF-emprestimoF-_ftF.desc-vtCoPart;
 
   // Posto do colaborador
   const posto=State.postos.find(p=>p.razaoSocial===emp.posto)||{razaoSocial:emp.posto||'—', endereco:'—'};
@@ -22350,6 +22419,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
   const planoSaudeVal   = p.planoSaudeDesc||0;
   const outrosProvVal   = p.outrosProventosTotal||0;
   const outrosDescVal   = p.outrosDescontosTotal||0;
+  const emprestimoR     = p.emprestimo||0;              // empréstimo/consignado — desconta no líquido. #planilha-contador
   const refNaoRendidaValorR = p.refNaoRendidaValor||0;  // indenizatória (não-trib), soma só no líquido. #ref-nao-rendida
   const totalBrutoVal   = p.totalBruto||0;
   // Líquido final em dinheiro — recalculado dos componentes (NÃO usa o
@@ -22364,8 +22434,8 @@ function _buildFolhaHtmlFromRecord(emp, p){
   const _ftR=_rubricasFixasTotais(_fixasRec);
   // Na via totalBruto (registros novos), provTrib já está embutido em totalBrutoVal; soma só provNtrib.
   const totalLiquido    = totalBrutoVal>0
-    ? Math.max(0, totalBrutoVal+_ftR.provNtrib+refNaoRendidaValorR-inssVal-irrfVal-pensaoVal-planoSaudeVal-outrosDescVal-_ftR.desc-adiantamento-descontoAtraso-descontoSaida-vtCoPart)
-    : Math.max(0, remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade+_ftR.provTrib+_ftR.provNtrib+refNaoRendidaValorR-adiantamento-descontoAtraso-descontoSaida-inssVal-irrfVal-pensaoVal-planoSaudeVal-outrosDescVal-_ftR.desc-vtCoPart);
+    ? Math.max(0, totalBrutoVal+_ftR.provNtrib+refNaoRendidaValorR-inssVal-irrfVal-pensaoVal-planoSaudeVal-outrosDescVal-emprestimoR-_ftR.desc-adiantamento-descontoAtraso-descontoSaida-vtCoPart)
+    : Math.max(0, remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade+_ftR.provTrib+_ftR.provNtrib+refNaoRendidaValorR-adiantamento-descontoAtraso-descontoSaida-inssVal-irrfVal-pensaoVal-planoSaudeVal-outrosDescVal-emprestimoR-_ftR.desc-vtCoPart);
   const _fixasProvRowsRec=_fixasRec.filter(f=>f.tipo==='P').map(f=>`<tr><td class="fin-label">${esc(f.descricao)}</td><td class="fin-value">${fmtMoney(f.valor)}</td></tr>`).join('');
   const _fixasDescRowsRec=_fixasRec.filter(f=>f.tipo==='D').map(f=>`<tr><td class="fin-label">${esc(f.descricao)}</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(f.valor)})</td></tr>`).join('');
 

@@ -23203,13 +23203,14 @@ function renderHistoricoLotacao(emp){
     </div>`;
   }catch(_){}
   el.innerHTML=_projHtml+`<div style="font-size:12px;color:var(--text-muted);margin:0 0 4px"><i class="fa-solid fa-timeline"></i> Linha do tempo de lotação — cada regra vale <strong>a partir da data</strong> (aplicada no cálculo trabalhista <strong>e</strong> nos benefícios):</div>
-    <div style="overflow-x:auto"><table class="report-table" style="font-size:12px;margin-bottom:10px;min-width:820px">
+    <div style="overflow-x:auto"><table class="report-table" style="font-size:12px;margin-bottom:10px;min-width:920px">
       <thead><tr>
         <th style="background:#5C6BC0">A partir de</th>
         <th style="background:#5C6BC0">Posto</th>
         <th style="background:#5C6BC0">Função</th>
         <th style="background:#5C6BC0">Escala</th>
         <th style="background:#5C6BC0">Turno</th>
+        <th style="background:#5C6BC0">Horário</th>
         <th style="background:#5C6BC0">Salário</th>
         <th style="background:#5C6BC0">Adicionais</th>
         <th style="background:#5C6BC0">Benefícios <small style="font-weight:400">(VT/dia · VR/dia · VA/mês)</small></th>
@@ -23225,6 +23226,7 @@ function renderHistoricoLotacao(emp){
           <td>${h.cargo||'—'}</td>
           <td>${h.escala||'—'}</td>
           <td>${h.turnoNoturno?'<span style="color:#5C6BC0;font-weight:600">Noturno</span>':'Diurno'}</td>
+          <td style="white-space:nowrap;font-variant-numeric:tabular-nums">${h.horarioEntrada||'—'}–${h.horarioSaida||'—'}${h.semRefeicao?' <small style="color:#C62828">(s/ ref.)</small>':((h.horarioRefIni||h.horarioRefFim)?` <small style="color:#888">int ${h.horarioRefIni||'—'}–${h.horarioRefFim||'—'}</small>`:'')}</td>
           <td>${fmtMoney(h.salarioBase||0)}</td>
           <td style="font-size:11px">${adic}</td>
           <td style="font-size:11px;white-space:nowrap">${benef}</td>

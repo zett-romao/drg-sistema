@@ -18379,7 +18379,7 @@ async function _mfPrecomputarExpectativas(){
       if((emp.status||'ativo')!=='ativo' || emp.isentoPonto) return;
       const exp=_getExpectedDay(emp,mes,ano,dia);
       if(!exp || exp.tipo==='folga' || !exp.entrada) return;
-      esperados.push({ empId:emp.id, nome:emp.nome||'', entrada:exp.entrada });
+      esperados.push({ empId:emp.id, nome:emp.nome||'', entrada:exp.entrada, posto:emp.posto||'' });
     });
     await DB.saveDoc('configuracoes','monitorexpectativas_'+ymd,
       { ymd, geradoEm:n.toISOString(), tolerancia:MONITOR_FALTAS_TOLERANCIA_MIN, esperados }, true);
@@ -18408,7 +18408,7 @@ async function _ativarNotificacoesFaltas(){
     let sub=await reg.pushManager.getSubscription();
     if(!sub) sub=await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:_b64urlToU8(PUSH_VAPID_PUBLIC) });
     await DB.saveDoc('configuracoes','pushsub_'+_pushUserKey(),
-      { sub: JSON.parse(JSON.stringify(sub)), userKey:_pushUserKey(), nome:(Auth.currentUser&&(Auth.currentUser.nome||Auth.currentUser.username))||'', monitorarFaltas:true, atualizadoEm:new Date().toISOString() }, true);
+      { sub: JSON.parse(JSON.stringify(sub)), userKey:_pushUserKey(), nome:(Auth.currentUser&&(Auth.currentUser.nome||Auth.currentUser.username))||'', monitorarFaltas:true, postos:_postosDoUsuario(Auth.currentUser)||[], atualizadoEm:new Date().toISOString() }, true);
     try{ localStorage.setItem('drg_push_faltas','1'); }catch(_){}
     toast('Notificações ativadas neste aparelho!','success');
     if(State.currentSection==='monitorfaltas') renderMonitorFaltas();
@@ -18425,6 +18425,7 @@ function _monitorFaltasHoje(){
   (State.employees||[]).forEach(emp=>{
     if((emp.status||'ativo') !== 'ativo') return;   // so ativos
     if(emp.isentoPonto) return;                     // isento nao bate ponto
+    if(!_empNoEscopo(emp)) return;                  // respeita os postos sob responsabilidade do supervisor. #monitor-escopo
     const r = _mfResolv[emp.id];
     if(r && (r.status==='informada' || r.status==='abonada')) return;  // ja decidido hoje
     if(_temAtestadoNoDia(emp.id, ymd)) return;       // justificado por atestado/abono cobrindo o dia
@@ -18592,7 +18593,10 @@ function _initAutzBadge(){
     _autzBadgeUnsub = DB.col('autorizacoesPonto').where('status','==','pendente').onSnapshot(snap=>{
       const agora = Date.now();
       let n = 0;
-      snap.forEach(d=>{ const p=d.data(); const venc = p.validadeAteEm && Date.parse(p.validadeAteEm) < agora; if(!venc) n++; });
+      snap.forEach(d=>{ const p=d.data();
+        const venc = p.validadeAteEm && Date.parse(p.validadeAteEm) < agora; if(venc) return;
+        if(!_empNoEscopo(State.employees.find(e=>e.id===p.employeeId))) return;  // só postos do supervisor. #monitor-escopo
+        n++; });
       _setAutzBadge(n);
     }, ()=>{});
   }catch(e){ /* sem badge se falhar */ }

@@ -180,21 +180,28 @@ async function rodar(env){
     if(bateu[e.empId]) return false;
     const r=resolv[e.empId]; if(r && (r.status==='informada'||r.status==='abonada')) return false;
     return true;
-  }).map(e=>e.empId);
+  });  // mantém objetos {empId, posto, ...}
   if(!faltantes.length) return {ok:true, msg:'ninguém faltando agora', ymd, nowMin};
-  // dedupe: só notifica se há faltante NOVO ainda não notificado hoje
+  // dedupe: só notifica faltante NOVO (por empId) ainda não notificado hoje
   const stDoc=await fsGetDoc(env,'configuracoes','monitorpushstate_'+ymd);
   const jaNotif=(stDoc&&Array.isArray(stDoc.notificados))?stDoc.notificados:[];
-  const novos=faltantes.filter(id=>!jaNotif.includes(id));
+  const novos=faltantes.filter(e=>!jaNotif.includes(e.empId));
   if(!novos.length) return {ok:true, msg:'sem novidades (já notificado)', ymd, faltantes:faltantes.length};
-  // envia push p/ todos os inscritos
+  // envia push RESPEITANDO o escopo de postos de cada supervisor inscrito (pushsub_.postos)
   const cfgs=await fsListCol(env,'configuracoes');
   const subs=cfgs.filter(c=>c.id.startsWith('pushsub_') && c.data && c.data.sub && c.data.sub.endpoint);
-  let enviados=0;
-  for(const s of subs){ const st=await enviarPush(env,s.data.sub); if(st===201||st===200) enviados++; }
-  // grava dedupe SÓ se realmente entregou a alguém — senão re-tenta quando alguém se inscrever
-  if(enviados>0){
-    const acc=Array.from(new Set([...jaNotif, ...novos]));
+  let enviados=0; const notificadosAgora=new Set();
+  for(const s of subs){
+    const postos=s.data.postos;
+    const escopo=(Array.isArray(postos) && postos.length)?postos:null;  // null/[] = todos os postos
+    const relevantes=escopo?novos.filter(f=>escopo.includes(f.posto)):novos;
+    if(!relevantes.length) continue;                                    // nada do escopo desse supervisor
+    const st=await enviarPush(env,s.data.sub);
+    if(st===201||st===200){ enviados++; relevantes.forEach(f=>notificadosAgora.add(f.empId)); }
+  }
+  // marca notificado só os faltantes realmente ENTREGUES a algum supervisor no escopo
+  if(notificadosAgora.size>0){
+    const acc=Array.from(new Set([...jaNotif, ...notificadosAgora]));
     await fsSaveDoc(env,'configuracoes','monitorpushstate_'+ymd,{ ymd, notificados:acc, atualizadoEm:new Date().toISOString() });
   }
   return {ok:true, ymd, faltantesNovos:novos.length, inscritos:subs.length, enviados};

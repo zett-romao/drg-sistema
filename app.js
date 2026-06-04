@@ -21107,10 +21107,16 @@ function _ehFeriado(ano,mes,dia){
   if(!nome) return null;
   return { nome, folga:!((cfg.trabalha||[]).includes(ymd)), oficial };
 }
-// Só 5x2 e 6x1 respeitam feriado; 12x36 e modelos custom ignoram (rodam direto). #feriados
+// Respeitam feriado (folgam): 5x2, 6x1 e modelos customizados SEMANAIS (dia-a-dia, tipo
+// trabalho diurno). IGNORAM (trabalham no feriado): 12x36 e modelos de CICLO (plantão).
+// Decisão do dono 2026-06-04: modelo custom diurno (Limpeza/Zeladoria/Admin) deve folgar
+// no feriado igual ao 5x2/6x1; só plantão (ciclo/12x36) trabalha. #feriados #feriados-custom
 function _escalaRespeitaFeriado(escala){
   const fam=escalaFamilia(escala);
-  return fam==='5x2'||fam==='6x1';
+  if(fam==='5x2'||fam==='6x1') return true;
+  if(fam==='12x36') return false;            // plantão: trabalha no feriado
+  const mod=_escalaModelo(escala);           // modelo customizado: semanal folga, ciclo (plantão) não
+  return !!(mod && mod.tipo!=='ciclo');
 }
 // Dias de feriado-folga COM batida (5x2/6x1) na folha → benefício PENDENTE de aprovação
 // do supervisor. Retorna [{dia,nome,vr,aprovado}]. #feriados

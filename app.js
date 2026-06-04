@@ -22936,7 +22936,7 @@ function printFolhaPonto(isPreview=false){
   const _hmTot=(mm)=>{const x=Math.max(0,Math.round(mm));return Math.floor(x/60)+':'+String(x%60).padStart(2,'0');};
   const _totTrabStr=_hmTot(totTrab), _totPrevStr=_hmTot(totPrev), _totAtrasoStr=_hmTot(totAtraso),
         _totExtraStr=_hmTot(totExtra), _totFaltaStr=_hmTot(totFaltaMin), _totNaoRendStr=_hmTot(totNaoRend);
-  const _obsFolha = (typeof p!=='undefined' && p && p.observacaoFolha) ? String(p.observacaoFolha) : '';
+  const _obsFolha = (payrollReg && payrollReg.observacaoFolha) ? String(payrollReg.observacaoFolha) : '';
 
   const reg=emp.registro?String(emp.registro).padStart(4,'0'):'—';
   const dataAtual=new Date().toLocaleDateString('pt-BR');

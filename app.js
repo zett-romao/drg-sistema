@@ -304,6 +304,7 @@ async function loadEmpresaConfig(){
       State.empresa = { ...EMPRESA_DEFAULTS, ...data };
     }
   } catch(e){ /* sem dados — usa defaults */ }
+  try{ aplicarParametrosLegais(); }catch(_){}   // reaplica tolerâncias dos parâmetros legais. #param-legal
   applyEmpresaConfig();
 }
 
@@ -526,6 +527,47 @@ function renderConfiguracoes(){
   renderFeriadosConfig();
   renderPainelRecursos();
   renderLinksAcesso();
+  renderParametrosLegais();
+}
+
+// ===== Parâmetros Legais (Configurações) — preenche os campos com os valores atuais
+// (empresa.parametrosLegais ou o default legal). #param-legal =====
+function renderParametrosLegais(){
+  ['tolDiaMin','tolBatidaMin','monitorFaltasMin','adNoturnoPerc','vtCoPartPerc','acumuloPerc','refNaoRendidaPerc','oj394Corte'].forEach(k=>{
+    const el=document.getElementById('pl-'+k); if(el) el.value=_paramLegal(k);
+  });
+  const cb1=document.getElementById('pl-dsrHeBaseSabado'); if(cb1) cb1.checked=_paramLegal('dsrHeBaseSabado')!==false;
+  const cb2=document.getElementById('pl-dsrHe12x36');      if(cb2) cb2.checked=_paramLegal('dsrHe12x36')===true;
+}
+async function salvarParametrosLegais(){
+  const num=(id,def)=>{ const v=parseFloat(val('pl-'+id)); return isNaN(v)?def:v; };
+  const pl={
+    tolDiaMin:        num('tolDiaMin',        PARAM_LEGAL_DEFAULTS.tolDiaMin),
+    tolBatidaMin:     num('tolBatidaMin',     PARAM_LEGAL_DEFAULTS.tolBatidaMin),
+    monitorFaltasMin: num('monitorFaltasMin', PARAM_LEGAL_DEFAULTS.monitorFaltasMin),
+    adNoturnoPerc:    num('adNoturnoPerc',    PARAM_LEGAL_DEFAULTS.adNoturnoPerc),
+    vtCoPartPerc:     num('vtCoPartPerc',     PARAM_LEGAL_DEFAULTS.vtCoPartPerc),
+    acumuloPerc:      num('acumuloPerc',      PARAM_LEGAL_DEFAULTS.acumuloPerc),
+    refNaoRendidaPerc:num('refNaoRendidaPerc',PARAM_LEGAL_DEFAULTS.refNaoRendidaPerc),
+    dsrHeBaseSabado:  !!document.getElementById('pl-dsrHeBaseSabado')?.checked,
+    dsrHe12x36:       !!document.getElementById('pl-dsrHe12x36')?.checked,
+    oj394Corte:       val('pl-oj394Corte')||PARAM_LEGAL_DEFAULTS.oj394Corte,
+  };
+  State.empresa = State.empresa||{};
+  State.empresa.parametrosLegais = pl;
+  try{
+    await DB.saveDoc('configuracoes','empresa',{parametrosLegais:pl},true);
+    aplicarParametrosLegais();
+    try{ if(val('payroll-employee')) recalculate(); }catch(_){}
+    try{ Auth.log('PARAM_LEGAL_SAVE', null, JSON.stringify(pl)); }catch(_){}
+    toast('Parâmetros legais salvos. Os cálculos passam a usar estes valores.','success');
+  }catch(e){ toast('Erro ao salvar parâmetros: '+(e.message||e),'error'); }
+}
+function restaurarParametrosLegais(){
+  if(!confirm('Restaurar TODOS os parâmetros legais para o padrão da lei vigente?\n\nOs campos voltam ao default — clique em "Salvar parâmetros" para gravar.')) return;
+  if(State.empresa) State.empresa.parametrosLegais = {...PARAM_LEGAL_DEFAULTS};
+  renderParametrosLegais();
+  toast('Padrão legal restaurado nos campos. Clique em "Salvar parâmetros" para gravar.','info');
 }
 
 // ===== Links de Acesso (Configurações) — endereço de cada app/perfil, derivado do
@@ -3051,7 +3093,7 @@ function _reciboOficialLinhas(emp, p){
     // Co-participação CLT (Lei 7.418/85): desconta o MENOR entre 6% do salário-base
     // e o custo do VT. Antes descontava o VT cheio (passava do teto e anulava o
     // benefício, que é pago à parte no cartão). #vt-coparticipacao
-    const vtCoPart = Math.min(+(salBase*0.06).toFixed(2), vt);
+    const vtCoPart = Math.min(+(salBase*(_paramLegal('vtCoPartPerc')/100)).toFixed(2), vt);
     if(vtCoPart>0) linhas.push({cod:'0910', nome:'Vale Transporte (co-part. 6%)', ref:'até 6%', pr:0, de:vtCoPart});
   }
 
@@ -6658,7 +6700,7 @@ function calcAdNoturno(salarioBase, dias){
   // CLT Art. 73 §1º: hora noturna reduzida = 52min30s. As 7h-relógio do turno
   // noturno (22h-05h) equivalem a 8 horas noturnas reduzidas (7*60/52,5 = 8).
   // A CCT pode negociar HORA CHEIA (fator 1, via _fatorHoraNoturna). #10-cct
-  return (salarioBase/220)*0.20*(7*_fatorHoraNoturna())*dias;
+  return (salarioBase/220)*(_paramLegal('adNoturnoPerc')/100)*(7*_fatorHoraNoturna())*dias;
 }
 
 // Conta os dias TRABALHADOS da competência cuja LOTAÇÃO vigente era noturna
@@ -10190,12 +10232,14 @@ function _diasUteisMes(mes, ano){
 // Decisão do dono 2026-06-03: divisor inclui o SÁBADO. Feriado em dia útil conta como
 // descanso; domingo já é descanso (sem dupla contagem). #dsr-he
 function _diasUteisEDescansos(mes, ano){
+  const sabUtil = _paramLegal('dsrHeBaseSabado')!==false;   // sábado entra no divisor? (param legal)
   let uteis = 0, descansos = 0;
   for(const cd of _compDias(mes, ano)){
     const ehDomingo = cd.diaSem===0;
+    const ehSabado  = cd.diaSem===6;
     const ehFeriado = !!_ehFeriado(cd.ano, cd.mes, cd.dia);
-    if(ehDomingo || ehFeriado) descansos++;
-    else uteis++;   // seg–sáb não-feriado
+    if(ehDomingo || ehFeriado || (ehSabado && !sabUtil)) descansos++;
+    else uteis++;
   }
   return { uteis, descansos };
 }
@@ -10323,7 +10367,7 @@ function recalculate(){
   if(emp && emp.semRefeicao && !isentoPonto && salBase>0){
     const _apNR=_apuracaoPontoTotais(emp,{mes:_mesR,ano:_anoR,pontoManualDias:_pontoDiasR});
     refNaoRendidaMin=_apNR.naoRendMin;
-    refNaoRendidaValor=+((refNaoRendidaMin/60)*valorHora*0.5).toFixed(2);
+    refNaoRendidaValor=+((refNaoRendidaMin/60)*valorHora*(_paramLegal('refNaoRendidaPerc')/100)).toFixed(2);
   }
   setVal('payroll-ref-nao-rendida-min', refNaoRendidaMin||'');
   setVal('payroll-ref-nao-rendida-valor', refNaoRendidaValor>0?refNaoRendidaValor.toFixed(2):'0.00');
@@ -10488,8 +10532,8 @@ function recalculate(){
   // Valor: por segmento de lotação (só os períodos com acúmulo), proporcional aos
   // dias PAGOS de cada um. Fast-path (1 segmento) = salBase*20% × fator.
   const acumuloVal = _multiSeg
-    ? _segs.reduce((s,x)=> s + (x.lot.acumuloFuncao ? (x.lot.salarioBase||0)*0.20*(x.diasPagos/diasPrevistos) : 0), 0)
-    : ((emp&&emp.acumuloFuncao&&salBase>0) ? salBase*0.20*_fatorAdic : 0);
+    ? _segs.reduce((s,x)=> s + (x.lot.acumuloFuncao ? (x.lot.salarioBase||0)*(_paramLegal('acumuloPerc')/100)*(x.diasPagos/diasPrevistos) : 0), 0)
+    : ((emp&&emp.acumuloFuncao&&salBase>0) ? salBase*(_paramLegal('acumuloPerc')/100)*_fatorAdic : 0);
   if(acumuloVal>0){
     if(acumuloCard) acumuloCard.classList.remove('hidden');
     setVal('payroll-acumulo',acumuloVal.toFixed(2));
@@ -10694,8 +10738,9 @@ function recalculate(){
     // entra na base de INSS/IRRF/FGTS (soma no totalBruto). 12x36 fica de fora (descanso
     // embutido na escala) — decisão do dono 2026-06-03. HE em BANCO não paga (he-valor=0). #dsr-he
     const _is12x36DSR = escalaFamilia(emp.escala||'5x2A')==='12x36';
+    const _dsrIncl12x36 = _paramLegal('dsrHe12x36')===true;   // param legal: 12x36 recebe DSR s/ HE?
     let dsrSobreHE = 0;
-    if(!isentoPonto && !_is12x36DSR && salBase>0){
+    if(!isentoPonto && salBase>0 && (!_is12x36DSR || _dsrIncl12x36)){
       const _heBaseDSR = heValEnc + heCorridoValor;   // HE PAGA no mês (folha)
       if(_heBaseDSR>0){
         const _ud=_diasUteisEDescansos(_mesR, _anoR);
@@ -10722,7 +10767,7 @@ function recalculate(){
     // VT) — mesmo critério do holerite e da folha impressa, pra TODOS os cruzamentos
     // (tela, Pagamentos, folha, holerite) baterem. #vt-coparticipacao
     const _vtTotEnc=numVal('payroll-vt-total')||0;
-    const vtCoPartEnc=_vtTotEnc>0?Math.min(+(salBase*0.06).toFixed(2), _vtTotEnc):0;
+    const vtCoPartEnc=_vtTotEnc>0?Math.min(+(salBase*(_paramLegal('vtCoPartPerc')/100)).toFixed(2), _vtTotEnc):0;
     const emprestEnc=numVal('payroll-emprestimo')||0;   // empréstimo/consignado — desconta do líquido. #planilha-contador
     const totalLiqFinal=Math.max(0,totalBruto+_rfT.provNtrib+refNaoRendidaValor-inss-irrf-pensaoEnc-planoEnc-outDesc-emprestEnc-_rfT.desc-adiantEnc-atrasoEnc-descontoSaida-vtCoPartEnc);
     setVal('payroll-total-bruto',       totalBruto.toFixed(2));
@@ -16818,7 +16863,7 @@ function _calcRescisao(r){
   // do usuário 2026-06-03. #fix-resc-adicionais
   const _salMinR   = (State.cct && State.cct.salarioMinimo) || 1518;
   const _insalubHab= (parseFloat(emp.insalubridade)||0) > 0 ? _salMinR*((parseFloat(emp.insalubridade)||0)/100) : 0;
-  const _acumuloHab= emp.acumuloFuncao ? sal*0.20 : 0;
+  const _acumuloHab= emp.acumuloFuncao ? sal*(_paramLegal('acumuloPerc')/100) : 0;
   const _mediaVar  = parseFloat(r.mediaAdicionais)||0;
   const _baseHabFixa = sal + _insalubHab + _acumuloHab;   // salário + adicionais fixos habituais
   const baseCalc   = _baseHabFixa + _mediaVar;            // + média dos variáveis (aviso/13º/férias)
@@ -19046,7 +19091,7 @@ function _comuAbrirRegistroDoCard(empId){
 // os colaboradores cuja entrada prevista ja passou +15min e que ainda nao
 // bateram. Nao grava nada na folha. As acoes Informar/Abonar (que mexem em
 // pagamento) e o robo no servidor (cron 24h) entram nas etapas S1b/S2.
-const MONITOR_FALTAS_TOLERANCIA_MIN = 15;   // so alerta 15min apos o horario previsto
+let MONITOR_FALTAS_TOLERANCIA_MIN = 15;   // so alerta 15min apos o horario previsto (param legal editavel) #param-legal
 // Resolucoes do dia (decisao do supervisor): { [empId]: {status:'informada'|'abonada'|'aguardando', por, em} }
 // Persistido em configuracoes/monitorfaltas_{ymd} (sempre gravavel, sem regra nova). #monitor-faltas
 let _mfResolvYmd = null, _mfResolv = {};
@@ -20779,9 +20824,36 @@ function _shiftCrossesMidnight(entrada, saida){
 // ============================================
 // HE REVIEW — Tolerância CLT + detecção de divergência
 // ============================================
-// Tolerância CLT: 5min por batida, 10min por dia (Art. 58 §1º + Súmula 366 TST)
-const HE_TOLERANCIA_BATIDA_MIN = 5;
-const HE_TOLERANCIA_DIA_MIN    = 10;
+// Tolerância CLT: 5min por batida, 10min por dia (Art. 58 §1º + Súmula 366 TST).
+// `let` (não const) porque viram parâmetros editáveis em Configurações → Parâmetros
+// Legais (aplicarParametrosLegais reatribui ao carregar/salvar). #param-legal
+let HE_TOLERANCIA_BATIDA_MIN = 5;
+let HE_TOLERANCIA_DIA_MIN    = 10;
+
+// ============================================================
+// PARÂMETROS LEGAIS — constantes da CLT/jurisprudência centralizadas e editáveis
+// (Configurações → Parâmetros Legais). Default = lei vigente; o gestor sobrescreve em
+// empresa.parametrosLegais quando a regra mudar. Enquanto nada é editado, o cálculo é
+// IDÊNTICO ao de antes (default = valor legal atual). #param-legal
+// ============================================================
+const PARAM_LEGAL_DEFAULTS = {
+  tolDiaMin: 10, tolBatidaMin: 5, monitorFaltasMin: 15,
+  adNoturnoPerc: 20, vtCoPartPerc: 6, acumuloPerc: 20, refNaoRendidaPerc: 50,
+  dsrHeBaseSabado: true, dsrHe12x36: false, oj394Corte: '2023-03-20',
+};
+function _paramLegal(key){
+  const pl = State.empresa && State.empresa.parametrosLegais;
+  const v = pl ? pl[key] : undefined;
+  if(v===undefined || v===null || v==='') return PARAM_LEGAL_DEFAULTS[key];
+  return v;
+}
+// Reaplica os parâmetros nas "constantes" mutáveis usadas em vários pontos (tolerâncias).
+// Chamado quando a empresa carrega (init) e quando o gestor salva os parâmetros.
+function aplicarParametrosLegais(){
+  HE_TOLERANCIA_DIA_MIN         = +_paramLegal('tolDiaMin')        || 10;
+  HE_TOLERANCIA_BATIDA_MIN      = +_paramLegal('tolBatidaMin')     || 5;
+  MONITOR_FALTAS_TOLERANCIA_MIN = +_paramLegal('monitorFaltasMin') || 15;
+}
 
 // Retorna o "esperado" para um dia: prioriza escala salva, depois cadastro contratual
 // Âncora do ciclo 12x36: dado o "início do ciclo" (1º dia de trabalho)

@@ -2426,6 +2426,43 @@
         </div>
         <div class="card" style="max-width:680px;margin-bottom:18px">
           <div class="card-header">
+            <h3><i class="fa-solid fa-scale-balanced" style="color:#7B1FA2"></i> Parâmetros Legais (CLT)</h3>
+          </div>
+          <div class="card-body">
+            <p style="font-size:12px;color:#666;margin-bottom:14px"><i class="fa-solid fa-circle-info"></i> Todos os números legais usados nos cálculos ficam aqui. <strong>O padrão já é a lei vigente</strong> — só edite quando a regra mudar. Cada cálculo do sistema lê desta tela.</p>
+            <div style="font-size:11px;font-weight:700;color:#7B1FA2;text-transform:uppercase;letter-spacing:.4px;margin:4px 0 8px"><i class="fa-solid fa-clock"></i> Jornada &amp; Ponto</div>
+            <div class="form-row">
+              <div class="form-group"><label>Tolerância por dia (min) <small style="color:#999">Súmula 366</small></label><input type="number" id="pl-tolDiaMin" min="0" step="1"></div>
+              <div class="form-group"><label>Tolerância por batida (min) <small style="color:#999">Súmula 366</small></label><input type="number" id="pl-tolBatidaMin" min="0" step="1"></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label>Monitor de faltas — alerta após (min)</label><input type="number" id="pl-monitorFaltasMin" min="0" step="1"></div>
+              <div class="form-group"></div>
+            </div>
+            <div style="font-size:11px;font-weight:700;color:#7B1FA2;text-transform:uppercase;letter-spacing:.4px;margin:14px 0 8px"><i class="fa-solid fa-business-time"></i> Horas Extras &amp; Reflexos</div>
+            <label class="checkbox-label" style="margin-bottom:8px"><input type="checkbox" id="pl-dsrHeBaseSabado" style="width:auto"> <span>DSR sobre HE: sábado conta como dia útil (divisor) <small style="color:#999">Lei 605/49</small></span></label>
+            <label class="checkbox-label" style="margin-bottom:8px"><input type="checkbox" id="pl-dsrHe12x36" style="width:auto"> <span>DSR sobre HE também no 12x36 <small style="color:#999">(descanso embutido — padrão: não)</small></span></label>
+            <div class="form-row">
+              <div class="form-group"><label>Corte OJ 394 — reflexo nas verbas <small style="color:#999">modulação TST</small></label><input type="date" id="pl-oj394Corte"></div>
+              <div class="form-group"></div>
+            </div>
+            <div style="font-size:11px;font-weight:700;color:#7B1FA2;text-transform:uppercase;letter-spacing:.4px;margin:14px 0 8px"><i class="fa-solid fa-money-bill-wave"></i> Adicionais &amp; Descontos (%)</div>
+            <div class="form-row">
+              <div class="form-group"><label>Adicional noturno (%) <small style="color:#999">Art. 73</small></label><input type="number" id="pl-adNoturnoPerc" min="0" step="0.01"></div>
+              <div class="form-group"><label>VT co-participação (%) <small style="color:#999">Lei 7.418</small></label><input type="number" id="pl-vtCoPartPerc" min="0" step="0.01"></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label>Acúmulo de função (%)</label><input type="number" id="pl-acumuloPerc" min="0" step="0.01"></div>
+              <div class="form-group"><label>Refeição não rendida (%) <small style="color:#999">Art. 71 §4</small></label><input type="number" id="pl-refNaoRendidaPerc" min="0" step="0.01"></div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+              <button class="btn btn-primary" onclick="salvarParametrosLegais()"><i class="fa-solid fa-floppy-disk"></i> Salvar parâmetros</button>
+              <button class="btn btn-outline" onclick="restaurarParametrosLegais()"><i class="fa-solid fa-rotate-left"></i> Restaurar padrão legal</button>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="max-width:680px;margin-bottom:18px">
+          <div class="card-header">
             <h3><i class="fa-solid fa-calendar-day" style="color:#6A1B9A"></i> Feriados Nacionais</h3>
           </div>
           <div class="card-body">
@@ -6572,6 +6609,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260603aq-dsr-he"></script>
+  <script src="app.js?v=20260603ar-param-legal"></script>
 </body>
 </html>

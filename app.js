@@ -3022,6 +3022,7 @@ function _reciboOficialLinhas(emp, p){
     linhas.push({cod:code, nome:nome, ref:heHoras.toFixed(2).replace('.',',')+' h', pr:heVal, de:0});
   }
   if(heCorrido>0) linhas.push({cod:'0082', nome:'Horas Extras (Hora Corrida)', ref:heCorridoMin?heCorridoMin+' min':'—', pr:heCorrido, de:0});
+  if((+p.dsrSobreHE||0)>0) linhas.push({cod:'0083', nome:'DSR sobre Horas Extras', ref:'—', pr:+p.dsrSobreHE, de:0});   // Súmula 172. #dsr-he
   if(an>0) linhas.push({cod:'0066', nome:'Adicional Noturno 20%',  ref:'—',                                  pr:an,  de:0});
   if(ins>0) linhas.push({cod:'0099', nome:'Adicional Insalubridade '+grauInsal+'%', ref:grauInsal+'%',       pr:ins, de:0});
   if(acu>0) linhas.push({cod:'0103', nome:'Acúmulo de Função',     ref:'—',                                  pr:acu, de:0});
@@ -10184,6 +10185,21 @@ function _diasUteisMes(mes, ano){
   return n;
 }
 
+// Dias ÚTEIS (seg–sáb, exceto feriados) e DESCANSOS (domingos + feriados) da
+// competência — base do DSR sobre verba variável (HE), Lei 605/49 + Súmula 172 TST.
+// Decisão do dono 2026-06-03: divisor inclui o SÁBADO. Feriado em dia útil conta como
+// descanso; domingo já é descanso (sem dupla contagem). #dsr-he
+function _diasUteisEDescansos(mes, ano){
+  let uteis = 0, descansos = 0;
+  for(const cd of _compDias(mes, ano)){
+    const ehDomingo = cd.diaSem===0;
+    const ehFeriado = !!_ehFeriado(cd.ano, cd.mes, cd.dia);
+    if(ehDomingo || ehFeriado) descansos++;
+    else uteis++;   // seg–sáb não-feriado
+  }
+  return { uteis, descansos };
+}
+
 // Nº de SEMANAS (seg→dom) com pelo menos 1 falta INJUSTIFICADA no mês — base do
 // DSR perdido (Lei 605/49: falta injustificada na semana → perde o repouso da
 // semana). Detecta os dias de falta pelo ponto (dia que deveria trabalhar, sem
@@ -10673,7 +10689,21 @@ function recalculate(){
     // Rubricas fixas p/ todos (Seguro de Vida etc.). provTrib entra na base de impostos. #rubricas-fixas
     const _rfix=_rubricasFixasColab(emp);
     const _rfT=_rubricasFixasTotais(_rfix);
-    const totalBruto=remuneracao+heValEnc+heCorridoValor+noturnoEnc+acumuloEnc+insalubEnc+outProv+_rfT.provTrib;
+    // DSR sobre HE (Súmula 172 TST): a HE habitual reflete no descanso semanal remunerado.
+    // = (HE paga no mês ÷ dias úteis seg-sáb) × (domingos + feriados). Verba SALARIAL →
+    // entra na base de INSS/IRRF/FGTS (soma no totalBruto). 12x36 fica de fora (descanso
+    // embutido na escala) — decisão do dono 2026-06-03. HE em BANCO não paga (he-valor=0). #dsr-he
+    const _is12x36DSR = escalaFamilia(emp.escala||'5x2A')==='12x36';
+    let dsrSobreHE = 0;
+    if(!isentoPonto && !_is12x36DSR && salBase>0){
+      const _heBaseDSR = heValEnc + heCorridoValor;   // HE PAGA no mês (folha)
+      if(_heBaseDSR>0){
+        const _ud=_diasUteisEDescansos(_mesR, _anoR);
+        if(_ud.uteis>0 && _ud.descansos>0) dsrSobreHE = +(_heBaseDSR/_ud.uteis*_ud.descansos).toFixed(2);
+      }
+    }
+    setVal('payroll-dsr-he', dsrSobreHE>0 ? dsrSobreHE.toFixed(2) : '0.00');
+    const totalBruto=remuneracao+heValEnc+heCorridoValor+dsrSobreHE+noturnoEnc+acumuloEnc+insalubEnc+outProv+_rfT.provTrib;
     const pensaoEnc  =emp.pensaoAlimenticia||0;
     const planoEnc   =emp.planoSaude||0;
     const inss=calcINSS(totalBruto);
@@ -10789,6 +10819,7 @@ function loadPayrollRecord(id){
   setVal('payroll-he-corrido-min',     p.heCorridoMin||'');
   setVal('payroll-he-corrido-detalhe', p.heCorridoDetalhe||'');
   setVal('payroll-he-corrido-valor',   p.heCorridoValor||'');
+  setVal('payroll-dsr-he',             p.dsrSobreHE||'');
   const emp=State.employees.find(e=>e.id===p.employeeId);
   if(emp) setVal('payroll-pix',emp.chavePix||'');
   onPayrollEmployeeChange();
@@ -10900,6 +10931,7 @@ async function savePayroll(){
     heCorridoMin:    isentoPontoSave?0:(numVal('payroll-he-corrido-min')||0),
     heCorridoDetalhe:isentoPontoSave?'':(val('payroll-he-corrido-detalhe')||''),
     heCorridoValor:  isentoPontoSave?0:(numVal('payroll-he-corrido-valor')||0),
+    dsrSobreHE:      isentoPontoSave?0:(numVal('payroll-dsr-he')||0),   // reflexo DSR s/ HE (Súmula 172). #dsr-he
     pdfName:State.currentPdfFile?State.currentPdfFile.name:(existing?existing.pdfName:''),
     // Encargos Legais
     totalBruto:          numVal('payroll-total-bruto')||0,
@@ -22700,6 +22732,7 @@ function printFolhaPonto(isPreview=false){
   const heValor=numVal('payroll-he-valor')||0;
   const heCorridoMin=numVal('payroll-he-corrido-min')||0;
   const heCorridoValor=numVal('payroll-he-corrido-valor')||0;
+  const dsrSobreHEF=numVal('payroll-dsr-he')||0;   // DSR s/ HE (Súmula 172). #dsr-he
   const heCorridoDetalhe=val('payroll-he-corrido-detalhe')||'';
   const adNoturno=numVal('payroll-noturno')||0;
   const acumulo=numVal('payroll-acumulo')||0;
@@ -22728,7 +22761,7 @@ function printFolhaPonto(isPreview=false){
     ? `<tr><td class="fin-label">${esc(f.descricao)}</td><td class="fin-value">${fmtMoney(f.valor)}</td></tr>`
     : `<tr><td class="fin-label">${esc(f.descricao)}</td><td class="fin-value" style="color:#c0392b">${fmtMoney(f.valor)}</td></tr>`).join('');
   // VR/VA e Boa Permanência são benefícios pagos à parte — não somam no líquido
-  const totalLiquido=remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade+outrosProvF+refNaoRendidaValorF+_ftF.provTrib+_ftF.provNtrib
+  const totalLiquido=remuneracao+heValor+heCorridoValor+dsrSobreHEF+adNoturno+acumulo+insalubridade+outrosProvF+refNaoRendidaValorF+_ftF.provTrib+_ftF.provNtrib
     -adiantamento-descontoAtraso-descontoSaida-inssDesc-irrfDesc-planoDesc-pensaoDesc-outrosDescF-emprestimoF-_ftF.desc-vtCoPart;
 
   // Posto do colaborador
@@ -22970,6 +23003,7 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
     <tr><td class="fin-label">Remuneração do Período</td><td class="fin-value">${fmtMoney(remuneracao)}</td></tr>
     <tr><td class="fin-label">Horas Extras (${heTotal})${val('payroll-he-destino')==='banco'?' <small style="color:#00897B">&rarr; banco de horas</small>':''}</td><td class="fin-value">${fmtMoney(heValor)}</td></tr>
     ${heCorridoValor>0?`<tr><td class="fin-label">HE Hora Corrida ${heCorridoDetalhe?`<small style="color:#7B1FA2">— ${heCorridoDetalhe}</small>`:''}</td><td class="fin-value">${fmtMoney(heCorridoValor)}</td></tr>`:''}
+    ${dsrSobreHEF>0?`<tr><td class="fin-label">DSR sobre Horas Extras <small style="color:#1565C0">— Súmula 172</small></td><td class="fin-value">${fmtMoney(dsrSobreHEF)}</td></tr>`:''}
     ${adNoturno>0?`<tr><td class="fin-label">Adicional Noturno</td><td class="fin-value">${fmtMoney(adNoturno)}</td></tr>`:''}
     ${acumulo>0?`<tr><td class="fin-label">Acúmulo de Função (+20%)</td><td class="fin-value">${fmtMoney(acumulo)}</td></tr>`:''}
     ${insalubridade>0?`<tr><td class="fin-label">Insalubridade</td><td class="fin-value">${fmtMoney(insalubridade)}</td></tr>`:''}
@@ -23063,6 +23097,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
   const _vrDiaDet       = (p.vrDia!=null && p.vrDia!=='') ? Number(p.vrDia) : (emp.valorDiarioVr||0);
   const _vtDiaDet       = (emp.valorDiarioVt||0);
   const heValor         = p.horasExtrasValor||0;
+  const dsrSobreHER     = p.dsrSobreHE||0;   // DSR s/ HE (Súmula 172). #dsr-he
   const heTotalHoras    = p.horasExtrasTotal||0;
   const hePerc          = p.horasExtrasPerc||50;
   const heTotal         = heTotalHoras>0?minutesToStr(Math.round(heTotalHoras*60)):'0';
@@ -23103,7 +23138,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
   // Na via totalBruto (registros novos), provTrib já está embutido em totalBrutoVal; soma só provNtrib.
   const totalLiquido    = totalBrutoVal>0
     ? Math.max(0, totalBrutoVal+_ftR.provNtrib+refNaoRendidaValorR-inssVal-irrfVal-pensaoVal-planoSaudeVal-outrosDescVal-emprestimoR-_ftR.desc-adiantamento-descontoAtraso-descontoSaida-vtCoPart)
-    : Math.max(0, remuneracao+heValor+heCorridoValor+adNoturno+acumulo+insalubridade+_ftR.provTrib+_ftR.provNtrib+refNaoRendidaValorR-adiantamento-descontoAtraso-descontoSaida-inssVal-irrfVal-pensaoVal-planoSaudeVal-outrosDescVal-emprestimoR-_ftR.desc-vtCoPart);
+    : Math.max(0, remuneracao+heValor+heCorridoValor+dsrSobreHER+adNoturno+acumulo+insalubridade+_ftR.provTrib+_ftR.provNtrib+refNaoRendidaValorR-adiantamento-descontoAtraso-descontoSaida-inssVal-irrfVal-pensaoVal-planoSaudeVal-outrosDescVal-emprestimoR-_ftR.desc-vtCoPart);
   const _fixasProvRowsRec=_fixasRec.filter(f=>f.tipo==='P').map(f=>`<tr><td class="fin-label">${esc(f.descricao)}</td><td class="fin-value">${fmtMoney(f.valor)}</td></tr>`).join('');
   const _fixasDescRowsRec=_fixasRec.filter(f=>f.tipo==='D').map(f=>`<tr><td class="fin-label">${esc(f.descricao)}</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(f.valor)})</td></tr>`).join('');
 
@@ -23325,6 +23360,7 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
       ${heValor>0?`<tr><td class="fin-label">Horas Extras ${heTotal} (${hePerc}%)</td><td class="fin-value">${fmtMoney(heValor)}</td></tr>`:''}
       ${(p.heDestino==='banco'&&heTotalHoras>0)?`<tr><td class="fin-label">Horas Extras (${heTotal}) <small style="color:#00897B">&rarr; banco de horas</small></td><td class="fin-value">&mdash;</td></tr>`:''}
       ${heCorridoValor>0?`<tr><td class="fin-label">HE Hora Corrida ${heCorridoDetalhe?`<small style="color:#7B1FA2">— ${heCorridoDetalhe}</small>`:''}</td><td class="fin-value">${fmtMoney(heCorridoValor)}</td></tr>`:''}
+      ${dsrSobreHER>0?`<tr><td class="fin-label">DSR sobre Horas Extras <small style="color:#1565C0">— Súmula 172</small></td><td class="fin-value">${fmtMoney(dsrSobreHER)}</td></tr>`:''}
       ${adNoturno>0?`<tr><td class="fin-label">Adicional Noturno</td><td class="fin-value">${fmtMoney(adNoturno)}</td></tr>`:''}
       ${acumulo>0?`<tr><td class="fin-label">Acúmulo de Função (+20%)</td><td class="fin-value">${fmtMoney(acumulo)}</td></tr>`:''}
       ${insalubridade>0?`<tr><td class="fin-label">Insalubridade</td><td class="fin-value">${fmtMoney(insalubridade)}</td></tr>`:''}

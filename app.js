@@ -1464,7 +1464,7 @@ async function doLogin(event){
 
     let r;
     try {
-      r=await _workerReqPublic('/login',{username,password,deviceId:_getDeviceId()});
+      r=await _workerReqPublic('/login',{username,password,deviceId:_getDeviceId(),tenantId:DB.tenantId||''});  // MT-1: tenant da URL → token carimba tenantId. #multitenant
     } catch(e){
       console.warn('Worker /login indisponível:', (e&&e.message)||e);
       errorMsg.textContent='Servidor de login indisponível no momento. Verifique a conexão e tente de novo.';

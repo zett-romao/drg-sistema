@@ -324,6 +324,29 @@ async function fsFindUserByUsername(username, token){
   }
   return null;
 }
+// MT-1 multi-tenant: busca o usuário por username DENTRO de um tenant
+// (subcoleção tenants/{id}/users). runQuery ancorado no documento-pai do tenant.
+// Espelha fsFindUserByUsername. #multitenant
+async function fsFindUserByUsernameInTenant(tenantId, username, token){
+  const res = await fetch(FS_BASE + '/tenants/' + tenantId + ':runQuery', {
+    method:  'POST',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ structuredQuery: {
+      from:  [{ collectionId: 'users' }],
+      where: { fieldFilter: { field: { fieldPath: 'username' }, op: 'EQUAL',
+               value: { stringValue: username } } },
+      limit: 1,
+    } }),
+  });
+  if (!res.ok) throw new Error('Firestore query ' + res.status);
+  const rows = await res.json();
+  for (const row of (rows || [])) if (row.document) {
+    const o = fromFsFields(row.document.fields || {});
+    if (!o.id) { const p = row.document.name.split('/'); o.id = p[p.length - 1]; }
+    return o;
+  }
+  return null;
+}
 // Busca o doc de `users` cujo firebaseUid casa com o uid do token.
 async function fsFindUser(uid, token){
   const res = await fetch(FS_BASE + ':runQuery', {
@@ -625,7 +648,13 @@ async function handleLogin(body, token, env){
   if (!username || !password) return { ok:false, erro:'informe usuário e senha' };
   const _rlK = 'login:' + username.toLowerCase();
   if (await rlBlocked(env, _rlK)) return { ok:false, erro: RL_MSG };   // #rate-limit
-  const user = await fsFindUserByUsername(username, token);
+  // MT-1: se a página passou tenantId (?tenant= da URL), autentica DENTRO daquele tenant
+  // e carimba o token. Sem tenantId = modo raiz/legado (comportamento idêntico). #multitenant
+  const tenantId  = String(body.tenantId || '').replace(/[^a-zA-Z0-9]/g, '');
+  const usersBase = tenantId ? ('tenants/' + tenantId + '/users') : 'users';
+  const user = tenantId
+    ? await fsFindUserByUsernameInTenant(tenantId, username, token)
+    : await fsFindUserByUsername(username, token);
   if (!user)                return { ok:false, erro:'usuário inválido ou sem acesso' };
   if (user.active === false) return { ok:false, erro:'usuário inativo' };
   if (!user.passwordHash)   return { ok:false, erro:'usuário sem senha definida' };
@@ -660,8 +689,12 @@ async function handleLogin(body, token, env){
       upd.deviceId  = null;            // migra do campo antigo para a lista
     }
   }
-  await fsUpdate('users/' + user.id, upd, token);
-  const customToken = await mintCustomToken(uid, { role: user.role || '', drg: true }, env);
+  await fsUpdate(usersBase + '/' + user.id, upd, token);
+  // Token carimba tenantId quando o login foi sob um tenant — base do MT-2/MT-3
+  // (app confia no token, regras isolam por tenant). Raiz/legado segue sem tenantId. #multitenant
+  const _claims = { role: user.role || '', drg: true };
+  if (tenantId) _claims.tenantId = tenantId;
+  const customToken = await mintCustomToken(uid, _claims, env);
   user.firebaseUid = uid;
   user.lastLogin   = agora;
   delete user.passwordHash;   // o hash nunca volta para o cliente

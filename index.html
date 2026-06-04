@@ -2426,7 +2426,7 @@
         </div>
         <div class="card" style="max-width:680px;margin-bottom:18px">
           <div class="card-header">
-            <h3><i class="fa-solid fa-scale-balanced" style="color:#7B1FA2"></i> Parâmetros Legais (CLT)</h3>
+            <h3><i class="fa-solid fa-scale-balanced" style="color:#7B1FA2"></i> Parâmetros Legais — Regras de Cálculo (CLT)</h3>
           </div>
           <div class="card-body">
             <p style="font-size:12px;color:#666;margin-bottom:14px"><i class="fa-solid fa-circle-info"></i> Todos os números legais usados nos cálculos ficam aqui. <strong>O padrão já é a lei vigente</strong> — só edite quando a regra mudar. Cada cálculo do sistema lê desta tela.</p>
@@ -2459,6 +2459,19 @@
               <button class="btn btn-primary" onclick="salvarParametrosLegais()"><i class="fa-solid fa-floppy-disk"></i> Salvar parâmetros</button>
               <button class="btn btn-outline" onclick="restaurarParametrosLegais()"><i class="fa-solid fa-rotate-left"></i> Restaurar padrão legal</button>
             </div>
+          </div>
+        </div>
+        <div class="card" style="max-width:680px;margin-bottom:18px">
+          <div class="card-header">
+            <h3><i class="fa-solid fa-table-list" style="color:#5C6BC0"></i> Parâmetros Legais — Tabelas Oficiais</h3>
+          </div>
+          <div class="card-body">
+            <p style="font-size:13px;color:var(--text-muted);margin:0 0 12px">
+              Tabelas oficiais de <strong>INSS, IRRF, FGTS, salário mínimo e aviso prévio</strong>. Atualize quando a legislação mudar — esses valores alimentam os cálculos da Folha de Ponto, Pagamentos e Rescisão em todo o sistema.
+            </p>
+            <button class="btn btn-primary" onclick="openParametrosLegais()">
+              <i class="fa-solid fa-sliders"></i> Configurar Tabelas Oficiais
+            </button>
           </div>
         </div>
         <div class="card" style="max-width:680px;margin-bottom:18px">
@@ -2586,19 +2599,6 @@
                 <i class="fa-solid fa-eye"></i> Pré-visualizar
               </button>
             </div>
-          </div>
-        </div>
-        <div class="card" style="max-width:680px;margin-top:18px">
-          <div class="card-header">
-            <h3><i class="fa-solid fa-scale-balanced" style="color:#5C6BC0"></i> Parâmetros Legais</h3>
-          </div>
-          <div class="card-body">
-            <p style="font-size:13px;color:var(--text-muted);margin:0 0 12px">
-              Tabelas oficiais de INSS, IRRF, FGTS, salário mínimo e aviso prévio. Atualize quando a legislação mudar — esses valores alimentam os cálculos da Folha de Ponto, Pagamentos e Rescisão em todo o sistema.
-            </p>
-            <button class="btn btn-primary" onclick="openParametrosLegais()">
-              <i class="fa-solid fa-sliders"></i> Configurar Parâmetros Legais
-            </button>
           </div>
         </div>
       </section>
@@ -6609,6 +6609,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260603ar-param-legal"></script>
+  <script src="app.js?v=20260603as-param-agrupado"></script>
 </body>
 </html>

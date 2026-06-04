@@ -19182,6 +19182,7 @@ function _monitorFaltasHoje(){
     const reg = _pontoDiaReal(emp, ano, mes, dia);
     if(reg && reg.entrada) return;                  // ja bateu a entrada
     out.push({ id:emp.id, nome:emp.nome||'(sem nome)', setor:emp.setor||'', cargo:emp.cargo||'',
+               escala: emp.escala||'', escalaFam: escalaFamilia(emp.escala||'5x2A'),
                previsto:exp.entrada, atrasoMin: nowMin - entMin, aguardando: !!(r && r.status==='aguardando') });
   });
   return out.sort((a,b)=> b.atrasoMin - a.atrasoMin);
@@ -19289,6 +19290,9 @@ async function renderMonitorFaltas(){
   } else {
     const rows = lista.map(f=>{
       const tag = f.aguardando ? ` <span style="background:#FFF8E1;color:#E65100;border:1px solid #FFE082;border-radius:8px;padding:1px 7px;font-size:10px;font-weight:700;vertical-align:middle">⏳ aguardando</span>` : '';
+      // Coluna Escala — diagnóstico do feriado: 5x2/6x1 deveriam folgar (vermelho); 12x36/custom trabalham (verde). #monitor-escala
+      const _respFer = (f.escalaFam==='5x2'||f.escalaFam==='6x1');
+      const escCell = `<td style="padding:10px 8px;text-align:center;font-size:12px"><span style="background:${_respFer?'#FFEBEE':'#E8F5E9'};color:${_respFer?'#C62828':'#1B5E20'};border-radius:8px;padding:2px 8px;font-weight:700">${esc(f.escala||f.escalaFam||'—')}</span>${_respFer?'<div style="font-size:9px;color:#C62828;margin-top:2px">deveria folgar no feriado</div>':''}</td>`;
       const acoes = `<div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end">
           <button class="btn btn-sm" onclick="_monitorAbonar('${f.id}')" title="Justifica o dia — não desconta na folha" style="font-size:11px;padding:4px 9px;background:#E8F5E9;color:#2E7D32;border:1px solid #A5D6A7"><i class="fa-solid fa-circle-check"></i> Abonar</button>
           <button class="btn btn-sm" onclick="_monitorInformar('${f.id}')" title="Falta injustificada (já é descontada na folha)" style="font-size:11px;padding:4px 9px;background:#FDECEA;color:#C62828;border:1px solid #EF9A9A"><i class="fa-solid fa-user-xmark"></i> Informar falta</button>
@@ -19297,6 +19301,7 @@ async function renderMonitorFaltas(){
       return `<tr style="border-bottom:1px solid #eee">
         <td style="padding:10px 8px;font-weight:600"><a href="javascript:void(0)" onclick="openPayrollForEmployee('${f.id}')" title="Abrir a folha de ponto de ${esc(f.nome)}" style="color:#dc2626;text-decoration:none;border-bottom:1px dotted #dc2626">${esc(f.nome)}</a>${tag}</td>
         <td style="padding:10px 8px;color:#555">${esc(f.setor||f.cargo||'—')}</td>
+        ${escCell}
         <td style="padding:10px 8px;text-align:center;font-variant-numeric:tabular-nums">${esc(f.previsto)}</td>
         <td style="padding:10px 8px;text-align:center;color:#dc2626;font-weight:700;font-variant-numeric:tabular-nums">${_fmtAtraso(f.atrasoMin)}</td>
         <td style="padding:8px">${acoes}</td>
@@ -19306,6 +19311,7 @@ async function renderMonitorFaltas(){
         <thead><tr style="background:#fafafa;border-bottom:2px solid #e5e7eb;text-align:left">
           <th style="padding:10px 8px">Colaborador</th>
           <th style="padding:10px 8px">Setor / Cargo</th>
+          <th style="padding:10px 8px;text-align:center">Escala</th>
           <th style="padding:10px 8px;text-align:center">Entrada prevista</th>
           <th style="padding:10px 8px;text-align:center">Atraso</th>
           <th style="padding:10px 8px;text-align:right">Ação</th>

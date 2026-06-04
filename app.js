@@ -1445,6 +1445,23 @@ function _getDeviceId(){
   return window.__drgDevMem;
 }
 
+// MT-2: o tenant ATIVO passa a vir do CLAIM do token (autoritativo), não da URL
+// ?tenant= (que o cliente controla). Lido após o login/restauração de sessão e ANTES
+// de carregar dados, pra namespacear no tenant certo. Sem claim = modo raiz/legado.
+// A URL só serve de "pista" pré-login pra rotear o /login; depois o token manda. #multitenant
+async function _aplicarTenantDoToken(){
+  try{
+    const u = firebase.auth().currentUser;
+    if(!u) return;
+    const res = await u.getIdTokenResult();
+    const claimTenant = (res && res.claims && res.claims.tenantId) ? String(res.claims.tenantId) : null;
+    DB.tenantId = claimTenant || null;
+    if(claimTenant) localStorage.setItem('drg_tenant', claimTenant);
+    else localStorage.removeItem('drg_tenant');   // raiz: limpa ?tenant= acidental da URL
+    console.info(`[DRG] Tenant (token): ${DB.tenantId||'raiz/legado'}`);
+  }catch(e){ console.warn('Falha ao ler tenant do token:', (e&&e.message)||e); }
+}
+
 async function doLogin(event){
   event.preventDefault();
   const username=val('login-username'), password=val('login-password');
@@ -1481,6 +1498,7 @@ async function doLogin(event){
     }
 
     await firebase.auth().signInWithCustomToken(r.customToken);
+    await _aplicarTenantDoToken();   // MT-2: tenant autoritativo do token, antes de carregar dados. #multitenant
     const user=r.user;
     Auth.currentUser=user;
     Auth.saveSession(user);
@@ -26542,6 +26560,7 @@ async function init(){
   if(sessionUser && fbUser && !fbUser.isAnonymous){
     Auth.currentUser = sessionUser;
     document.getElementById('login-screen').classList.add('hidden');
+    await _aplicarTenantDoToken();   // MT-2: no reload, tenant vem do token (não da URL/localStorage). #multitenant
     const ok = await _carregarDadosPosLogin();
     if(!ok) return; // licença bloqueou ou erro de Firestore — mensagem já exibida
     applyUserSession(sessionUser);

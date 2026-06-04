@@ -4430,10 +4430,10 @@ function _minToHHMM(mm){ const x=Math.max(0,Math.round(mm||0)); return String(Ma
 // ============================================================
 const CONT_COD_DEFAULTS = {
   tipoCalculo:'11', adNot:'0219', heAdNot:'0237', he50:'0150', he100:'0200',
-  vt:'0203', vr:'0209', atrasos:'0217', valeAvulso:'0214', emprestimo:'0218',
+  dsrHe:'0083', vt:'0203', vr:'0209', atrasos:'0217', valeAvulso:'0214', emprestimo:'0218',
   faltas:'8792', acumulo:'0999', insalubridade:'0999', outros:'0999'
 };
-const CONT_COD_KEYS = ['tipoCalculo','adNot','heAdNot','he50','he100','vt','vr','atrasos','valeAvulso','emprestimo','faltas','acumulo','insalubridade','outros'];
+const CONT_COD_KEYS = ['tipoCalculo','adNot','heAdNot','he50','he100','dsrHe','vt','vr','atrasos','valeAvulso','emprestimo','faltas','acumulo','insalubridade','outros'];
 function _contCod(k){ const c=(State.empresa&&State.empresa.contCodigos)||{}; return (c[k]!=null&&c[k]!=='')?String(c[k]):CONT_COD_DEFAULTS[k]; }
 
 function _payrollScore(p){
@@ -4503,6 +4503,7 @@ function _contLinhaContador(e, p){
   const insVal  = p ? (+p.insalubridade||0) : 0;             // valor R$ (da folha)
   const acuVal  = p ? (+p.acumuloFuncao||0) : 0;
   const emprest = p ? (+p.emprestimo||0) : 0;
+  const dsrHe   = p ? (+p.dsrSobreHE||0) : 0;        // reflexo DSR sobre HE (Súmula 172) — verba salarial. #dsr-he
   const adiant  = p ? (p.adiantamentoValor||p.adiantamento||0) : 0;
   const vt      = p ? (+p.valeTransporte||0) : 0;
   const vr      = p ? (+p.valeRefeicao||0) : 0;
@@ -4521,6 +4522,7 @@ function _contLinhaContador(e, p){
     adNotPend: false,
     heAdNotMin: not.noturnoHeMin,    // horas noturnas que caíram em HE
     he50Min, he100Min,
+    dsrHe,
     vt, vr,
     atrasoMin: atrasoEfetivo,         // SÓ o descontável de fato (abonado/justificado/atestado fora)
     atrasoTotalMin: atr.minutos,      // total registrado (p/ tooltip)
@@ -4605,6 +4607,7 @@ function renderContabilidade(){
       ${ch('HE 50% c/ Adic Not',_contCod('heAdNot'))}
       ${ch('Hora Extra 50%',_contCod('he50'))}
       ${ch('Hora Extra 100%',_contCod('he100'))}
+      ${ch('DSR sobre HE',_contCod('dsrHe'))}
       ${ch('Vale Transporte',_contCod('vt'))}
       ${ch('Vale Refeição',_contCod('vr'))}
       ${ch('Atrasos',_contCod('atrasos'))}
@@ -4619,7 +4622,7 @@ function renderContabilidade(){
   _preencherContCodigos();
 
   // Totais (só os relevantes ao modelo do contador)
-  let tHe50=0,tHe100=0,tAtraso=0,tFalta=0,tVT=0,tVR=0,tValeAvulso=0,tEmprest=0,tAcu=0,tIns=0,tAdNot=0,tHeAdNot=0;
+  let tHe50=0,tHe100=0,tAtraso=0,tFalta=0,tVT=0,tVR=0,tValeAvulso=0,tEmprest=0,tAcu=0,tIns=0,tAdNot=0,tHeAdNot=0,tDsrHe=0;
   let semFolha=[];
 
   const rows=emps.map((e,i)=>{
@@ -4628,7 +4631,7 @@ function renderContabilidade(){
     const L=_contLinhaContador(e,p);
     tHe50+=L.he50Min; tHe100+=L.he100Min; tAtraso+=L.atrasoMin; tFalta+=L.faltaMin;
     tVT+=L.vt; tVR+=L.vr; tValeAvulso+=L.valeAvulso; tEmprest+=L.emprest; tAcu+=L.acuVal; tIns+=L.insVal;
-    tAdNot+=L.adNotMin; tHeAdNot+=L.heAdNotMin;
+    tAdNot+=L.adNotMin; tHeAdNot+=L.heAdNotMin; tDsrHe+=L.dsrHe;
     const rowBg=i%2===0?'#ffffff':'#EEF2FF';
     const semFolhaBorder=!p?'border-left:3px solid #EF9A9A':'';
     const dash='<span style="color:#bbb">—</span>';
@@ -4642,6 +4645,7 @@ function renderContabilidade(){
       <td style="text-align:center">${L.heAdNotMin>0?_minToHHMM(L.heAdNotMin):dash}</td>
       <td style="text-align:center;color:${L.he50Min>0?'#1B5E20':'inherit'}">${L.he50Min>0?_minToHHMM(L.he50Min):dash}</td>
       <td style="text-align:center;color:${L.he100Min>0?'#1B5E20':'inherit'}">${L.he100Min>0?_minToHHMM(L.he100Min):dash}</td>
+      <td style="text-align:right;color:${L.dsrHe>0?'#1565C0':'inherit'}" title="DSR sobre Horas Extras — Súmula 172 (verba salarial)">${L.dsrHe>0?fmtMoney(L.dsrHe):dash}</td>
       <td style="text-align:right">${L.vt>0?fmtMoney(L.vt):dash}</td>
       <td style="text-align:right">${L.vr>0?fmtMoney(L.vr):dash}</td>
       <td style="text-align:center">${L.atrasoMin>0?`<a href="javascript:void(0)" onclick="openPayrollForEmployee('${e.id}',{mes:${mes},ano:${ano},fieldKey:'atraso',color:'#B71C1C'})" title="Atraso DESCONTÁVEL ${_minToHHMM(L.atrasoMin)} (de ${L.atrasoQtd} atraso(s), total ${_minToHHMM(L.atrasoTotalMin)} — abonados/justificados/atestado já fora). Clique para ver no card de Atrasos." style="color:#B71C1C;font-weight:700;text-decoration:none;border-bottom:1px dotted #B71C1C">${_minToHHMM(L.atrasoMin)}</a>`:dash}</td>
@@ -4661,6 +4665,7 @@ function renderContabilidade(){
     <td style="text-align:center;color:#5C6BC0">${_minToHHMM(tHeAdNot)}</td>
     <td style="text-align:center;color:#1B5E20">${_minToHHMM(tHe50)}</td>
     <td style="text-align:center;color:#1B5E20">${_minToHHMM(tHe100)}</td>
+    <td style="text-align:right;color:#1565C0">${fmtMoney(tDsrHe)}</td>
     <td style="text-align:right">${fmtMoney(tVT)}</td>
     <td style="text-align:right">${fmtMoney(tVR)}</td>
     <td style="text-align:center;color:#B71C1C">${_minToHHMM(tAtraso)}</td>
@@ -4752,6 +4757,7 @@ function exportContabilidadeCsv(){
     `Tipo de Calculo (${C('tipoCalculo')})`,'Codigo Folha','Nome',
     `Adic Not 20% (${C('adNot')})`, `HE 50% c/ Adic Not (${C('heAdNot')})`,
     `Hora Extra 50% (${C('he50')})`, `Hora Extra 100% (${C('he100')})`,
+    `DSR sobre HE (${C('dsrHe')})`,
     `Vale Transporte (${C('vt')})`, `Vale Refeicao (${C('vr')})`,
     `Atrasos (${C('atrasos')})`, `Vale Avulso (${C('valeAvulso')})`,
     `Emprestimo (${C('emprestimo')})`, `Faltas (${C('faltas')})`,
@@ -4766,6 +4772,7 @@ function exportContabilidadeCsv(){
       L.tipoCalculo, L.codFolha, L.nome,
       L.adNotMin>0?_minToHHMM(L.adNotMin):'', L.heAdNotMin>0?_minToHHMM(L.heAdNotMin):'',
       L.he50Min>0?_minToHHMM(L.he50Min):'', L.he100Min>0?_minToHHMM(L.he100Min):'',
+      moneyCsv(L.dsrHe),
       moneyCsv(L.vt), moneyCsv(L.vr),
       L.atrasoMin>0?_minToHHMM(L.atrasoMin):'', moneyCsv(L.valeAvulso),
       moneyCsv(L.emprest), L.faltaMin>0?_minToHHMM(L.faltaMin):'',
@@ -10164,7 +10171,16 @@ function _folgasAvulsasComp(emp, mes, ano){
   for(const cd of _compDias(mes, ano)){
     const ymd = `${cd.ano}-${String(cd.mes).padStart(2,'0')}-${String(cd.dia).padStart(2,'0')}`;
     const ov = emp.overridesHorario.find(o => o && o.data===ymd && o.tipo==='folga');
-    if(ov) out.push({ dia:cd.dia, remunerada:!!ov.remunerada, pagaBeneficios:!!ov.pagaBeneficios });
+    if(ov){
+      // O dia ERA previsto de trabalho na escala? Avalia IGNORANDO este override de
+      // folga (clone sem ele) — senão o próprio override mascara o dia como folga.
+      // Só dia de trabalho gera desconto da folga não remunerada; folga sobre dia
+      // que já era descanso (domingo/folga da escala) NÃO desconta sal/30. #folga-avulsa-guarda
+      const _empSemOvr = { ...emp, overridesHorario: emp.overridesHorario.filter(o=>o!==ov) };
+      const _exp = _getExpectedDay(_empSemOvr, cd.mes, cd.ano, cd.dia);
+      const eraTrabalho = !!(_exp && _exp.tipo!=='folga' && _exp.entrada);
+      out.push({ dia:cd.dia, remunerada:!!ov.remunerada, pagaBeneficios:!!ov.pagaBeneficios, eraTrabalho });
+    }
   }
   return out;
 }
@@ -10339,7 +10355,9 @@ function recalculate(){
   // recebe ambos integrais.
   // Folgas avulsas: NÃO remunerada desconta o dia (sal/30); pagaBeneficios soma VT/VR/VA. #folga-avulsa
   const _folgasAv        = (emp && !isentoPonto) ? _folgasAvulsasComp(emp, _mesR, _anoR) : [];
-  const folgasNaoRemDias = _folgasAv.filter(f=>!f.remunerada).length;
+  // Só desconta folga não remunerada que caiu em dia de TRABALHO (a trava eraTrabalho
+  // evita descontar sal/30 de folga lançada sobre dia que já era descanso). #folga-avulsa-guarda
+  const folgasNaoRemDias = _folgasAv.filter(f=>!f.remunerada && f.eraTrabalho).length;
   const folgasBenefDias  = _folgasAv.filter(f=>f.pagaBeneficios).length;
   const diasBeneficio = isentoPonto ? (diasPrevistos || _diasUteisMes(_mesR, _anoR)) : (dias + folgasBenefDias);
   const diasPrevistosVr = emp ? _diasPrevistosComVR(emp, _mesR, _anoR) : 0;

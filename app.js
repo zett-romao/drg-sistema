@@ -3886,10 +3886,17 @@ function renderDecimoTerceiro(){
   if(emps.length===0){ tbody.innerHTML='<tr><td colspan="11" style="text-align:center;padding:20px">Nenhum colaborador.</td></tr>'; return; }
 
   let totalBruto=0,totalINSS=0,totalIRRF=0,totalFGTS=0,totalLiq=0;
+  const _refDecL=`${ano}-12-31`;
   const rows=emps.map((emp,i)=>{
     const mesesDir=_avosDecimo(emp,ano);
     const salBase=parseFloat(emp.salarioBase||0);
-    const bruto=Math.round(salBase*mesesDir/12*100)/100;
+    const rec=recMap[emp.id]||{};
+    // Base = salário + médias variáveis (salvas no registro OU pré-calculadas dos 12 meses),
+    // pra o bruto da lista bater com o do modal. #dsr-he-camada2
+    const mediaAdic=(rec.mediaAdic!=null)?+rec.mediaAdic:(_mediaAdicionaisRescisao(emp.id,_refDecL)||0);
+    const mediaDsr =(rec.mediaDsr!=null) ?+rec.mediaDsr :(_mediaDsrHERescisao(emp.id,_refDecL)||0);
+    const baseCalc=salBase+mediaAdic+mediaDsr;
+    const bruto=Math.round(baseCalc*mesesDir/12*100)/100;
     const parc1=Math.round(bruto/2*100)/100;
     const inss=calcINSS(bruto);
     const irrf=calcIRRF(bruto,emp.dependentesIRRF||0,emp.pensaoAlimenticia||0,0,inss);  // 13o tributa o BRUTO CHEIO (exclusivo na fonte), nao metade. #fix-irrf13
@@ -3897,7 +3904,6 @@ function renderDecimoTerceiro(){
     const parc2=Math.round((bruto/2-inss-irrf)*100)/100;
     const liq=Math.round((bruto-inss-irrf)*100)/100;
     totalBruto+=bruto; totalINSS+=inss; totalIRRF+=irrf; totalFGTS+=fgts; totalLiq+=liq;
-    const rec=recMap[emp.id]||{};
     const status=rec.status||'pendente';
     const badge=status==='pago'?'<span class="badge badge-success">Pago</span>':status==='parcial'?'<span class="badge badge-warning">Parcial</span>':'<span class="badge badge-muted">Pendente</span>';
     return `<tr>
@@ -3939,6 +3945,13 @@ function openDecimoTerceiro(empId){
   setVal('dec-modal-obs',rec.obs||'');
   setVal('dec-modal-parc1-data',rec.parc1Data||'');
   setVal('dec-modal-parc2-data',rec.parc2Data||'');
+  // Médias variáveis (noturno/HE + reflexo DSR) — salvas no registro ou pré-preenchidas
+  // pela média dos 12 meses (ref. 31/dez do ano). Editáveis. #dsr-he-camada2
+  const _refDec=`${ano}-12-31`;
+  const _mAdic=(rec.mediaAdic!=null)?+rec.mediaAdic:_mediaAdicionaisRescisao(empId,_refDec);
+  const _mDsr =(rec.mediaDsr!=null) ?+rec.mediaDsr :_mediaDsrHERescisao(empId,_refDec);
+  setVal('dec-modal-media-adic', (+_mAdic>0)?(+_mAdic).toFixed(2):'');
+  setVal('dec-modal-media-dsr',  (+_mDsr>0) ?(+_mDsr).toFixed(2) :'');
   _calcDecTercPreview(emp,mesesDir);
   document.getElementById('modal-decimo-terceiro').classList.remove('hidden');
 }
@@ -3947,7 +3960,12 @@ function _calcDecTercPreview(emp,mesesDir){
   if(!emp){ const id=val('dec-modal-emp-id'); emp=State.employees.find(e=>e.id===id); if(!emp) return; }
   if(mesesDir===undefined) mesesDir=parseInt(val('dec-modal-meses-dir')||12);
   const salBase=parseFloat(emp.salarioBase||0);
-  const bruto=Math.round(salBase*mesesDir/12*100)/100;
+  // Base do 13º = salário + média de adicionais variáveis (noturno/HE, Súmula 45/347) +
+  // reflexo do DSR sobre HE (Súmula 172/OJ 394). Campos editáveis, pré-preenchidos. #dsr-he-camada2
+  const mediaAdic=parseFloat(val('dec-modal-media-adic')||0);
+  const mediaDsr=parseFloat(val('dec-modal-media-dsr')||0);
+  const baseCalc=salBase+mediaAdic+mediaDsr;
+  const bruto=Math.round(baseCalc*mesesDir/12*100)/100;
   const parc1=Math.round(bruto/2*100)/100;
   const inss=calcINSS(bruto);
   const irrf=calcIRRF(bruto,emp.dependentesIRRF||0,emp.pensaoAlimenticia||0,0,inss);  // 13o tributa o BRUTO CHEIO (exclusivo na fonte), nao metade. #fix-irrf13
@@ -3974,6 +3992,8 @@ async function saveDecimoTerceiro(){
     obs:val('dec-modal-obs')||'',
     parc1Data:val('dec-modal-parc1-data')||'',
     parc2Data:val('dec-modal-parc2-data')||'',
+    mediaAdic:parseFloat(val('dec-modal-media-adic')||0),
+    mediaDsr:parseFloat(val('dec-modal-media-dsr')||0),
     bruto:parseFloat(val('dec-modal-bruto')||0),
     parc1:parseFloat(val('dec-modal-parc1')||0),
     parc2:parseFloat(val('dec-modal-parc2')||0),
@@ -4008,6 +4028,9 @@ function printDecimoTerceiro(){
   const liq=parseFloat(val('dec-modal-liquido')||0);
   const p1data=val('dec-modal-parc1-data')||'—';
   const p2data=val('dec-modal-parc2-data')||'—';
+  const mediaAdic=parseFloat(val('dec-modal-media-adic')||0);
+  const mediaDsr=parseFloat(val('dec-modal-media-dsr')||0);
+  const salBaseR=parseFloat(emp.salarioBase||0);
   const w=window.open('','_blank');
   w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
   <title>Recibo 13º Salário — ${emp.nome}</title>
@@ -4025,7 +4048,8 @@ function printDecimoTerceiro(){
     <tr><th colspan="2">Dados do Colaborador</th></tr>
     <tr><td><strong>Nome:</strong> ${emp.nome}</td><td><strong>Registro:</strong> ${emp.registro||'—'}</td></tr>
     <tr><td><strong>Cargo:</strong> ${emp.cargo||emp.setor||'—'}</td><td><strong>Admissão:</strong> ${emp.dataAdmissao?formatDateBr(emp.dataAdmissao):'—'}</td></tr>
-    <tr><td><strong>Meses Trabalhados:</strong> ${mesesDir}/12</td><td><strong>Sal. Base:</strong> ${fmtMoney(parseFloat(emp.salarioBase||0))}</td></tr>
+    <tr><td><strong>Meses Trabalhados:</strong> ${mesesDir}/12</td><td><strong>Sal. Base:</strong> ${fmtMoney(salBaseR)}</td></tr>
+    ${(mediaAdic>0||mediaDsr>0)?`<tr><td colspan="2" style="font-size:11px;color:#555"><strong>Base de cálculo:</strong> Sal. Base ${fmtMoney(salBaseR)}${mediaAdic>0?` + Média adicionais variáveis ${fmtMoney(mediaAdic)}`:''}${mediaDsr>0?` + DSR s/ HE (Súm. 172) ${fmtMoney(mediaDsr)}`:''} = ${fmtMoney(salBaseR+mediaAdic+mediaDsr)} <span style="color:#1565C0">(Súmula 45/347 — médias habituais)</span></td></tr>`:''}
   </table>
   <table>
     <tr><th>PARCELA</th><th>VALOR</th><th>DATA PGTO</th></tr>
@@ -4140,6 +4164,13 @@ function openFeriasModulo(empId, recId){
   setVal('fer-modal-abono-dias',rec.abonoDias||0);
   setVal('fer-modal-status',rec.status||'pendente');
   setVal('fer-modal-obs',rec.obs||'');
+  // Médias variáveis (noturno/HE + reflexo DSR) — salvas no registro ou pré-preenchidas
+  // pela média dos 12 meses (ref. início do gozo, ou fim do ano). Editáveis. #dsr-he-camada2
+  const _refFer=rec.inicio||`${ano}-12-31`;
+  const _mAdicF=(rec.mediaAdic!=null)?+rec.mediaAdic:_mediaAdicionaisRescisao(empId,_refFer);
+  const _mDsrF =(rec.mediaDsr!=null) ?+rec.mediaDsr :_mediaDsrHERescisao(empId,_refFer);
+  setVal('fer-modal-media-adic',(+_mAdicF>0)?(+_mAdicF).toFixed(2):'');
+  setVal('fer-modal-media-dsr', (+_mDsrF>0) ?(+_mDsrF).toFixed(2) :'');
   calcFeriasModuloPreview();
   document.getElementById('modal-ferias-modulo').classList.remove('hidden');
 }
@@ -4148,10 +4179,15 @@ function calcFeriasModuloPreview(){
   const empId=val('fer-modal-emp-id');
   const emp=State.employees.find(e=>e.id===empId); if(!emp) return;
   const salBase=parseFloat(emp.salarioBase||0);
+  // Base de férias = salário + média de adicionais variáveis (noturno/HE, Súmula 45/347) +
+  // reflexo do DSR sobre HE (Súmula 172/OJ 394). Campos editáveis, pré-preenchidos. #dsr-he-camada2
+  const mediaAdic=parseFloat(val('fer-modal-media-adic')||0);
+  const mediaDsr=parseFloat(val('fer-modal-media-dsr')||0);
+  const baseCalc=salBase+mediaAdic+mediaDsr;
   const abonoDias=Math.min(10,Math.max(0,parseInt(val('fer-modal-abono-dias')||0)));
   const diasGozo=30-abonoDias;
-  const abono=Math.round(salBase/30*abonoDias*100)/100;
-  const salFruicao=Math.round(salBase*diasGozo/30*100)/100;
+  const abono=Math.round(baseCalc/30*abonoDias*100)/100;
+  const salFruicao=Math.round(baseCalc*diasGozo/30*100)/100;
   // 1/3 constitucional incide sobre TODA a remuneração de férias (fruição + abono).
   // Tributação (CLT/jurisprudência): abono pecuniário e o 1/3 sobre ele são ISENTOS
   // de INSS/IRRF; a base é só a fruição + o 1/3 da fruição.
@@ -4187,6 +4223,8 @@ async function saveFeriasModulo(){
     employeeId:empId, nomeEmp:emp.nome, ano, inicio, fim, abonoDias,
     status:val('fer-modal-status')||'pendente',
     obs:val('fer-modal-obs')||'',
+    mediaAdic:parseFloat(val('fer-modal-media-adic')||0),
+    mediaDsr:parseFloat(val('fer-modal-media-dsr')||0),
     salFruicao:parseFloat(val('fer-modal-sal-fruicao')||0),
     terco:parseFloat(val('fer-modal-terco')||0),
     abono:parseFloat(val('fer-modal-abono-val')||0),
@@ -4221,6 +4259,9 @@ function printFeriasModulo(){
   const inss=parseFloat(val('fer-modal-inss')||0);
   const irrf=parseFloat(val('fer-modal-irrf')||0);
   const totalLiq=parseFloat(val('fer-modal-total-liquido')||0);
+  const mediaAdic=parseFloat(val('fer-modal-media-adic')||0);
+  const mediaDsr=parseFloat(val('fer-modal-media-dsr')||0);
+  const salBaseR=parseFloat(emp.salarioBase||0);
   const w=window.open('','_blank');
   w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
   <title>Recibo de Férias — ${emp.nome}</title>
@@ -4239,7 +4280,8 @@ function printFeriasModulo(){
     <tr><td><strong>Nome:</strong> ${emp.nome}</td><td><strong>Registro:</strong> ${emp.registro||'—'}</td></tr>
     <tr><td><strong>Cargo:</strong> ${emp.cargo||emp.setor||'—'}</td><td><strong>Admissão:</strong> ${emp.dataAdmissao?formatDateBr(emp.dataAdmissao):'—'}</td></tr>
     <tr><td><strong>Período de Gozo:</strong> ${inicio} a ${fim}</td><td><strong>Dias de Gozo:</strong> ${diasGozo} dias</td></tr>
-    ${parseInt(abonoDias)>0?`<tr><td><strong>Abono Pecuniário:</strong> ${abonoDias} dias</td><td><strong>Sal. Base:</strong> ${fmtMoney(parseFloat(emp.salarioBase||0))}</td></tr>`:`<tr><td colspan="2"><strong>Sal. Base:</strong> ${fmtMoney(parseFloat(emp.salarioBase||0))}</td></tr>`}
+    ${parseInt(abonoDias)>0?`<tr><td><strong>Abono Pecuniário:</strong> ${abonoDias} dias</td><td><strong>Sal. Base:</strong> ${fmtMoney(salBaseR)}</td></tr>`:`<tr><td colspan="2"><strong>Sal. Base:</strong> ${fmtMoney(salBaseR)}</td></tr>`}
+    ${(mediaAdic>0||mediaDsr>0)?`<tr><td colspan="2" style="font-size:11px;color:#555"><strong>Base de cálculo:</strong> Sal. Base ${fmtMoney(salBaseR)}${mediaAdic>0?` + Média adicionais variáveis ${fmtMoney(mediaAdic)}`:''}${mediaDsr>0?` + DSR s/ HE (Súm. 172) ${fmtMoney(mediaDsr)}`:''} = ${fmtMoney(salBaseR+mediaAdic+mediaDsr)} <span style="color:#1565C0">(Súmula 45/347 — médias habituais)</span></td></tr>`:''}
   </table>
   <table>
     <tr><th>DEMONSTRATIVO FINANCEIRO</th><th>VALOR</th></tr>

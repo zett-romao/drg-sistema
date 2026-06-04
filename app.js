@@ -16835,6 +16835,31 @@ function _mediaAdicionaisRescisao(empId, dataDemissaoISO){
   return +(soma/folhas.length).toFixed(2);
 }
 
+// Média mensal do DSR sobre HE (Camada 1, campo p.dsrSobreHE) dos últimos 12 meses —
+// reflexo da Súmula 172 nas verbas rescisórias (OJ 394 revisada). Só conta os meses a
+// partir do corte (20/03/2023): HE habituais prestadas antes do corte NÃO geram reflexo
+// do DSR em aviso/13º/férias/FGTS. Pré-preenche o campo editável da rescisão. #dsr-he-camada2
+function _mediaDsrHERescisao(empId, dataDemissaoISO){
+  if(!empId) return 0;
+  const ref = dataDemissaoISO ? new Date(dataDemissaoISO+'T00:00:00') : new Date();
+  const corte = new Date((_paramLegal('oj394Corte')||'2023-03-20')+'T00:00:00');
+  const corteY = corte.getFullYear(), corteM = corte.getMonth();
+  const folhas = (State.payrolls||[]).filter(p=>{
+    if(p.employeeId!==empId) return false;
+    const d = new Date(p.ano, (p.mes||1)-1, 1);
+    if(isNaN(d.getTime())) return false;
+    const diff = (ref.getFullYear()-d.getFullYear())*12 + (ref.getMonth()-d.getMonth());
+    return diff>=0 && diff<12;
+  });
+  if(!folhas.length) return 0;
+  const soma = folhas.reduce((s,p)=>{
+    const pAno=+p.ano, pMes=(+p.mes||1)-1;          // mês do calendário (0-based)
+    const posCorte = pAno>corteY || (pAno===corteY && pMes>=corteM);
+    return s + (posCorte ? (+p.dsrSobreHE||0) : 0);
+  }, 0);
+  return +(soma/folhas.length).toFixed(2);
+}
+
 function _calcRescisao(r){
   const pl=_pl();
   const emp=r.emp||{};
@@ -16865,9 +16890,13 @@ function _calcRescisao(r){
   const _insalubHab= (parseFloat(emp.insalubridade)||0) > 0 ? _salMinR*((parseFloat(emp.insalubridade)||0)/100) : 0;
   const _acumuloHab= emp.acumuloFuncao ? sal*(_paramLegal('acumuloPerc')/100) : 0;
   const _mediaVar  = parseFloat(r.mediaAdicionais)||0;
+  // Reflexo do DSR sobre HE habituais (Súmula 172 + OJ 394 revisada, corte 20/03/2023):
+  // a média do DSR-sobre-HE já pago nas folhas (Camada 1) também integra a base de
+  // aviso/13º/férias — e, via 13º+aviso, do FGTS. Campo editável, pré-preenchido. #dsr-he-camada2
+  const _mediaDsrHE = parseFloat(r.mediaDsrHE)||0;
   const _baseHabFixa = sal + _insalubHab + _acumuloHab;   // salário + adicionais fixos habituais
-  const baseCalc   = _baseHabFixa + _mediaVar;            // + média dos variáveis (aviso/13º/férias)
-  o.insalubHab=_insalubHab; o.acumuloHab=_acumuloHab; o.mediaVar=_mediaVar; o.baseCalc=baseCalc;
+  const baseCalc   = _baseHabFixa + _mediaVar + _mediaDsrHE;  // + médias variáveis + reflexo DSR/HE (aviso/13º/férias)
+  o.insalubHab=_insalubHab; o.acumuloHab=_acumuloHab; o.mediaVar=_mediaVar; o.mediaDsrHE=_mediaDsrHE; o.baseCalc=baseCalc;
   // Aviso prévio (dias)
   const avisoCheio=Math.min(pl.avisoMax, pl.avisoBase+pl.avisoPorAno*o.anos);
   if(cfg.aviso==='empregador') o.avisoDias=avisoCheio;
@@ -17020,6 +17049,7 @@ function _rescisaoFromModal(){
     indenizacaoAdicional:!!document.getElementById('resc-indeniz-adic')?.checked,
     pensao:numVal('resc-pensao'),
     mediaAdicionais:numVal('resc-media-adicionais'),
+    mediaDsrHE:numVal('resc-media-dsr-he'),
     adiantamentos:numVal('resc-adiantamentos'),
     avisoDescontado:numVal('resc-aviso-descontado'),
     outrasVerbas:collectRescItens('verbas'),
@@ -17055,6 +17085,11 @@ function recalcRescisaoModal(){
   if(!val('resc-media-adicionais')){
     const _med=_mediaAdicionaisRescisao(r.employeeId, r.dataDemissao);
     if(_med>0){ setVal('resc-media-adicionais', _med.toFixed(2)); r.mediaAdicionais=_med; }
+  }
+  // Reflexo do DSR sobre HE (Súmula 172/OJ 394) — média dos últimos 12 meses, editável. #dsr-he-camada2
+  if(!val('resc-media-dsr-he')){
+    const _medD=_mediaDsrHERescisao(r.employeeId, r.dataDemissao);
+    if(_medD>0){ setVal('resc-media-dsr-he', _medD.toFixed(2)); r.mediaDsrHE=_medD; }
   }
   const o=_calcRescisao(r);
   setVal('resc-base-calculo', o.baseCalc>0 ? o.baseCalc.toFixed(2) : (parseFloat(emp.salarioBase)||0).toFixed(2));
@@ -17114,7 +17149,7 @@ function openRescisaoModal(id){
   const titleEl=document.getElementById('modal-rescisao-title');
   // Reset
   ['resc-id','resc-data-demissao','resc-ferias-venc-dias','resc-saldo-fgts',
-   'resc-pensao','resc-media-adicionais','resc-adiantamentos','resc-aviso-descontado',
+   'resc-pensao','resc-media-adicionais','resc-media-dsr-he','resc-adiantamentos','resc-aviso-descontado',
    'resc-observacoes','resc-situacao-inicio','resc-situacao-fim',
    'resc-situacao-motivo','resc-estab-valor'].forEach(f=>setVal(f,''));
   setVal('resc-tipo','sem_justa_causa');
@@ -17140,6 +17175,7 @@ function openRescisaoModal(id){
     if(pagoChk) pagoChk.checked=!!r.pago;
     setVal('resc-pensao',r.pensao||'');
     setVal('resc-media-adicionais',r.mediaAdicionais||'');
+    setVal('resc-media-dsr-he',r.mediaDsrHE||'');
     setVal('resc-adiantamentos',r.adiantamentos||'');
     setVal('resc-aviso-descontado',r.avisoDescontado||'');
     renderRescItens('verbas',r.outrasVerbas);
@@ -17223,7 +17259,7 @@ function onRescEstabModoChange(){
 
 function _toggleRescisaoLock(locked){
   const ids=['resc-tipo','resc-data-demissao','resc-aviso-tipo','resc-ferias-venc-dias',
-    'resc-saldo-fgts','resc-indeniz-adic','resc-pensao','resc-media-adicionais','resc-adiantamentos',
+    'resc-saldo-fgts','resc-indeniz-adic','resc-pensao','resc-media-adicionais','resc-media-dsr-he','resc-adiantamentos',
     'resc-aviso-descontado','resc-observacoes','resc-situacao-tipo','resc-situacao-inicio',
     'resc-situacao-fim','resc-situacao-motivo','resc-estab-modo','resc-estab-valor'];
   ids.forEach(i=>{ const el=document.getElementById(i); if(el) el.disabled=locked; });
@@ -17262,7 +17298,7 @@ async function saveRescisao(fechar){
     feriasVencidasDias:r.feriasVencidasDias||0,
     saldoFgts:r.saldoFgts||0,
     indenizacaoAdicional:r.indenizacaoAdicional,
-    pensao:r.pensao||0, mediaAdicionais:r.mediaAdicionais||0, adiantamentos:r.adiantamentos||0,
+    pensao:r.pensao||0, mediaAdicionais:r.mediaAdicionais||0, mediaDsrHE:r.mediaDsrHE||0, adiantamentos:r.adiantamentos||0,
     avisoDescontado:r.avisoDescontado||0,
     outrasVerbas:r.outrasVerbas||[],
     outrosDescontos:r.outrosDescontos||[],

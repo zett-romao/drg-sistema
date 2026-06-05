@@ -22091,10 +22091,12 @@ function calcResumoManual(){
         // Atraso automático: déficit do dia (trabalhou menos que o previsto), além da tolerância CLT (10min).
         // Plantão 12x36: jornada sem horário fixo, com 60min de refeição DENTRO → atraso pela PRESENÇA
         // (jornada cumprida), não pelo líquido, senão fazer o almoço viraria atraso. #plantao-refeicao
+        let _atrasoDiaBadge=0;
         if(expectedDay && expectedDay.tipo!=='folga' && expectedDay.entrada && expectedDay.saida){
           const faltaDia = is12x36 ? (_presencaMin(expectedDay)-_presencaMin(realDay)) : (_liqMin(expectedDay)-effLiq);
-          if(faltaDia>HE_TOLERANCIA_DIA_MIN) totalAtrasoMin+=faltaDia;
+          if(faltaDia>HE_TOLERANCIA_DIA_MIN){ totalAtrasoMin+=faltaDia; _atrasoDiaBadge=Math.round(faltaDia); }
         }
+        _updateAtrasoBadge(card, _atrasoDiaBadge);   // aviso visual por dia (>10min). #atraso-badge-manual
         const detec=_detectHEDivergencia(realDay,expectedDay);
         const reviewStatus=realDay.heReview?.status||'pendente';
         if(detec.precisaRevisao && reviewStatus==='pendente') pendentes++;
@@ -22675,6 +22677,24 @@ function _updateHEReviewBadge(card, detec, heReview){
   badge.innerHTML = `<i class="fa-solid fa-${icon}"></i> ${label}`;
   badge.onclick = () => openHEReview();
   card.appendChild(badge);
+}
+
+// Badge de ATRASO por dia no card do ponto manual: mostra o déficit do dia ACIMA da
+// tolerância de 10min (Súmula 366) — ajuda o gestor a enxergar, ao lançar manualmente,
+// quais dias divergiram. O cálculo já tolera ≤10min; aqui é só visibilidade. #atraso-badge-manual
+function _updateAtrasoBadge(card, atrasoMin){
+  if(!card) return;
+  const ex = card.querySelector('.pm-atraso-badge');
+  if(ex) ex.remove();
+  if(!(atrasoMin>0)) return;
+  const h=Math.floor(atrasoMin/60), m=Math.round(atrasoMin%60);
+  const txt = h>0 ? `${h}h${String(m).padStart(2,'0')}` : `${m}min`;
+  const b=document.createElement('div');
+  b.className='pm-atraso-badge';
+  b.title='Diferença do dia acima da tolerância de 10min (Súmula 366). Já contabilizada como atraso na folha.';
+  b.style.cssText='font-size:10px;font-weight:700;color:#B71C1C;background:#FFEBEE;padding:2px 8px;border-radius:4px;margin-top:4px;margin-left:4px;display:inline-block';
+  b.innerHTML=`<i class="fa-solid fa-clock"></i> Atraso · ${txt}`;
+  card.appendChild(b);
 }
 
 async function applyPontoManual(){

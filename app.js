@@ -15728,6 +15728,9 @@ function renderAprovacoes(){
 
   let lista=[...(State.solicitacoes||[])];
   if(filtro!=='todos') lista=lista.filter(s=>s.status===filtro);
+  // Busca por nome do colaborador (caixa de busca da seção). #busca-aprovacoes
+  const _busca=(val('aprovacoes-busca')||'').trim().toLowerCase();
+  if(_busca) lista=lista.filter(s=>(s.employeeNome||'').toLowerCase().includes(_busca));
   lista.sort((a,b)=>new Date(b.criadoEm||0)-new Date(a.criadoEm||0));
 
   const pend=(State.solicitacoes||[]).filter(s=>s.status==='pendente');

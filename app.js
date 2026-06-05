@@ -21706,7 +21706,7 @@ async function openPontoManual(){
   const emp=State.employees.find(e=>e.id===empId);
   // Título
   const tituloEl=document.getElementById('ponto-manual-titulo');
-  if(tituloEl) tituloEl.innerHTML=`<i class="fa-solid fa-keyboard"></i> Ponto Manual — ${MESES[mes]}/${ano} <span style="font-size:12px;font-weight:400;opacity:.8">(${_compLabel(mes,ano)})</span>${emp?` <span style="font-size:13px;font-weight:400;opacity:.8">· ${esc(emp.nome||'')}${emp.cargo?' · '+esc(emp.cargo):''}${emp.posto?' · '+esc(emp.posto):''}</span>`:''}`;
+  if(tituloEl) tituloEl.innerHTML=`<i class="fa-solid fa-keyboard"></i> Ponto Manual — ${MESES[mes]}/${ano} <span style="font-size:12px;font-weight:400;opacity:.8">(${_compLabel(mes,ano)})</span>${emp?` <span style="font-size:13px;font-weight:400;opacity:.8">· ${esc(emp.nome||'')}${emp.cargo?' · '+esc(emp.cargo):''}</span>`:''}${(emp&&emp.posto)?`<div style="font-size:12px;font-weight:400;opacity:.85;margin-top:3px"><i class="fa-solid fa-location-dot" style="opacity:.7;margin-right:3px"></i>${esc(emp.posto)}</div>`:''}`;
   const grid=document.getElementById('ponto-manual-grid'); if(!grid) return;
   let cards='';
   // Itera os dias da competência (26/mês-anterior → 25/mês). Cada card guarda a

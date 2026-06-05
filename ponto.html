@@ -981,8 +981,9 @@ function getDiaHoje() {
 
 function renderHoje() {
   const p = getDiaHoje();
-  const semRef = !!(currentEmp && currentEmp.semRefeicao);
-  // Esconde os cards de intervalo pra colaborador que "trabalha sozinho"
+  // Esconde os cards de intervalo quando HOJE não tem refeição: "trabalha sozinho"
+  // OU dia curto da escala (sáb 6x1A/6x1C/ALT-S11). #sabado-curto-ponto
+  const semRef = !!(currentEmp && currentEmp.semRefeicao) || !_jornadaHoje(currentEmp).intIni;
   ['intIni','intFim'].forEach(k => {
     const wrap = document.getElementById('pi-' + k);
     if (wrap) wrap.style.display = semRef ? 'none' : '';
@@ -1001,8 +1002,11 @@ function renderHoje() {
 function getProxima() {
   const p = getDiaHoje();
   if (!p.entrada) return 'entrada';
-  // Colaborador "trabalha sozinho" pula os intervalos — vai direto pra saída
-  if (!(currentEmp && currentEmp.semRefeicao)) {
+  // Pula os intervalos quando HOJE não tem refeição: "trabalha sozinho" (semRefeicao)
+  // OU dia curto da escala (sáb 6x1A/6x1C/ALT-S11). Sem isso, a saída do sábado curto
+  // caía no slot "Início Intervalo". #sabado-curto-ponto
+  const _temRefeicaoHoje = !(currentEmp && currentEmp.semRefeicao) && !!_jornadaHoje(currentEmp).intIni;
+  if (_temRefeicaoHoje) {
     if (!p.intIni) return 'intIni';
     if (!p.intFim) return 'intFim';
   }
@@ -1077,17 +1081,45 @@ function _vigenciaEscalaHoje(emp){
   return null;
 }
 
-// Horário previsto (do cadastro do colaborador OU do periodo/override ativo).
-function _horarioEsperado(prox){
-  const e = currentEmp || {};
+// Jornada esperada de HOJE (entrada/saída/intervalo) conforme a escala — ESPELHA o
+// _escalaHorariosDia do gestor. Crucial pra dias CURTOS sem refeição (6x1A sáb 07–11,
+// 6x1C sáb 08–12, 6x1ALT/LIV-S11 sáb/dom): sem intervalo, a 2ª batida vira SAÍDA e não
+// "Início Intervalo". Override de "dia diferente" tem prioridade. #sabado-curto-ponto
+function _jornadaHoje(emp){
+  const e = emp || currentEmp || {};
   const vig = _vigenciaEscalaHoje(e);
-  // Override do tipo "folga" — sem horario esperado (e' tratado em _ehDiaDeFolga)
-  if(vig && vig.tipo === 'folga') return '';
+  if(vig && vig.tipo === 'folga') return { folga:true, entrada:'', saida:'', intIni:'', intFim:'' };
+  // Override de DIA DIFERENTE (gestor cravou horário pra hoje) vence a escala.
+  if(vig && vig.origem === 'override'){
+    return { folga:false,
+      entrada: vig.horarioEntrada||'', saida: vig.horarioSaida||'',
+      intIni:  e.semRefeicao ? '' : (vig.horarioRefIni||''),
+      intFim:  e.semRefeicao ? '' : (vig.horarioRefFim||'') };
+  }
   const fonte = vig || e;
-  if(prox==='entrada') return fonte.horarioEntrada || e.horarioEntrada || '';
-  if(prox==='saida')   return fonte.horarioSaida   || e.horarioSaida   || '';
-  if(prox==='intIni')  return e.semRefeicao ? '' : (fonte.horarioRefIni || e.horarioRefIni || '');
-  if(prox==='intFim')  return e.semRefeicao ? '' : (fonte.horarioRefFim || e.horarioRefFim || '');
+  const escala = (vig && vig.escala) || e.escala || '5x2A';
+  const diaSem = new Date().getDay();   // 0=Dom ... 6=Sáb
+  let entrada = fonte.horarioEntrada || e.horarioEntrada || '';
+  let saida   = fonte.horarioSaida   || e.horarioSaida   || '';
+  let intIni  = e.semRefeicao ? '' : (fonte.horarioRefIni || e.horarioRefIni || '');
+  let intFim  = e.semRefeicao ? '' : (fonte.horarioRefFim || e.horarioRefFim || '');
+  // Variantes com dia CURTO sem refeição (mesmas regras do gestor):
+  if(diaSem===6 && escala==='6x1A'){ saida='11:00'; intIni=''; intFim=''; }        // sáb 07–11 (4h)
+  if(diaSem===6 && escala==='6x1C'){ saida='12:00'; intIni=''; intFim=''; }        // sáb 08–12 (4h)
+  if((diaSem===0||diaSem===6) && (escala==='6x1ALT-0700-1600-S11'||escala==='6x1LIV-0700-1600-S11')){ saida='11:00'; intIni=''; intFim=''; }
+  if((diaSem===0||diaSem===6) && (escala==='6x1ALT-0800-1700-S16'||escala==='6x1LIV-0800-1700-S16')){ saida='16:00'; }  // 8h, mantém almoço
+  if(diaSem===5 && (escala==='5x2A'||escala==='5x2B')){ saida='16:00'; }            // sexta curta, mantém almoço
+  return { folga:false, entrada, saida, intIni, intFim };
+}
+
+// Horário previsto de HOJE para o slot pedido (entrada/saída/intIni/intFim).
+function _horarioEsperado(prox){
+  const j = _jornadaHoje(currentEmp);
+  if(j.folga) return '';
+  if(prox==='entrada') return j.entrada;
+  if(prox==='saida')   return j.saida;
+  if(prox==='intIni')  return j.intIni;
+  if(prox==='intFim')  return j.intFim;
   return '';
 }
 

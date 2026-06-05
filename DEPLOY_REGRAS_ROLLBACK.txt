@@ -1,0 +1,101 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function authed()   { return request.auth != null && request.auth.token.drg == true; }
+    function isColab()  { return authed() && request.auth.token.role == 'colaborador'; }
+    function isStaff()  { return authed() && request.auth.token.role != 'colaborador'; }
+    function meuEmp(id) { return request.auth.token.empId == id; }
+
+    // só-servidor (Worker bypassa via conta de serviço)
+    match /mfa/{d}            { allow read, write: if false; }
+    match /users/{d}          { allow read, write: if false; }
+    match /users/{d}/{r=**}   { allow read, write: if false; }
+
+    // folha: staff total; colaborador lê/cria/atualiza só a PRÓPRIA, e só campos de ponto/conferência
+    match /payrolls/{id} {
+      allow read:   if isStaff() || (isColab() && resource.data.employeeId == request.auth.token.empId);
+      allow create: if isStaff() || (isColab()
+                       && request.resource.data.employeeId == request.auth.token.empId
+                       && request.resource.data.keys().hasOnly(['id','employeeId','mes','ano','pontoManualDias','updatedAt','createdAt']));
+      allow update: if isStaff() || (isColab()
+                       && resource.data.employeeId == request.auth.token.empId
+                       && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+                            ['pontoManualDias','updatedAt','createdAt','envioConferencia',
+                             'holeriteConferencia','holeriteAssinatura','assinatura',
+                             'holeriteContestacao','contestacao']));
+      allow delete: if isStaff();
+    }
+
+    // documentos enviados pelo app: colaborador cria os próprios (pendente) e lê os próprios
+    match /documentos/{id} {
+      allow read:   if isStaff() || (isColab() && resource.data.employeeId == request.auth.token.empId);
+      allow create: if isStaff() || (isColab()
+                       && request.resource.data.employeeId == request.auth.token.empId
+                       && request.resource.data.status == 'pendente');
+      allow update, delete: if isStaff();
+    }
+    // atestados: idem documentos
+    match /atestados/{id} {
+      allow read:   if isStaff() || (isColab() && resource.data.employeeId == request.auth.token.empId);
+      allow create: if isStaff() || (isColab() && request.resource.data.employeeId == request.auth.token.empId);
+      allow update, delete: if isStaff();
+    }
+
+    // comunicações (broadcast): todos leem; colaborador só altera reações/lida
+    match /comunicacoes/{id} {
+      allow read:           if authed();
+      allow create, delete: if isStaff();
+      allow update:         if isStaff() || (isColab()
+                              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reacoes','lida','lidaEm']));
+    }
+
+    // pagamentos: colaborador lê os próprios; só staff grava
+    match /solicitacoesPagamento/{id} {
+      allow read:  if isStaff() || (isColab() && resource.data.employeeId == request.auth.token.empId);
+      allow write: if isStaff();
+    }
+
+    // autorizações de ponto: colaborador cria/cancela/expira o PRÓPRIO pedido; só
+    // STAFF (supervisor com permissão) aprova (status 'autorizada'/'recusada').
+    // Colaborador NÃO pode auto-aprovar (antes update:authed() permitia o bypass). #fix-autoriza
+    match /autorizacoesPonto/{id} {
+      allow read:   if authed();
+      allow create: if isStaff() || (isColab() && request.resource.data.employeeId == request.auth.token.empId);
+      allow update: if isStaff() || (isColab()
+                       && resource.data.employeeId == request.auth.token.empId
+                       && request.resource.data.status in ['cancelada','expirada']);
+      allow delete: if isStaff();
+    }
+
+    // recibos enviados: SÓ staff. O link público #/recibo/<token> agora é
+    // servido pelo Worker (/recibo-publico, via conta de serviço) — não há
+    // mais leitura anônima direta. Frente C, etapa 5.
+    match /holeritesEnviados/{id}        { allow read, write: if isStaff(); }
+    match /{p=**}/holeritesEnviados/{id} { allow read: if isStaff(); }   // collectionGroup
+
+    // log de acesso: append-only
+    match /accessLog/{id} {
+      allow read:           if isStaff();
+      allow create:         if authed();
+      allow update, delete: if false;
+    }
+
+    // cadastro: colaborador lê SÓ o próprio; staff total
+    match /employees/{id} {
+      allow read:  if isStaff() || (isColab() && id == request.auth.token.empId);
+      allow write: if isStaff();
+    }
+
+    // demais coleções de GESTÃO (escalas, cct, postos, ferias, rescisoes,
+    // decimoTerceiro, bancoHoras, contratos, disciplina, rubricas, perfis,
+    // saidas, atrasos, usoIA, operator, config, tenants...) — SÓ staff
+    match /{col}/{id} {
+      allow read, write: if isStaff()
+        && !(col in ['mfa','users','payrolls','documentos','atestados','comunicacoes',
+                     'solicitacoesPagamento','autorizacoesPonto','holeritesEnviados','accessLog','employees']);
+    }
+    match /{col}/{id}/{rest=**} {
+      allow read, write: if isStaff() && col != 'mfa' && col != 'users';
+    }
+  }
+}

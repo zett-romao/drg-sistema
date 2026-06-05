@@ -574,20 +574,46 @@ async function fsFindEmployeeByRegistro(fsValue, token){
   }
   return null;
 }
+// MT-3: variante por tenant — busca o employee na subcoleção tenants/{id}/employees. #multitenant
+async function fsFindEmployeeByRegistroInTenant(tenantId, fsValue, token){
+  const res = await fetch(FS_BASE + '/tenants/' + tenantId + ':runQuery', {
+    method:  'POST',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ structuredQuery: {
+      from:  [{ collectionId: 'employees' }],
+      where: { fieldFilter: { field: { fieldPath: 'registro' },
+               op: 'EQUAL', value: fsValue } },
+      limit: 1,
+    } }),
+  });
+  if (!res.ok) throw new Error('Firestore query ' + res.status);
+  const rows = await res.json();
+  for (const row of (rows || [])) if (row.document) {
+    const o = fromFsFields(row.document.fields || {});
+    if (!o.id) { const p = row.document.name.split('/'); o.id = p[p.length - 1]; }
+    return o;
+  }
+  return null;
+}
 async function handlePontoLogin(body, token, env){
   const matInput = String(body.matricula || '').trim();
   const pinInput = String(body.pin || '').trim();
   if (!matInput || !pinInput) return { ok:false, erro:'informe matrícula e PIN' };
   if (await rlBlocked(env, 'pin:' + matInput)) return { ok:false, erro: RL_MSG };   // #rate-limit
 
+  // MT-3: tenant da URL do ponto.html (?tenant=). Vazio = raiz/legado. #multitenant
+  const tenantId = String(body.tenantId || '').replace(/[^a-zA-Z0-9]/g, '');
+  const findEmp = (fsValue) => tenantId
+    ? fsFindEmployeeByRegistroInTenant(tenantId, fsValue, token)
+    : fsFindEmployeeByRegistro(fsValue, token);
   // registro pode estar salvo como int OU string — tenta os dois (mesma lógica do app)
   let emp = null;
   const matNum = parseInt(matInput, 10);
   if (!Number.isNaN(matNum)) {
-    emp = await fsFindEmployeeByRegistro({ integerValue: String(matNum) }, token);
+    emp = await findEmp({ integerValue: String(matNum) });
   }
   if (!emp) {
-    emp = await fsFindEmployeeByRegistro({ stringValue: matInput }, token);
+    emp = await findEmp({ stringValue: matInput });
   }
   if (!emp) return { ok:false, erro:'matrícula não encontrada' };
 
@@ -608,9 +634,10 @@ async function handlePontoLogin(body, token, env){
   await rlClear(env, 'pin:' + matInput);    // acertou → zera o contador
 
   // uid estável = id do doc do employee. Claim empId pra S3-C usar nas regras.
-  const customToken = await mintCustomToken(emp.id, {
-    role: 'colaborador', empId: emp.id, drg: true,
-  }, env);
+  // MT-3: carimba tenantId quando o login veio sob um tenant (regra meuTenant). #multitenant
+  const _claims = { role: 'colaborador', empId: emp.id, drg: true };
+  if (tenantId) _claims.tenantId = tenantId;
+  const customToken = await mintCustomToken(emp.id, _claims, env);
 
   return { ok:true, customToken, emp: {
     id:          emp.id,

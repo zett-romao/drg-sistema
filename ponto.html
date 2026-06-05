@@ -645,7 +645,7 @@ async function doLogin() {
       resp = await fetch(PONTO_LOGIN_URL, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ matricula: mat, pin })
+        body:    JSON.stringify({ matricula: mat, pin, tenantId: _tenantId || '' })  // MT-3: token do colab carimba tenant. #multitenant
       });
     } catch (netErr) {
       erro.textContent   = !navigator.onLine

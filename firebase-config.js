@@ -64,6 +64,7 @@ if (typeof firebase !== 'undefined' && firebase.apps && !firebase.apps.length) {
 //      function isColab()  { return authed() && request.auth.token.role == 'colaborador'; }
 //      function isStaff()  { return authed() && request.auth.token.role != 'colaborador'; }
 //      function meuEmp(id) { return request.auth.token.empId == id; }
+//      function meuTenant(t){ return authed() && request.auth.token.tenantId == t; }  // MT-3
 //
 //      // só-servidor (Worker bypassa via conta de serviço)
 //      match /mfa/{d}            { allow read, write: if false; }
@@ -147,19 +148,105 @@ if (typeof firebase !== 'undefined' && firebase.apps && !firebase.apps.length) {
 //
 //      // demais coleções de GESTÃO (escalas, cct, postos, ferias, rescisoes,
 //      // decimoTerceiro, bancoHoras, contratos, disciplina, rubricas, perfis,
-//      // saidas, atrasos, usoIA, operator, config, tenants...) — SÓ staff
+//      // saidas, atrasos, usoIA, operator, config...) — SÓ staff. 'tenants' SAIU
+//      // daqui (MT-3): dado de tenant só pelo bloco /tenants/{t} abaixo, com meuTenant.
 //      match /{col}/{id} {
 //        allow read, write: if isStaff()
-//          && !(col in ['mfa','users','payrolls','documentos','atestados','comunicacoes',
+//          && !(col in ['mfa','users','tenants','payrolls','documentos','atestados','comunicacoes',
 //                       'solicitacoesPagamento','autorizacoesPonto','holeritesEnviados','accessLog','employees']);
 //      }
 //      match /{col}/{id}/{rest=**} {
-//        allow read, write: if isStaff() && col != 'mfa' && col != 'users';
+//        allow read, write: if isStaff() && col != 'mfa' && col != 'users' && col != 'tenants';
 //      }
+//
+//      // ===================== MT-3: ISOLAMENTO MULTI-TENANT =====================
+//      // Dado de cada cliente vive em tenants/{t}/<coleção>. TUDO aqui exige
+//      // meuTenant(t) (token.tenantId == t) — espelha as regras da raiz por dentro.
+//      // Operador (sem tenantId no token) e staff de OUTRO tenant NÃO passam.
+//      // O Worker (conta de serviço) bypassa as regras p/ criar/migrar tenants.
+//      match /tenants/{t} {
+//        allow read:  if isStaff() && meuTenant(t);   // metadata do tenant: staff do próprio tenant
+//        allow write: if false;                       // cria/edita só via Worker (conta de serviço)
+//
+//        match /payrolls/{id} {
+//          allow read:   if meuTenant(t) && (isStaff() || (isColab() && resource.data.employeeId == request.auth.token.empId));
+//          allow create: if meuTenant(t) && (isStaff() || (isColab()
+//                           && request.resource.data.employeeId == request.auth.token.empId
+//                           && request.resource.data.keys().hasOnly(['id','employeeId','mes','ano','pontoManualDias','updatedAt','createdAt'])));
+//          allow update: if meuTenant(t) && (isStaff() || (isColab()
+//                           && resource.data.employeeId == request.auth.token.empId
+//                           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+//                                ['pontoManualDias','updatedAt','createdAt','envioConferencia',
+//                                 'holeriteConferencia','holeriteAssinatura','assinatura',
+//                                 'holeriteContestacao','contestacao'])));
+//          allow delete: if meuTenant(t) && isStaff();
+//        }
+//        match /documentos/{id} {
+//          allow read:   if meuTenant(t) && (isStaff() || (isColab() && resource.data.employeeId == request.auth.token.empId));
+//          allow create: if meuTenant(t) && (isStaff() || (isColab()
+//                           && request.resource.data.employeeId == request.auth.token.empId
+//                           && request.resource.data.status == 'pendente'));
+//          allow update, delete: if meuTenant(t) && isStaff();
+//        }
+//        match /atestados/{id} {
+//          allow read:   if meuTenant(t) && (isStaff() || (isColab() && resource.data.employeeId == request.auth.token.empId));
+//          allow create: if meuTenant(t) && (isStaff() || (isColab() && request.resource.data.employeeId == request.auth.token.empId));
+//          allow update, delete: if meuTenant(t) && isStaff();
+//        }
+//        match /comunicacoes/{id} {
+//          allow read:           if meuTenant(t) && authed();
+//          allow create, delete: if meuTenant(t) && isStaff();
+//          allow update:         if meuTenant(t) && (isStaff() || (isColab()
+//                                  && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reacoes','lida','lidaEm'])));
+//        }
+//        match /solicitacoesPagamento/{id} {
+//          allow read:  if meuTenant(t) && (isStaff() || (isColab() && resource.data.employeeId == request.auth.token.empId));
+//          allow write: if meuTenant(t) && isStaff();
+//        }
+//        match /autorizacoesPonto/{id} {
+//          allow read:   if meuTenant(t) && authed();
+//          allow create: if meuTenant(t) && (isStaff() || (isColab() && request.resource.data.employeeId == request.auth.token.empId));
+//          allow update: if meuTenant(t) && (isStaff() || (isColab()
+//                           && resource.data.employeeId == request.auth.token.empId
+//                           && request.resource.data.status in ['cancelada','expirada']));
+//          allow delete: if meuTenant(t) && isStaff();
+//        }
+//        match /holeritesEnviados/{id} { allow read, write: if meuTenant(t) && isStaff(); }
+//        match /accessLog/{id} {
+//          allow read:           if meuTenant(t) && isStaff();
+//          allow create:         if meuTenant(t) && authed();
+//          allow update, delete: if false;
+//        }
+//        match /employees/{id} {
+//          allow read:  if meuTenant(t) && (isStaff() || (isColab() && id == request.auth.token.empId));
+//          allow write: if meuTenant(t) && isStaff();
+//        }
+//        // só-servidor dentro do tenant
+//        match /mfa/{d}          { allow read, write: if false; }
+//        match /users/{d}        { allow read, write: if false; }
+//        match /users/{d}/{r=**} { allow read, write: if false; }
+//        // demais coleções de gestão do tenant — só staff DO tenant
+//        match /{col}/{id} {
+//          allow read, write: if meuTenant(t) && isStaff()
+//            && !(col in ['mfa','users','payrolls','documentos','atestados','comunicacoes',
+//                         'solicitacoesPagamento','autorizacoesPonto','holeritesEnviados','accessLog','employees']);
+//        }
+//        match /{col}/{id}/{rest=**} {
+//          allow read, write: if meuTenant(t) && isStaff() && col != 'mfa' && col != 'users';
+//        }
+//      }
+//      // =================== fim MT-3 ===================
 //    }
 //  }
 //
 //  STORAGE — Storage → Regras → Publicar:
+//
+//  ⚠️ MT-3 NÃO isola o Storage. Os caminhos do app são PLANOS (employees/{empId}/...,
+//  atestados/{empId}/..., etc.) — NÃO há prefixo de tenant. Isolar o Storage exige
+//  ANTES prefixar os caminhos com tenants/{t}/ em TODAS as chamadas do app.js/ponto.html
+//  (DB.storage.ref) e só então adicionar regras tenants/{t}/... no Storage. Passo à parte
+//  (MT-3b/Storage). Até lá, no modo tenant, arquivos ficam isolados só por empId/role,
+//  NÃO por tenant. Sem live tenants, sem exposição hoje. #multitenant-storage-gap
 //
 //  rules_version = '2';
 //  service firebase.storage {

@@ -22921,6 +22921,52 @@ function _heRecusadasHtml(emp, mes, ano, dias){
   </table>`;
 }
 
+// Inventário das decisões de revisão de HE que NÃO são recusa (aprovadas, abonadas, ou
+// pendentes COM observação) — registra na folha de ponto as observações lançadas na
+// revisão (auditoria). As recusas têm a seção própria acima. Retorna '' se não houver. #he-inventario
+function _heInventarioHtml(emp, mes, ano, dias){
+  const itens = (dias||[]).filter(d => {
+    if(!d || !d.heReview) return false;
+    const st = d.heReview.status || 'pendente';
+    if(st === 'recusado') return false;                       // recusadas → seção própria
+    return st === 'aprovado' || st === 'abonado' || !!(d.heReview.observacao||'').trim();
+  });
+  if(!itens.length) return '';
+  const sem = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  const _decTxt = (hr)=>{ const st=hr.status||'pendente';
+    if(st==='aprovado') return `Aprovada · ${hr.perc||50}%`;
+    if(st==='abonado')  return 'Abonada';
+    return 'Pendente'; };
+  let rows='';
+  itens.slice().sort((a,b)=>a.dia-b.dia).forEach(d=>{
+    const rd = _compRealDate(mes, ano, d.dia);
+    const exp = _getExpectedDay(emp, rd.mes, rd.ano, rd.dia);
+    const det = exp ? _detectHEDivergencia(d, exp) : null;
+    const exc = (det && det.totalMin) ? minutesToStr(det.totalMin) : '—';
+    const diaSem = sem[new Date(rd.ano, rd.mes-1, rd.dia).getDay()];
+    const hr = d.heReview;
+    const obs = (hr.observacao||'').trim() || '—';
+    const quem = hr.aprovadoPor || '—';
+    const quando = hr.aprovadoEm ? new Date(hr.aprovadoEm).toLocaleDateString('pt-BR') : '';
+    rows += `<tr>
+      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${String(d.dia).padStart(2,'0')} (${diaSem})</td>
+      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${d.entrada||'—'} – ${d.saida||'—'}</td>
+      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${exc}</td>
+      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${_decTxt(hr)}</td>
+      <td style="padding:3px 8px;border:1px solid #DEE2E6">${esc(obs)}</td>
+      <td style="text-align:center;padding:3px 6px;border:1px solid #DEE2E6">${esc(quem)}${quando?'<br><small>'+quando+'</small>':''}</td>
+    </tr>`;
+  });
+  return `<h2 style="margin-top:12px;color:#1565C0;border-bottom-color:#1565C0">Inventário de Revisão de Horas Extras</h2>
+  <p style="font-size:9px;color:#666;margin:2px 0 4px">Decisões e observações lançadas na revisão da folha de ponto para as divergências acima da tolerância CLT (10min/dia — Súmula 366). As horas extras não autorizadas constam na seção própria.</p>
+  <table>
+    <thead><tr>
+      <th>Dia</th><th>Ponto Registrado</th><th>Excesso</th><th>Decisão</th><th>Observação</th><th>Revisado por</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
 // Banner de alerta no topo da folha impressa: sem ponto, ou mês em andamento
 // (valores parciais — plantões futuros ainda não viraram falta).
 function _avisoFolhaImpressa(diasTrabalhados, mes, ano){
@@ -23315,6 +23361,8 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
   </div>
 </div>`}
 
+${_heInventarioHtml(emp, mes, ano, diasPonto)}
+
 ${_heRecusadasHtml(emp, mes, ano, diasPonto)}
 
 <div class="assinaturas">
@@ -23687,6 +23735,8 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
     </div>`:''}
   </div>
 </div>`}
+
+${_heInventarioHtml(emp, mes, ano, diasPonto)}
 
 ${_heRecusadasHtml(emp, mes, ano, diasPonto)}
 

@@ -358,7 +358,10 @@
     <div class="sec" id="sec-avisos">
       <div class="home-body">
         <div class="card" style="padding-bottom:8px">
-          <div class="card-label">Avisos</div>
+          <div class="card-label" style="display:flex;align-items:center;justify-content:space-between">
+            <span>Avisos</span>
+            <button id="btn-som-avisos" onclick="_toggleSomAvisos()" title="Som de avisos" style="background:#fff;border:1px solid #ddd;font-size:18px;line-height:1;width:38px;height:38px;border-radius:9px;cursor:pointer">🔔</button>
+          </div>
           <div id="avisos-lista">
             <div class="spinner-wrap"><div class="spinner"></div>Carregando...</div>
           </div>
@@ -576,7 +579,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=29').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=30').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -761,6 +764,8 @@ async function carregarHome() {
   // e — uma vez por sessao — abre o popup "Voce tem N mensagens novas".
   _checarMensagensNovas().catch(e => console.warn('checar msgs', e));
   _checarAutzPendentes().catch(e => console.warn('checar autz', e));
+  // Poll leve a cada 60s — apita quando chega comunicação nova com o app aberto. #som-avisos
+  if(!window._msgPollTimer) window._msgPollTimer = setInterval(()=>{ _checarMensagensNovas().catch(()=>{}); }, 60*1000);
 }
 
 // Banner "batidas aguardando aprovação" — pedidos do colaborador ainda pendentes
@@ -781,12 +786,56 @@ async function _checarAutzPendentes(){
 
 // Carrega as comunicacoes do colaborador, atualiza o badge do sino e,
 // se houver nao-lidas, mostra o popup (uma vez por sessao do app).
+// ── Som de aviso: bip (Web Audio, sem arquivo) quando chega COMUNICAÇÃO nova. #som-avisos
+let _drgAudioCtx = null, _drgSeenAvisos = null;
+function _somAvisosOn(){ return localStorage.getItem('drg_som_avisos') !== 'off'; }
+function _tocarBip(){
+  if(!_somAvisosOn()) return;
+  try{
+    _drgAudioCtx = _drgAudioCtx || new (window.AudioContext||window.webkitAudioContext)();
+    const ctx=_drgAudioCtx; if(ctx.state==='suspended') ctx.resume();
+    const t=ctx.currentTime;
+    [[880,0],[1320,0.13]].forEach(([f,d])=>{
+      const o=ctx.createOscillator(), g=ctx.createGain();
+      o.type='sine'; o.frequency.value=f;
+      g.gain.setValueAtTime(0.0001,t+d);
+      g.gain.exponentialRampToValueAtTime(0.3,t+d+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001,t+d+0.2);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(t+d); o.stop(t+d+0.22);
+    });
+  }catch(_){}
+}
+function _avisoNovidade(ids){
+  if(_drgSeenAvisos===null){ _drgSeenAvisos=new Set(ids); return false; }
+  let novo=false;
+  ids.forEach(id=>{ if(id && !_drgSeenAvisos.has(id)){ novo=true; _drgSeenAvisos.add(id); } });
+  return novo;
+}
+function _renderSomBtn(){
+  const b=document.getElementById('btn-som-avisos'); if(!b) return;
+  const on=_somAvisosOn();
+  b.textContent = on?'🔔':'🔕'; b.style.opacity = on?'1':'0.5';
+  b.title = on?'Som de avisos LIGADO — toque para silenciar':'Som de avisos DESLIGADO — toque para ligar';
+}
+function _toggleSomAvisos(){
+  const on=_somAvisosOn();
+  localStorage.setItem('drg_som_avisos', on?'off':'on');
+  _renderSomBtn();
+  if(!on) _tocarBip();
+}
+document.addEventListener('click', ()=>{ try{ if(_drgAudioCtx&&_drgAudioCtx.state==='suspended') _drgAudioCtx.resume(); }catch(_){} });
+
 async function _checarMensagensNovas(){
   if(!currentEmp) return;
   await _carregarAvisosData();
-  const naoLidas = ((_avisosDataCache||{}).comunicacoes||[]).filter(m => !m.lida).length;
+  const msgs = ((_avisosDataCache||{}).comunicacoes||[]);
+  const naoLidas = msgs.filter(m => !m.lida).length;
   _atualizarBadgeAvisos(naoLidas);
+  _renderSomBtn();
   if(naoLidas > 0) _mostrarPopupMsgs(naoLidas);
+  // bip quando chega comunicação NOVA não-lida (por id). #som-avisos
+  if(_avisoNovidade(msgs.filter(m=>!m.lida).map(m=>m.id))) _tocarBip();
 }
 
 function _atualizarBadgeAvisos(qtdOpcional){

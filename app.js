@@ -1773,6 +1773,7 @@ function applyUserSession(user){
   const _tbName=document.getElementById('topbar-user-name');
   if(_tbName) _tbName.textContent=user.username||'';
   loadUserFoto();
+  try{ _renderSomBtn(); }catch(_){}   // reflete o estado salvo do som de avisos. #som-avisos
   const mods=getUserModules(user);
   // Usuários & Acessos: master ou quem tem acesso ao log
   const usersLi=document.getElementById('nav-users-li');
@@ -19472,6 +19473,50 @@ let _autzCache    = null;
 let _autzFiltros  = { busca:'', status:'todos', periodo:'30' };
 let _autzCarregando = false;
 
+// ── Som de aviso: bip curto (Web Audio, sem arquivo) quando chega item novo ──
+// Toca no gestor quando entra um PEDIDO DE AUTORIZAÇÃO novo. Liga/desliga salvo no
+// navegador (localStorage drg_som_avisos). Áudio desbloqueado no 1º clique (autoplay). #som-avisos
+let _drgAudioCtx = null, _drgSeenAvisos = null;
+function _somAvisosOn(){ return localStorage.getItem('drg_som_avisos') !== 'off'; }
+function _tocarBip(){
+  if(!_somAvisosOn()) return;
+  try{
+    _drgAudioCtx = _drgAudioCtx || new (window.AudioContext||window.webkitAudioContext)();
+    const ctx=_drgAudioCtx; if(ctx.state==='suspended') ctx.resume();
+    const t=ctx.currentTime;
+    [[880,0],[1320,0.13]].forEach(([f,d])=>{
+      const o=ctx.createOscillator(), g=ctx.createGain();
+      o.type='sine'; o.frequency.value=f;
+      g.gain.setValueAtTime(0.0001,t+d);
+      g.gain.exponentialRampToValueAtTime(0.3,t+d+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001,t+d+0.2);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(t+d); o.stop(t+d+0.22);
+    });
+  }catch(_){}
+}
+// 1ª chamada = baseline (sem bip, são os itens que já existiam); IDs novos depois = bip.
+function _avisoNovidade(ids){
+  if(_drgSeenAvisos===null){ _drgSeenAvisos=new Set(ids); return false; }
+  let novo=false;
+  ids.forEach(id=>{ if(!_drgSeenAvisos.has(id)){ novo=true; _drgSeenAvisos.add(id); } });
+  return novo;
+}
+function _renderSomBtn(){
+  const b=document.getElementById('btn-som-avisos'); if(!b) return;
+  const on=_somAvisosOn();
+  b.textContent = on?'🔔':'🔕';
+  b.style.opacity = on?'1':'0.5';
+  b.title = on?'Som de avisos LIGADO — clique para silenciar':'Som de avisos DESLIGADO — clique para ligar';
+}
+function _toggleSomAvisos(){
+  const on=_somAvisosOn();
+  localStorage.setItem('drg_som_avisos', on?'off':'on');
+  _renderSomBtn();
+  if(!on) _tocarBip();   // acabou de LIGAR → toca uma amostra
+}
+document.addEventListener('click', ()=>{ try{ if(_drgAudioCtx&&_drgAudioCtx.state==='suspended') _drgAudioCtx.resume(); }catch(_){} });
+
 // Contador AO VIVO de pedidos de autorização PENDENTES (não-vencidos), exibido como
 // badge no nav "Autorizações". Como os pedidos não expiram mais, isso evita que
 // algum fique esquecido. #autz-badge
@@ -19481,12 +19526,13 @@ function _initAutzBadge(){
   try{
     _autzBadgeUnsub = DB.col('autorizacoesPonto').where('status','==','pendente').onSnapshot(snap=>{
       const agora = Date.now();
-      let n = 0;
+      let n = 0; const _ids=[];
       snap.forEach(d=>{ const p=d.data();
         const venc = p.validadeAteEm && Date.parse(p.validadeAteEm) < agora; if(venc) return;
         if(!_empNoEscopo(State.employees.find(e=>e.id===p.employeeId))) return;  // só postos do supervisor. #monitor-escopo
-        n++; });
+        n++; _ids.push(d.id); });
       _setAutzBadge(n);
+      if(_avisoNovidade(_ids)) _tocarBip();   // bip em pedido de autorização NOVO. #som-avisos
     }, ()=>{});
   }catch(e){ /* sem badge se falhar */ }
 }

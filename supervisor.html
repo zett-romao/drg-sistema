@@ -142,6 +142,8 @@
       <div class="nome" id="sup-nome">—</div>
       <div class="sub" id="sup-role">Supervisor de Ponto</div>
     </div>
+    <button id="btn-som-avisos" onclick="_toggleSomAvisos()" title="Som de avisos"
+      style="background:#fff;border:1px solid #ddd;font-size:18px;line-height:1;width:40px;height:40px;border-radius:10px;cursor:pointer;margin-right:8px">🔔</button>
     <button class="logout" onclick="doLogout()">Sair</button>
   </div>
 
@@ -207,6 +209,46 @@ let employeesCache  = [];       // colaboradores (carregados na entrada)
 let pedidosUnsub    = null;     // unsubscribe do listener de pedidos
 let pedidos         = [];       // pedidos pendentes em tempo real
 let recusandoId     = null;     // id do pedido em processo de recusa
+
+// ── Som de aviso: bip (Web Audio, sem arquivo) quando chega PEDIDO novo. #som-avisos
+let _drgAudioCtx = null, _drgSeenAvisos = null;
+function _somAvisosOn(){ return localStorage.getItem('drg_som_avisos') !== 'off'; }
+function _tocarBip(){
+  if(!_somAvisosOn()) return;
+  try{
+    _drgAudioCtx = _drgAudioCtx || new (window.AudioContext||window.webkitAudioContext)();
+    const ctx=_drgAudioCtx; if(ctx.state==='suspended') ctx.resume();
+    const t=ctx.currentTime;
+    [[880,0],[1320,0.13]].forEach(([f,d])=>{
+      const o=ctx.createOscillator(), g=ctx.createGain();
+      o.type='sine'; o.frequency.value=f;
+      g.gain.setValueAtTime(0.0001,t+d);
+      g.gain.exponentialRampToValueAtTime(0.3,t+d+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001,t+d+0.2);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(t+d); o.stop(t+d+0.22);
+    });
+  }catch(_){}
+}
+function _avisoNovidade(ids){
+  if(_drgSeenAvisos===null){ _drgSeenAvisos=new Set(ids); return false; }
+  let novo=false;
+  ids.forEach(id=>{ if(!_drgSeenAvisos.has(id)){ novo=true; _drgSeenAvisos.add(id); } });
+  return novo;
+}
+function _renderSomBtn(){
+  const b=document.getElementById('btn-som-avisos'); if(!b) return;
+  const on=_somAvisosOn();
+  b.textContent = on?'🔔':'🔕'; b.style.opacity = on?'1':'0.5';
+  b.title = on?'Som de avisos LIGADO — clique para silenciar':'Som de avisos DESLIGADO — clique para ligar';
+}
+function _toggleSomAvisos(){
+  const on=_somAvisosOn();
+  localStorage.setItem('drg_som_avisos', on?'off':'on');
+  _renderSomBtn();
+  if(!on) _tocarBip();
+}
+document.addEventListener('click', ()=>{ try{ if(_drgAudioCtx&&_drgAudioCtx.state==='suspended') _drgAudioCtx.resume(); }catch(_){} });
 
 // ─── HELPERS ───────────────────────────────────────────────────────────────
 function toast(msg, type){
@@ -415,6 +457,8 @@ function iniciarListenerPedidos(){
       // Ordena: mais antigos primeiro (FIFO)
       pedidos.sort((a,b)=>(a.tentativaEm||'').localeCompare(b.tentativaEm||''));
       renderPedidos();
+      _renderSomBtn();
+      if(_avisoNovidade(pedidos.map(p=>p.id))) _tocarBip();   // bip em PEDIDO novo. #som-avisos
     }, err => {
       console.error('listener pedidos', err);
       toast('Erro: ' + err.message, 'error');
@@ -762,7 +806,7 @@ setInterval(() => {
 if('serviceWorker' in navigator){
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('supervisor-sw.js?v=4').then(reg => {
+    navigator.serviceWorker.register('supervisor-sw.js?v=5').then(reg => {
       const checar = () => { try{ reg.update(); }catch(_){} };
       document.addEventListener('visibilitychange', () => {
         if(document.visibilityState === 'visible') checar();

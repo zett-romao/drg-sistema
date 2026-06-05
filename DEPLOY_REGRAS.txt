@@ -1,13 +1,3 @@
-###############################################################################
-#  DRG-Kronos — REGRAS MULTI-TENANT (MT-3/MT-4) — PRONTAS PARA PUBLICAR
-#  São DUAS regras separadas, em DUAS telas do Firebase Console.
-#  NÃO cole este cabeçalho nem as linhas com "#". Copie só o que está abaixo
-#  de cada "PARTE", do "rules_version" até o "}" final daquela parte.
-###############################################################################
-
-# ===========================================================================
-# PARTE 1 — FIRESTORE   →   Console: Firestore Database → Regras → Publicar
-# ===========================================================================
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -195,39 +185,5 @@ service cloud.firestore {
       }
     }
     // =================== fim MT-3 ===================
-  }
-}
-# ----- FIM DA PARTE 1 (Firestore) -----
-
-# ===========================================================================
-# PARTE 2 — STORAGE   →   Console: Storage → Regras → Publicar
-# (Regras de Storage SEM mudança nesta etapa — só republique se quiser.
-#  ATENÇÃO: o Storage ainda NÃO é isolado por tenant — caminhos são planos.
-#  Isolar Storage é passo à parte, MT-3b. Sem clientes ativos, sem exposição.)
-# ===========================================================================
-rules_version = '2';
-service firebase.storage {
-  match /b/{bucket}/o {
-    function authed()   { return request.auth != null && request.auth.token.drg == true; }
-    function isColab()  { return authed() && request.auth.token.role == 'colaborador'; }
-    function isStaff()  { return authed() && request.auth.token.role != 'colaborador'; }
-    function meuEmp(id) { return request.auth.token.empId == id; }
-
-    // uploads do colaborador — só na PRÓPRIA pasta
-    match /documentos/{empId}/{p=**} { allow read, write: if isStaff() || (isColab() && meuEmp(empId)); }
-    match /atestados/{empId}/{p=**}  { allow read, write: if isStaff() || (isColab() && meuEmp(empId)); }
-
-    // foto, saídas, atrasos — só staff (gestor)
-    match /employees/{empId}/{p=**}  { allow read, write: if isStaff(); }
-    match /saidas/{empId}/{p=**}     { allow read, write: if isStaff(); }
-    match /atrasos/{empId}/{p=**}    { allow read, write: if isStaff(); }
-
-    // anexos de comunicação — staff grava, qualquer logado lê (app do colaborador)
-    match /comunicacoes/{p=**} { allow read: if authed(); allow write: if isStaff(); }
-
-    // disciplina, contratos e tudo mais — só staff
-    match /disciplina/{p=**} { allow read, write: if isStaff(); }
-    match /contratos/{p=**}  { allow read, write: if isStaff(); }
-    match /{allPaths=**}     { allow read, write: if isStaff(); }
   }
 }

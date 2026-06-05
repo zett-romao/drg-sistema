@@ -65,6 +65,13 @@ if (typeof firebase !== 'undefined' && firebase.apps && !firebase.apps.length) {
 //      function isStaff()  { return authed() && request.auth.token.role != 'colaborador'; }
 //      function meuEmp(id) { return request.auth.token.empId == id; }
 //      function meuTenant(t){ return authed() && request.auth.token.tenantId == t; }  // MT-3
+//      // MT-4: a RAIZ é do revendedor — token COM tenantId (cliente) é barrado aqui;
+//      // só acessa o que estiver sob tenants/{t}. isRoot() = token sem tenantId.
+//      function isRoot()   { return request.auth.token.tenantId == null; }
+//      function isOperator(){ return authed() && request.auth.token.role == 'operator'; }
+//      function rAuthed()  { return authed()  && isRoot(); }   // versões da RAIZ
+//      function rColab()   { return isColab() && isRoot(); }
+//      function rStaff()   { return isStaff() && isRoot(); }
 //
 //      // só-servidor (Worker bypassa via conta de serviço)
 //      match /mfa/{d}            { allow read, write: if false; }
@@ -73,90 +80,91 @@ if (typeof firebase !== 'undefined' && firebase.apps && !firebase.apps.length) {
 //
 //      // folha: staff total; colaborador lê/cria/atualiza só a PRÓPRIA, e só campos de ponto/conferência
 //      match /payrolls/{id} {
-//        allow read:   if isStaff() || (isColab() && resource.data.employeeId == request.auth.token.empId);
-//        allow create: if isStaff() || (isColab()
+//        allow read:   if rStaff() || (rColab() && resource.data.employeeId == request.auth.token.empId);
+//        allow create: if rStaff() || (rColab()
 //                         && request.resource.data.employeeId == request.auth.token.empId
 //                         && request.resource.data.keys().hasOnly(['id','employeeId','mes','ano','pontoManualDias','updatedAt','createdAt']));
-//        allow update: if isStaff() || (isColab()
+//        allow update: if rStaff() || (rColab()
 //                         && resource.data.employeeId == request.auth.token.empId
 //                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
 //                              ['pontoManualDias','updatedAt','createdAt','envioConferencia',
 //                               'holeriteConferencia','holeriteAssinatura','assinatura',
 //                               'holeriteContestacao','contestacao']));
-//        allow delete: if isStaff();
+//        allow delete: if rStaff();
 //      }
 //
 //      // documentos enviados pelo app: colaborador cria os próprios (pendente) e lê os próprios
 //      match /documentos/{id} {
-//        allow read:   if isStaff() || (isColab() && resource.data.employeeId == request.auth.token.empId);
-//        allow create: if isStaff() || (isColab()
+//        allow read:   if rStaff() || (rColab() && resource.data.employeeId == request.auth.token.empId);
+//        allow create: if rStaff() || (rColab()
 //                         && request.resource.data.employeeId == request.auth.token.empId
 //                         && request.resource.data.status == 'pendente');
-//        allow update, delete: if isStaff();
+//        allow update, delete: if rStaff();
 //      }
 //      // atestados: idem documentos
 //      match /atestados/{id} {
-//        allow read:   if isStaff() || (isColab() && resource.data.employeeId == request.auth.token.empId);
-//        allow create: if isStaff() || (isColab() && request.resource.data.employeeId == request.auth.token.empId);
-//        allow update, delete: if isStaff();
+//        allow read:   if rStaff() || (rColab() && resource.data.employeeId == request.auth.token.empId);
+//        allow create: if rStaff() || (rColab() && request.resource.data.employeeId == request.auth.token.empId);
+//        allow update, delete: if rStaff();
 //      }
 //
 //      // comunicações (broadcast): todos leem; colaborador só altera reações/lida
 //      match /comunicacoes/{id} {
-//        allow read:           if authed();
-//        allow create, delete: if isStaff();
-//        allow update:         if isStaff() || (isColab()
+//        allow read:           if rAuthed();
+//        allow create, delete: if rStaff();
+//        allow update:         if rStaff() || (rColab()
 //                                && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reacoes','lida','lidaEm']));
 //      }
 //
 //      // pagamentos: colaborador lê os próprios; só staff grava
 //      match /solicitacoesPagamento/{id} {
-//        allow read:  if isStaff() || (isColab() && resource.data.employeeId == request.auth.token.empId);
-//        allow write: if isStaff();
+//        allow read:  if rStaff() || (rColab() && resource.data.employeeId == request.auth.token.empId);
+//        allow write: if rStaff();
 //      }
 //
 //      // autorizações de ponto: colaborador cria/cancela/expira o PRÓPRIO pedido; só
 //      // STAFF (supervisor com permissão) aprova (status 'autorizada'/'recusada').
 //      // Colaborador NÃO pode auto-aprovar (antes update:authed() permitia o bypass). #fix-autoriza
 //      match /autorizacoesPonto/{id} {
-//        allow read:   if authed();
-//        allow create: if isStaff() || (isColab() && request.resource.data.employeeId == request.auth.token.empId);
-//        allow update: if isStaff() || (isColab()
+//        allow read:   if rAuthed();
+//        allow create: if rStaff() || (rColab() && request.resource.data.employeeId == request.auth.token.empId);
+//        allow update: if rStaff() || (rColab()
 //                         && resource.data.employeeId == request.auth.token.empId
 //                         && request.resource.data.status in ['cancelada','expirada']);
-//        allow delete: if isStaff();
+//        allow delete: if rStaff();
 //      }
 //
 //      // recibos enviados: SÓ staff. O link público #/recibo/<token> agora é
 //      // servido pelo Worker (/recibo-publico, via conta de serviço) — não há
 //      // mais leitura anônima direta. Frente C, etapa 5.
-//      match /holeritesEnviados/{id}        { allow read, write: if isStaff(); }
-//      match /{p=**}/holeritesEnviados/{id} { allow read: if isStaff(); }   // collectionGroup
+//      match /holeritesEnviados/{id}        { allow read, write: if rStaff(); }
+//      match /{p=**}/holeritesEnviados/{id} { allow read: if rStaff(); }   // collectionGroup (só raiz; tenant lê o próprio subcol direto)
 //
 //      // log de acesso: append-only
 //      match /accessLog/{id} {
-//        allow read:           if isStaff();
-//        allow create:         if authed();
+//        allow read:           if rStaff();
+//        allow create:         if rAuthed();
 //        allow update, delete: if false;
 //      }
 //
 //      // cadastro: colaborador lê SÓ o próprio; staff total
 //      match /employees/{id} {
-//        allow read:  if isStaff() || (isColab() && id == request.auth.token.empId);
-//        allow write: if isStaff();
+//        allow read:  if rStaff() || (rColab() && id == request.auth.token.empId);
+//        allow write: if rStaff();
 //      }
 //
 //      // demais coleções de GESTÃO (escalas, cct, postos, ferias, rescisoes,
 //      // decimoTerceiro, bancoHoras, contratos, disciplina, rubricas, perfis,
-//      // saidas, atrasos, usoIA, operator, config...) — SÓ staff. 'tenants' SAIU
-//      // daqui (MT-3): dado de tenant só pelo bloco /tenants/{t} abaixo, com meuTenant.
+//      // saidas, atrasos, usoIA, operator, config...) — SÓ staff DA RAIZ (revendedor).
+//      // 'tenants' SAIU daqui (MT-3). MT-4: rStaff() barra token COM tenantId — um
+//      // cliente NÃO alcança operator/* (lista/cobranças) nem dados da raiz.
 //      match /{col}/{id} {
-//        allow read, write: if isStaff()
+//        allow read, write: if rStaff()
 //          && !(col in ['mfa','users','tenants','payrolls','documentos','atestados','comunicacoes',
 //                       'solicitacoesPagamento','autorizacoesPonto','holeritesEnviados','accessLog','employees']);
 //      }
 //      match /{col}/{id}/{rest=**} {
-//        allow read, write: if isStaff() && col != 'mfa' && col != 'users' && col != 'tenants';
+//        allow read, write: if rStaff() && col != 'mfa' && col != 'users' && col != 'tenants';
 //      }
 //
 //      // ===================== MT-3: ISOLAMENTO MULTI-TENANT =====================

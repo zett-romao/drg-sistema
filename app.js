@@ -26021,7 +26021,13 @@ function _podeGerirFolgasEscala(){
   const u=Auth.currentUser;
   if(!u) return false;
   if(u.role==='master') return true;
-  return !!getUserModules(u).gerirFolgasEscala;
+  const mods=getUserModules(u);
+  // Perfis LEGADOS (chave ausente, anteriores à feature) HERDAM de quem já gere Escalas
+  // ou Folha — senão supervisores/gestores antigos perderam folga/compensação/troca sem o
+  // master saber (os botões eram livres antes da permissão). Se o master marcar/desmarcar
+  // explicitamente no editor, vale o valor explícito (true/false). #folga-avulsa
+  if(typeof mods.gerirFolgasEscala==='undefined') return !!(mods.escalas || mods.payroll);
+  return !!mods.gerirFolgasEscala;
 }
 
 // true se o usuário pode gerir perfis de acesso: master, ou perfil com o módulo
@@ -26077,7 +26083,14 @@ function openPerfilModal(id=null){
   // Aplica o nível de um módulo ao controle correspondente (select de 3 níveis ou checkbox)
   const setMod=(mod,modules,perm)=>{
     const chk=document.querySelector(`#perfil-modulos input[value="${mod}"]`);
-    if(chk) chk.checked=!!modules[mod];
+    if(chk){
+      // gerirFolgasEscala legado (chave ausente) mostra o estado EFETIVO (herda de
+      // Escalas/Folha, igual _podeGerirFolgasEscala) — assim o master vê marcado e pode
+      // salvar (vira explícito) ou desmarcar (revoga). #folga-avulsa
+      chk.checked = (mod==='gerirFolgasEscala' && typeof modules[mod]==='undefined')
+        ? !!(modules.escalas || modules.payroll)
+        : !!modules[mod];
+    }
     const ed=document.querySelector(`#perfil-modulos input[data-edit="${mod}"]`);
     if(ed) ed.checked = !!modules[mod] && perm[mod]!=='view';
   };

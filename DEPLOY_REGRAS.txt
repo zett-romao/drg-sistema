@@ -5,10 +5,12 @@ service cloud.firestore {
     function isColab()  { return authed() && request.auth.token.role == 'colaborador'; }
     function isStaff()  { return authed() && request.auth.token.role != 'colaborador'; }
     function meuEmp(id) { return request.auth.token.empId == id; }
-    function meuTenant(t){ return authed() && request.auth.token.tenantId == t; }  // MT-3
-    // MT-4: a RAIZ é do revendedor — token COM tenantId (cliente) é barrado aqui;
-    // só acessa o que estiver sob tenants/{t}. isRoot() = token sem tenantId.
-    function isRoot()   { return request.auth.token.tenantId == null; }
+    // MT-3/MT-4: checagem de tenant ROBUSTA — usa 'in' (existência da chave) em vez
+    // de comparar com null. Acessar um claim AUSENTE com ponto (token.tenantId) pode
+    // FALHAR/negar no Firestore — foi o que travou o login raiz em 2026-06-04. #mt-isroot-fix
+    function meuTenant(t){ return authed() && ('tenantId' in request.auth.token) && request.auth.token.tenantId == t; }
+    // MT-4: a RAIZ é do revendedor — token SEM tenantId. isRoot() = chave ausente.
+    function isRoot()   { return !('tenantId' in request.auth.token); }
     function isOperator(){ return authed() && request.auth.token.role == 'operator'; }
     function rAuthed()  { return authed()  && isRoot(); }   // versões da RAIZ
     function rColab()   { return isColab() && isRoot(); }

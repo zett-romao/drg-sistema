@@ -249,14 +249,7 @@ if (typeof firebase !== 'undefined' && firebase.apps && !firebase.apps.length) {
 //    }
 //  }
 //
-//  STORAGE — Storage → Regras → Publicar:
-//
-//  ⚠️ MT-3 NÃO isola o Storage. Os caminhos do app são PLANOS (employees/{empId}/...,
-//  atestados/{empId}/..., etc.) — NÃO há prefixo de tenant. Isolar o Storage exige
-//  ANTES prefixar os caminhos com tenants/{t}/ em TODAS as chamadas do app.js/ponto.html
-//  (DB.storage.ref) e só então adicionar regras tenants/{t}/... no Storage. Passo à parte
-//  (MT-3b/Storage). Até lá, no modo tenant, arquivos ficam isolados só por empId/role,
-//  NÃO por tenant. Sem live tenants, sem exposição hoje. #multitenant-storage-gap
+//  STORAGE — Storage → Regras → Publicar (MT-3b: isolado por tenant):
 //
 //  rules_version = '2';
 //  service firebase.storage {
@@ -265,23 +258,38 @@ if (typeof firebase !== 'undefined' && firebase.apps && !firebase.apps.length) {
 //      function isColab()  { return authed() && request.auth.token.role == 'colaborador'; }
 //      function isStaff()  { return authed() && request.auth.token.role != 'colaborador'; }
 //      function meuEmp(id) { return request.auth.token.empId == id; }
+//      // MT-3b: mesmas travas do Firestore. 'in' (não ==null) p/ não travar a raiz.
+//      function meuTenant(t){ return authed() && ('tenantId' in request.auth.token) && request.auth.token.tenantId == t; }
+//      function isRoot()   { return !('tenantId' in request.auth.token); }
+//      function rAuthed()  { return authed()  && isRoot(); }
+//      function rColab()   { return isColab() && isRoot(); }
+//      function rStaff()   { return isStaff() && isRoot(); }
 //
-//      // uploads do colaborador — só na PRÓPRIA pasta
-//      match /documentos/{empId}/{p=**} { allow read, write: if isStaff() || (isColab() && meuEmp(empId)); }
-//      match /atestados/{empId}/{p=**}  { allow read, write: if isStaff() || (isColab() && meuEmp(empId)); }
+//      // ===== RAIZ (revendedor) — token SEM tenantId =====
+//      match /documentos/{empId}/{p=**} { allow read, write: if rStaff() || (rColab() && meuEmp(empId)); }
+//      match /atestados/{empId}/{p=**}  { allow read, write: if rStaff() || (rColab() && meuEmp(empId)); }
+//      match /employees/{empId}/{p=**}  { allow read, write: if rStaff(); }
+//      match /saidas/{empId}/{p=**}     { allow read, write: if rStaff(); }
+//      match /atrasos/{empId}/{p=**}    { allow read, write: if rStaff(); }
+//      match /comunicacoes/{p=**} { allow read: if rAuthed(); allow write: if rStaff(); }
+//      match /disciplina/{p=**} { allow read, write: if rStaff(); }
+//      match /contratos/{p=**}  { allow read, write: if rStaff(); }
 //
-//      // foto, saídas, atrasos — só staff (gestor)
-//      match /employees/{empId}/{p=**}  { allow read, write: if isStaff(); }
-//      match /saidas/{empId}/{p=**}     { allow read, write: if isStaff(); }
-//      match /atrasos/{empId}/{p=**}    { allow read, write: if isStaff(); }
+//      // ===== MT-3b: cada cliente em tenants/{t}/... — tudo exige meuTenant(t) =====
+//      match /tenants/{t}/documentos/{empId}/{p=**} { allow read, write: if meuTenant(t) && (isStaff() || (isColab() && meuEmp(empId))); }
+//      match /tenants/{t}/atestados/{empId}/{p=**}  { allow read, write: if meuTenant(t) && (isStaff() || (isColab() && meuEmp(empId))); }
+//      match /tenants/{t}/employees/{empId}/{p=**}  { allow read, write: if meuTenant(t) && isStaff(); }
+//      match /tenants/{t}/saidas/{empId}/{p=**}     { allow read, write: if meuTenant(t) && isStaff(); }
+//      match /tenants/{t}/atrasos/{empId}/{p=**}    { allow read, write: if meuTenant(t) && isStaff(); }
+//      match /tenants/{t}/comunicacoes/{p=**} { allow read: if meuTenant(t) && authed(); allow write: if meuTenant(t) && isStaff(); }
+//      match /tenants/{t}/disciplina/{p=**} { allow read, write: if meuTenant(t) && isStaff(); }
+//      match /tenants/{t}/contratos/{p=**}  { allow read, write: if meuTenant(t) && isStaff(); }
+//      match /tenants/{t}/{allPaths=**}     { allow read, write: if meuTenant(t) && isStaff(); }
 //
-//      // anexos de comunicação — staff grava, qualquer logado lê (app do colaborador)
-//      match /comunicacoes/{p=**} { allow read: if authed(); allow write: if isStaff(); }
-//
-//      // disciplina, contratos e tudo mais — só staff
-//      match /disciplina/{p=**} { allow read, write: if isStaff(); }
-//      match /contratos/{p=**}  { allow read, write: if isStaff(); }
-//      match /{allPaths=**}     { allow read, write: if isStaff(); }
+//      // catch-all da RAIZ — só staff do revendedor (token sem tenantId) → cliente barrado.
+//      // (Resíduo menor: o revendedor-raiz pode ler arquivo de tenant por este wildcard —
+//      // NÃO é vazamento entre clientes; apertar depois se quiser.)
+//      match /{allPaths=**}     { allow read, write: if rStaff(); }
 //    }
 //  }
 // ================================================================

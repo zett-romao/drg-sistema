@@ -46,6 +46,15 @@ const DB = {
                .collection('lista').doc(this.tenantId);
   },
 
+  // Referência de Storage com namespace do tenant (igual col()): raiz = caminho PLANO
+  // (compat com arquivos existentes), tenant = tenants/{id}/caminho. #multitenant-storage
+  storageRef(path) {
+    if (!this.storage) this.initStorage();
+    if (!this.storage) return null;
+    const full = this.tenantId ? ('tenants/' + this.tenantId + '/' + path) : path;
+    return this.storage.ref(full);
+  },
+
   isConfigured() {
     return FIREBASE_CONFIG.apiKey !== 'COLE_AQUI';
   },
@@ -5310,7 +5319,7 @@ async function uploadEmployeePhoto(empId){
   if(prev.dataset.removed==='true'){
     DB.initStorage();
     if(DB.storage){
-      try { await DB.storage.ref(`employees/${empId}/foto`).delete(); } catch(e){}
+      try { await DB.storageRef(`employees/${empId}/foto`).delete(); } catch(e){}
     }
     return null;
   }
@@ -5318,7 +5327,7 @@ async function uploadEmployeePhoto(empId){
   if(!file) return undefined; // undefined = não mudou
   DB.initStorage();
   if(!DB.storage){ toast('Storage não disponível para foto.','warning'); return undefined; }
-  const ref=DB.storage.ref(`employees/${empId}/foto`);
+  const ref=DB.storageRef(`employees/${empId}/foto`);
   await ref.put(file, {contentType:file.type});
   return await ref.getDownloadURL();
 }
@@ -9680,7 +9689,7 @@ async function saveAtestado(){
       if(DB.storage){
         const docId=id||genId();
         const ext=(file.name.split('.').pop()||'dat').toLowerCase();
-        const ref=DB.storage.ref(`atestados/${empId}/${docId}_${Date.now()}.${ext}`);
+        const ref=DB.storageRef(`atestados/${empId}/${docId}_${Date.now()}.${ext}`);
         await ref.put(file);
         arquivoUrl=await ref.getDownloadURL();
         arquivoNome=file.name;
@@ -9915,7 +9924,7 @@ async function saveSaida(){
       DB.initStorage();
       if(DB.storage){
         const ext=(file.name.split('.').pop()||'dat').toLowerCase();
-        const ref=DB.storage.ref(`saidas/${empId}/${id}_${Date.now()}.${ext}`);
+        const ref=DB.storageRef(`saidas/${empId}/${id}_${Date.now()}.${ext}`);
         await ref.put(file);
         arquivoUrl=await ref.getDownloadURL();
         arquivoNome=file.name;
@@ -10077,7 +10086,7 @@ async function saveAtraso(){
       DB.initStorage();
       if(DB.storage){
         const ext=(file.name.split('.').pop()||'dat').toLowerCase();
-        const ref=DB.storage.ref(`atrasos/${empId}/${id}_${Date.now()}.${ext}`);
+        const ref=DB.storageRef(`atrasos/${empId}/${id}_${Date.now()}.${ext}`);
         await ref.put(file);
         arquivoUrl=await ref.getDownloadURL();
         arquivoNome=file.name;
@@ -15364,7 +15373,7 @@ async function enviarComunicacao(){
       }
       const ext=(file.name.split('.').pop()||'bin').toLowerCase();
       const refId=Date.now().toString(36)+Math.random().toString(36).slice(2,8);
-      const ref=firebase.storage().ref(`comunicacoes/${refId}.${ext}`);
+      const ref=DB.storageRef(`comunicacoes/${refId}.${ext}`);
       await ref.put(file);
       anexoUrl=await ref.getDownloadURL();
       anexoNome=file.name;
@@ -15476,7 +15485,7 @@ async function enviarComunicacao(){
         let reciboUrl = '';
         try{
           const blob = new Blob([reciboHtml], { type:'text/html;charset=utf-8' });
-          const refR = firebase.storage().ref(`disciplina/recibos/envio-${discId}.html`);
+          const refR = DB.storageRef(`disciplina/recibos/envio-${discId}.html`);
           await refR.put(blob);
           reciboUrl = await refR.getDownloadURL();
         }catch(err){ console.error('Falha ao subir recibo de envio', err); }
@@ -18214,7 +18223,7 @@ async function onContratoArquivoChange(event){
     setVal('contrato-id', contratoId);
     const ext=file.name.split('.').pop();
     const path=`contratos/${contratoId}/contrato_${Date.now()}.${ext}`;
-    const ref=firebase.storage().ref(path);
+    const ref=DB.storageRef(path);
     await ref.put(file);
     const url=await ref.getDownloadURL();
     setVal('contrato-arquivo-url', url);
@@ -20779,7 +20788,7 @@ async function loadDocumentList(empId){
   }
   docList.innerHTML='<div class="empty-state small"><i class="fa-solid fa-spinner fa-spin"></i><p>Carregando documentos...</p></div>';
   try {
-    const ref=DB.storage.ref(`employees/${empId}`);
+    const ref=DB.storageRef(`employees/${empId}`);
     const result=await ref.listAll();
     const btnAll=document.getElementById('btn-download-all-docs');
     if(result.items.length===0){
@@ -20829,7 +20838,7 @@ async function downloadAllDocuments(){
   if(btn){ btn.disabled=true; btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Gerando ZIP...'; }
 
   try {
-    const ref=DB.storage.ref(`employees/${empId}`);
+    const ref=DB.storageRef(`employees/${empId}`);
     const result=await ref.listAll();
     // Filtra a foto (arquivo chamado exatamente 'foto')
     const docs=result.items.filter(item=>item.name!=='foto');
@@ -20900,7 +20909,7 @@ async function uploadDocument(){
   const btn=document.getElementById('btn-upload-doc');
   setBtnLoading(btn,true,'');
   try {
-    const ref=DB.storage.ref(`employees/${empId}/${storageName}`);
+    const ref=DB.storageRef(`employees/${empId}/${storageName}`);
     await ref.put(file);
     toast('Documento enviado com sucesso!');
     if(fileInput) fileInput.value='';
@@ -20922,7 +20931,7 @@ async function deleteDocument(empId, fileName){
   btn.innerHTML='<i class="fa-solid fa-trash"></i> Excluir';
   btn.onclick=async()=>{
     try {
-      await DB.storage.ref(`employees/${empId}/${fileName}`).delete();
+      await DB.storageRef(`employees/${empId}/${fileName}`).delete();
       closeModal('modal-confirm');
       toast('Documento excluído.','warning');
       await loadDocumentList(empId);

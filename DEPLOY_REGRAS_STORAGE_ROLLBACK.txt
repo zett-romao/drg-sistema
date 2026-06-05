@@ -1,0 +1,26 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function authed()   { return request.auth != null && request.auth.token.drg == true; }
+    function isColab()  { return authed() && request.auth.token.role == 'colaborador'; }
+    function isStaff()  { return authed() && request.auth.token.role != 'colaborador'; }
+    function meuEmp(id) { return request.auth.token.empId == id; }
+
+    // uploads do colaborador — só na PRÓPRIA pasta
+    match /documentos/{empId}/{p=**} { allow read, write: if isStaff() || (isColab() && meuEmp(empId)); }
+    match /atestados/{empId}/{p=**}  { allow read, write: if isStaff() || (isColab() && meuEmp(empId)); }
+
+    // foto, saídas, atrasos — só staff (gestor)
+    match /employees/{empId}/{p=**}  { allow read, write: if isStaff(); }
+    match /saidas/{empId}/{p=**}     { allow read, write: if isStaff(); }
+    match /atrasos/{empId}/{p=**}    { allow read, write: if isStaff(); }
+
+    // anexos de comunicação — staff grava, qualquer logado lê (app do colaborador)
+    match /comunicacoes/{p=**} { allow read: if authed(); allow write: if isStaff(); }
+
+    // disciplina, contratos e tudo mais — só staff
+    match /disciplina/{p=**} { allow read, write: if isStaff(); }
+    match /contratos/{p=**}  { allow read, write: if isStaff(); }
+    match /{allPaths=**}     { allow read, write: if isStaff(); }
+  }
+}

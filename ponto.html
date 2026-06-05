@@ -535,6 +535,11 @@ function dbCol(name) {
     ? _fs.collection('tenants').doc(_tenantId).collection(name)
     : _fs.collection(name);
 }
+// Storage com namespace do tenant (igual dbCol): raiz = plano, tenant = tenants/{id}/... #multitenant-storage
+function _storageRef(path){
+  const s = firebase.storage();
+  return s.ref(_tenantId ? ('tenants/' + _tenantId + '/' + path) : path);
+}
 // Compatibilidade: db aponta para o fs direto (usado em db.collection fora das helpers)
 const db = _fs;
 const DIAS    = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
@@ -1586,7 +1591,7 @@ async function enviarAtestadoApp(){
     const d=new Date(inicio+'T00:00:00');
     const id=Date.now().toString(36)+Math.random().toString(36).substr(2);
     const ext=((file.name||'foto').split('.').pop()||'jpg').toLowerCase();
-    const ref=firebase.storage().ref(`atestados/${currentEmp.id}/${id}.${ext}`);
+    const ref=_storageRef(`atestados/${currentEmp.id}/${id}.${ext}`);
     await ref.put(file);
     const arquivoUrl=await ref.getDownloadURL();
     const doc={
@@ -1623,7 +1628,7 @@ async function enviarDocumento(){
   try{
     const id  = Date.now().toString(36) + Math.random().toString(36).substr(2);
     const ext = ((file.name||'doc').split('.').pop()||'bin').toLowerCase();
-    const ref = firebase.storage().ref(`documentos/${currentEmp.id}/${tipo}/${id}.${ext}`);
+    const ref = _storageRef(`documentos/${currentEmp.id}/${tipo}/${id}.${ext}`);
     await ref.put(file);
     const arquivoUrl = await ref.getDownloadURL();
 

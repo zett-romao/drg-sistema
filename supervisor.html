@@ -579,7 +579,7 @@ function _cardPedido(p){
       <div class="card-head">
         <div style="flex:1;min-width:0">
           <div class="card-nome">${(p.employeeNome||'—').replace(/</g,'&lt;')}</div>
-          <div class="card-reg">Matrícula ${matricula} ${p.employeeCpf ? '· CPF '+p.employeeCpf : ''}</div>
+          <div class="card-reg">Matrícula ${matricula}${(_empSup&&_empSup.posto) ? ' · Posto '+String(_empSup.posto).replace(/</g,'&lt;') : ''} ${p.employeeCpf ? '· CPF '+p.employeeCpf : ''}</div>
         </div>
         <span class="card-tag ${ehFolga?'folga':''}">${tag}</span>
       </div>

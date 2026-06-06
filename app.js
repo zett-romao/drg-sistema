@@ -222,7 +222,11 @@ const EMPRESA_DEFAULTS = {
   encInssPatronalAliq: 20,          // % INSS patronal sobre a folha
   encRatAliq:          1,           // % RAT/SAT (1/2/3 conforme grau de risco)
   encFapFator:         1.0,         // FAP — multiplica o RAT (0,5 a 2,0)
-  encTerceirosAliq:    5.8          // % terceiros (Sistema S, Sal-Educação, INCRA…)
+  encTerceirosAliq:    5.8,         // % terceiros (Sistema S, Sal-Educação, INCRA…)
+  // eSocial — modo por EMPRESA: 'exportar' (gera lote p/ o contador transmitir),
+  // 'transmitir' (back-end próprio assina+envia c/ certificado sob demanda) ou 'ambos'.
+  // O motor de eventos (folha→XML) é o mesmo nos dois caminhos. #esocial
+  esocialModo:         'exportar'   // 'exportar' | 'transmitir' | 'ambos'
 };
 
 // Parâmetros legais — tabelas oficiais atualizáveis (INSS/IRRF/FGTS/aviso prévio).
@@ -4580,7 +4584,8 @@ function _encParamsEmpresa(){
     patrAliq: num(e.encInssPatronalAliq,20),
     ratAliq:  num(e.encRatAliq,1),
     fap:      num(e.encFapFator,1)||1,
-    terAliq:  num(e.encTerceirosAliq,5.8)
+    terAliq:  num(e.encTerceirosAliq,5.8),
+    esocialModo: e.esocialModo || 'exportar'
   };
 }
 function _resumoEncargosCompetencia(mes,ano){
@@ -4674,6 +4679,7 @@ function _preencherEncargosConfig(){
   setVal('enc-rat', P.ratAliq);
   setVal('enc-fap', P.fap);
   setVal('enc-terceiros', P.terAliq);
+  setVal('enc-esocial-modo', P.esocialModo);
   _toggleEncargosAliq();
 }
 function _toggleEncargosAliq(){
@@ -4691,7 +4697,8 @@ async function salvarEncargosConfig(){
     encInssPatronalAliq: num('enc-inss-patronal',20),
     encRatAliq:          num('enc-rat',1),
     encFapFator:         num('enc-fap',1)||1,
-    encTerceirosAliq:    num('enc-terceiros',5.8)
+    encTerceirosAliq:    num('enc-terceiros',5.8),
+    esocialModo:         val('enc-esocial-modo')||'exportar'
   };
   try{
     await DB.saveDoc('configuracoes','empresa',dados,true);
@@ -4706,6 +4713,7 @@ function resetarEncargosConfig(){
   setVal('enc-rat', EMPRESA_DEFAULTS.encRatAliq);
   setVal('enc-fap', EMPRESA_DEFAULTS.encFapFator);
   setVal('enc-terceiros', EMPRESA_DEFAULTS.encTerceirosAliq);
+  setVal('enc-esocial-modo', EMPRESA_DEFAULTS.esocialModo);
   _toggleEncargosAliq();
   toast('Padrão restaurado. Clique em Salvar para aplicar.','info');
 }

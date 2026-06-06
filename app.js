@@ -4931,7 +4931,7 @@ function _renderEsocialDiagnostico(){
       <td style="padding:5px 8px;border:1px solid #e3e8ef">${esc(e.nome)}</td>
       <td style="padding:5px 8px;border:1px solid #e3e8ef;text-align:center;white-space:nowrap">${ok?'<span style="color:#1B5E20;font-weight:700">✓ Pronto</span>':`<span style="color:#B71C1C;font-weight:700">${p.length} pend.</span>`}</td>
       <td style="padding:5px 8px;border:1px solid #e3e8ef;font-size:11px;color:#B71C1C">${ok?'<span style="color:#bbb">—</span>':esc(p.join(' · '))}</td>
-      <td style="padding:5px 8px;border:1px solid #e3e8ef;text-align:center;white-space:nowrap">${ok?`<button class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:11px;border-color:#1a3a6b;color:#1a3a6b" onclick="_gerarEsocialS2200('${e.id}')" title="Gerar o S-2200 (admissão) de ${esc(e.nome)}"><i class="fa-solid fa-download"></i> S-2200</button>`:'<span style="color:#bbb">—</span>'}</td>
+      <td style="padding:5px 8px;border:1px solid #e3e8ef;text-align:center;white-space:nowrap">${ok?`<button class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:11px;border-color:#1a3a6b;color:#1a3a6b" onclick="_gerarEsocialS2200('${e.id}')" title="Gerar o S-2200 (admissão) de ${esc(e.nome)}"><i class="fa-solid fa-download"></i> S-2200</button> <button class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:11px;border-color:#00695C;color:#00695C" onclick="_gerarEsocialS1200('${e.id}')" title="Gerar o S-1200 (remuneração) de ${esc(e.nome)} na competência selecionada"><i class="fa-solid fa-download"></i> S-1200</button>`:'<span style="color:#bbb">—</span>'}</td>
     </tr>`;
   }).join('');
   const empOk=empPend.length===0;
@@ -5327,6 +5327,97 @@ function _gerarEsocialS1010(){
   const bundle=eventos.map((x,i)=>`<!-- ===== evento S-1010 #${i+1} ===== -->\n${x}`).join('\n\n');
   _baixarArquivo(`S-1010_rubricas_${compISO}.xml`, bundle, 'application/xml');
   toast(`S-1010 gerado: ${eventos.length} rubrica(s) (produção restrita). Valide no eSocial.`,'success');
+}
+
+// ===================== S-1200 (remuneração) — usa a tabela de rubricas + a folha =====================
+// Extrai os valores de cada rubrica da folha do colaborador e monta o evtRemun. Só inclui
+// rubricas com NATUREZA preenchida (S-1010) e valor > 0. Lotação = config (S-1020). Leiaute
+// S-1.3, produção restrita. Salário = salarioBase (folha mensal); ajustes finos (faltas
+// proporcionais por rubrica) ficam p/ refino futuro. #esocial
+function _esocialValorRubrica(key, emp, p){
+  const perc=parseInt(p.horasExtrasPerc||50);
+  switch(key){
+    case 'salario':  return +emp.salarioBase||0;
+    case 'he50':     return (perc<100?(+p.horasExtrasValor||0):0)+(+p.heCorridoValor||0);
+    case 'he100':    return (perc>=100?(+p.horasExtrasValor||0):0);
+    case 'adnot':    return +p.adNoturno||0;
+    case 'dsrhe':    return +p.dsrSobreHE||0;
+    case 'insal':    return +p.insalubridade||0;
+    case 'acumulo':  return +p.acumuloFuncao||0;
+    case 'vr':       return 0;
+    case 'desinss':  return +p.inss||0;
+    case 'desirrf':  return +p.irrf||0;
+    case 'desvt':    return +p.vtCoPart||0;
+    case 'desfalta': return 0;
+    case 'desatraso':return +p.descontoAtraso||0;
+    default: return 0;
+  }
+}
+function _esocialEventoS1200(emp, p, compISO){
+  const Q=_esocialParams(); const cnpj14=Q.cnpj.padStart(14,'0'); const raiz=cnpj14.slice(0,8);
+  const id=_esocialId(cnpj14);
+  const ideTab=(State.empresa&&State.empresa.esocialIdeTabRubr)||'1';
+  const codLot=(State.empresa&&State.empresa.esocialCodLotacao)||'1';
+  const cat=emp.categoriaESocial||'101';
+  const matricula=emp.registro?String(emp.registro):'';
+  const itens=_esocialRubricasMap().filter(r=>r.nat).map(r=>({r, v:_esocialValorRubrica(r.key,emp,p)}))
+    .filter(x=>x.v>0)
+    .map(x=>`              <itensRemun>
+                <codRubr>${_xmlEsc(x.r.cod)}</codRubr>
+                <ideTabRubr>${_xmlEsc(ideTab)}</ideTabRubr>
+                <vrRubr>${x.v.toFixed(2)}</vrRubr>
+              </itensRemun>`).join('\n');
+  if(!itens) return null;
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<eSocial xmlns="http://www.esocial.gov.br/schema/evt/remun/v_S_01_03_00">
+  <evtRemun Id="${id}">
+    <ideEvento>
+      <indRetif>1</indRetif>
+      <indApuracao>1</indApuracao>
+      <perApur>${compISO}</perApur>
+      <tpAmb>${Q.tpAmb}</tpAmb>
+      <procEmi>1</procEmi>
+      <verProc>${_xmlEsc(Q.verProc)}</verProc>
+    </ideEvento>
+    <ideEmpregador>
+      <tpInsc>1</tpInsc>
+      <nrInsc>${raiz}</nrInsc>
+    </ideEmpregador>
+    <ideTrabalhador>
+      <cpfTrab>${_soDigitos(emp.cpf)}</cpfTrab>
+    </ideTrabalhador>
+    <dmDev>
+      <ideDmDev>${_xmlEsc(matricula||'1')}</ideDmDev>
+      <codCateg>${cat}</codCateg>
+      <infoPerApur>
+        <ideEstabLot>
+          <tpInsc>1</tpInsc>
+          <nrInsc>${cnpj14}</nrInsc>
+          <codLotacao>${_xmlEsc(codLot)}</codLotacao>
+          <remunPerApur>
+            <matricula>${_xmlEsc(matricula)}</matricula>
+${itens}
+          </remunPerApur>
+        </ideEstabLot>
+      </infoPerApur>
+    </dmDev>
+  </evtRemun>
+</eSocial>`;
+}
+function _gerarEsocialS1200(empId){
+  if(Auth.currentUser?.role!=='master'){ toast('Apenas o master pode gerar eventos do eSocial','error'); return; }
+  const emp=State.employees.find(e=>e.id===empId); if(!emp){ toast('Colaborador não encontrado.','error'); return; }
+  const mes=parseInt(val('cont-mes')||currentMes());
+  const ano=parseInt(val('cont-ano')||currentAno());
+  const compISO=`${ano}-${String(mes).padStart(2,'0')}`;
+  const folhaMap=_buildFolhaMap(State.payrolls.filter(p=>p.mes===mes&&p.ano===ano));
+  const p=folhaMap[empId];
+  if(!p){ toast(`Sem folha de ${(emp.nome||'')} em ${MESES[mes]}/${ano}.`,'error'); return; }
+  if(!_esocialRubricasMap().some(r=>r.nat)){ toast('Preencha a Natureza das rubricas (tabela S-1010) antes do S-1200.','error'); return; }
+  const xml=_esocialEventoS1200(emp,p,compISO);
+  if(!xml){ toast('Nenhuma rubrica com natureza preenchida tem valor nesta folha.','warning'); return; }
+  _baixarArquivo(`S-1200_${_soDigitos(emp.cpf)}_${compISO}.xml`, xml, 'application/xml');
+  toast('S-1200 de '+(emp.nome||'')+' gerado (produção restrita). Valide no eSocial.','success');
 }
 
 // Monta UMA linha da planilha do contador para um colaborador (e sua folha p).

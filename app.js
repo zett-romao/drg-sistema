@@ -4730,6 +4730,103 @@ function _imprimirResumoEncargos(){
   setTimeout(()=>{ try{win.print();}catch(_){}} ,400);
 }
 
+// ===================== DEMONSTRATIVOS POR TRIBUTO (memória de cálculo) — FASE 2 =====================
+// A guia OFICIAL com código de barras só sai do governo (DCTFWeb p/ INSS+IRRF, FGTS Digital
+// p/ FGTS), alimentada pelo eSocial — não dá pra gerar fora. O que entregamos é o
+// DEMONSTRATIVO/memória de cálculo por tributo, com quebra POR COLABORADOR, que o contador
+// usa pra conferir e lançar. #encargos #demonstrativos
+function _demonstrativoEncargosData(mes,ano){
+  const folhasMes=State.payrolls.filter(p=>p.mes===mes && p.ano===ano);
+  const folhaMap=_buildFolhaMap(folhasMes);
+  const P=_encParamsEmpresa();
+  const rows=[];
+  Object.keys(folhaMap).forEach(id=>{
+    const p=folhaMap[id]; if(!p) return;
+    const e=State.employees.find(x=>x.id===id)||{};
+    rows.push({
+      id, nome:(e.nome||p.employeeName||'—'),
+      reg:(e.registro?String(e.registro).padStart(4,'0'):'—'),
+      base:+(p.totalBruto||0), inss:+(p.inss||0), irrf:+(p.irrf||0), fgts:+(p.fgts||0)
+    });
+  });
+  rows.sort((a,b)=>a.nome.localeCompare(b.nome));
+  const T={base:0,inss:0,irrf:0,fgts:0};
+  rows.forEach(r=>{ T.base+=r.base; T.inss+=r.inss; T.irrf+=r.irrf; T.fgts+=r.fgts; });
+  const isSimples=P.regime==='simples';
+  const patronal  = isSimples?0:T.base*P.patrAliq/100;
+  const rat       = isSimples?0:T.base*(P.ratAliq*P.fap)/100;
+  const terceiros = isSimples?0:T.base*P.terAliq/100;
+  const prevTotal = T.inss + patronal + rat + terceiros;
+  return {P,isSimples,rows,T,patronal,rat,terceiros,prevTotal};
+}
+function _demonstrativoEncargosHtml(mes,ano){
+  const d=_demonstrativoEncargosData(mes,ano);
+  const e=State.empresa||{};
+  const {P,isSimples,rows,T,patronal,rat,terceiros,prevTotal}=d;
+  const money=v=>fmtMoney(v||0);
+  const th=(t,al)=>`<th style="text-align:${al||'left'};padding:5px 8px;border:1px solid #cfd8e3;background:#eef4ff;font-size:11px">${t}</th>`;
+  const td=(t,al,bold)=>`<td style="text-align:${al||'left'};padding:4px 8px;border:1px solid #e3e8ef;font-size:11px${bold?';font-weight:700':''}">${t}</td>`;
+  // tabela por colaborador: Colaborador | Cód | Base | <valor>
+  const tabela=(valLbl,getVal,onlyNonZero)=>{
+    const rr=onlyNonZero?rows.filter(r=>getVal(r)>0):rows;
+    if(!rr.length) return '<p style="color:#999;font-size:12px;margin:6px 0">Nenhum valor nesta competência.</p>';
+    const body=rr.map(r=>`<tr>${td(esc(r.nome))}${td(r.reg,'center')}${td(money(r.base),'right')}${td(money(getVal(r)),'right')}</tr>`).join('');
+    const tBase=rr.reduce((s,r)=>s+r.base,0), tVal=rr.reduce((s,r)=>s+getVal(r),0);
+    return `<table style="border-collapse:collapse;width:100%;margin-top:6px">
+      <thead><tr>${th('Colaborador')}${th('Cód.','center')}${th('Remuneração base (R$)','right')}${th(valLbl+' (R$)','right')}</tr></thead>
+      <tbody>${body}</tbody>
+      <tfoot><tr>${td('TOTAL — '+rr.length+' colaborador(es)','left',true)}${td('','center')}${td(money(tBase),'right',true)}${td(money(tVal),'right',true)}</tr></tfoot>
+    </table>`;
+  };
+  const memRow=(lbl,vv,sub,strong)=>`<tr${strong?' style="border-top:2px solid #1a3a6b"':''}><td style="padding:${strong?'5':'3'}px 8px;color:${strong?'#1a3a6b':'#444'};font-weight:${strong?'800':'400'}">${lbl}${sub?` <small style="color:#999;font-weight:400">${sub}</small>`:''}</td><td style="padding:${strong?'5':'3'}px 8px;text-align:right;font-weight:${strong?'800':'600'};color:${strong?'#1a3a6b':'#222'};font-variant-numeric:tabular-nums">${money(vv)}</td></tr>`;
+  const secStyle='page-break-inside:avoid;margin-bottom:26px';
+  const h2=(t,cor)=>`<h2 style="font-size:15px;color:${cor};border-bottom:2px solid ${cor};padding-bottom:4px;margin:0 0 8px">${t}</h2>`;
+  // 1) PREVIDÊNCIA (INSS)
+  const prevMem=`<table style="border-collapse:collapse;min-width:360px;margin-bottom:6px">
+    ${memRow('INSS segurados (retido dos empregados)',T.inss)}
+    ${isSimples?'':memRow('INSS patronal',patronal,P.patrAliq+'%')}
+    ${isSimples?'':memRow('RAT / SAT',rat,P.ratAliq+'%'+(P.fap!==1?' × FAP '+P.fap:''))}
+    ${isSimples?'':memRow('Terceiros (Sistema S, Sal-Educação…)',terceiros,P.terAliq+'%')}
+    ${memRow('Total previdenciário a recolher',prevTotal,'',true)}
+  </table>
+  ${isSimples?'<div style="font-size:11px;color:#33691E;background:#F1F8E9;border:1px solid #C5E1A5;border-radius:6px;padding:8px 10px;margin-bottom:6px"><b>Simples Nacional:</b> a contribuição patronal (CPP) está no DAS. Recolhe-se à parte apenas o <b>INSS retido dos empregados</b> (via DCTFWeb/DARF).</div>':'<div style="font-size:11px;color:#666;margin-bottom:6px">Recolhimento via <b>DCTFWeb → DARF previdenciário</b> (alimentado pelo eSocial).</div>'}`;
+  const secPrev=`<div style="${secStyle}">${h2('1. Previdência (INSS)','#1a3a6b')}${prevMem}${tabela('INSS segurado',r=>r.inss,false)}</div>`;
+  // 2) FGTS
+  const fgtsMem=`<table style="border-collapse:collapse;min-width:360px;margin-bottom:6px">
+    ${memRow('Base FGTS (remuneração)',T.base)}
+    ${memRow('FGTS a depositar',T.fgts,'8%',true)}
+  </table>
+  <div style="font-size:11px;color:#666;margin-bottom:6px">Depósito via <b>FGTS Digital</b> (guia com QR Code/PIX gerada pelo sistema, a partir do eSocial).</div>`;
+  const secFgts=`<div style="${secStyle}">${h2('2. FGTS','#00695C')}${fgtsMem}${tabela('FGTS 8%',r=>r.fgts,false)}</div>`;
+  // 3) IRRF
+  const irrfMem=`<table style="border-collapse:collapse;min-width:360px;margin-bottom:6px">
+    ${memRow('IRRF retido na fonte',T.irrf,'DARF 0561',true)}
+  </table>
+  <div style="font-size:11px;color:#666;margin-bottom:6px">Recolhimento via <b>DCTFWeb → DARF (código 0561)</b>. A base legal do IRRF é a remuneração líquida de INSS, dependentes, pensão e plano de saúde (difere da remuneração bruta).</div>`;
+  const secIrrf=`<div style="${secStyle}">${h2('3. IRRF (Imposto de Renda Retido na Fonte)','#B71C1C')}${irrfMem}${tabela('IRRF retido',r=>r.irrf,true)}</div>`;
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Demonstrativos de Encargos ${MESES[mes]}/${ano}</title>
+  <style>body{font-family:Arial,Helvetica,sans-serif;color:#222;padding:24px;max-width:900px;margin:0 auto}h1{font-size:18px;color:#1a3a6b;margin:0 0 2px}small{color:#666}@media print{.noprint{display:none}}</style>
+  </head><body>
+  <div style="display:flex;align-items:center;gap:14px;border-bottom:2px solid #e8f0fe;padding-bottom:12px;margin-bottom:18px">
+    <img src="${_logoSrc()}" style="height:42px;object-fit:contain" onerror="this.style.display='none'">
+    <div><h1>${esc(e.nomeEmpresa||'Empresa')}</h1><small>${esc(e.cnpj||'')} · Demonstrativos de Encargos (memória de cálculo) — ${MESES[mes]}/${ano} · Regime: ${isSimples?'Simples Nacional':'Lucro Presumido/Real'}</small></div>
+  </div>
+  ${secPrev}${secFgts}${secIrrf}
+  <div style="margin-top:14px;font-size:10px;color:#999;border-top:1px solid #eee;padding-top:8px">Documento de CONFERÊNCIA (memória de cálculo) — não é guia de arrecadação. As guias oficiais (DARF/FGTS Digital) são emitidas pelos sistemas do governo a partir do eSocial. Base mensal; não inclui 13º, férias e rescisões. Gerado em ${new Date().toLocaleString('pt-BR')} · DRG-Kronos</div>
+  </body></html>`;
+}
+function _imprimirDemonstrativosEncargos(){
+  const mes=parseInt(val('cont-mes')||currentMes());
+  const ano=parseInt(val('cont-ano')||currentAno());
+  const d=_demonstrativoEncargosData(mes,ano);
+  if(!d.rows.length){ toast('Sem folhas nesta competência.','warning'); return; }
+  const win=window.open('','_blank');
+  if(!win){ toast('Permita pop-ups para imprimir.','warning'); return; }
+  win.document.write(_demonstrativoEncargosHtml(mes,ano));
+  win.document.close();
+  setTimeout(()=>{ try{win.print();}catch(_){}} ,500);
+}
+
 // Monta UMA linha da planilha do contador para um colaborador (e sua folha p).
 // Retorna campos já calculados (valores numéricos + textos formatados) usados
 // tanto na tabela da tela quanto na exportação CSV. #planilha-contador

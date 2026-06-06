@@ -4425,6 +4425,7 @@ function _apuracaoPontoTotais(emp, p){
   // faltas). Sem ponto, as faltas vêm do nº SALVO (faltasInjustificadas). #fix-falta-sem-ponto
   const temPonto = diasPonto.length>0;
   const is12x36=escalaFamilia(emp.escala||'5x2A')==='12x36';
+  const _MCa = _minContratadosEmp(emp);
   let diasPrevistosCnt=0;
   for(const cd of _compDias(mes,ano)){
     const d=cd.dia, dow=cd.diaSem, isWknd=dow===0||dow===6;
@@ -4440,7 +4441,10 @@ function _apuracaoPontoTotais(emp, p){
     if(!ehFolga){ let mbE=timeToMinutes(exp.saida)-timeToMinutes(exp.entrada); if(mbE<=0)mbE+=24*60; contratualIntMin=_calcIntervaloMin(exp.intIni,exp.intFim,exp.entrada,exp.saida); if((emp.semRefeicao||is12x36)&&contratualIntMin===0&&mbE>360)contratualIntMin=60; prevMin=Math.max(0,mbE-contratualIntMin); }
     if(!ehFolga) diasPrevistosCnt++;
     const temBatida=!!(entrada&&saida);
-    if(!ehFolga&&temBatida){ const _ir=_calcIntervaloMin(intIni,intFim,entrada,saida); const delta=is12x36?((minLiq+_ir)-(prevMin+contratualIntMin)):(minLiq-prevMin); if(Math.abs(delta)>HE_TOLERANCIA_DIA_MIN){ if(delta>0)out.extraMin+=delta; else out.atrasoMin+=-delta; } const _nr=Math.max(0,contratualIntMin-_ir); out.naoRendMin+=(_nr>HE_TOLERANCIA_DIA_MIN?_nr:0); }   /* ref. não rendida só conta acima da tolerância 10min/dia (Súmula 366). #ref-tolerancia */
+    // HE = SÓ a AUTORIZADA — mesma fonte (_heMinDia) que o pagamento usa; HE não
+    // aprovada na revisão não entra na apuração. Atraso/ref.não rendida seguem pelo déficit. #he-autorizada-folha
+    if(temBatida){ out.extraMin += _heMinDia({...(_bat||{}), heReview: pd.heReview}, exp, _MCa); }
+    if(!ehFolga&&temBatida){ const _ir=_calcIntervaloMin(intIni,intFim,entrada,saida); const delta=is12x36?((minLiq+_ir)-(prevMin+contratualIntMin)):(minLiq-prevMin); if(delta<0&&Math.abs(delta)>HE_TOLERANCIA_DIA_MIN){ out.atrasoMin+=-delta; } const _nr=Math.max(0,contratualIntMin-_ir); out.naoRendMin+=(_nr>HE_TOLERANCIA_DIA_MIN?_nr:0); }   /* ref. não rendida só conta acima da tolerância 10min/dia (Súmula 366). #ref-tolerancia */
     else if(!ehFolga&&!temBatida&&temPonto&&_diaEmBrancoEhFalta(emp,cd.mes,cd.ano,d,isWknd,is12x36)){ out.faltaMin+=prevMin; out.faltaQtd++; }
     out.trabMin+=(minLiq>0?minLiq:0); out.prevMin+=prevMin;
   }
@@ -22114,14 +22118,18 @@ function _heMinDia(realDay, expectedDay, minContratados){
   return aprovado ? excesso : 0;
 }
 
+// Minutos contratados/dia da escala — fonte única (usada pelo _heMinDia e pela
+// folha impressa, p/ a HE da folha bater com a HE do pagamento). #he-autorizada-folha
+function _minContratadosEmp(emp){
+  const fam = escalaFamilia((emp&&emp.escala)||'5x2A');
+  let mc = fam==='6x1' ? 440 : (fam==='12x36' ? 660 : 480);
+  const _m = _escalaModelo(emp&&emp.escala);
+  if(_m) mc = _modeloMinContratados(_m);
+  return mc;
+}
 function _heMinFromDias(emp, mes, ano, dias){
   if(!emp || !Array.isArray(dias)) return 0;
-  const fam = escalaFamilia(emp.escala||'5x2A');
-  let minContratados = 480;
-  if(fam==='6x1') minContratados = 440;
-  else if(fam==='12x36') minContratados = 660;
-  const _modMC = _escalaModelo(emp.escala);
-  if(_modMC) minContratados = _modeloMinContratados(_modMC);
+  const minContratados = _minContratadosEmp(emp);
   let total = 0;
   dias.forEach(d => {
     if(!d || !d.entrada || !d.saida) return;
@@ -23591,6 +23599,7 @@ function printFolhaPonto(isPreview=false){
   const fam=escalaFamilia(emp.escala||'5x2A');
   const is12x36=fam==='12x36';
   const isentoPonto=!!emp.isentoPonto;
+  const _MC = _minContratadosEmp(emp);   // HE da folha = HE do pagamento (_heMinDia). #he-autorizada-folha
 
   // Monta tabela de dias da competência (26/mês-anterior → 25/mês)
   const diasSemana=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
@@ -23629,12 +23638,15 @@ function printFolhaPonto(isPreview=false){
     }
     const temBatida = !!(entrada&&saida);
     let atrasoMin=0, extraMin=0, faltaMin=0, naoRendMin=0;
+    // HE = SÓ a AUTORIZADA — mesma fonte (_heMinDia) que o pagamento; HE não aprovada
+    // na revisão NÃO entra na folha. Cobre dia normal e folga trabalhada. #he-autorizada-folha
+    if(temBatida) extraMin = _heMinDia({..._bat, heReview: pontodia.heReview}, exp, _MC);
     if(!ehFolga && temBatida){
       const realIntMin = _calcIntervaloMin(intIni,intFim,entrada,saida);
-      // Plantão 12x36: jornada sem horário fixo, com 60min de refeição DENTRO → atraso/HE
+      // Plantão 12x36: jornada sem horário fixo, com 60min de refeição DENTRO → atraso
       // pela PRESENÇA (jornada cumprida), não pelo líquido, senão fazer o almoço viraria atraso. #plantao-refeicao
       const delta = is12x36 ? ((minLiq+realIntMin)-(prevMin+contratualIntMin)) : (minLiq - prevMin);
-      if(Math.abs(delta) > HE_TOLERANCIA_DIA_MIN){ if(delta>0) extraMin=delta; else atrasoMin=-delta; }   // tolerância CLT 10min/dia (Art. 58 §1 / Súmula 366)
+      if(delta < 0 && Math.abs(delta) > HE_TOLERANCIA_DIA_MIN) atrasoMin = -delta;   // atraso = déficit acima da tolerância (Súmula 366)
       const _nrShort = Math.max(0, contratualIntMin - realIntMin);
       naoRendMin = (_nrShort > HE_TOLERANCIA_DIA_MIN) ? _nrShort : 0;   // tolerância 10min/dia (Súmula 366) — resíduo de poucos min não conta. #ref-tolerancia
     } else if(!ehFolga && !temBatida && _diaEmBrancoEhFalta(emp,cd.mes,cd.ano,d,isWknd,is12x36)){
@@ -23967,6 +23979,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
   const fam          = escalaFamilia(emp.escala||'5x2A');
   const is12x36      = fam==='12x36';
   const isentoPonto  = !!emp.isentoPonto;
+  const _MC = _minContratadosEmp(emp);   // HE da folha = HE do pagamento (_heMinDia). #he-autorizada-folha
   let tabelaDias='';
   // Acumuladores do período (rodapé "Apuração do Período"). #folha-detalhada
   let totTrab=0, totPrev=0, totAtraso=0, totExtra=0, totFaltaMin=0, totFaltaQtd=0, totNaoRend=0;
@@ -24003,9 +24016,12 @@ function _buildFolhaHtmlFromRecord(emp, p){
     }
     const temBatida = !!(entrada&&saida);
     let atrasoMin=0, extraMin=0, faltaMin=0, naoRendMin=0;
+    // HE = SÓ a AUTORIZADA — mesma fonte (_heMinDia) que o pagamento; HE não aprovada
+    // na revisão NÃO entra na folha. Cobre dia normal e folga trabalhada. #he-autorizada-folha
+    if(temBatida) extraMin = _heMinDia({..._bat, heReview: pontodia.heReview}, exp, _MC);
     if(!ehFolga && temBatida){
       const delta = minLiq - prevMin;
-      if(Math.abs(delta) > HE_TOLERANCIA_DIA_MIN){ if(delta>0) extraMin=delta; else atrasoMin=-delta; }   // tolerância CLT 10min/dia (Art. 58 §1 / Súmula 366)
+      if(delta < 0 && Math.abs(delta) > HE_TOLERANCIA_DIA_MIN) atrasoMin = -delta;   // atraso = déficit acima da tolerância (Súmula 366)
       // Refeição não rendida = intervalo contratual − intervalo realmente tirado
       const realIntMin = _calcIntervaloMin(intIni,intFim,entrada,saida);
       const _nrShort = Math.max(0, contratualIntMin - realIntMin);

@@ -228,7 +228,10 @@ const EMPRESA_DEFAULTS = {
   // O motor de eventos (folha→XML) é o mesmo nos dois caminhos. #esocial
   esocialModo:         'exportar',  // 'exportar' | 'transmitir' | 'ambos'
   esocialTpAmb:        '2',         // 1=produção, 2=produção restrita (homologação) — default seguro
-  esocialClassTrib:    ''           // classificação tributária eSocial (ex.: 99 geral, 03 Simples) — o contador confirma
+  esocialClassTrib:    '',          // classificação tributária eSocial (ex.: 99 geral, 03 Simples) — o contador confirma
+  esocialContatoNome:  '',          // nmCtt — nome do responsável/contato (S-1000)
+  esocialContatoCpf:   '',          // cpfCtt — CPF do responsável/contato (S-1000, obrigatório)
+  esocialVerProc:      'DRG-Kronos' // verProc — identificação do software emissor
 };
 
 // Parâmetros legais — tabelas oficiais atualizáveis (INSS/IRRF/FGTS/aviso prévio).
@@ -4683,6 +4686,8 @@ function _preencherEncargosConfig(){
   setVal('enc-terceiros', P.terAliq);
   setVal('enc-esocial-modo', P.esocialModo);
   setVal('enc-classtrib', (State.empresa&&State.empresa.esocialClassTrib)||'');
+  setVal('enc-contato-nome', (State.empresa&&State.empresa.esocialContatoNome)||'');
+  setVal('enc-contato-cpf', (State.empresa&&State.empresa.esocialContatoCpf)||'');
   _toggleEncargosAliq();
 }
 function _toggleEncargosAliq(){
@@ -4702,7 +4707,9 @@ async function salvarEncargosConfig(){
     encFapFator:         num('enc-fap',1)||1,
     encTerceirosAliq:    num('enc-terceiros',5.8),
     esocialModo:         val('enc-esocial-modo')||'exportar',
-    esocialClassTrib:    val('enc-classtrib')||''
+    esocialClassTrib:    val('enc-classtrib')||'',
+    esocialContatoNome:  val('enc-contato-nome')||'',
+    esocialContatoCpf:   _soDigitos(val('enc-contato-cpf'))
   };
   try{
     await DB.saveDoc('configuracoes','empresa',dados,true);
@@ -4719,6 +4726,8 @@ function resetarEncargosConfig(){
   setVal('enc-terceiros', EMPRESA_DEFAULTS.encTerceirosAliq);
   setVal('enc-esocial-modo', EMPRESA_DEFAULTS.esocialModo);
   setVal('enc-classtrib', EMPRESA_DEFAULTS.esocialClassTrib);
+  setVal('enc-contato-nome', EMPRESA_DEFAULTS.esocialContatoNome);
+  setVal('enc-contato-cpf', EMPRESA_DEFAULTS.esocialContatoCpf);
   _toggleEncargosAliq();
   toast('Padrão restaurado. Clique em Salvar para aplicar.','info');
 }
@@ -4863,7 +4872,10 @@ function _esocialParams(){
     classTrib:(e.esocialClassTrib||'').trim(),
     regime:_encParamsEmpresa().regime,
     cnpj:_soDigitos(e.cnpj),
-    modo:(e.esocialModo||'exportar')
+    modo:(e.esocialModo||'exportar'),
+    contatoNome:(e.esocialContatoNome||'').trim(),
+    contatoCpf:_soDigitos(e.esocialContatoCpf),
+    verProc:(e.esocialVerProc||'DRG-Kronos').trim()
   };
 }
 function _esocialPendenciasEmpresa(){
@@ -4872,6 +4884,8 @@ function _esocialPendenciasEmpresa(){
   if(!Q.classTrib) f.push('Classificação tributária (eSocial)');
   if(!e.cnae) f.push('CNAE');
   if(!e.cep || !e.uf) f.push('Endereço (CEP/UF)');
+  if(!Q.contatoNome) f.push('Nome do responsável/contato');
+  if(!_cpfValido(Q.contatoCpf)) f.push('CPF do responsável/contato');
   return f;
 }
 function _esocialPendenciasColab(e){
@@ -4925,8 +4939,89 @@ function _renderEsocialDiagnostico(){
       </div>
     </div>
     ${tabela}
-    <div style="margin-top:10px;font-size:11px;color:#999;line-height:1.5"><i class="fa-solid fa-circle-info"></i> Conferência de cadastro p/ o eSocial (CPF/PIS validados com dígito verificador). Corrija as pendências no cadastro de cada colaborador (e em Configurações, a empresa) antes de gerar os eventos. A geração dos XMLs (S-1000/S-2200/S-1200) vem a seguir, sobre esta base.</div>`;
+    <div style="margin-top:12px;padding-top:10px;border-top:1px dashed #e0e0e0">
+      <div style="font-weight:700;color:#1a3a6b;font-size:13px;margin-bottom:6px"><i class="fa-solid fa-file-code"></i> Gerar eventos (XML)</div>
+      <button class="btn btn-outline btn-sm" ${empOk?'':'disabled'} onclick="_gerarEsocialS1000()" style="${empOk?'border-color:#1a3a6b;color:#1a3a6b':''}" title="${empOk?'Gera o XML do S-1000 (dados do empregador)':'Corrija as pendências da empresa primeiro'}"><i class="fa-solid fa-building"></i> Gerar S-1000 (empregador)</button>
+      <span style="font-size:11px;color:#999;margin-left:8px">Ambiente: <b>produção restrita</b> (tpAmb=2). Valide o XML no eSocial antes da produção. Próximos eventos: S-2200, S-1200/S-1210.</span>
+    </div>
+    <div style="margin-top:10px;font-size:11px;color:#999;line-height:1.5"><i class="fa-solid fa-circle-info"></i> Conferência de cadastro p/ o eSocial (CPF/PIS validados com dígito verificador). Corrija as pendências no cadastro de cada colaborador (e em Configurações, a empresa) antes de gerar os eventos.</div>`;
   card.style.display='';
+}
+
+// --- Geração de XML do eSocial (helpers + S-1000) — Fase 3b, passo 2 ---
+function _xmlEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;'); }
+function _baixarArquivo(nome, conteudo, mime){
+  const blob=new Blob([conteudo],{type:(mime||'text/plain')+';charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download=nome;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+function _esocialTS(){ const d=new Date(); const p=n=>String(n).padStart(2,'0'); return ''+d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds()); }
+// Id do evento: ID + tpInsc(1) + nrInsc(14, zero-pad p/ CNPJ) + aaaammddhhmmss + sequencial(5) = 36 chars.
+function _esocialId(nrInsc14){ return 'ID1'+String(nrInsc14).padStart(14,'0')+_esocialTS()+'00001'; }
+// S-1000 (evtInfoEmpregador) — leiaute S-1.3 (namespace v_S_01_03_00). Estrutura mínima de
+// INCLUSÃO p/ empresa (tpInsc=1/CNPJ). Gerado em produção RESTRITA (tpAmb=2) — validar no
+// eSocial antes de produção. indPertIRRF/dadosIsencao/infoOrgInternacional não incluídos
+// (aplicáveis a naturezas/regimes específicos — ajustar com o contador). #esocial
+function _esocialEventoS1000(competenciaISO){
+  const e=State.empresa||{}; const Q=_esocialParams();
+  const cnpj14=Q.cnpj.padStart(14,'0');
+  const raiz=cnpj14.slice(0,8);
+  const id=_esocialId(cnpj14);
+  const iniValid=competenciaISO || (new Date().toISOString().slice(0,7));
+  const fone=_soDigitos(e.telefone).slice(0,13);
+  const email=(e.email||'').slice(0,60);
+  const linhasContato=[
+    `        <nmCtt>${_xmlEsc((Q.contatoNome||'').slice(0,70))}</nmCtt>`,
+    `        <cpfCtt>${Q.contatoCpf}</cpfCtt>`,
+    fone?`        <foneFixo>${fone}</foneFixo>`:'',
+    email?`        <email>${_xmlEsc(email)}</email>`:''
+  ].filter(Boolean).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<eSocial xmlns="http://www.esocial.gov.br/schema/evt/evtInfoEmpregador/v_S_01_03_00">
+  <evtInfoEmpregador Id="${id}">
+    <ideEvento>
+      <tpAmb>${Q.tpAmb}</tpAmb>
+      <procEmi>1</procEmi>
+      <verProc>${_xmlEsc(Q.verProc)}</verProc>
+    </ideEvento>
+    <ideEmpregador>
+      <tpInsc>1</tpInsc>
+      <nrInsc>${raiz}</nrInsc>
+    </ideEmpregador>
+    <infoEmpregador>
+      <inclusao>
+        <idePeriodo>
+          <iniValid>${iniValid}</iniValid>
+        </idePeriodo>
+        <infoCadastro>
+          <classTrib>${_xmlEsc(Q.classTrib)}</classTrib>
+          <indCoop>0</indCoop>
+          <indConstr>0</indConstr>
+          <indDesFolha>0</indDesFolha>
+          <indOptRegEletron>1</indOptRegEletron>
+          <indEntEd>N</indEntEd>
+          <indEtt>N</indEtt>
+          <contato>
+${linhasContato}
+          </contato>
+        </infoCadastro>
+      </inclusao>
+    </infoEmpregador>
+  </evtInfoEmpregador>
+</eSocial>`;
+}
+function _gerarEsocialS1000(){
+  if(Auth.currentUser?.role!=='master'){ toast('Apenas o master pode gerar eventos do eSocial','error'); return; }
+  const pend=_esocialPendenciasEmpresa();
+  if(pend.length){ toast('Complete os dados da empresa antes: '+pend.join(' · '),'error'); return; }
+  const mes=parseInt(val('cont-mes')||currentMes());
+  const ano=parseInt(val('cont-ano')||currentAno());
+  const compISO=`${ano}-${String(mes).padStart(2,'0')}`;
+  const xml=_esocialEventoS1000(compISO);
+  const cnpj=_soDigitos((State.empresa||{}).cnpj);
+  _baixarArquivo(`S-1000_${cnpj}_${compISO}.xml`, xml, 'application/xml');
+  toast('S-1000 gerado (produção restrita). Valide no eSocial antes de transmitir.','success');
 }
 
 // Monta UMA linha da planilha do contador para um colaborador (e sua folha p).

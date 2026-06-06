@@ -1394,6 +1394,7 @@
             <p>Controle de EPIs e materiais — CA, nota fiscal, fornecedor, saldo e baixas</p>
           </div>
           <div style="display:flex;gap:8px">
+            <button class="btn btn-outline" onclick="openNotasFiscais()"><i class="fa-solid fa-folder-open"></i> Notas Fiscais</button>
             <button class="btn btn-primary" onclick="openEstoqueItem()"><i class="fa-solid fa-plus"></i> Novo item</button>
           </div>
         </div>
@@ -5548,6 +5549,32 @@
   </div>
 </div>
 
+<!-- ===== ESTOQUE: modal de NOTAS FISCAIS arquivadas ===== -->
+<div class="modal-overlay hidden" id="modal-notas-fiscais" onclick="closeModal('modal-notas-fiscais', event)">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-folder-open"></i> Notas Fiscais arquivadas</h3>
+      <button class="modal-close" onclick="closeModal('modal-notas-fiscais')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="search-bar" style="margin-bottom:10px">
+        <i class="fa-solid fa-magnifying-glass"></i>
+        <input type="text" id="notas-fiscais-busca" placeholder="Buscar por fornecedor ou nº da NF..." oninput="renderNotasFiscais()">
+      </div>
+      <p style="font-size:11px;color:var(--text-muted);margin:0 0 8px"><i class="fa-solid fa-circle-info"></i> Toda nota importada pela IA é arquivada aqui automaticamente, em pasta própria, pra consulta futura (auditoria/fiscalização).</p>
+      <div style="overflow-x:auto">
+        <table class="data-table" style="font-size:13px">
+          <thead><tr><th>Data</th><th>Fornecedor</th><th>Nº NF</th><th style="text-align:center">Itens</th><th style="text-align:right">Valor</th><th style="text-align:right">Arquivo</th></tr></thead>
+          <tbody id="notas-fiscais-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-notas-fiscais')">Fechar</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== ESTOQUE: modal da LISTA de itens importados da NF (IA) ===== -->
 <div class="modal-overlay hidden" id="modal-estoque-import" onclick="closeModal('modal-estoque-import', event)">
   <div class="modal-dialog modal-lg">
@@ -6890,6 +6917,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260606a-estoque-nf-ia"></script>
+  <script src="app.js?v=20260606b-notas-arquivadas"></script>
 </body>
 </html>

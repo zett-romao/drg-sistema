@@ -18420,6 +18420,7 @@ async function saveEstoqueItem(){
           data:val('estq-item-imp-data')||new Date().toISOString().substring(0,10),
           fornecedor:val('estq-item-imp-fornecedor')||'', numeroNF:val('estq-item-imp-nf')||'',
           valorUnit, valorTotal:+(valorUnit*qtd).toFixed(2),
+          notaId:(_estoqueImport&&_estoqueImport.notaId)||'', notaUrl:(_estoqueImport&&_estoqueImport.notaUrl)||'',
           porNome:Auth.currentUser?.username||'', createdAt:new Date().toISOString() });
       }
       if(_estoqueImport && _estoqueImport.itens[+impIdx]) _estoqueImport.itens[+impIdx]._salvo=true;
@@ -18669,7 +18670,23 @@ async function onNotaEstoqueSelected(input){
     const itens=Array.isArray(d.itens)?d.itens.filter(i=>i && String(i.nome||'').trim()):[];
     if(!itens.length){ if(st) st.innerHTML=`<span style="color:#C62828"><i class="fa-solid fa-circle-xmark"></i> Não consegui ler itens nessa nota. Tente um PDF/foto mais nítido — ou cadastre manualmente.</span>`; return; }
     _estoqueImport={ fornecedor:d.fornecedor||'', numeroNF:d.numeroNF||'', dataCompra:d.dataCompra||'', itens: itens.map(i=>({ ...i, _salvo:false })) };
-    if(st) st.innerHTML=`<span style="color:#15803D"><i class="fa-solid fa-circle-check"></i> <strong>${itens.length}</strong> item(ns) lido(s)${d.fornecedor?` — ${esc(d.fornecedor)}`:''}${d.numeroNF?`, NF ${esc(d.numeroNF)}`:''}. Confira na lista.</span>`;
+    // Arquiva o ARQUIVO da nota no Storage + cria o registro consultável (pasta própria). #estoque-nf
+    try{
+      const ext=(f.name.split('.').pop()||'pdf').toLowerCase();
+      const notaId=genId();
+      const ym=(d.dataCompra||new Date().toISOString().substring(0,10)).substring(0,7);
+      const path=`notasFiscais/${ym}/${notaId}.${ext}`;
+      const ref=DB.storageRef(path);
+      await ref.put(f, {contentType:f.type||'application/octet-stream'});
+      const url=await ref.getDownloadURL();
+      const valorTotal=itens.reduce((s,i)=>s+(+i.valorUnitario||0)*(+i.quantidade||0),0);
+      await DB.save('notasFiscais', { id:notaId, fornecedor:d.fornecedor||'', numeroNF:d.numeroNF||'',
+        dataCompra:d.dataCompra||'', arquivoUrl:url, arquivoPath:path, fileName:f.name,
+        itens:itens.length, valorTotal:+valorTotal.toFixed(2),
+        uploadEm:new Date().toISOString(), porNome:Auth.currentUser?.username||'' });
+      _estoqueImport.notaId=notaId; _estoqueImport.notaUrl=url;
+    }catch(e){ console.warn('arquivar NF:', e&&e.message); }
+    if(st) st.innerHTML=`<span style="color:#15803D"><i class="fa-solid fa-circle-check"></i> <strong>${itens.length}</strong> item(ns) lido(s)${d.fornecedor?` — ${esc(d.fornecedor)}`:''}${d.numeroNF?`, NF ${esc(d.numeroNF)}`:''}. Nota arquivada. Confira na lista.</span>`;
     abrirEstoqueImport();
   }catch(e){ if(st) st.innerHTML=`<span style="color:#C62828"><i class="fa-solid fa-circle-xmark"></i> Erro ao ler a nota: ${esc((e&&e.message)||'falha')}.</span>`; }
 }
@@ -18714,6 +18731,27 @@ function abrirItemDaImportacao(idx){
   setVal('estq-item-imp-data', _estoqueImport.dataCompra||'');
   const box=document.getElementById('estq-item-import-box'); if(box) box.style.display='';
   const t=document.getElementById('estq-item-title'); if(t) t.textContent='Conferir item importado da NF';
+}
+// Arquivo de Notas Fiscais (consulta futura) — pasta própria no Storage. #estoque-nf
+function openNotasFiscais(){
+  renderNotasFiscais();
+  document.getElementById('modal-notas-fiscais').classList.remove('hidden');
+}
+function renderNotasFiscais(){
+  const tbody=document.getElementById('notas-fiscais-tbody'); if(!tbody) return;
+  const busca=(val('notas-fiscais-busca')||'').toLowerCase();
+  let nfs=(State.notasFiscais||[]).filter(Boolean);
+  if(busca) nfs=nfs.filter(n=>(`${n.fornecedor||''} ${n.numeroNF||''}`).toLowerCase().includes(busca));
+  nfs=nfs.slice().sort((a,b)=>String(b.dataCompra||b.uploadEm||'').localeCompare(String(a.dataCompra||a.uploadEm||'')));
+  if(!nfs.length){ tbody.innerHTML=`<tr><td colspan="6" style="text-align:center;padding:20px;color:#888">Nenhuma nota arquivada ainda. Importe uma pelo "Cadastro em lote por NF (IA)".</td></tr>`; return; }
+  tbody.innerHTML=nfs.map((n,i)=>`<tr style="background:${i%2?'#F8FAFF':'#fff'}">
+    <td style="padding:7px 9px">${n.dataCompra?formatDateBr(n.dataCompra):(n.uploadEm?formatDateBr(n.uploadEm.substring(0,10)):'—')}</td>
+    <td style="padding:7px 9px"><strong>${esc(n.fornecedor||'—')}</strong></td>
+    <td style="padding:7px 9px">${esc(n.numeroNF||'—')}</td>
+    <td style="padding:7px 9px;text-align:center">${n.itens||'—'}</td>
+    <td style="padding:7px 9px;text-align:right">${(+n.valorTotal>0)?fmtMoney(n.valorTotal):'—'}</td>
+    <td style="padding:7px 9px;text-align:right">${n.arquivoUrl?`<a href="${n.arquivoUrl}" target="_blank" rel="noopener" class="btn btn-sm btn-outline"><i class="fa-solid fa-download"></i> Abrir</a>`:'<span style="color:#bbb">sem arquivo</span>'}</td>
+  </tr>`).join('');
 }
 
 // Configuração de todos os tipos de relatório disponíveis
@@ -26966,6 +27004,11 @@ async function _carregarDadosPosLogin(){
   DB.listen('estoqueMov', data => {
     State.estoqueMov = data;
     if(State.currentSection==='estoque') renderEstoque();
+  });
+  DB.listen('notasFiscais', data => {
+    State.notasFiscais = data;
+    const _nfModal=document.getElementById('modal-notas-fiscais');
+    if(_nfModal && !_nfModal.classList.contains('hidden')) renderNotasFiscais();
   });
   DB.listen('decimoTerceiro', data => {
     State.decimoTerceiro = data;

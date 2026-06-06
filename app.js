@@ -231,7 +231,10 @@ const EMPRESA_DEFAULTS = {
   esocialClassTrib:    '',          // classificação tributária eSocial (ex.: 99 geral, 03 Simples) — o contador confirma
   esocialContatoNome:  '',          // nmCtt — nome do responsável/contato (S-1000)
   esocialContatoCpf:   '',          // cpfCtt — CPF do responsável/contato (S-1000, obrigatório)
-  esocialVerProc:      'DRG-Kronos' // verProc — identificação do software emissor
+  esocialVerProc:      'DRG-Kronos',// verProc — identificação do software emissor
+  esocialRubricas:     {},          // mapa rubrica→{cod,nat,tp,cp,ir,fg} p/ o S-1010/S-1200
+  esocialIdeTabRubr:   '1',         // identificador da tabela de rubricas do empregador
+  esocialCodLotacao:   '1'          // código de lotação tributária (S-1020) — default 1
 };
 
 // Parâmetros legais — tabelas oficiais atualizáveis (INSS/IRRF/FGTS/aviso prévio).
@@ -5203,6 +5206,129 @@ function _gerarEsocialS2200(empId){
   toast('S-2200 de '+(emp.nome||'')+' gerado (produção restrita). Valide no eSocial.','success');
 }
 
+// ===================== S-1010 (tabela de RUBRICAS) — base do S-1200 =====================
+// O eSocial classifica cada verba por uma NATUREZA (Tabela 3) + incidências (INSS/IRRF/FGTS).
+// Esses códigos dependem do enquadramento → o contador confirma. Aqui o mapa é EDITÁVEL:
+// pré-preenchemos descrição/tipo/código; natureza e incidências o usuário completa. #esocial
+const ESOCIAL_RUBR_BASE=[
+  {key:'salario',  desc:'Salário base',                 tp:'1'},
+  {key:'he50',     desc:'Horas extras 50%',             tp:'1'},
+  {key:'he100',    desc:'Horas extras 100%',            tp:'1'},
+  {key:'adnot',    desc:'Adicional noturno',            tp:'1'},
+  {key:'dsrhe',    desc:'DSR sobre horas extras',       tp:'1'},
+  {key:'insal',    desc:'Adicional de insalubridade',   tp:'1'},
+  {key:'acumulo',  desc:'Acúmulo de função',            tp:'1'},
+  {key:'vr',       desc:'Vale refeição/alimentação',    tp:'1'},
+  {key:'desinss',  desc:'Desconto INSS',                tp:'2'},
+  {key:'desirrf',  desc:'Desconto IRRF',                tp:'2'},
+  {key:'desvt',    desc:'Desconto vale-transporte',     tp:'2'},
+  {key:'desfalta', desc:'Desconto de faltas/DSR',       tp:'2'},
+  {key:'desatraso',desc:'Desconto de atrasos',          tp:'2'}
+];
+function _esocialRubricasMap(){
+  const stored=(State.empresa&&State.empresa.esocialRubricas)||{};
+  return ESOCIAL_RUBR_BASE.map((b,i)=>{
+    const s=stored[b.key]||{};
+    return { key:b.key, desc:b.desc, tp:s.tp||b.tp, cod:s.cod||String(i+1),
+             nat:s.nat||'', cp:s.cp||'00', ir:s.ir||'00', fg:s.fg||'00' };
+  });
+}
+function renderEsocialRubricas(){
+  const body=document.getElementById('esocial-rubr-body'); if(!body) return;
+  const tpSel=(key,v)=>`<select id="esrub-${key}-tp" style="font-size:11px;padding:2px">
+    <option value="1"${v==='1'?' selected':''}>Provento</option>
+    <option value="2"${v==='2'?' selected':''}>Desconto</option>
+    <option value="3"${v==='3'?' selected':''}>Informativo</option></select>`;
+  const inp=(key,suf,v,w,ph)=>`<input id="esrub-${key}-${suf}" value="${esc(v)}" placeholder="${ph||''}" style="width:${w}px;font-size:11px;padding:2px">`;
+  const rows=_esocialRubricasMap().map(r=>`<tr>
+    <td style="padding:3px 6px;border:1px solid #e3e8ef;font-size:11px">${esc(r.desc)}</td>
+    <td style="padding:3px 6px;border:1px solid #e3e8ef;text-align:center">${inp(r.key,'cod',r.cod,46)}</td>
+    <td style="padding:3px 6px;border:1px solid #e3e8ef;text-align:center">${tpSel(r.key,r.tp)}</td>
+    <td style="padding:3px 6px;border:1px solid #e3e8ef;text-align:center">${inp(r.key,'nat',r.nat,64,'nat.')}</td>
+    <td style="padding:3px 6px;border:1px solid #e3e8ef;text-align:center">${inp(r.key,'cp',r.cp,40)}</td>
+    <td style="padding:3px 6px;border:1px solid #e3e8ef;text-align:center">${inp(r.key,'ir',r.ir,40)}</td>
+    <td style="padding:3px 6px;border:1px solid #e3e8ef;text-align:center">${inp(r.key,'fg',r.fg,40)}</td>
+  </tr>`).join('');
+  body.innerHTML=`
+    <div style="font-size:12px;color:#666;margin-bottom:8px"><i class="fa-solid fa-circle-info" style="color:#1565C0"></i> Preencha a <b>Natureza</b> (Tabela 3 do eSocial) e as incidências de <b>INSS/IRRF/FGTS</b> (Tabelas 21/22/23) de cada rubrica — <b>confirme com seu contador</b>. Sem a natureza preenchida, o S-1010/S-1200 não é gerado.</div>
+    <div style="overflow-x:auto"><table style="border-collapse:collapse;min-width:560px">
+      <thead><tr>
+        ${['Rubrica','Código','Tipo','Natureza','Inc. INSS','Inc. IRRF','Inc. FGTS'].map(h=>`<th style="padding:4px 6px;border:1px solid #cfd8e3;background:#eef4ff;font-size:11px">${h}</th>`).join('')}
+      </tr></thead><tbody>${rows}</tbody>
+    </table></div>
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+      <button class="btn btn-primary btn-sm" onclick="salvarEsocialRubricas()"><i class="fa-solid fa-floppy-disk"></i> Salvar rubricas</button>
+      <button class="btn btn-outline btn-sm" onclick="_gerarEsocialS1010()" style="border-color:#1a3a6b;color:#1a3a6b"><i class="fa-solid fa-download"></i> Gerar S-1010</button>
+    </div>`;
+}
+async function salvarEsocialRubricas(){
+  if(Auth.currentUser?.role!=='master'){ toast('Apenas o master pode editar as rubricas do eSocial','error'); return; }
+  const obj={};
+  ESOCIAL_RUBR_BASE.forEach(b=>{
+    obj[b.key]={ cod:(val('esrub-'+b.key+'-cod')||'').trim(), tp:val('esrub-'+b.key+'-tp')||b.tp,
+      nat:(val('esrub-'+b.key+'-nat')||'').trim(), cp:(val('esrub-'+b.key+'-cp')||'00').trim(),
+      ir:(val('esrub-'+b.key+'-ir')||'00').trim(), fg:(val('esrub-'+b.key+'-fg')||'00').trim() };
+  });
+  try{
+    await DB.saveDoc('configuracoes','empresa',{esocialRubricas:obj},true);
+    State.empresa=State.empresa||{}; State.empresa.esocialRubricas=obj;
+    toast('Rubricas do eSocial salvas!','success');
+  }catch(e){ toast('Erro ao salvar rubricas: '+e.message,'error'); }
+}
+function _esocialEventoS1010(competenciaISO){
+  const Q=_esocialParams(); const raiz=Q.cnpj.padStart(14,'0').slice(0,8);
+  const ideTab=(State.empresa&&State.empresa.esocialIdeTabRubr)||'1';
+  const iniValid=competenciaISO||(new Date().toISOString().slice(0,7));
+  // Um evento evtTabRubrica por rubrica (com natureza preenchida).
+  const eventos=_esocialRubricasMap().filter(r=>r.nat).map(r=>{
+    const id=_esocialId(Q.cnpj.padStart(14,'0'));
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<eSocial xmlns="http://www.esocial.gov.br/schema/evt/tabelas/evtTabRubrica/v_S_01_03_00">
+  <evtTabRubrica Id="${id}">
+    <ideEvento>
+      <tpAmb>${Q.tpAmb}</tpAmb>
+      <procEmi>1</procEmi>
+      <verProc>${_xmlEsc(Q.verProc)}</verProc>
+    </ideEvento>
+    <ideEmpregador>
+      <tpInsc>1</tpInsc>
+      <nrInsc>${raiz}</nrInsc>
+    </ideEmpregador>
+    <infoRubrica>
+      <inclusao>
+        <ideRubrica>
+          <codRubr>${_xmlEsc(r.cod)}</codRubr>
+          <ideTabRubr>${_xmlEsc(ideTab)}</ideTabRubr>
+          <iniValid>${iniValid}</iniValid>
+        </ideRubrica>
+        <dadosRubrica>
+          <dscRubr>${_xmlEsc(r.desc.slice(0,100))}</dscRubr>
+          <natRubr>${_xmlEsc(r.nat)}</natRubr>
+          <tpRubr>${_xmlEsc(r.tp)}</tpRubr>
+          <codIncCP>${_xmlEsc(r.cp)}</codIncCP>
+          <codIncIRRF>${_xmlEsc(r.ir)}</codIncIRRF>
+          <codIncFGTS>${_xmlEsc(r.fg)}</codIncFGTS>
+        </dadosRubrica>
+      </inclusao>
+    </infoRubrica>
+  </evtTabRubrica>
+</eSocial>`;
+  });
+  return eventos;
+}
+function _gerarEsocialS1010(){
+  if(Auth.currentUser?.role!=='master'){ toast('Apenas o master pode gerar eventos do eSocial','error'); return; }
+  const mes=parseInt(val('cont-mes')||currentMes());
+  const ano=parseInt(val('cont-ano')||currentAno());
+  const compISO=`${ano}-${String(mes).padStart(2,'0')}`;
+  const eventos=_esocialEventoS1010(compISO);
+  if(!eventos.length){ toast('Preencha a Natureza de pelo menos uma rubrica antes de gerar o S-1010.','error'); return; }
+  // Pacote de revisão: cada evtTabRubrica é um evento; aqui vão separados por marcador.
+  const bundle=eventos.map((x,i)=>`<!-- ===== evento S-1010 #${i+1} ===== -->\n${x}`).join('\n\n');
+  _baixarArquivo(`S-1010_rubricas_${compISO}.xml`, bundle, 'application/xml');
+  toast(`S-1010 gerado: ${eventos.length} rubrica(s) (produção restrita). Valide no eSocial.`,'success');
+}
+
 // Monta UMA linha da planilha do contador para um colaborador (e sua folha p).
 // Retorna campos já calculados (valores numéricos + textos formatados) usados
 // tanto na tabela da tela quanto na exportação CSV. #planilha-contador
@@ -5289,7 +5415,7 @@ function renderContabilidade(){
   const ano=parseInt(val('cont-ano')||currentAno());
   const statusFilt=val('cont-status-filter')||'ativo';
   _popularCompetenciasContab(mes,ano);
-  try{ _preencherEncargosConfig(); _renderEncargosCard(mes,ano); _renderEsocialDiagnostico(); }catch(_e){}   // Resumo de Encargos + prontidão eSocial. #encargos #esocial
+  try{ _preencherEncargosConfig(); _renderEncargosCard(mes,ano); _renderEsocialDiagnostico(); renderEsocialRubricas(); }catch(_e){}   // Resumo de Encargos + prontidão eSocial + rubricas. #encargos #esocial
 
   let emps=_filtrarEmpsPorEscopo(State.employees).slice();
   if(statusFilt!=='all') emps=emps.filter(e=>(e.status||'ativo')===statusFilt);

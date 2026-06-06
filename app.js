@@ -23671,6 +23671,16 @@ function printFolhaPonto(isPreview=false){
     }
     if(exp && exp.feriado){ obsdia='FERIADO: '+exp.feriado+((entrada&&saida)?' (trabalhado)':''); obscor='#6A1B9A'; }  // #feriados
     if(_emFerias){ obsdia='FÉRIAS'; obscor='#0288D1'; }  // #monitor-ferias
+    // HE acima da tolerância NÃO autorizada na revisão → anota na Obs (rastreável; NÃO
+    // entra no total de HE pago, que só conta a aprovada). #he-autorizada-folha
+    if(temBatida && extraMin===0){
+      const _detHE=_detectHEDivergencia(_bat, exp);
+      if(_detHE.precisaRevisao && _detHE.totalMin>0){
+        const _hrSt=(pontodia.heReview&&pontodia.heReview.status)||'';
+        const _heTxt=`${_hrSt==='recusada'?'HE recusada':'HE não autorizada'} · ${minutesToStr(_detHE.totalMin)}`;
+        obsdia = obsdia ? (obsdia+' · '+_heTxt) : _heTxt;
+      }
+    }
     const rowBg=isWknd?'background:#F8F9FA;color:#999':'';
     const _cel='text-align:center;padding:3px 5px;border:1px solid #DEE2E6';
     tabelaDias+=`<tr style="${rowBg}">
@@ -24048,6 +24058,16 @@ function _buildFolhaHtmlFromRecord(emp, p){
     }
     if(exp && exp.feriado){ obsdia='FERIADO: '+exp.feriado+((entrada&&saida)?' (trabalhado)':''); obscor='#6A1B9A'; }  // #feriados
     if(_emFerias){ obsdia='FÉRIAS'; obscor='#0288D1'; }  // #monitor-ferias
+    // HE acima da tolerância NÃO autorizada na revisão → anota na Obs (rastreável; NÃO
+    // entra no total de HE pago, que só conta a aprovada). #he-autorizada-folha
+    if(temBatida && extraMin===0){
+      const _detHE=_detectHEDivergencia(_bat, exp);
+      if(_detHE.precisaRevisao && _detHE.totalMin>0){
+        const _hrSt=(pontodia.heReview&&pontodia.heReview.status)||'';
+        const _heTxt=`${_hrSt==='recusada'?'HE recusada':'HE não autorizada'} · ${minutesToStr(_detHE.totalMin)}`;
+        obsdia = obsdia ? (obsdia+' · '+_heTxt) : _heTxt;
+      }
+    }
     const rowBg=isWknd?'background:#F8F9FA;color:#999':'';
     const _cel='text-align:center;padding:3px 5px;border:1px solid #DEE2E6';
     tabelaDias+=`<tr style="${rowBg}">

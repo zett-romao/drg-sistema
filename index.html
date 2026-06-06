@@ -2141,6 +2141,48 @@
           </div>
         </details>
 
+        <!-- Encargos / regime tributário (por empresa) — editável -->
+        <details class="card" style="margin-bottom:16px">
+          <summary style="cursor:pointer;padding:12px 16px;font-weight:600;color:#1a3a6b;list-style:none">
+            <i class="fa-solid fa-building-columns"></i> Encargos e regime tributário
+            <span style="font-weight:400;color:#888;font-size:0.85em"> — define se há INSS patronal/RAT/terceiros. Clique para configurar.</span>
+          </summary>
+          <div class="card-body" style="border-top:1px solid #eee">
+            <div class="form-row" style="align-items:flex-end;flex-wrap:wrap;gap:12px">
+              <div class="form-group">
+                <label>Regime tributário</label>
+                <select id="enc-regime" onchange="_toggleEncargosAliq()">
+                  <option value="simples">Simples Nacional (CPP no DAS)</option>
+                  <option value="presumido_real">Lucro Presumido / Real</option>
+                </select>
+              </div>
+            </div>
+            <div id="enc-simples-hint" style="margin:8px 0;padding:8px 12px;background:#F1F8E9;border:1px solid #C5E1A5;border-radius:6px;font-size:12px;color:#33691E;display:none">
+              <i class="fa-solid fa-circle-check"></i> No Simples Nacional a contribuição patronal já está no DAS — as alíquotas abaixo ficam desativadas.
+            </div>
+            <div id="enc-aliq-box" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;margin-top:6px">
+              <div class="form-group form-group-sm"><label>INSS patronal (%)</label><input type="number" step="0.01" id="enc-inss-patronal"></div>
+              <div class="form-group form-group-sm"><label title="Risco de Acidente do Trabalho — 1, 2 ou 3% conforme o grau de risco do CNAE">RAT / SAT (%)</label><input type="number" step="0.01" id="enc-rat"></div>
+              <div class="form-group form-group-sm"><label title="Fator Acidentário de Prevenção — multiplica o RAT (0,5 a 2,0)">FAP</label><input type="number" step="0.01" id="enc-fap"></div>
+              <div class="form-group form-group-sm"><label title="Contribuições de terceiros (Sistema S, Salário-Educação, INCRA…) conforme o código FPAS">Terceiros (%)</label><input type="number" step="0.01" id="enc-terceiros"></div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:12px">
+              <button class="btn btn-primary btn-sm" onclick="salvarEncargosConfig()"><i class="fa-solid fa-floppy-disk"></i> Salvar</button>
+              <button class="btn btn-outline btn-sm" onclick="resetarEncargosConfig()"><i class="fa-solid fa-rotate-left"></i> Restaurar padrão</button>
+            </div>
+            <div style="margin-top:10px;font-size:11px;color:#999">As alíquotas de RAT/FAP/terceiros variam por CNAE/FPAS — confirme com seu contador. Configuração por empresa.</div>
+          </div>
+        </details>
+
+        <!-- Resumo de Encargos da empresa (por competência) -->
+        <div class="card" id="cont-encargos-card" style="display:none;margin-bottom:16px">
+          <div class="card-header" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <h3 style="font-size:14px;margin:0;flex:1"><i class="fa-solid fa-coins" style="color:#E65100"></i> <span id="cont-encargos-titulo">Resumo de Encargos</span></h3>
+            <button class="btn btn-outline btn-sm" onclick="_imprimirResumoEncargos()" title="Imprimir o resumo de encargos"><i class="fa-solid fa-print"></i> Imprimir resumo</button>
+          </div>
+          <div class="card-body" id="cont-encargos-body"></div>
+        </div>
+
         <!-- Resumo de totais -->
         <div class="stats-grid" id="cont-stats" style="margin-bottom:20px"></div>
 
@@ -6945,6 +6987,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260606h-he-naoaut-obs"></script>
+  <script src="app.js?v=20260606i-encargos-fase1"></script>
 </body>
 </html>

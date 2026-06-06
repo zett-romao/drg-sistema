@@ -214,7 +214,15 @@ const EMPRESA_DEFAULTS = {
   uf:                  'SP',
   cep:                 '06454-000',
   telefone:            '(11) 99734-7272',
-  email:               'atendimento@drglobal.com.br'
+  email:               'atendimento@drglobal.com.br',
+  // Encargos / regime tributário — POR EMPRESA (multi-tenant). Simples Nacional = CPP já
+  // no DAS (sem INSS patronal/RAT/terceiros à parte). Presumido/Real liga o bloco patronal.
+  // Alíquotas RAT/FAP/terceiros variam por CNAE/FPAS → o cliente edita. #encargos
+  regimeTributario:    'simples',   // 'simples' | 'presumido_real'
+  encInssPatronalAliq: 20,          // % INSS patronal sobre a folha
+  encRatAliq:          1,           // % RAT/SAT (1/2/3 conforme grau de risco)
+  encFapFator:         1.0,         // FAP — multiplica o RAT (0,5 a 2,0)
+  encTerceirosAliq:    5.8          // % terceiros (Sistema S, Sal-Educação, INCRA…)
 };
 
 // Parâmetros legais — tabelas oficiais atualizáveis (INSS/IRRF/FGTS/aviso prévio).
@@ -4558,6 +4566,170 @@ function resetarContCodigos(){
   toast('Códigos padrão restaurados. Clique em Salvar para aplicar.','info');
 }
 
+// ===================== RESUMO DE ENCARGOS DA EMPRESA (por competência) =====================
+// Consolida quanto RECOLHER no mês: INSS/IRRF retidos dos empregados + FGTS e — se o regime
+// NÃO for Simples — os encargos PATRONAIS (INSS 20% + RAT×FAP + terceiros) sobre a base
+// contributiva (totalBruto das folhas). Simples Nacional: CPP já no DAS → bloco patronal
+// desligado. Regime/alíquotas configuráveis POR EMPRESA (multi-tenant). v1 = folha MENSAL
+// (não inclui 13º/férias/rescisão — encargos próprios). #encargos
+function _encParamsEmpresa(){
+  const e=State.empresa||{};
+  const num=(v,d)=>{ const n=parseFloat(v); return isFinite(n)?n:d; };
+  return {
+    regime:   e.regimeTributario || 'simples',
+    patrAliq: num(e.encInssPatronalAliq,20),
+    ratAliq:  num(e.encRatAliq,1),
+    fap:      num(e.encFapFator,1)||1,
+    terAliq:  num(e.encTerceirosAliq,5.8)
+  };
+}
+function _resumoEncargosCompetencia(mes,ano){
+  const folhasMes=State.payrolls.filter(p=>p.mes===mes && p.ano===ano);
+  const folhaMap=_buildFolhaMap(folhasMes);   // dedup: pega o registro mais completo por colaborador
+  const P=_encParamsEmpresa();
+  const r={...P, headcount:0, base:0, inssRetido:0, irrfRetido:0, fgts:0, liquido:0,
+           inssPatronal:0, rat:0, terceiros:0, gpsTotal:0, custoEmpregador:0, semValores:0};
+  Object.keys(folhaMap).forEach(id=>{
+    const p=folhaMap[id]; if(!p) return;
+    const base=+(p.totalBruto||0), inss=+(p.inss||0), irrf=+(p.irrf||0), fgts=+(p.fgts||0), liq=+(p.totalLiquidoFinal||0);
+    r.headcount++;
+    r.base+=base; r.inssRetido+=inss; r.irrfRetido+=irrf; r.fgts+=fgts; r.liquido+=liq;
+    if(base<=0 && inss<=0 && fgts<=0) r.semValores++;
+  });
+  if(P.regime!=='simples'){
+    r.inssPatronal = r.base * P.patrAliq/100;
+    r.rat          = r.base * (P.ratAliq*P.fap)/100;
+    r.terceiros    = r.base * P.terAliq/100;
+  }
+  r.gpsTotal        = r.inssRetido + r.inssPatronal + r.rat + r.terceiros;     // INSS a recolher (GPS)
+  r.custoEmpregador = r.base + r.inssPatronal + r.rat + r.terceiros + r.fgts;  // custo total ~ bruto + patronais + FGTS
+  return r;
+}
+// HTML do resumo (reusado na tela e na impressão).
+function _encargosResumoHtml(r,mes,ano){
+  const simples = r.regime==='simples';
+  const regimeLbl = simples ? 'Simples Nacional' : 'Lucro Presumido / Real';
+  const money=v=>fmtMoney(v||0);
+  const row=(lbl,vv,cor,sub)=>`<div style="display:flex;justify-content:space-between;align-items:baseline;padding:7px 0;border-bottom:1px solid #f0f0f0">
+    <span style="color:#444">${lbl}${sub?` <small style="color:#999">${sub}</small>`:''}</span>
+    <strong style="color:${cor||'#1a3a6b'};font-variant-numeric:tabular-nums">${money(vv)}</strong></div>`;
+  const patronalBloco = simples ? `
+    <div style="padding:10px 12px;background:#F1F8E9;border:1px solid #C5E1A5;border-radius:6px;font-size:12px;color:#33691E">
+      <i class="fa-solid fa-circle-check"></i> <strong>Simples Nacional</strong>: a contribuição previdenciária patronal (CPP) já está embutida no DAS — não há INSS patronal/RAT/terceiros a recolher à parte. FGTS e retidos seguem normais.
+    </div>` : `
+    ${row(`INSS patronal`, r.inssPatronal, '#6A1B9A', `${r.patrAliq}%`)}
+    ${row(`RAT / SAT`, r.rat, '#6A1B9A', `${r.ratAliq}%${r.fap!==1?` × FAP ${r.fap}`:''}`)}
+    ${row(`Terceiros (Sistema S etc.)`, r.terceiros, '#6A1B9A', `${r.terAliq}%`)}`;
+  return `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px 28px">
+      <div>
+        <div style="font-weight:700;color:#1a3a6b;margin-bottom:4px;font-size:13px"><i class="fa-solid fa-sack-dollar"></i> Bases e retidos</div>
+        ${row('Base de cálculo (folha bruta)', r.base, '#1a3a6b')}
+        ${row('INSS retido dos empregados', r.inssRetido, '#B71C1C')}
+        ${row('IRRF retido', r.irrfRetido, '#B71C1C')}
+        ${row('FGTS a recolher', r.fgts, '#00695C', '8%')}
+      </div>
+      <div>
+        <div style="font-weight:700;color:#6A1B9A;margin-bottom:4px;font-size:13px"><i class="fa-solid fa-building-columns"></i> Encargos patronais</div>
+        ${patronalBloco}
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:16px">
+      <div style="background:#EEF4FF;border:1px solid #C5CAE9;border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:11px;color:#3949AB;text-transform:uppercase;letter-spacing:.5px">GPS — INSS a recolher</div>
+        <div style="font-size:18px;font-weight:800;color:#1a3a6b;margin-top:3px">${money(r.gpsTotal)}</div>
+        <div style="font-size:10px;color:#888">retido${simples?'':' + patronal + RAT + terceiros'}</div>
+      </div>
+      <div style="background:#E0F2F1;border:1px solid #80CBC4;border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:11px;color:#00695C;text-transform:uppercase;letter-spacing:.5px">FGTS</div>
+        <div style="font-size:18px;font-weight:800;color:#00695C;margin-top:3px">${money(r.fgts)}</div>
+        <div style="font-size:10px;color:#888">8% sobre a base</div>
+      </div>
+      <div style="background:#FFF8E1;border:1px solid #FFE082;border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:11px;color:#E65100;text-transform:uppercase;letter-spacing:.5px">Custo total empregador</div>
+        <div style="font-size:18px;font-weight:800;color:#E65100;margin-top:3px">${money(r.custoEmpregador)}</div>
+        <div style="font-size:10px;color:#888">bruto + patronais + FGTS</div>
+      </div>
+    </div>
+    ${r.semValores>0?`<div style="margin-top:12px;padding:8px 12px;background:#FFEBEE;border:1px solid #EF9A9A;border-radius:6px;font-size:12px;color:#B71C1C"><i class="fa-solid fa-triangle-exclamation"></i> ${r.semValores} folha(s) sem valores calculados (INSS/FGTS zerados) — abra cada uma e clique <strong>Aplicar na Folha</strong> p/ o resumo ficar completo.</div>`:''}
+    <div style="margin-top:12px;font-size:11px;color:#999;line-height:1.5">
+      <i class="fa-solid fa-circle-info"></i> Regime: <strong>${regimeLbl}</strong> · ${r.headcount} folha(s) na competência. Base contributiva = total bruto das folhas mensais; <strong>não inclui</strong> 13º, férias e rescisões (encargos próprios). Confira as alíquotas patronais (RAT/FAP/terceiros) com seu contador — variam por CNAE/FPAS.
+    </div>`;
+}
+function _renderEncargosCard(mes,ano){
+  const body=document.getElementById('cont-encargos-body');
+  const card=document.getElementById('cont-encargos-card');
+  if(!body||!card) return;
+  const r=_resumoEncargosCompetencia(mes,ano);
+  const titEl=document.getElementById('cont-encargos-titulo');
+  if(titEl) titEl.textContent=`Resumo de Encargos — ${MESES[mes]}/${ano}`;
+  body.innerHTML=_encargosResumoHtml(r,mes,ano);
+  card.style.display = r.headcount>0 ? '' : 'none';
+}
+// --- Config do regime/alíquotas (por empresa) ---
+function _preencherEncargosConfig(){
+  const P=_encParamsEmpresa();
+  setVal('enc-regime', P.regime);
+  setVal('enc-inss-patronal', P.patrAliq);
+  setVal('enc-rat', P.ratAliq);
+  setVal('enc-fap', P.fap);
+  setVal('enc-terceiros', P.terAliq);
+  _toggleEncargosAliq();
+}
+function _toggleEncargosAliq(){
+  const simples=(val('enc-regime')||'simples')==='simples';
+  const box=document.getElementById('enc-aliq-box');
+  if(box){ box.style.opacity=simples?'0.45':'1'; box.style.pointerEvents=simples?'none':''; }
+  const hint=document.getElementById('enc-simples-hint');
+  if(hint) hint.style.display=simples?'':'none';
+}
+async function salvarEncargosConfig(){
+  if(Auth.currentUser?.role!=='master'){ toast('Apenas o master pode alterar o regime/encargos','error'); return; }
+  const num=(id,d)=>{ const n=parseFloat((val(id)||'').replace(',','.')); return isFinite(n)?n:d; };
+  const dados={
+    regimeTributario:    val('enc-regime')||'simples',
+    encInssPatronalAliq: num('enc-inss-patronal',20),
+    encRatAliq:          num('enc-rat',1),
+    encFapFator:         num('enc-fap',1)||1,
+    encTerceirosAliq:    num('enc-terceiros',5.8)
+  };
+  try{
+    await DB.saveDoc('configuracoes','empresa',dados,true);
+    State.empresa={ ...EMPRESA_DEFAULTS, ...(State.empresa||{}), ...dados };
+    toast('Regime e encargos salvos!','success');
+    renderContabilidade();
+  }catch(e){ toast('Erro ao salvar encargos: '+e.message,'error'); }
+}
+function resetarEncargosConfig(){
+  setVal('enc-regime', EMPRESA_DEFAULTS.regimeTributario);
+  setVal('enc-inss-patronal', EMPRESA_DEFAULTS.encInssPatronalAliq);
+  setVal('enc-rat', EMPRESA_DEFAULTS.encRatAliq);
+  setVal('enc-fap', EMPRESA_DEFAULTS.encFapFator);
+  setVal('enc-terceiros', EMPRESA_DEFAULTS.encTerceirosAliq);
+  _toggleEncargosAliq();
+  toast('Padrão restaurado. Clique em Salvar para aplicar.','info');
+}
+function _imprimirResumoEncargos(){
+  const mes=parseInt(val('cont-mes')||currentMes());
+  const ano=parseInt(val('cont-ano')||currentAno());
+  const r=_resumoEncargosCompetencia(mes,ano);
+  const e=State.empresa||{};
+  const win=window.open('','_blank');
+  if(!win){ toast('Permita pop-ups para imprimir.','warning'); return; }
+  win.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Resumo de Encargos ${MESES[mes]}/${ano}</title>
+  <style>body{font-family:Arial,Helvetica,sans-serif;color:#222;padding:24px;max-width:820px;margin:0 auto}h1{font-size:18px;color:#1a3a6b;margin:0 0 2px}small{color:#666}</style>
+  </head><body>
+  <div style="display:flex;align-items:center;gap:14px;border-bottom:2px solid #e8f0fe;padding-bottom:12px;margin-bottom:16px">
+    <img src="${_logoSrc()}" style="height:42px;object-fit:contain" onerror="this.style.display='none'">
+    <div><h1>${esc(e.nomeEmpresa||'Empresa')}</h1><small>${esc(e.cnpj||'')} · Resumo de Encargos — ${MESES[mes]}/${ano}</small></div>
+  </div>
+  ${_encargosResumoHtml(r,mes,ano)}
+  <div style="margin-top:20px;font-size:11px;color:#999">Gerado em ${new Date().toLocaleString('pt-BR')} · DRG-Kronos</div>
+  </body></html>`);
+  win.document.close();
+  setTimeout(()=>{ try{win.print();}catch(_){}} ,400);
+}
+
 // Monta UMA linha da planilha do contador para um colaborador (e sua folha p).
 // Retorna campos já calculados (valores numéricos + textos formatados) usados
 // tanto na tabela da tela quanto na exportação CSV. #planilha-contador
@@ -4644,6 +4816,7 @@ function renderContabilidade(){
   const ano=parseInt(val('cont-ano')||currentAno());
   const statusFilt=val('cont-status-filter')||'ativo';
   _popularCompetenciasContab(mes,ano);
+  try{ _preencherEncargosConfig(); _renderEncargosCard(mes,ano); }catch(_e){}   // Resumo de Encargos da empresa. #encargos
 
   let emps=_filtrarEmpsPorEscopo(State.employees).slice();
   if(statusFilt!=='all') emps=emps.filter(e=>(e.status||'ativo')===statusFilt);

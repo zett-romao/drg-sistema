@@ -226,7 +226,9 @@ const EMPRESA_DEFAULTS = {
   // eSocial — modo por EMPRESA: 'exportar' (gera lote p/ o contador transmitir),
   // 'transmitir' (back-end próprio assina+envia c/ certificado sob demanda) ou 'ambos'.
   // O motor de eventos (folha→XML) é o mesmo nos dois caminhos. #esocial
-  esocialModo:         'exportar'   // 'exportar' | 'transmitir' | 'ambos'
+  esocialModo:         'exportar',  // 'exportar' | 'transmitir' | 'ambos'
+  esocialTpAmb:        '2',         // 1=produção, 2=produção restrita (homologação) — default seguro
+  esocialClassTrib:    ''           // classificação tributária eSocial (ex.: 99 geral, 03 Simples) — o contador confirma
 };
 
 // Parâmetros legais — tabelas oficiais atualizáveis (INSS/IRRF/FGTS/aviso prévio).
@@ -4680,6 +4682,7 @@ function _preencherEncargosConfig(){
   setVal('enc-fap', P.fap);
   setVal('enc-terceiros', P.terAliq);
   setVal('enc-esocial-modo', P.esocialModo);
+  setVal('enc-classtrib', (State.empresa&&State.empresa.esocialClassTrib)||'');
   _toggleEncargosAliq();
 }
 function _toggleEncargosAliq(){
@@ -4698,7 +4701,8 @@ async function salvarEncargosConfig(){
     encRatAliq:          num('enc-rat',1),
     encFapFator:         num('enc-fap',1)||1,
     encTerceirosAliq:    num('enc-terceiros',5.8),
-    esocialModo:         val('enc-esocial-modo')||'exportar'
+    esocialModo:         val('enc-esocial-modo')||'exportar',
+    esocialClassTrib:    val('enc-classtrib')||''
   };
   try{
     await DB.saveDoc('configuracoes','empresa',dados,true);
@@ -4714,6 +4718,7 @@ function resetarEncargosConfig(){
   setVal('enc-fap', EMPRESA_DEFAULTS.encFapFator);
   setVal('enc-terceiros', EMPRESA_DEFAULTS.encTerceirosAliq);
   setVal('enc-esocial-modo', EMPRESA_DEFAULTS.esocialModo);
+  setVal('enc-classtrib', EMPRESA_DEFAULTS.esocialClassTrib);
   _toggleEncargosAliq();
   toast('Padrão restaurado. Clique em Salvar para aplicar.','info');
 }
@@ -4835,6 +4840,95 @@ function _imprimirDemonstrativosEncargos(){
   setTimeout(()=>{ try{win.print();}catch(_){}} ,500);
 }
 
+// ===================== eSOCIAL — DIAGNÓSTICO DE PRONTIDÃO (Fase 3b, passo 1) =====================
+// ~90% das rejeições do eSocial são por DADO CADASTRAL faltando/inválido (CPF, PIS, CBO…),
+// não por erro de XML. Antes de gerar qualquer evento, este diagnóstico confere empresa +
+// colaboradores contra o que o eSocial exige e lista o que falta. 100% seguro (não transmite).
+// É a base p/ os eventos (S-1000/S-2200/S-1200) saírem aceitos. #esocial
+function _soDigitos(s){ return String(s||'').replace(/\D/g,''); }
+function _cpfValido(cpf){
+  cpf=_soDigitos(cpf); if(cpf.length!==11 || /^(\d)\1{10}$/.test(cpf)) return false;
+  let s=0; for(let i=0;i<9;i++) s+=(+cpf[i])*(10-i); let d=(s*10)%11; if(d===10)d=0; if(d!==+cpf[9]) return false;
+  s=0; for(let i=0;i<10;i++) s+=(+cpf[i])*(11-i); d=(s*10)%11; if(d===10)d=0; return d===+cpf[10];
+}
+function _pisValido(pis){
+  pis=_soDigitos(pis); if(pis.length!==11) return false;
+  const w=[3,2,9,8,7,6,5,4,3,2]; let s=0; for(let i=0;i<10;i++) s+=(+pis[i])*w[i];
+  let d=11-(s%11); if(d>=10)d=0; return d===+pis[10];
+}
+function _esocialParams(){
+  const e=State.empresa||{};
+  return {
+    tpAmb:String(e.esocialTpAmb||'2'),
+    classTrib:(e.esocialClassTrib||'').trim(),
+    regime:_encParamsEmpresa().regime,
+    cnpj:_soDigitos(e.cnpj),
+    modo:(e.esocialModo||'exportar')
+  };
+}
+function _esocialPendenciasEmpresa(){
+  const e=State.empresa||{}; const Q=_esocialParams(); const f=[];
+  if(Q.cnpj.length!==14) f.push('CNPJ (14 dígitos)');
+  if(!Q.classTrib) f.push('Classificação tributária (eSocial)');
+  if(!e.cnae) f.push('CNAE');
+  if(!e.cep || !e.uf) f.push('Endereço (CEP/UF)');
+  return f;
+}
+function _esocialPendenciasColab(e){
+  const f=[];
+  if(!e.cpf || !_cpfValido(e.cpf)) f.push('CPF inválido/ausente');
+  if(!e.pisNit || !_pisValido(e.pisNit)) f.push('PIS/NIT inválido/ausente');
+  if(!e.dataNascimento) f.push('Data de nascimento');
+  if(!e.dataAdmissao) f.push('Data de admissão');
+  if(!(e.salarioBase>0)) f.push('Salário base');
+  if(!e.cargoCBO) f.push('CBO');
+  if(!(e.cargo||e.setor)) f.push('Cargo');
+  if(!e.sexo) f.push('Sexo');
+  if(!e.raca) f.push('Raça/cor');
+  if(!e.grauInstrucao) f.push('Grau de instrução');
+  if(!e.nomeMae) f.push('Nome da mãe');
+  if(!e.cep || !e.endereco) f.push('Endereço');
+  return f;
+}
+function _renderEsocialDiagnostico(){
+  const card=document.getElementById('esocial-diag-card');
+  const body=document.getElementById('esocial-diag-body');
+  if(!card || !body) return;
+  const empPend=_esocialPendenciasEmpresa();
+  const emps=_filtrarEmpsPorEscopo(State.employees).filter(e=>(e.status||'ativo')==='ativo').slice().sort((a,b)=>a.nome.localeCompare(b.nome));
+  let prontos=0;
+  const linhas=emps.map(e=>{
+    const p=_esocialPendenciasColab(e); if(!p.length) prontos++;
+    const ok=!p.length;
+    return `<tr>
+      <td style="padding:5px 8px;border:1px solid #e3e8ef">${esc(e.nome)}</td>
+      <td style="padding:5px 8px;border:1px solid #e3e8ef;text-align:center;white-space:nowrap">${ok?'<span style="color:#1B5E20;font-weight:700">✓ Pronto</span>':`<span style="color:#B71C1C;font-weight:700">${p.length} pend.</span>`}</td>
+      <td style="padding:5px 8px;border:1px solid #e3e8ef;font-size:11px;color:#B71C1C">${ok?'<span style="color:#bbb">—</span>':esc(p.join(' · '))}</td>
+    </tr>`;
+  }).join('');
+  const empOk=empPend.length===0;
+  const tabela=emps.length? `<table style="border-collapse:collapse;width:100%;margin-top:8px">
+    <thead><tr>
+      <th style="text-align:left;padding:5px 8px;border:1px solid #cfd8e3;background:#eef4ff;font-size:11px">Colaborador</th>
+      <th style="text-align:center;padding:5px 8px;border:1px solid #cfd8e3;background:#eef4ff;font-size:11px">Situação</th>
+      <th style="text-align:left;padding:5px 8px;border:1px solid #cfd8e3;background:#eef4ff;font-size:11px">O que falta (eSocial)</th>
+    </tr></thead><tbody>${linhas}</tbody></table>` : '<p style="color:#999;font-size:12px">Nenhum colaborador ativo.</p>';
+  body.innerHTML=`
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px">
+      <div style="flex:1;min-width:200px;background:${empOk?'#E8F5E9':'#FFEBEE'};border:1px solid ${empOk?'#A5D6A7':'#EF9A9A'};border-radius:8px;padding:10px 12px">
+        <div style="font-weight:700;color:${empOk?'#1B5E20':'#B71C1C'};font-size:13px"><i class="fa-solid fa-building"></i> Empresa — ${empOk?'pronta':'pendências'}</div>
+        <div style="font-size:12px;color:${empOk?'#33691E':'#B71C1C'};margin-top:3px">${empOk?'CNPJ, classTrib, CNAE e endereço OK.':esc(empPend.join(' · '))}</div>
+      </div>
+      <div style="flex:1;min-width:200px;background:#EEF4FF;border:1px solid #C5CAE9;border-radius:8px;padding:10px 12px">
+        <div style="font-weight:700;color:#1a3a6b;font-size:13px"><i class="fa-solid fa-users"></i> Colaboradores ativos</div>
+        <div style="font-size:12px;color:#3949AB;margin-top:3px"><strong>${prontos}/${emps.length}</strong> prontos · <strong style="color:#B71C1C">${emps.length-prontos}</strong> com pendência</div>
+      </div>
+    </div>
+    ${tabela}
+    <div style="margin-top:10px;font-size:11px;color:#999;line-height:1.5"><i class="fa-solid fa-circle-info"></i> Conferência de cadastro p/ o eSocial (CPF/PIS validados com dígito verificador). Corrija as pendências no cadastro de cada colaborador (e em Configurações, a empresa) antes de gerar os eventos. A geração dos XMLs (S-1000/S-2200/S-1200) vem a seguir, sobre esta base.</div>`;
+  card.style.display='';
+}
+
 // Monta UMA linha da planilha do contador para um colaborador (e sua folha p).
 // Retorna campos já calculados (valores numéricos + textos formatados) usados
 // tanto na tabela da tela quanto na exportação CSV. #planilha-contador
@@ -4921,7 +5015,7 @@ function renderContabilidade(){
   const ano=parseInt(val('cont-ano')||currentAno());
   const statusFilt=val('cont-status-filter')||'ativo';
   _popularCompetenciasContab(mes,ano);
-  try{ _preencherEncargosConfig(); _renderEncargosCard(mes,ano); }catch(_e){}   // Resumo de Encargos da empresa. #encargos
+  try{ _preencherEncargosConfig(); _renderEncargosCard(mes,ano); _renderEsocialDiagnostico(); }catch(_e){}   // Resumo de Encargos + prontidão eSocial. #encargos #esocial
 
   let emps=_filtrarEmpsPorEscopo(State.employees).slice();
   if(statusFilt!=='all') emps=emps.filter(e=>(e.status||'ativo')===statusFilt);

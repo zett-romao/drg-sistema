@@ -23771,9 +23771,9 @@ ${_segmentosLotacaoHtml(emp, mes, ano)}
 <h2>Resumo do Período</h2>
 <div class="resumo-bar">
   <div class="resumo-item"><div class="resumo-label">Dias Trabalhados</div><div class="resumo-valor">${diasTrabalhados}</div></div>
-  <div class="resumo-item alerta"><div class="resumo-label">Faltas Injust.</div><div class="resumo-valor">${faltasInj}</div></div>
+  <div class="resumo-item alerta"><div class="resumo-label">Faltas Injust.</div><div class="resumo-valor">${totFaltaQtd}</div></div>
   <div class="resumo-item alerta"><div class="resumo-label">Faltas Just.</div><div class="resumo-valor">${faltasJust}</div></div>
-  <div class="resumo-item"><div class="resumo-label">Horas Extras</div><div class="resumo-valor">${heTotal}</div></div>
+  <div class="resumo-item"><div class="resumo-label">Horas Extras</div><div class="resumo-valor">${_totExtraStr}</div></div>
 </div>
 
 <h2>Registro de Ponto Diário</h2>
@@ -24127,9 +24127,9 @@ ${_segmentosLotacaoHtml(emp, mes, ano)}
 <h2>Resumo do Período</h2>
 <div class="resumo-bar">
   <div class="resumo-item"><div class="resumo-label">Dias Trabalhados</div><div class="resumo-valor">${diasTrabalhados}</div></div>
-  <div class="resumo-item alerta"><div class="resumo-label">Faltas Injust.</div><div class="resumo-valor">${faltasInj}</div></div>
+  <div class="resumo-item alerta"><div class="resumo-label">Faltas Injust.</div><div class="resumo-valor">${totFaltaQtd}</div></div>
   <div class="resumo-item alerta"><div class="resumo-label">Faltas Just.</div><div class="resumo-valor">${faltasJust}</div></div>
-  <div class="resumo-item"><div class="resumo-label">Horas Extras</div><div class="resumo-valor">${heTotal}</div></div>
+  <div class="resumo-item"><div class="resumo-label">Horas Extras</div><div class="resumo-valor">${_totExtraStr}</div></div>
 </div>
 
 <h2>Registro de Ponto Diário</h2>

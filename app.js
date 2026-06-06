@@ -18317,7 +18317,9 @@ let _currentReportType = 'financeiro';
 function _estoqueSaldo(itemId){
   return (State.estoqueMov||[]).reduce((s,m)=>{
     if(!m || m.itemId!==itemId) return s;
-    return s + (m.tipo==='entrada' ? (+m.quantidade||0) : -(+m.quantidade||0));
+    // entrada/devolução SOMAM ao estoque; baixa/entrega SUBTRAEM. #estoque-epi
+    const soma = (m.tipo==='entrada' || m.tipo==='devolucao');
+    return s + (soma ? (+m.quantidade||0) : -(+m.quantidade||0));
   }, 0);
 }
 // Custo unitário mais recente (última entrada com valor) — base do "valor em estoque".
@@ -18369,6 +18371,7 @@ function renderEstoque(){
       <td style="padding:8px 10px;text-align:center;color:#666">${it.estoqueMinimo>0?it.estoqueMinimo:dash}</td>
       <td style="padding:8px 10px;text-align:right;white-space:nowrap">
         <button class="btn btn-sm" style="background:#1B5E20;color:#fff" onclick="openEstoqueEntrada('${it.id}')" title="Entrada (compra)"><i class="fa-solid fa-plus"></i></button>
+        <button class="btn btn-sm" style="background:#1565C0;color:#fff" onclick="openEntregaEpi('${it.id}')" title="Entregar a um colaborador"><i class="fa-solid fa-hand-holding-hand"></i></button>
         <button class="btn btn-sm" style="background:#C62828;color:#fff" onclick="openEstoqueBaixa('${it.id}')" title="Baixa (descarte/perda/ajuste)"><i class="fa-solid fa-minus"></i></button>
         <button class="btn btn-sm btn-outline" onclick="openEstoqueHistorico('${it.id}')" title="Histórico de movimentos"><i class="fa-solid fa-clock-rotate-left"></i></button>
         <button class="btn btn-sm btn-outline" onclick="openEstoqueItem('${it.id}')" title="Editar item"><i class="fa-solid fa-pen"></i></button>
@@ -18460,20 +18463,147 @@ function openEstoqueHistorico(itemId){
   const t=document.getElementById('estq-hist-title'); if(t) t.textContent=`Histórico — ${it.nome}`;
   const movs=(State.estoqueMov||[]).filter(m=>m && m.itemId===itemId)
     .sort((a,b)=>String(b.data||b.createdAt||'').localeCompare(String(a.data||a.createdAt||'')));
-  const _motivoLbl={descarte:'Descarte',perda:'Perda/Extravio',entrega:'Entrega a colaborador',devolucao:'Devolução',ajuste:'Ajuste'};
+  const _baixaLbl={descarte:'Descarte',perda:'Perda/Extravio',ajuste:'Ajuste'};
   const tbody=document.getElementById('estq-hist-tbody');
   if(tbody) tbody.innerHTML = movs.length ? movs.map(m=>{
-    const ent=m.tipo==='entrada';
-    const det = ent ? `${esc(m.fornecedor||'—')}${m.numeroNF?' · NF '+esc(m.numeroNF):''}${(+m.valorUnit||0)>0?' · '+fmtMoney(m.valorUnit)+'/un':''}` : esc(m.obs||'—');
+    const soma=(m.tipo==='entrada'||m.tipo==='devolucao');
+    let movLbl, det;
+    if(m.tipo==='entrada'){ movLbl='Entrada (compra)'; det=`${esc(m.fornecedor||'—')}${m.numeroNF?' · NF '+esc(m.numeroNF):''}${(+m.valorUnit||0)>0?' · '+fmtMoney(m.valorUnit)+'/un':''}`; }
+    else if(m.tipo==='entrega'){ movLbl='Entrega a colaborador'; det=esc(m.colaboradorNome||'—'); }
+    else if(m.tipo==='devolucao'){ movLbl='Devolução'; det=esc(m.colaboradorNome||'—'); }
+    else { movLbl='Baixa · '+(_baixaLbl[m.motivo]||m.motivo||''); det=esc(m.obs||'—'); }
     return `<tr>
       <td style="padding:5px 8px">${m.data?formatDateBr(m.data):'—'}</td>
-      <td style="padding:5px 8px;text-align:center;color:${ent?'#1B5E20':'#C62828'};font-weight:700">${ent?'+':'−'}${m.quantidade}</td>
-      <td style="padding:5px 8px">${ent?'Entrada (compra)':('Baixa · '+(_motivoLbl[m.motivo]||m.motivo||''))}</td>
+      <td style="padding:5px 8px;text-align:center;color:${soma?'#1B5E20':'#C62828'};font-weight:700">${soma?'+':'−'}${m.quantidade}</td>
+      <td style="padding:5px 8px">${movLbl}</td>
       <td style="padding:5px 8px;font-size:12px">${det}</td>
       <td style="padding:5px 8px;font-size:11px;color:#666">${esc(m.porNome||'—')}</td>
     </tr>`;
   }).join('') : `<tr><td colspan="5" style="text-align:center;padding:18px;color:#888">Sem movimentos.</td></tr>`;
   document.getElementById('modal-estq-historico').classList.remove('hidden');
+}
+
+// ── ESTOQUE Fase 2: ENTREGA ao colaborador + ficha de EPI + recibo (NR-6) ──
+function _episDoColaborador(empId){
+  return (State.estoqueMov||[]).filter(m=>m && m.colaboradorId===empId && (m.tipo==='entrega'||m.tipo==='devolucao'))
+    .sort((a,b)=>String(b.data||b.createdAt||'').localeCompare(String(a.data||a.createdAt||'')));
+}
+const _EPI_MOTIVO_LBL={primeira:'1ª entrega',entrega:'Entrega',troca:'Troca / substituição',devolucao:'Devolução'};
+// Renderiza a aba "EPIs" (ficha) no modal do colaborador.
+function renderFichaEpiColab(){
+  const empId=val('emp-id');
+  const wrap=document.getElementById('epi-ficha-lista');
+  if(!wrap) return;
+  if(!empId){ wrap.innerHTML='<p style="color:#888;padding:6px 0">Salve o cadastro antes de entregar EPIs.</p>'; return; }
+  const movs=_episDoColaborador(empId);
+  if(!movs.length){ wrap.innerHTML='<p style="color:#888;padding:6px 0">Nenhum EPI registrado ainda. Use <strong>"Entregar EPI"</strong>.</p>'; return; }
+  wrap.innerHTML=`<table class="data-table" style="font-size:13px">
+    <thead><tr><th>Data</th><th>EPI</th><th>CA</th><th style="text-align:center">Qtd</th><th>Motivo</th><th style="text-align:center">Assinado</th><th style="text-align:right">Recibo</th></tr></thead>
+    <tbody>${movs.map(m=>{
+      const dev=m.tipo==='devolucao';
+      const ass = dev ? '—' : (m.assinatura
+        ? `<span style="color:#1B5E20" title="Assinado em ${m.assinatura.em?new Date(m.assinatura.em).toLocaleString('pt-BR'):''}"><i class="fa-solid fa-circle-check"></i></span>`
+        : '<span style="color:#E65100" title="Aguardando assinatura do colaborador no app (Fase 3)"><i class="fa-solid fa-hourglass-half"></i></span>');
+      return `<tr>
+        <td>${m.data?formatDateBr(m.data):'—'}</td>
+        <td><strong>${esc(m.itemNome||'—')}</strong>${m.tamanho?` <small style="color:#666">· ${esc(m.tamanho)}</small>`:''}${dev?' <span style="color:#1565C0;font-size:11px">(devolução)</span>':''}</td>
+        <td style="font-size:12px">${esc(m.ca||'—')}</td>
+        <td style="text-align:center;font-weight:700">${m.quantidade}</td>
+        <td style="font-size:12px">${esc(_EPI_MOTIVO_LBL[m.motivo]||m.motivo||'—')}</td>
+        <td style="text-align:center">${ass}</td>
+        <td style="text-align:right"><button class="btn btn-sm btn-outline" onclick="imprimirReciboEpi('${m.id}')" title="Imprimir recibo"><i class="fa-solid fa-print"></i></button></td>
+      </tr>`;
+    }).join('')}</tbody></table>`;
+}
+// Abre o modal de entrega. itemId/colabId opcionais pré-selecionam (vem da lista de
+// estoque OU da ficha do colaborador). #estoque-epi
+function openEntregaEpi(itemId, colabId){
+  const selItem=document.getElementById('epi-ent-item');
+  if(selItem){
+    const itens=(State.estoqueItens||[]).filter(i=>i && !i.arquivado).slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+    selItem.innerHTML='<option value="">— escolher item —</option>'+itens.map(i=>`<option value="${i.id}">${esc(i.nome)}${i.ca?' (CA '+esc(i.ca)+')':''} — saldo ${_estoqueSaldo(i.id)}</option>`).join('');
+    if(itemId) selItem.value=itemId;
+  }
+  const selColab=document.getElementById('epi-ent-colab');
+  if(selColab){
+    const emps=_filtrarEmpsPorEscopo(State.employees||[]).filter(e=>(e.status||'ativo')!=='inativo').slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+    selColab.innerHTML='<option value="">— escolher colaborador —</option>'+emps.map(e=>`<option value="${e.id}">${esc(e.nome)}${e.registro?' ('+String(e.registro).padStart(4,'0')+')':''}</option>`).join('');
+    if(colabId) selColab.value=colabId;
+  }
+  setVal('epi-ent-qtd','1'); setVal('epi-ent-tamanho',''); setVal('epi-ent-motivo','primeira');
+  setVal('epi-ent-data', new Date().toISOString().substring(0,10)); setVal('epi-ent-obs','');
+  _epiEntItemChange();
+  document.getElementById('modal-epi-entrega').classList.remove('hidden');
+}
+function _epiEntItemChange(){
+  const it=(State.estoqueItens||[]).find(x=>x.id===val('epi-ent-item'));
+  const info=document.getElementById('epi-ent-item-info');
+  if(info) info.textContent = it ? `CA ${it.ca||'—'} · saldo atual ${_estoqueSaldo(it.id)} ${it.unidade||''}` : '';
+  if(it && it.tamanho && !val('epi-ent-tamanho')) setVal('epi-ent-tamanho', it.tamanho);
+}
+async function saveEntregaEpi(printAfter){
+  const itemId=val('epi-ent-item'); const it=(State.estoqueItens||[]).find(x=>x.id===itemId);
+  const colabId=val('epi-ent-colab'); const emp=(State.employees||[]).find(e=>e.id===colabId);
+  if(!it){ toast('Escolha o item.','error'); return; }
+  if(!emp){ toast('Escolha o colaborador.','error'); return; }
+  const qtd=numVal('epi-ent-qtd'); if(!(qtd>0)){ toast('Informe a quantidade.','error'); return; }
+  const motivo=val('epi-ent-motivo')||'primeira';
+  const tipo = motivo==='devolucao' ? 'devolucao' : 'entrega';
+  const saldo=_estoqueSaldo(itemId);
+  if(tipo==='entrega' && qtd>saldo && !confirm(`A entrega (${qtd}) é maior que o saldo atual (${saldo}). O estoque ficará negativo. Continuar?`)) return;
+  const rec={ id:genId(), itemId, itemNome:it.nome, tipo, quantidade:qtd,
+    data:val('epi-ent-data')||new Date().toISOString().substring(0,10),
+    colaboradorId:colabId, colaboradorNome:emp.nome,
+    ca:it.ca||'', tamanho:val('epi-ent-tamanho')||it.tamanho||'', motivo,
+    obs:val('epi-ent-obs')||'', porNome:Auth.currentUser?.username||'', createdAt:new Date().toISOString() };
+  const btn=document.querySelector('#modal-epi-entrega .btn-primary'); setBtnLoading(btn,true,'');
+  try{
+    await DB.save('estoqueMov', rec);
+    closeModal('modal-epi-entrega');
+    toast(`EPI ${tipo==='devolucao'?'devolvido':'entregue'} a ${emp.nome}.`);
+    Auth.log('EPI_ENTREGUE', null, `${it.nome} → ${emp.nome}`);
+    if(val('emp-id')===colabId) renderFichaEpiColab();
+    if(State.currentSection==='estoque') renderEstoque();
+    if(printAfter) setTimeout(()=>imprimirReciboEpi(rec.id), 250);
+  }catch(e){ toast('Erro ao registrar entrega.','error'); }
+  finally{ setBtnLoading(btn,false,'<i class="fa-solid fa-floppy-disk"></i> Registrar'); }
+}
+// Recibo de entrega de EPI — documento legal (NR-6 / art. 158 CLT). Fase 3 acrescenta
+// a assinatura digital + hash (vinda do app do colaborador). #estoque-epi
+function imprimirReciboEpi(movId){
+  const m=(State.estoqueMov||[]).find(x=>x.id===movId); if(!m){ toast('Registro não encontrado.','error'); return; }
+  const emp=(State.employees||[]).find(e=>e.id===m.colaboradorId)||{};
+  const dev = m.tipo==='devolucao';
+  const decl = dev
+    ? 'Declaro que DEVOLVI à empresa o(s) Equipamento(s) de Proteção Individual (EPI) acima descrito(s).'
+    : 'Declaro que recebi GRATUITAMENTE o(s) Equipamento(s) de Proteção Individual (EPI) acima descrito(s), em perfeito estado de conservação e funcionamento; que fui devidamente ORIENTADO(A) sobre o uso correto, a guarda e a higienização; e que me comprometo a: usá-lo(s) durante toda a jornada para a finalidade a que se destina(m), zelar por sua conservação e guarda, comunicar imediatamente qualquer dano ou extravio, e devolvê-lo(s) ao término do contrato ou quando solicitado — ciente das medidas cabíveis em caso de descumprimento (NR-6 e art. 158, II, da CLT).';
+  const w=window.open('','_blank'); if(!w){ toast('Permita pop-ups para imprimir.','error'); return; }
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Recibo de EPI — ${esc(emp.nome||'')}</title>
+  <style>body{font-family:Arial,sans-serif;font-size:12px;color:#111;padding:24px}
+  h2{color:#1a3a6b;margin:0 0 4px}.empresa{color:#555;font-size:11px;margin-bottom:16px}
+  table{width:100%;border-collapse:collapse;margin-bottom:12px}th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}
+  th{background:#1a3a6b;color:#fff}.decl{font-size:11px;line-height:1.55;text-align:justify;border:1px solid #ddd;background:#fafafa;padding:10px;border-radius:5px}
+  .assin{margin-top:46px;text-align:center}.assin hr{width:60%;margin:0 auto 4px}
+  .hashbox{margin-top:14px;font-size:10px;color:#0d47a1;background:#E3F2FD;border-radius:5px;padding:8px;word-break:break-all}
+  @media print{body{padding:10px}}</style></head><body>
+  <h2>RECIBO DE ENTREGA DE EPI${dev?' — DEVOLUÇÃO':''}</h2>
+  <div class="empresa">${esc(_e('nomeEmpresa'))} — CNPJ: ${esc(_e('cnpj')||'—')}${_empresaEnderecoLinha()?'<br>'+esc(_empresaEnderecoLinha()):''}</div>
+  <table>
+    <tr><th colspan="2">Colaborador</th></tr>
+    <tr><td><strong>Nome:</strong> ${esc(emp.nome||'—')}</td><td><strong>Registro:</strong> ${emp.registro?String(emp.registro).padStart(4,'0'):'—'}</td></tr>
+    <tr><td><strong>Cargo:</strong> ${esc(emp.cargo||'—')}</td><td><strong>CPF:</strong> ${esc(emp.cpf||'—')}</td></tr>
+    <tr><td colspan="2"><strong>Posto:</strong> ${esc(emp.posto||'—')}</td></tr>
+  </table>
+  <table>
+    <tr><th>EPI / Item</th><th>CA</th><th>Tam.</th><th>Qtd</th><th>Data</th><th>Motivo</th></tr>
+    <tr><td>${esc(m.itemNome||'—')}</td><td>${esc(m.ca||'—')}</td><td>${esc(m.tamanho||'—')}</td><td>${m.quantidade}</td><td>${m.data?formatDateBr(m.data):'—'}</td><td>${esc(_EPI_MOTIVO_LBL[m.motivo]||m.motivo||'—')}</td></tr>
+  </table>
+  <p class="decl">${decl}</p>
+  ${m.assinatura ? `<div class="hashbox"><strong>✔ Assinado digitalmente pelo colaborador</strong> em ${m.assinatura.em?new Date(m.assinatura.em).toLocaleString('pt-BR'):'—'}.<br>Cadeia de custódia (hash SHA-256): ${esc(m.assinatura.hash||'—')}</div>`
+    : `<div class="assin"><hr>Assinatura do Colaborador<br><small>${esc(emp.nome||'')}</small></div>`}
+  <p style="text-align:center;font-size:10px;color:#999;margin-top:26px">Gerado por ${APP_VERSION} em ${new Date().toLocaleString('pt-BR')} · Documento ${esc(m.id)}</p>
+  </body></html>`);
+  w.document.close(); w.print();
 }
 
 // Configuração de todos os tipos de relatório disponíveis

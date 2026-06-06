@@ -2917,6 +2917,9 @@
         <button class="modal-tab" data-tab-id="tab-documentos" onclick="switchTab('tab-documentos')">
           <i class="fa-solid fa-folder-open"></i> Documentos
         </button>
+        <button class="modal-tab" data-tab-id="tab-epis" onclick="switchTab('tab-epis');renderFichaEpiColab()">
+          <i class="fa-solid fa-helmet-safety"></i> EPIs
+        </button>
         <button class="modal-tab" data-tab-id="tab-folhas-assinadas" onclick="switchTab('tab-folhas-assinadas');renderFolhasAssinadasColab()">
           <i class="fa-solid fa-file-signature"></i> Folhas Assinadas
         </button>
@@ -3778,6 +3781,20 @@
 
       <!-- Tab: Folhas Assinadas — folhas de ponto que o colab conferiu/assinou
            via app, ou que viraram "aceita por silêncio" após 48h. -->
+      <!-- Tab: EPIs (ficha de EPI do colaborador — NR-6) -->
+      <div class="tab-pane" id="tab-epis">
+        <div class="info-banner">
+          <i class="fa-solid fa-helmet-safety"></i>
+          Ficha de EPI — equipamentos entregues a este colaborador (com CA, conforme NR-6). Cada entrega gera um recibo legal; na Fase 3 o colaborador assinará pelo app (hash de cadeia de custódia).
+        </div>
+        <div style="margin:10px 0">
+          <button class="btn btn-primary" onclick="openEntregaEpi(null, val('emp-id'))"><i class="fa-solid fa-hand-holding-hand"></i> Entregar EPI</button>
+        </div>
+        <div id="epi-ficha-lista">
+          <div style="font-size:12px;color:#94a3b8;padding:8px 2px">Carregando...</div>
+        </div>
+      </div>
+
       <div class="tab-pane" id="tab-folhas-assinadas">
         <div class="info-banner">
           <i class="fa-solid fa-file-signature"></i>
@@ -5502,6 +5519,44 @@
   </div>
 </div>
 
+<!-- ===== ESTOQUE: modal de ENTREGA ao colaborador (EPI) ===== -->
+<div class="modal-overlay hidden" id="modal-epi-entrega" onclick="closeModal('modal-epi-entrega', event)">
+  <div class="modal-dialog modal-md">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-hand-holding-hand" style="color:#1565C0"></i> Entregar EPI ao colaborador</h3>
+      <button class="modal-close" onclick="closeModal('modal-epi-entrega')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group"><label>Item (EPI) <span class="required">*</span></label>
+        <select id="epi-ent-item" onchange="_epiEntItemChange()"></select>
+        <div id="epi-ent-item-info" style="font-size:11px;color:var(--text-muted);margin-top:4px"></div>
+      </div>
+      <div class="form-group"><label>Colaborador <span class="required">*</span></label>
+        <select id="epi-ent-colab"></select>
+      </div>
+      <div class="form-row">
+        <div class="form-group flex-1"><label>Quantidade <span class="required">*</span></label><input type="number" id="epi-ent-qtd" min="0" step="1" value="1"></div>
+        <div class="form-group flex-1"><label>Tamanho / Numeração</label><input type="text" id="epi-ent-tamanho" placeholder="Ex.: 42, M, G..."></div>
+        <div class="form-group flex-1"><label>Data</label><input type="date" id="epi-ent-data"></div>
+      </div>
+      <div class="form-group"><label>Motivo</label>
+        <select id="epi-ent-motivo">
+          <option value="primeira">1ª entrega</option>
+          <option value="troca">Troca / substituição (dano / extravio / vencimento)</option>
+          <option value="devolucao">Devolução (o colaborador devolveu)</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Observação</label><textarea id="epi-ent-obs" rows="2" placeholder="Opcional"></textarea></div>
+      <p style="font-size:11px;color:var(--text-muted)"><i class="fa-solid fa-circle-info"></i> A entrega dá baixa no estoque e lança na <strong>Ficha de EPI</strong> do colaborador. O recibo legal pode ser impresso já; a assinatura digital no app vem na Fase 3.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-epi-entrega')">Cancelar</button>
+      <button class="btn btn-outline" onclick="saveEntregaEpi(true)"><i class="fa-solid fa-print"></i> Registrar e imprimir</button>
+      <button class="btn btn-primary" onclick="saveEntregaEpi(false)"><i class="fa-solid fa-floppy-disk"></i> Registrar</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay hidden" id="modal-posto" onclick="closeModal('modal-posto', event)">
   <div class="modal-dialog modal-md">
     <div class="modal-header">
@@ -6783,6 +6838,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260605g-estoque-epi-fase1"></script>
+  <script src="app.js?v=20260605h-estoque-epi-fase2"></script>
 </body>
 </html>

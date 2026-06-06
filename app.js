@@ -18392,6 +18392,9 @@ function openEstoqueItem(id){
   setVal('estq-item-obs', it.obs||'');
   const t=document.getElementById('estq-item-title'); if(t) t.textContent = it.id ? 'Editar item' : 'Novo item';
   const d=document.getElementById('estq-item-del'); if(d) d.style.display = it.id ? '' : 'none';
+  // modo normal: esconde a caixa "Entrada desta NF" (só aparece vindo da importação por IA)
+  setVal('estq-item-imp-idx','');
+  const _impBox=document.getElementById('estq-item-import-box'); if(_impBox) _impBox.style.display='none';
   document.getElementById('modal-estq-item').classList.remove('hidden');
 }
 async function saveEstoqueItem(){
@@ -18404,8 +18407,28 @@ async function saveEstoqueItem(){
     obs:val('estq-item-obs')||'', arquivado:false,
     criadoEm: ex?.criadoEm || new Date().toISOString(), updatedAt:new Date().toISOString() };
   const btn=document.querySelector('#modal-estq-item .btn-primary'); setBtnLoading(btn,true,'');
-  try{ await DB.save('estoqueItens', rec); closeModal('modal-estq-item'); toast('Item salvo!');
-    Auth.log('ESTOQUE_ITEM_SAVED', null, nome); }
+  try{
+    await DB.save('estoqueItens', rec);
+    Auth.log('ESTOQUE_ITEM_SAVED', null, nome);
+    // Veio da importação de NF? Lança a ENTRADA (compra) e volta pra lista de importados.
+    const impIdx=val('estq-item-imp-idx');
+    if(impIdx!==''){
+      const qtd=numVal('estq-item-imp-qtd');
+      if(qtd>0){
+        const valorUnit=numVal('estq-item-imp-valor')||0;
+        await DB.save('estoqueMov', { id:genId(), itemId:id, itemNome:nome, tipo:'entrada', quantidade:qtd,
+          data:val('estq-item-imp-data')||new Date().toISOString().substring(0,10),
+          fornecedor:val('estq-item-imp-fornecedor')||'', numeroNF:val('estq-item-imp-nf')||'',
+          valorUnit, valorTotal:+(valorUnit*qtd).toFixed(2),
+          porNome:Auth.currentUser?.username||'', createdAt:new Date().toISOString() });
+      }
+      if(_estoqueImport && _estoqueImport.itens[+impIdx]) _estoqueImport.itens[+impIdx]._salvo=true;
+      closeModal('modal-estq-item'); toast('Item + entrada salvos!');
+      abrirEstoqueImport();   // volta pra lista pra conferir o próximo
+    } else {
+      closeModal('modal-estq-item'); toast('Item salvo!');
+    }
+  }
   catch(e){ toast('Erro ao salvar item.','error'); }
   finally{ setBtnLoading(btn,false,'<i class="fa-solid fa-floppy-disk"></i> Salvar'); }
 }
@@ -18604,6 +18627,93 @@ function imprimirReciboEpi(movId){
   <p style="text-align:center;font-size:10px;color:#999;margin-top:26px">Gerado por ${APP_VERSION} em ${new Date().toLocaleString('pt-BR')} · Documento ${esc(m.id)}</p>
   </body></html>`);
   w.document.close(); w.print();
+}
+
+// ── ESTOQUE: cadastro em LOTE por Nota Fiscal com IA (Gemini, reusa o proxy) ──
+let _estoqueImport = null;   // { fornecedor, numeroNF, dataCompra, itens:[{...,_salvo}] }
+async function callGeminiNotaEstoque(base64Data, mimeType){
+  const prompt = `Você é um sistema de leitura de NOTA FISCAL (NF-e) brasileira de compra de materiais e EPIs. Analise o documento e extraia o cabeçalho e a LISTA DE ITENS.
+Retorne SOMENTE um JSON válido (sem markdown, sem comentários). Para campos que não conseguir ler com certeza, use null. NUNCA invente.
+{
+  "fornecedor": "razão social do emitente ou null",
+  "numeroNF": "número da nota fiscal ou null",
+  "dataCompra": "data de emissão em AAAA-MM-DD ou null",
+  "itens": [
+    { "nome": "descrição do produto", "quantidade": 0, "valorUnitario": 0.00, "unidade": "un/par/cx/... ou null", "ca": "número do CA se aparecer ou null", "tamanho": "tamanho/numeração se aparecer ou null", "tipo": "EPI/Uniforme/Material/Outro" }
+  ]
+}
+REGRAS:
+1. Valores monetários só número (ponto decimal, sem R$ nem separador de milhar). Datas em AAAA-MM-DD.
+2. "itens" = TODOS os produtos da nota, com quantidade e valor unitário. Sem itens legíveis = [].
+3. "tipo": classifique pelo nome — bota/luva/capacete/óculos/protetor auricular/cinto/máscara/respirador/protetor solar = "EPI"; camisa/calça/jaleco/uniforme = "Uniforme"; consumível/limpeza = "Material"; senão "Outro".
+4. CA (Certificado de Aprovação) raramente aparece na NF — se não tiver, null (o gestor completa).
+5. Retorne APENAS o JSON.`;
+  const resp = await fetch(GEMINI_PROXY_URL, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ model: GEMINI_MODEL, prompt, mimeType, base64Data })
+  });
+  if(!resp.ok){ const err=await resp.json().catch(()=>({error:'Resposta inválida do servidor'})); throw new Error(err.error?.message||err.error||'Erro na chamada Gemini'); }
+  const data = await resp.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  try { _registrarUsoIA('estoque-nf', data); } catch(_){}
+  return _parseGeminiJson(text);
+}
+async function onNotaEstoqueSelected(input){
+  const f = input.files && input.files[0]; input.value='';
+  if(!f) return;
+  const st=document.getElementById('estoque-ia-status');
+  if(st) st.innerHTML=`<span style="color:#4F6BF5"><i class="fa-solid fa-spinner fa-spin"></i> 🤖 Lendo a nota <strong>${esc(f.name)}</strong>... (pode levar alguns segundos)</span>`;
+  try{
+    const base64=await fileToBase64(f);
+    const d=await callGeminiNotaEstoque(base64, f.type||'application/pdf');
+    const itens=Array.isArray(d.itens)?d.itens.filter(i=>i && String(i.nome||'').trim()):[];
+    if(!itens.length){ if(st) st.innerHTML=`<span style="color:#C62828"><i class="fa-solid fa-circle-xmark"></i> Não consegui ler itens nessa nota. Tente um PDF/foto mais nítido — ou cadastre manualmente.</span>`; return; }
+    _estoqueImport={ fornecedor:d.fornecedor||'', numeroNF:d.numeroNF||'', dataCompra:d.dataCompra||'', itens: itens.map(i=>({ ...i, _salvo:false })) };
+    if(st) st.innerHTML=`<span style="color:#15803D"><i class="fa-solid fa-circle-check"></i> <strong>${itens.length}</strong> item(ns) lido(s)${d.fornecedor?` — ${esc(d.fornecedor)}`:''}${d.numeroNF?`, NF ${esc(d.numeroNF)}`:''}. Confira na lista.</span>`;
+    abrirEstoqueImport();
+  }catch(e){ if(st) st.innerHTML=`<span style="color:#C62828"><i class="fa-solid fa-circle-xmark"></i> Erro ao ler a nota: ${esc((e&&e.message)||'falha')}.</span>`; }
+}
+function abrirEstoqueImport(){
+  if(!_estoqueImport) return;
+  renderEstoqueImportLista();
+  document.getElementById('modal-estoque-import').classList.remove('hidden');
+}
+function renderEstoqueImportLista(){
+  const tbody=document.getElementById('estoque-import-tbody');
+  const hdr=document.getElementById('estoque-import-hdr');
+  if(!_estoqueImport || !tbody) return;
+  if(hdr) hdr.textContent = `Fornecedor: ${_estoqueImport.fornecedor||'—'}  ·  NF: ${_estoqueImport.numeroNF||'—'}  ·  Data: ${_estoqueImport.dataCompra?formatDateBr(_estoqueImport.dataCompra):'—'}`;
+  const _salvos=_estoqueImport.itens.filter(i=>i._salvo).length;
+  const cont=document.getElementById('estoque-import-contador');
+  if(cont) cont.textContent = `${_salvos} de ${_estoqueImport.itens.length} salvos`;
+  tbody.innerHTML=_estoqueImport.itens.map((it,idx)=>`
+    <tr style="background:${it._salvo?'#E8F5E9':'#fff'};cursor:pointer" onclick="abrirItemDaImportacao(${idx})">
+      <td style="padding:7px 9px">${it._salvo?'<i class="fa-solid fa-circle-check" style="color:#1B5E20"></i> ':''}<strong>${esc(it.nome||'—')}</strong>${it.tamanho?` <small style="color:#666">· ${esc(it.tamanho)}</small>`:''}</td>
+      <td style="padding:7px 9px">${esc(it.tipo||'—')}</td>
+      <td style="padding:7px 9px;text-align:center">${it.quantidade||'—'}</td>
+      <td style="padding:7px 9px;text-align:right">${(+it.valorUnitario>0)?fmtMoney(it.valorUnitario):'—'}</td>
+      <td style="padding:7px 9px;font-size:12px">${esc(it.ca||'')||'<span style="color:#E65100">sem CA</span>'}</td>
+      <td style="padding:7px 9px;text-align:right">${it._salvo?'<span style="color:#1B5E20;font-weight:700">Salvo</span>':'<span style="color:#1565C0;font-weight:700">Conferir →</span>'}</td>
+    </tr>`).join('');
+}
+function abrirItemDaImportacao(idx){
+  const imp=_estoqueImport && _estoqueImport.itens[idx]; if(!imp) return;
+  closeModal('modal-estoque-import');
+  openEstoqueItem();   // abre o modal de item em modo NOVO (limpa + esconde a caixa de NF)
+  setVal('estq-item-nome', imp.nome||'');
+  setVal('estq-item-tipo', imp.tipo||'EPI');
+  setVal('estq-item-tamanho', imp.tamanho||'');
+  setVal('estq-item-unidade', imp.unidade||'un');
+  setVal('estq-item-ca', imp.ca||'');
+  // caixa "Entrada desta NF" — pré-preenchida da nota
+  setVal('estq-item-imp-idx', String(idx));
+  setVal('estq-item-imp-qtd', imp.quantidade||'');
+  setVal('estq-item-imp-valor', imp.valorUnitario||'');
+  setVal('estq-item-imp-fornecedor', _estoqueImport.fornecedor||'');
+  setVal('estq-item-imp-nf', _estoqueImport.numeroNF||'');
+  setVal('estq-item-imp-data', _estoqueImport.dataCompra||'');
+  const box=document.getElementById('estq-item-import-box'); if(box) box.style.display='';
+  const t=document.getElementById('estq-item-title'); if(t) t.textContent='Conferir item importado da NF';
 }
 
 // Configuração de todos os tipos de relatório disponíveis

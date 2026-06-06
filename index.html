@@ -1397,6 +1397,22 @@
             <button class="btn btn-primary" onclick="openEstoqueItem()"><i class="fa-solid fa-plus"></i> Novo item</button>
           </div>
         </div>
+        <div class="card" style="margin-bottom:14px;border-left:4px solid #4F6BF5">
+          <div class="card-body">
+            <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+              <div style="width:40px;height:40px;flex-shrink:0;border-radius:10px;background:linear-gradient(135deg,#4F6BF5,#8B5CF6);color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px"><i class="fa-solid fa-robot"></i></div>
+              <div style="flex:1;min-width:240px">
+                <strong style="font-size:14px">Cadastro em lote por Nota Fiscal (IA)</strong>
+                <p style="font-size:12px;color:var(--text-muted);margin:3px 0 0">Suba o PDF ou foto da nota fiscal — a IA lê os itens e abre a lista pra você conferir e salvar cada um, já lançando a entrada no estoque.</p>
+                <div style="margin-top:10px">
+                  <input type="file" id="estoque-nf-file" accept="image/*,application/pdf" style="display:none" onchange="onNotaEstoqueSelected(this)">
+                  <button class="btn btn-outline" onclick="document.getElementById('estoque-nf-file').click()"><i class="fa-solid fa-file-arrow-up"></i> Subir nota fiscal</button>
+                </div>
+                <div id="estoque-ia-status" style="font-size:12px;margin-top:8px"></div>
+              </div>
+            </div>
+          </div>
+        </div>
         <div id="estoque-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:14px"></div>
         <div class="card"><div class="card-body">
           <div class="search-bar">
@@ -5437,6 +5453,19 @@
       </div>
       <div class="form-group"><label>Estoque mínimo (alerta) <small style="color:var(--text-muted)">— 0 = sem alerta</small></label><input type="number" id="estq-item-minimo" min="0" step="1" placeholder="0" style="max-width:160px"></div>
       <div class="form-group"><label>Observações</label><textarea id="estq-item-obs" rows="2" placeholder="Opcional"></textarea></div>
+      <input type="hidden" id="estq-item-imp-idx">
+      <div id="estq-item-import-box" style="display:none;background:#EEF4FF;border:1px solid #C9D6F5;border-radius:8px;padding:12px;margin-top:4px">
+        <div style="font-weight:700;font-size:13px;color:#1a3a6b;margin-bottom:8px"><i class="fa-solid fa-file-arrow-up"></i> Entrada desta Nota Fiscal <span style="font-weight:400;color:#555">— lançada automaticamente ao salvar</span></div>
+        <div class="form-row">
+          <div class="form-group flex-1"><label>Quantidade</label><input type="number" id="estq-item-imp-qtd" min="0" step="1"></div>
+          <div class="form-group flex-1"><label>Valor unitário (R$)</label><input type="number" id="estq-item-imp-valor" min="0" step="0.01"></div>
+          <div class="form-group flex-1"><label>Data da compra</label><input type="date" id="estq-item-imp-data"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group flex-1"><label>Fornecedor</label><input type="text" id="estq-item-imp-fornecedor"></div>
+          <div class="form-group flex-1"><label>Nº da NF</label><input type="text" id="estq-item-imp-nf"></div>
+        </div>
+      </div>
       <p style="font-size:11px;color:var(--text-muted)"><i class="fa-solid fa-circle-info"></i> Aqui você cadastra o ITEM. As compras (fornecedor, NF, valor) entram pelo botão <strong>+ Entrada</strong> na lista.</p>
     </div>
     <div class="modal-footer">
@@ -5515,6 +5544,29 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal('modal-estq-historico')">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== ESTOQUE: modal da LISTA de itens importados da NF (IA) ===== -->
+<div class="modal-overlay hidden" id="modal-estoque-import" onclick="closeModal('modal-estoque-import', event)">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-robot"></i> Itens importados da Nota Fiscal</h3>
+      <button class="modal-close" onclick="closeModal('modal-estoque-import')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <div id="estoque-import-hdr" style="font-size:12px;color:var(--text-muted);margin-bottom:4px"></div>
+      <p style="font-size:12px;color:var(--text-muted)"><i class="fa-solid fa-circle-info"></i> Clique em cada item pra conferir/completar (CA, tamanho, validade) e salvar — a entrada já entra no estoque. <strong id="estoque-import-contador"></strong></p>
+      <div style="overflow-x:auto">
+        <table class="data-table" style="font-size:13px">
+          <thead><tr><th>Item</th><th>Tipo</th><th style="text-align:center">Qtd</th><th style="text-align:right">Vl. unit.</th><th>CA</th><th style="text-align:right">Status</th></tr></thead>
+          <tbody id="estoque-import-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-estoque-import')">Fechar</button>
     </div>
   </div>
 </div>
@@ -6838,6 +6890,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260605h-estoque-epi-fase2"></script>
+  <script src="app.js?v=20260606a-estoque-nf-ia"></script>
 </body>
 </html>

@@ -213,6 +213,19 @@
   </div>
 </div>
 
+<!-- POPUP: novo(s) EPI(s) a confirmar -->
+<div class="popup-overlay" id="popup-epi">
+  <div class="popup-card">
+    <div class="popup-icon">🦺</div>
+    <div class="popup-title" id="popup-epi-title">Você recebeu um EPI</div>
+    <div class="popup-msg">A empresa registrou a entrega de EPI(s) a você. Confirme o recebimento — é rápido e gera o recibo assinado.</div>
+    <div class="popup-btns">
+      <button class="popup-btn popup-btn-secondary" onclick="_fecharPopupEpi(false)">Mais tarde</button>
+      <button class="popup-btn popup-btn-primary" onclick="_fecharPopupEpi(true)">Confirmar agora</button>
+    </div>
+  </div>
+</div>
+
 <!-- ============================= TELA LOGIN ============================= -->
 <div class="screen active" id="screen-login">
   <div class="app-header">
@@ -764,6 +777,7 @@ async function carregarHome() {
   // e — uma vez por sessao — abre o popup "Voce tem N mensagens novas".
   _checarMensagensNovas().catch(e => console.warn('checar msgs', e));
   _checarAutzPendentes().catch(e => console.warn('checar autz', e));
+  _carregarEpisPendentes().catch(e => console.warn('checar epis', e));   // EPIs a confirmar. #estoque-epi
   // Poll leve a cada 60s — apita quando chega comunicação nova com o app aberto. #som-avisos
   if(!window._msgPollTimer) window._msgPollTimer = setInterval(()=>{ _checarMensagensNovas().catch(()=>{}); }, 60*1000);
 }
@@ -2486,6 +2500,24 @@ async function confirmarAssinatura(){
     const ua = navigator.userAgent;
     const pinHash = await _sha256(pin + '|' + cpfClean);
     const ts = new Date().toISOString();
+    // --- EPI: assina o recibo de entrega de EPI (estoqueMov). Grava SÓ `assinatura`
+    //     (casa com a regra que libera o colaborador a atualizar só esse campo). ---
+    if(_confMode === 'epi'){
+      const m = _confCurrentEpi || {};
+      const conteudo = JSON.stringify({ id:m.id, item:m.itemNome, ca:m.ca, tam:m.tamanho, qtd:m.quantidade, data:m.data, motivo:m.motivo, colab:m.colaboradorId });
+      const hashInput = `${conteudo}|${pinHash}|${ip}|${ua}|${fingerprint}|${ts}`;
+      const hash = await _sha256(hashInput);
+      const assinatura = { hash, pinHash, ip, userAgent: ua, deviceFingerprint: fingerprint, conteudoJson: conteudo, em: ts };
+      await dbCol('estoqueMov').doc(m.id).set({ assinatura }, { merge:true });
+      m.assinatura = assinatura;
+      fecharModalPin();
+      fecharReciboEpi();
+      _episPendentes = _episPendentes.filter(x=>x.id!==m.id);
+      _atualizarBadgeEpi();
+      alert('✅ Recebimento do EPI confirmado!\n\nEPI: '+(m.itemNome||'')+'\nHash: '+hash.substring(0,16)+'...\n\nObrigado.');
+      if(_episPendentes.length) setTimeout(()=>abrirProximoEpi(), 400);
+      return;
+    }
     // --- HOLERITE: assina sobre o HTML do recibo gravado pelo gestor ---
     if(_confMode === 'holerite'){
       const reciboHtml = p.holeriteConferencia?.reciboHtml || '';
@@ -2546,6 +2578,55 @@ async function confirmarAssinatura(){
     btn.disabled = false; btn.textContent = '✅ Confirmar Assinatura';
   }
 }
+
+// ── EPIs: confirmar recebimento (assinatura + hash, cadeia de custódia) — Fase 3 ──
+let _episPendentes = [], _confCurrentEpi = null;
+async function _carregarEpisPendentes(){
+  if(!currentEmp) return;
+  try{
+    const snap = await dbCol('estoqueMov').where('colaboradorId','==',currentEmp.id).get();
+    _episPendentes = snap.docs.map(d=>({id:d.id,...d.data()}))
+      .filter(m=>m.tipo==='entrega' && !m.assinatura)
+      .sort((a,b)=>String(a.data||'').localeCompare(String(b.data||'')));
+  }catch(e){ _episPendentes=[]; console.warn('epis pendentes:', e&&e.message); }
+  _atualizarBadgeEpi();
+  if(_episPendentes.length && sessionStorage.getItem('drg_popup_epi')!=='1'){
+    const ov=document.getElementById('popup-epi');
+    if(ov){
+      const n=_episPendentes.length;
+      document.getElementById('popup-epi-title').textContent = n===1?'Você recebeu 1 EPI':`Você recebeu ${n} EPIs`;
+      ov.classList.add('show');
+      sessionStorage.setItem('drg_popup_epi','1');
+    }
+  }
+}
+function _atualizarBadgeEpi(){
+  const b=document.getElementById('badge-epi'); if(!b) return;
+  const n=_episPendentes.length;
+  if(n>0){ b.textContent=n>9?'9+':String(n); b.classList.add('show'); } else { b.classList.remove('show'); }
+}
+function _fecharPopupEpi(verAgora){
+  const ov=document.getElementById('popup-epi'); if(ov) ov.classList.remove('show');
+  if(verAgora) abrirProximoEpi();
+}
+function abrirProximoEpi(){ if(_episPendentes[0]) abrirReciboEpiColab(_episPendentes[0]); }
+function abrirReciboEpiColab(m){
+  _confMode='epi'; _confCurrentEpi=m;
+  const el=document.getElementById('epi-recibo-conteudo');
+  if(el){
+    const _row=(k,v)=>`<tr><td style="padding:6px 8px;border:1px solid #ddd;background:#f5f5f5;font-weight:700;white-space:nowrap">${k}</td><td style="padding:6px 8px;border:1px solid #ddd">${(v||'—')}</td></tr>`;
+    el.innerHTML=`
+      <p style="margin:0 0 10px;font-size:13px;color:#555">A empresa registrou a entrega do seguinte EPI a você. Confira e, se estiver correto, confirme o recebimento.</p>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:12px">
+        ${_row('EPI', m.itemNome)}${_row('CA', m.ca)}${_row('Tamanho', m.tamanho)}${_row('Quantidade', String(m.quantidade))}${_row('Data', m.data?new Date(m.data+'T00:00:00').toLocaleDateString('pt-BR'):'')}
+      </table>
+      <div style="font-size:12px;line-height:1.55;background:#FFFDE7;border:1px solid #FFE082;border-radius:8px;padding:11px;color:#5D4037">
+        Ao confirmar, você <strong>declara que recebeu gratuitamente o EPI acima, em perfeito estado; que foi orientado(a) sobre o uso correto, guarda e conservação; e que se compromete a usá-lo durante a jornada, conservá-lo, comunicar qualquer dano ou extravio e devolvê-lo ao fim do contrato ou quando solicitado</strong> (NR-6 / art. 158 da CLT). A confirmação gera uma assinatura eletrônica com hash (cadeia de custódia).
+      </div>`;
+  }
+  const mo=document.getElementById('modal-epi-recibo'); if(mo) mo.style.display='flex';
+}
+function fecharReciboEpi(){ const m=document.getElementById('modal-epi-recibo'); if(m) m.style.display='none'; }
 
 async function confirmarContestar(){
   const txt = document.getElementById('contestar-motivo');
@@ -2652,6 +2733,21 @@ window.carregarHome = async function(){
     <div style="padding:14px;border-top:1px solid #E0E0E0;background:#FAFAFA;display:flex;gap:8px">
       <button onclick="escolherContestar()" style="flex:1;background:#fff;color:#C62828;border:2px solid #C62828;padding:11px;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px">⚠️ Tenho objeção</button>
       <button onclick="escolherConcordo()" style="flex:1;background:#2E7D32;color:#fff;border:none;padding:11px;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px">✅ Conferi e estou de acordo</button>
+    </div>
+  </div>
+</div>
+
+<!-- RECIBO DE EPI (colaborador confirma recebimento) -->
+<div id="modal-epi-recibo" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;align-items:center;justify-content:center;padding:20px">
+  <div style="background:#fff;border-radius:14px;max-width:560px;width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">
+    <div style="padding:14px 20px;border-bottom:2px solid #1565C0;background:#E3F2FD;display:flex;justify-content:space-between;align-items:center">
+      <div style="font-weight:700;color:#0d47a1;font-size:16px">🦺 Recebimento de EPI</div>
+      <button onclick="fecharReciboEpi()" style="background:none;border:none;font-size:24px;cursor:pointer;color:#888">×</button>
+    </div>
+    <div id="epi-recibo-conteudo" style="overflow-y:auto;flex:1;padding:16px 20px;background:#fff"></div>
+    <div style="padding:14px;border-top:1px solid #E0E0E0;background:#FAFAFA;display:flex;gap:8px">
+      <button onclick="fecharReciboEpi()" style="flex:1;background:#fff;color:#666;border:1px solid #ccc;padding:11px;border-radius:8px;cursor:pointer;font-weight:600;font-size:13px">Mais tarde</button>
+      <button onclick="escolherConcordo()" style="flex:1.5;background:#1565C0;color:#fff;border:none;padding:11px;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px">✅ Declaro que recebi e assino</button>
     </div>
   </div>
 </div>

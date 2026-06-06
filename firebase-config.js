@@ -154,6 +154,15 @@ if (typeof firebase !== 'undefined' && firebase.apps && !firebase.apps.length) {
 //        allow read:  if rStaff() || (rColab() && id == request.auth.token.empId);
 //        allow write: if rStaff();
 //      }
+//      // estoque/EPIs: colaborador LÊ e ASSINA (só o campo `assinatura`) os PRÓPRIOS
+//      // movimentos de entrega; staff total. Fase 3 do recibo de EPI. #estoque-epi
+//      match /estoqueMov/{id} {
+//        allow read:   if rStaff() || (rColab() && resource.data.colaboradorId == request.auth.token.empId);
+//        allow create, delete: if rStaff();
+//        allow update: if rStaff() || (rColab()
+//                         && resource.data.colaboradorId == request.auth.token.empId
+//                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['assinatura']));
+//      }
 //
 //      // demais coleções de GESTÃO (escalas, cct, postos, ferias, rescisoes,
 //      // decimoTerceiro, bancoHoras, contratos, disciplina, rubricas, perfis,
@@ -230,6 +239,13 @@ if (typeof firebase !== 'undefined' && firebase.apps && !firebase.apps.length) {
 //        match /employees/{id} {
 //          allow read:  if meuTenant(t) && (isStaff() || (isColab() && id == request.auth.token.empId));
 //          allow write: if meuTenant(t) && isStaff();
+//        }
+//        match /estoqueMov/{id} {
+//          allow read:   if meuTenant(t) && (isStaff() || (isColab() && resource.data.colaboradorId == request.auth.token.empId));
+//          allow create, delete: if meuTenant(t) && isStaff();
+//          allow update: if meuTenant(t) && (isStaff() || (isColab()
+//                           && resource.data.colaboradorId == request.auth.token.empId
+//                           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['assinatura'])));
 //        }
 //        // só-servidor dentro do tenant
 //        match /mfa/{d}          { allow read, write: if false; }

@@ -4865,6 +4865,14 @@ function _pisValido(pis){
   const w=[3,2,9,8,7,6,5,4,3,2]; let s=0; for(let i=0;i<10;i++) s+=(+pis[i])*w[i];
   let d=11-(s%11); if(d>=10)d=0; return d===+pis[10];
 }
+function _cnpjValido(cnpj){
+  cnpj=_soDigitos(cnpj); if(cnpj.length!==14 || /^(\d)\1{13}$/.test(cnpj)) return false;
+  const calc=base=>{ const len=base.length; let pos=len-7,sum=0;
+    for(let i=len;i>=1;i--){ sum+=(+base[len-i])*(pos--); if(pos<2)pos=9; }
+    const r=sum%11; return r<2?0:11-r; };
+  if(calc(cnpj.slice(0,12))!==+cnpj[12]) return false;
+  return calc(cnpj.slice(0,13))===+cnpj[13];
+}
 function _esocialParams(){
   const e=State.empresa||{};
   return {
@@ -4902,6 +4910,8 @@ function _esocialPendenciasColab(e){
   if(!e.grauInstrucao) f.push('Grau de instrução');
   if(!e.nomeMae) f.push('Nome da mãe');
   if(!e.cep || !e.endereco) f.push('Endereço');
+  if(_soDigitos(e.codMunicipio).length!==7) f.push('Cód. IBGE município (reabrir CEP)');
+  if(!_cnpjValido(e.cnpjSindicato)) f.push('CNPJ do sindicato');
   return f;
 }
 function _renderEsocialDiagnostico(){
@@ -6437,6 +6447,7 @@ function openEmployeeModal(id=null){
     setVal('emp-email',emp.email||''); setVal('emp-celular',emp.celular||''); setVal('emp-cep',emp.cep||'');
     setVal('emp-endereco',emp.endereco||''); setVal('emp-numero',emp.numero||''); setVal('emp-complemento',emp.complemento||'');
     setVal('emp-bairro',emp.bairro||''); setVal('emp-cidade',emp.cidade||''); setVal('emp-estado',emp.estado||'SP');
+    setVal('emp-codmunicipio',emp.codMunicipio||''); setVal('emp-categoria-esocial',emp.categoriaESocial||'101'); setVal('emp-cnpj-sindicato',emp.cnpjSindicato||'');   // #esocial
     setVal('emp-tipo-transporte',emp.tipoTransporte||'vt');
     setVal('emp-vt-freq', emp.vtFreq||'diario');
     setVal('emp-vr-freq', emp.vrFreq||'diario');
@@ -6547,6 +6558,7 @@ function openEmployeeModal(id=null){
      'emp-titulo-zona','emp-titulo-secao','emp-ctps-emissao',
      'emp-cnh','emp-cnh-categoria','emp-ciclo-12x36-inicio','emp-cargo'].forEach(id=>setVal(id,''));
     setVal('emp-estado','SP'); setVal('emp-status','ativo'); setVal('emp-escala','5x2A');
+    setVal('emp-codmunicipio',''); setVal('emp-cnpj-sindicato',''); setVal('emp-categoria-esocial','101');   // #esocial
     setVal('emp-tipo-contrato','experiencia');
     setVal('emp-exp-periodo1',45); setVal('emp-exp-periodo2',45);
     setVal('emp-insalubridade',0);
@@ -6838,6 +6850,10 @@ async function saveEmployee(){
     cep:val('emp-cep'), endereco:val('emp-endereco'), numero:val('emp-numero'),
     complemento:val('emp-complemento'), bairro:val('emp-bairro'),
     cidade:val('emp-cidade'), estado:val('emp-estado'),
+    // eSocial — dados do S-2200 (admissão). #esocial
+    codMunicipio:_soDigitos(val('emp-codmunicipio')),
+    categoriaESocial:val('emp-categoria-esocial')||'101',
+    cnpjSindicato:_soDigitos(val('emp-cnpj-sindicato')),
     tipoTransporte:val('emp-tipo-transporte')||'vt',
     vtFreq: val('emp-vt-freq')||'diario',
     vrFreq: val('emp-vr-freq')||'diario',
@@ -21502,6 +21518,7 @@ async function buscarCep(cep){
     setVal('emp-bairro',   data.bairro||'');
     setVal('emp-cidade',   data.localidade||'');
     setVal('emp-estado',   data.uf||'SP');
+    if(data.ibge) setVal('emp-codmunicipio', data.ibge);   // código IBGE do município p/ o eSocial. #esocial
     if(status) { status.style.color='var(--success)'; status.textContent='✔ Endereço preenchido automaticamente.'; }
     // Focar no campo Número para o usuário completar
     setTimeout(()=>{ document.getElementById('emp-numero')?.focus(); },100);

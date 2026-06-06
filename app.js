@@ -4958,6 +4958,7 @@ function _renderEsocialDiagnostico(){
       <div style="font-weight:700;color:#1a3a6b;font-size:13px;margin-bottom:6px"><i class="fa-solid fa-file-code"></i> Gerar eventos (XML)</div>
       <button class="btn btn-outline btn-sm" ${empOk?'':'disabled'} onclick="_gerarEsocialS1000()" style="${empOk?'border-color:#1a3a6b;color:#1a3a6b':''}" title="${empOk?'Gera o XML do S-1000 (dados do empregador)':'Corrija as pendências da empresa primeiro'}"><i class="fa-solid fa-building"></i> Gerar S-1000 (empregador)</button>
       <button class="btn btn-outline btn-sm" ${empOk?'':'disabled'} onclick="_gerarEsocialS1005()" style="${empOk?'border-color:#1a3a6b;color:#1a3a6b':''}" title="${empOk?'Gera o XML do S-1005 (estabelecimento — CNAE/RAT/FAP)':'Corrija as pendências da empresa primeiro'}"><i class="fa-solid fa-location-dot"></i> Gerar S-1005 (estabelecimento)</button>
+      <button class="btn btn-primary btn-sm" ${empOk?'':'disabled'} onclick="_gerarLoteEsocial()" title="${empOk?'Empacota TODOS os eventos da competência (tabelas + admissões + remunerações dos prontos) num lote único':'Corrija as pendências da empresa primeiro'}"><i class="fa-solid fa-box-archive"></i> Gerar lote da competência</button>
       <div style="font-size:11px;color:#999;margin-top:6px">Ambiente: <b>produção restrita</b> (tpAmb=2). Valide os XMLs no eSocial antes da produção. Próximos eventos (S-2200 admissão, S-1200 remuneração) exigem dados extras: código IBGE do município, sindicato e tabela de horários/rubricas.</div>
     </div>
     <div style="margin-top:10px;font-size:11px;color:#999;line-height:1.5"><i class="fa-solid fa-circle-info"></i> Conferência de cadastro p/ o eSocial (CPF/PIS validados com dígito verificador). Corrija as pendências no cadastro de cada colaborador (e em Configurações, a empresa) antes de gerar os eventos.</div>`;
@@ -4974,7 +4975,8 @@ function _baixarArquivo(nome, conteudo, mime){
 }
 function _esocialTS(){ const d=new Date(); const p=n=>String(n).padStart(2,'0'); return ''+d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds()); }
 // Id do evento: ID + tpInsc(1) + nrInsc(14, zero-pad p/ CNPJ) + aaaammddhhmmss + sequencial(5) = 36 chars.
-function _esocialId(nrInsc14){ return 'ID1'+String(nrInsc14).padStart(14,'0')+_esocialTS()+'00001'; }
+let _esocialSeq=0;
+function _esocialId(nrInsc14){ _esocialSeq=(_esocialSeq%99999)+1; return 'ID1'+String(nrInsc14).padStart(14,'0')+_esocialTS()+String(_esocialSeq).padStart(5,'0'); }
 // S-1000 (evtInfoEmpregador) — leiaute S-1.3 (namespace v_S_01_03_00). Estrutura mínima de
 // INCLUSÃO p/ empresa (tpInsc=1/CNPJ). Gerado em produção RESTRITA (tpAmb=2) — validar no
 // eSocial antes de produção. indPertIRRF/dadosIsencao/infoOrgInternacional não incluídos
@@ -5418,6 +5420,59 @@ function _gerarEsocialS1200(empId){
   if(!xml){ toast('Nenhuma rubrica com natureza preenchida tem valor nesta folha.','warning'); return; }
   _baixarArquivo(`S-1200_${_soDigitos(emp.cpf)}_${compISO}.xml`, xml, 'application/xml');
   toast('S-1200 de '+(emp.nome||'')+' gerado (produção restrita). Valide no eSocial.','success');
+}
+
+// ===================== EMPACOTAR LOTE (envioLoteEventos) — Fase 3c, passo 1 =====================
+// Junta os eventos da competência num LOTE único (formato que o servidor de transmissão ou o
+// contador usa). Tira o prólogo <?xml?> de cada evento e embute em <evento Id=...>. NÃO assina
+// (assinatura é a Fase 3c/back-end). Bundle de carga/revisão. #esocial
+function _esocialEnvelopaEvento(xml){
+  const body=xml.replace(/^<\?xml[^>]*\?>\s*/,'');
+  const id=(body.match(/Id="([^"]+)"/)||[])[1]||'';
+  const ind=body.split('\n').map(l=>l?('        '+l):l).join('\n');
+  return `      <evento Id="${id}">\n${ind}\n      </evento>`;
+}
+function _gerarLoteEsocial(){
+  if(Auth.currentUser?.role!=='master'){ toast('Apenas o master pode gerar o lote do eSocial','error'); return; }
+  const ep=_esocialPendenciasEmpresa();
+  if(ep.length){ toast('Complete os dados da empresa antes: '+ep.join(' · '),'error'); return; }
+  const mes=parseInt(val('cont-mes')||currentMes());
+  const ano=parseInt(val('cont-ano')||currentAno());
+  const compISO=`${ano}-${String(mes).padStart(2,'0')}`;
+  const Q=_esocialParams(); const cnpj14=Q.cnpj.padStart(14,'0'); const raiz=cnpj14.slice(0,8);
+  const eventos=[];
+  // Tabelas (carga): S-1000, S-1005, S-1010
+  eventos.push(_esocialEventoS1000(compISO));
+  if(_soDigitos((State.empresa||{}).cnae).length>=7) eventos.push(_esocialEventoS1005(compISO));
+  _esocialEventoS1010(compISO).forEach(x=>eventos.push(x));
+  // Pessoas: S-2200 (admissão) + S-1200 (remuneração) dos colaboradores PRONTOS
+  const folhaMap=_buildFolhaMap(State.payrolls.filter(p=>p.mes===mes&&p.ano===ano));
+  const emps=_filtrarEmpsPorEscopo(State.employees).filter(e=>(e.status||'ativo')==='ativo' && !_esocialPendenciasColab(e).length);
+  let nColab=0;
+  emps.forEach(e=>{
+    eventos.push(_esocialEventoS2200(e)); nColab++;
+    const p=folhaMap[e.id]; if(p){ const r=_esocialEventoS1200(e,p,compISO); if(r) eventos.push(r); }
+  });
+  if(eventos.length===0){ toast('Nada para empacotar — confira a prontidão dos dados.','warning'); return; }
+  const corpo=eventos.map(_esocialEnvelopaEvento).join('\n');
+  const lote=`<?xml version="1.0" encoding="UTF-8"?>
+<eSocial xmlns="http://www.esocial.gov.br/schema/lote/eventos/envio/v_S_01_03_00">
+  <envioLoteEventos grupo="2">
+    <ideEmpregador>
+      <tpInsc>1</tpInsc>
+      <nrInsc>${raiz}</nrInsc>
+    </ideEmpregador>
+    <ideTransmissor>
+      <tpInsc>1</tpInsc>
+      <nrInsc>${cnpj14}</nrInsc>
+    </ideTransmissor>
+    <eventos>
+${corpo}
+    </eventos>
+  </envioLoteEventos>
+</eSocial>`;
+  _baixarArquivo(`LOTE_eSocial_${cnpj14}_${compISO}.xml`, lote, 'application/xml');
+  toast(`Lote gerado: ${eventos.length} evento(s), ${nColab} colaborador(es) (produção restrita, NÃO assinado). Valide no eSocial.`,'success');
 }
 
 // Monta UMA linha da planilha do contador para um colaborador (e sua folha p).

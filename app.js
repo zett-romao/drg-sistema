@@ -4928,6 +4928,7 @@ function _renderEsocialDiagnostico(){
       <td style="padding:5px 8px;border:1px solid #e3e8ef">${esc(e.nome)}</td>
       <td style="padding:5px 8px;border:1px solid #e3e8ef;text-align:center;white-space:nowrap">${ok?'<span style="color:#1B5E20;font-weight:700">✓ Pronto</span>':`<span style="color:#B71C1C;font-weight:700">${p.length} pend.</span>`}</td>
       <td style="padding:5px 8px;border:1px solid #e3e8ef;font-size:11px;color:#B71C1C">${ok?'<span style="color:#bbb">—</span>':esc(p.join(' · '))}</td>
+      <td style="padding:5px 8px;border:1px solid #e3e8ef;text-align:center;white-space:nowrap">${ok?`<button class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:11px;border-color:#1a3a6b;color:#1a3a6b" onclick="_gerarEsocialS2200('${e.id}')" title="Gerar o S-2200 (admissão) de ${esc(e.nome)}"><i class="fa-solid fa-download"></i> S-2200</button>`:'<span style="color:#bbb">—</span>'}</td>
     </tr>`;
   }).join('');
   const empOk=empPend.length===0;
@@ -4936,6 +4937,7 @@ function _renderEsocialDiagnostico(){
       <th style="text-align:left;padding:5px 8px;border:1px solid #cfd8e3;background:#eef4ff;font-size:11px">Colaborador</th>
       <th style="text-align:center;padding:5px 8px;border:1px solid #cfd8e3;background:#eef4ff;font-size:11px">Situação</th>
       <th style="text-align:left;padding:5px 8px;border:1px solid #cfd8e3;background:#eef4ff;font-size:11px">O que falta (eSocial)</th>
+      <th style="text-align:center;padding:5px 8px;border:1px solid #cfd8e3;background:#eef4ff;font-size:11px">Evento</th>
     </tr></thead><tbody>${linhas}</tbody></table>` : '<p style="color:#999;font-size:12px">Nenhum colaborador ativo.</p>';
   body.innerHTML=`
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px">
@@ -5092,6 +5094,113 @@ function _gerarEsocialS1005(){
   const cnpj=_soDigitos(e.cnpj);
   _baixarArquivo(`S-1005_${cnpj}_${compISO}.xml`, xml, 'application/xml');
   toast('S-1005 gerado (produção restrita). Valide no eSocial.','success');
+}
+// --- S-2200 (evtAdmissao) — converte os campos de TEXTO do cadastro p/ os CÓDIGOS do
+// eSocial e monta a admissão. Leiaute S-1.3, produção restrita. Estrutura mínima de
+// empregado CLT urbano; horContratual usa 44h/sem padrão + tpJornada pela escala. Ajustar
+// jornada/sindicato/categoria especiais com o contador. #esocial
+function _esocialSexo(s){ s=(s||'').toLowerCase(); if(s.indexOf('masc')===0)return 'M'; if(s.indexOf('fem')===0)return 'F'; return ''; }
+function _esocialRaca(r){ const m={'branca':'1','preta':'2','parda':'3','amarela':'4','indígena':'5','indigena':'5','não declarado':'6','nao declarado':'6'}; return m[(r||'').toLowerCase()]||'6'; }
+function _esocialGrauInstr(g){ const m={'analfabeto':'01','fundamental':'05','médio':'07','medio':'07','técnico':'07','tecnico':'07','superior':'09','pós-graduação':'10','pos-graduacao':'10','mestrado':'11','doutorado':'12'}; return m[(g||'').toLowerCase()]||''; }
+function _esocialTpJornada(escala){ const fam=escalaFamilia(escala||'5x2A'); if(fam==='12x36')return '2'; if(fam==='6x1')return '3'; return '1'; }
+function _addDiasISO(iso, dias){ const d=new Date((iso||'').slice(0,10)+'T00:00:00'); if(isNaN(d.getTime()))return ''; d.setDate(d.getDate()+dias); const p=n=>String(n).padStart(2,'0'); return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); }
+function _esocialEventoS2200(emp){
+  const Q=_esocialParams();
+  const cnpj14=Q.cnpj.padStart(14,'0'); const raiz=cnpj14.slice(0,8);
+  const id=_esocialId(cnpj14);
+  const exper=(emp.tipoContrato==='experiencia');
+  const dtAdm=(emp.dataAdmissao||'').slice(0,10);
+  const dtTerm=exper?_addDiasISO(dtAdm,(parseInt(emp.expPeriodo1)||45)):'';
+  const compl=(emp.complemento||'').trim();
+  const linhaCompl=compl?`\n            <complemento>${_xmlEsc(compl.slice(0,30))}</complemento>`:'';
+  const linhaDtTerm=dtTerm?`\n            <dtTerm>${dtTerm}</dtTerm>`:'';
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<eSocial xmlns="http://www.esocial.gov.br/schema/evt/admissao/v_S_01_03_00">
+  <evtAdmissao Id="${id}">
+    <ideEvento>
+      <indRetif>1</indRetif>
+      <tpAmb>${Q.tpAmb}</tpAmb>
+      <procEmi>1</procEmi>
+      <verProc>${_xmlEsc(Q.verProc)}</verProc>
+    </ideEvento>
+    <ideEmpregador>
+      <tpInsc>1</tpInsc>
+      <nrInsc>${raiz}</nrInsc>
+    </ideEmpregador>
+    <trabalhador>
+      <cpfTrab>${_soDigitos(emp.cpf)}</cpfTrab>
+      <nmTrab>${_xmlEsc((emp.nome||'').slice(0,70))}</nmTrab>
+      <sexo>${_esocialSexo(emp.sexo)}</sexo>
+      <racaCor>${_esocialRaca(emp.raca)}</racaCor>
+      <grauInstr>${_esocialGrauInstr(emp.grauInstrucao)}</grauInstr>
+      <nascimento>
+        <dtNascto>${(emp.dataNascimento||'').slice(0,10)}</dtNascto>
+        <paisNascto>105</paisNascto>
+        <paisNac>105</paisNac>
+      </nascimento>
+      <endereco>
+        <brasil>
+          <dscLograd>${_xmlEsc((emp.endereco||'').slice(0,80))}</dscLograd>
+          <nrLograd>${_xmlEsc(String(emp.numero||'S/N').slice(0,10))}</nrLograd>${linhaCompl}
+          <bairro>${_xmlEsc((emp.bairro||'').slice(0,90))}</bairro>
+          <cep>${_soDigitos(emp.cep)}</cep>
+          <codMunic>${_soDigitos(emp.codMunicipio)}</codMunic>
+          <uf>${emp.estado||''}</uf>
+        </brasil>
+      </endereco>
+    </trabalhador>
+    <vinculo>
+      <matricula>${_xmlEsc(emp.registro?String(emp.registro):'')}</matricula>
+      <tpRegTrab>1</tpRegTrab>
+      <tpRegPrev>1</tpRegPrev>
+      <cadIni>N</cadIni>
+      <infoRegimeTrab>
+        <infoCeletista>
+          <dtAdm>${dtAdm}</dtAdm>
+          <tpAdmissao>1</tpAdmissao>
+          <indAdmissao>1</indAdmissao>
+          <tpRegJor>1</tpRegJor>
+          <natAtividade>1</natAtividade>
+          <cnpjSindCategProf>${_soDigitos(emp.cnpjSindicato)}</cnpjSindCategProf>
+        </infoCeletista>
+      </infoRegimeTrab>
+      <infoContrato>
+        <nmCargo>${_xmlEsc((emp.cargo||emp.setor||'').slice(0,100))}</nmCargo>
+        <CBOCargo>${_soDigitos(emp.cargoCBO)}</CBOCargo>
+        <codCateg>${emp.categoriaESocial||'101'}</codCateg>
+        <remuneracao>
+          <vrSalFx>${(+emp.salarioBase||0).toFixed(2)}</vrSalFx>
+          <undSalFixo>5</undSalFixo>
+        </remuneracao>
+        <duracao>
+          <tpContr>${exper?'2':'1'}</tpContr>${linhaDtTerm}
+        </duracao>
+        <localTrabalho>
+          <localTrabGeral>
+            <tpInsc>1</tpInsc>
+            <nrInsc>${cnpj14}</nrInsc>
+          </localTrabGeral>
+        </localTrabalho>
+        <horContratual>
+          <qtdHrsSem>44</qtdHrsSem>
+          <tpJornada>${_esocialTpJornada(emp.escala)}</tpJornada>
+          <tmpParc>0</tmpParc>
+        </horContratual>
+      </infoContrato>
+    </vinculo>
+  </evtAdmissao>
+</eSocial>`;
+}
+function _gerarEsocialS2200(empId){
+  if(Auth.currentUser?.role!=='master'){ toast('Apenas o master pode gerar eventos do eSocial','error'); return; }
+  const emp=State.employees.find(e=>e.id===empId); if(!emp){ toast('Colaborador não encontrado.','error'); return; }
+  const ep=_esocialPendenciasEmpresa();
+  if(ep.length){ toast('Complete os dados da empresa antes: '+ep.join(' · '),'error'); return; }
+  const pend=_esocialPendenciasColab(emp);
+  if(pend.length){ toast('Complete o cadastro de '+(emp.nome||'')+': '+pend.join(' · '),'error'); return; }
+  const xml=_esocialEventoS2200(emp);
+  _baixarArquivo(`S-2200_${_soDigitos(emp.cpf)}.xml`, xml, 'application/xml');
+  toast('S-2200 de '+(emp.nome||'')+' gerado (produção restrita). Valide no eSocial.','success');
 }
 
 // Monta UMA linha da planilha do contador para um colaborador (e sua folha p).

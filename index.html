@@ -359,6 +359,12 @@
               <span>Administração</span>
             </a>
           </li>
+          <li id="nav-estoque-li" class="hidden">
+            <a class="nav-link" id="nav-estoque" onclick="showSection('estoque')">
+              <i class="fa-solid fa-boxes-stacked"></i>
+              <span>Estoque / EPIs</span>
+            </a>
+          </li>
           <li id="nav-contabilidade-li">
             <a class="nav-link" id="nav-contabilidade" onclick="showSection('contabilidade')">
               <i class="fa-solid fa-calculator"></i>
@@ -1378,6 +1384,36 @@
             </table>
           </div>
         </div>
+      </section>
+
+      <!-- ===== ESTOQUE / EPIs (Fase 1: catálogo + entradas + baixas) ===== -->
+      <section id="section-estoque" class="section">
+        <div class="page-header">
+          <div>
+            <h2>Estoque / EPIs</h2>
+            <p>Controle de EPIs e materiais — CA, nota fiscal, fornecedor, saldo e baixas</p>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-primary" onclick="openEstoqueItem()"><i class="fa-solid fa-plus"></i> Novo item</button>
+          </div>
+        </div>
+        <div id="estoque-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:14px"></div>
+        <div class="card"><div class="card-body">
+          <div class="search-bar">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="text" id="estoque-busca" placeholder="Buscar por nome, CA ou tipo..." oninput="renderEstoque()">
+          </div>
+        </div></div>
+        <div class="card"><div class="card-body" style="padding:0;overflow-x:auto">
+          <table class="data-table">
+            <thead><tr>
+              <th>Item</th><th>Tipo</th><th>CA / Validade</th>
+              <th style="text-align:center">Saldo</th><th style="text-align:center">Mínimo</th>
+              <th style="text-align:right">Ações</th>
+            </tr></thead>
+            <tbody id="estoque-tbody"><tr><td colspan="6" class="empty-row"><i class="fa-solid fa-spinner fa-spin"></i> Carregando...</td></tr></tbody>
+          </table>
+        </div></div>
       </section>
 
       <!-- ===== RUBRICAS (catálogo de proventos/descontos — Fase 1) ===== -->
@@ -5361,6 +5397,111 @@
 </div>
 
 <!-- ===== MODAL: POSTO DE TRABALHO ===== -->
+<!-- ===== ESTOQUE: modal de ITEM ===== -->
+<div class="modal-overlay hidden" id="modal-estq-item" onclick="closeModal('modal-estq-item', event)">
+  <div class="modal-dialog modal-md">
+    <div class="modal-header">
+      <h3 id="estq-item-title"><i class="fa-solid fa-boxes-stacked"></i> Novo item</h3>
+      <button class="modal-close" onclick="closeModal('modal-estq-item')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="estq-item-id">
+      <div class="form-group"><label>Nome do item <span class="required">*</span></label><input type="text" id="estq-item-nome" placeholder="Ex.: Bota de segurança, Luva nitrílica, Capacete..."></div>
+      <div class="form-row">
+        <div class="form-group flex-1"><label>Tipo</label>
+          <select id="estq-item-tipo"><option value="EPI">EPI</option><option value="Uniforme">Uniforme</option><option value="Material">Material / Consumível</option><option value="Outro">Outro</option></select>
+        </div>
+        <div class="form-group flex-1"><label>Tamanho / Numeração</label><input type="text" id="estq-item-tamanho" placeholder="Ex.: 42, M, G..."></div>
+        <div class="form-group flex-1"><label>Unidade</label><input type="text" id="estq-item-unidade" placeholder="un, par, cx..." value="un"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group flex-1"><label>CA — Certificado de Aprovação <small style="color:var(--text-muted)">— obrigatório p/ EPI (NR-6)</small></label><input type="text" id="estq-item-ca" placeholder="Nº do CA"></div>
+        <div class="form-group flex-1"><label>Validade do CA</label><input type="date" id="estq-item-validade-ca"></div>
+      </div>
+      <div class="form-group"><label>Estoque mínimo (alerta) <small style="color:var(--text-muted)">— 0 = sem alerta</small></label><input type="number" id="estq-item-minimo" min="0" step="1" placeholder="0" style="max-width:160px"></div>
+      <div class="form-group"><label>Observações</label><textarea id="estq-item-obs" rows="2" placeholder="Opcional"></textarea></div>
+      <p style="font-size:11px;color:var(--text-muted)"><i class="fa-solid fa-circle-info"></i> Aqui você cadastra o ITEM. As compras (fornecedor, NF, valor) entram pelo botão <strong>+ Entrada</strong> na lista.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="estq-item-del" style="color:#c62828;border-color:#f5c2c2;display:none" onclick="confirmDeleteEstoqueItem()"><i class="fa-solid fa-trash"></i> Excluir</button>
+      <button class="btn btn-outline" onclick="closeModal('modal-estq-item')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveEstoqueItem()"><i class="fa-solid fa-floppy-disk"></i> Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== ESTOQUE: modal de ENTRADA (compra) ===== -->
+<div class="modal-overlay hidden" id="modal-estq-entrada" onclick="closeModal('modal-estq-entrada', event)">
+  <div class="modal-dialog modal-md">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-plus" style="color:#1B5E20"></i> Entrada (compra)</h3>
+      <button class="modal-close" onclick="closeModal('modal-estq-entrada')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="estq-ent-item-id">
+      <p style="margin:0 0 12px;font-weight:700;color:var(--primary)" id="estq-ent-item-nome">—</p>
+      <div class="form-row">
+        <div class="form-group flex-1"><label>Quantidade <span class="required">*</span></label><input type="number" id="estq-ent-qtd" min="0" step="1" placeholder="0"></div>
+        <div class="form-group flex-1"><label>Data da compra</label><input type="date" id="estq-ent-data"></div>
+      </div>
+      <div class="form-group"><label>Fornecedor</label><input type="text" id="estq-ent-fornecedor" placeholder="Nome do fornecedor"></div>
+      <div class="form-row">
+        <div class="form-group flex-1"><label>Nº da Nota Fiscal</label><input type="text" id="estq-ent-nf" placeholder="Nº da NF"></div>
+        <div class="form-group flex-1"><label>Valor unitário (R$)</label><input type="number" id="estq-ent-valor" min="0" step="0.01" placeholder="0,00"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-estq-entrada')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveEstoqueEntrada()"><i class="fa-solid fa-floppy-disk"></i> Registrar entrada</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== ESTOQUE: modal de BAIXA ===== -->
+<div class="modal-overlay hidden" id="modal-estq-baixa" onclick="closeModal('modal-estq-baixa', event)">
+  <div class="modal-dialog modal-md">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-minus" style="color:#C62828"></i> Baixa de estoque</h3>
+      <button class="modal-close" onclick="closeModal('modal-estq-baixa')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="estq-bx-item-id">
+      <p style="margin:0 0 12px;font-weight:700;color:var(--primary)" id="estq-bx-item-nome">—</p>
+      <div class="form-row">
+        <div class="form-group flex-1"><label>Quantidade <span class="required">*</span></label><input type="number" id="estq-bx-qtd" min="0" step="1" placeholder="0"></div>
+        <div class="form-group flex-1"><label>Motivo</label>
+          <select id="estq-bx-motivo"><option value="descarte">Descarte (danificado/vencido)</option><option value="perda">Perda / Extravio</option><option value="ajuste">Ajuste de inventário</option></select>
+        </div>
+      </div>
+      <div class="form-group"><label>Observação</label><textarea id="estq-bx-obs" rows="2" placeholder="Opcional"></textarea></div>
+      <p style="font-size:11px;color:var(--text-muted)"><i class="fa-solid fa-circle-info"></i> A <strong>entrega ao colaborador</strong> (com recibo assinado e hash) virá na <strong>Fase 2</strong> — não use a baixa pra isso ainda.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-estq-baixa')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveEstoqueBaixa()"><i class="fa-solid fa-floppy-disk"></i> Registrar baixa</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== ESTOQUE: modal de HISTÓRICO ===== -->
+<div class="modal-overlay hidden" id="modal-estq-historico" onclick="closeModal('modal-estq-historico', event)">
+  <div class="modal-dialog modal-md">
+    <div class="modal-header">
+      <h3 id="estq-hist-title"><i class="fa-solid fa-clock-rotate-left"></i> Histórico</h3>
+      <button class="modal-close" onclick="closeModal('modal-estq-historico')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body" style="overflow-x:auto">
+      <table class="data-table" style="font-size:13px">
+        <thead><tr><th>Data</th><th style="text-align:center">Qtd</th><th>Movimento</th><th>Detalhe</th><th>Por</th></tr></thead>
+        <tbody id="estq-hist-tbody"></tbody>
+      </table>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-estq-historico')">Fechar</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay hidden" id="modal-posto" onclick="closeModal('modal-posto', event)">
   <div class="modal-dialog modal-md">
     <div class="modal-header">
@@ -6642,6 +6783,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260605f-pontomanual-posto-linha"></script>
+  <script src="app.js?v=20260605g-estoque-epi-fase1"></script>
 </body>
 </html>

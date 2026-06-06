@@ -1269,6 +1269,7 @@ function showSection(name){
   if(name==='comunicacao'    && !mods.comunicacao)  return;
   if(name==='autorizacoes'   && !mods.autorizarPonto) return;
   if(name==='monitorfaltas'  && !mods.monitorarFaltas) return;
+  if(name==='estoque'        && !mods.estoque) return;
   if(name==='documentos'     && !mods.employees) return;
   if(name==='configuracoes'  && Auth.currentUser?.role!=='master') return;
   // Empilha seção atual antes de trocar (exceto se estiver voltando ou já está na mesma seção)
@@ -1289,7 +1290,7 @@ function showSection(name){
   applyNavGroupsState(name);
   const titles={dashboard:'Dashboard',employees:'Colaboradores',payroll:'Folha de Ponto',escalas:'Escalas',
                 pagamentos:'Pagamentos',beneficios:'Benefícios',recibos:'Recibos Enviados',adiantamentos:'Adiantamentos',aprovacoes:'Aprovações de Pagamentos',decimoterceiro:'13º Salário',ferias:'Férias',rescisao:'Rescisões',
-                contabilidade:'Contabilidade',banco:'Banco de Dados',users:'Usuários & Acessos',postos:'Postos de Trabalho',rubricas:'Rubricas',contratos:'Contratos',comunicacao:'Comunicação',autorizacoes:'Autorizações de Ponto',monitorfaltas:'Monitor de Faltas',documentos:'Documentos do Colaborador',configuracoes:'Configurações'};
+                contabilidade:'Contabilidade',banco:'Banco de Dados',users:'Usuários & Acessos',postos:'Postos de Trabalho',rubricas:'Rubricas',contratos:'Contratos',comunicacao:'Comunicação',autorizacoes:'Autorizações de Ponto',monitorfaltas:'Monitor de Faltas',estoque:'Estoque / EPIs',documentos:'Documentos do Colaborador',configuracoes:'Configurações'};
   document.getElementById('topbar-title').textContent=titles[name]||name;
   State.currentSection=name;
   if(name==='employees') renderEmployeeTable();
@@ -1317,6 +1318,7 @@ function showSection(name){
   if(name==='comunicacao')     renderComunicacaoSection();
   if(name==='autorizacoes')    renderAutorizacoesSection();
   if(name==='monitorfaltas')   renderMonitorFaltas();
+  if(name==='estoque')         renderEstoque();
   if(name==='documentos')      renderDocumentosPendentes();
   if(name==='configuracoes')  renderConfiguracoes();
   if(name==='postos')    renderPostosTable();
@@ -1827,6 +1829,8 @@ function applyUserSession(user){
   if(contLi) contLi.classList.toggle('hidden', !mods.contabilidade);
   const contratosLi=document.getElementById('nav-contratos-li');
   if(contratosLi) contratosLi.classList.toggle('hidden', !mods.contratos);
+  const estoqueLi=document.getElementById('nav-estoque-li');
+  if(estoqueLi) estoqueLi.classList.toggle('hidden', !mods.estoque);
   const cfgLi=document.getElementById('nav-configuracoes-li');
   if(cfgLi) cfgLi.classList.toggle('hidden', user.role!=='master');
   showSection('dashboard');
@@ -18305,6 +18309,173 @@ function confirmDeleteContrato(id){
 // ============================================
 let _currentReportType = 'financeiro';
 
+// ============================================================
+// ESTOQUE / EPIs — Fase 1: catálogo de itens + entradas (compras) + baixas.
+// Coleções: estoqueItens (catálogo) + estoqueMov (movimentos). Saldo = derivado.
+// Fase 2 (futura): entrega ao colaborador → ficha de EPI + recibo assinado c/ hash.
+// ============================================================
+function _estoqueSaldo(itemId){
+  return (State.estoqueMov||[]).reduce((s,m)=>{
+    if(!m || m.itemId!==itemId) return s;
+    return s + (m.tipo==='entrada' ? (+m.quantidade||0) : -(+m.quantidade||0));
+  }, 0);
+}
+// Custo unitário mais recente (última entrada com valor) — base do "valor em estoque".
+function _estoqueCustoUnit(itemId){
+  const ent=(State.estoqueMov||[]).filter(m=>m && m.itemId===itemId && m.tipo==='entrada' && (+m.valorUnit||0)>0)
+    .sort((a,b)=>String(b.data||'').localeCompare(String(a.data||'')));
+  return ent.length ? (+ent[0].valorUnit||0) : 0;
+}
+// Status do CA pela validade: 'vencido' | 'vencendo' (≤30 dias) | 'ok' | '' (sem validade).
+function _caStatus(validadeCa){
+  if(!validadeCa) return '';
+  const hoje=new Date(); hoje.setHours(0,0,0,0);
+  const v=new Date(validadeCa+'T00:00:00'); if(isNaN(v.getTime())) return '';
+  const dias=Math.round((v-hoje)/86400000);
+  if(dias<0) return 'vencido';
+  if(dias<=30) return 'vencendo';
+  return 'ok';
+}
+function renderEstoque(){
+  const tbody=document.getElementById('estoque-tbody');
+  if(!tbody) return;
+  const busca=(val('estoque-busca')||'').toLowerCase();
+  let itens=(State.estoqueItens||[]).filter(i=>i && !i.arquivado);
+  if(busca) itens=itens.filter(i=>(`${i.nome||''} ${i.ca||''} ${i.tipo||''}`).toLowerCase().includes(busca));
+  itens=itens.slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+  let totalItens=itens.length, saldoTotal=0, valorTotal=0, alertaBaixo=0, alertaCa=0;
+  itens.forEach(it=>{ const s=_estoqueSaldo(it.id); saldoTotal+=s; valorTotal+=s*_estoqueCustoUnit(it.id);
+    if(it.estoqueMinimo>0 && s<=it.estoqueMinimo) alertaBaixo++;
+    const cs=_caStatus(it.validadeCa); if(cs==='vencido'||cs==='vencendo') alertaCa++; });
+  const statsEl=document.getElementById('estoque-stats');
+  if(statsEl) statsEl.innerHTML=`
+    <div class="stat-card blue"><div class="stat-icon"><i class="fa-solid fa-boxes-stacked"></i></div><div><div class="stat-value">${totalItens}</div><div class="stat-label">Itens cadastrados</div></div></div>
+    <div class="stat-card green"><div class="stat-icon"><i class="fa-solid fa-warehouse"></i></div><div><div class="stat-value">${saldoTotal}</div><div class="stat-label">Unidades em estoque</div></div></div>
+    <div class="stat-card" style="border-color:#F9A825;border-left-width:4px"><div class="stat-icon" style="background:#FFF8E1;color:#F9A825"><i class="fa-solid fa-triangle-exclamation"></i></div><div><div class="stat-value">${alertaBaixo}</div><div class="stat-label">Estoque baixo</div></div></div>
+    <div class="stat-card" style="border-color:#C62828;border-left-width:4px"><div class="stat-icon" style="background:#FFEBEE;color:#C62828"><i class="fa-solid fa-certificate"></i></div><div><div class="stat-value">${alertaCa}</div><div class="stat-label">CA vencido/vencendo</div></div></div>`;
+  const dash='<span style="color:#bbb">—</span>';
+  if(!itens.length){ tbody.innerHTML=`<tr><td colspan="6" style="text-align:center;padding:24px;color:#888">Nenhum item no estoque. Clique em <strong>"Novo item"</strong> para cadastrar.</td></tr>`; return; }
+  tbody.innerHTML=itens.map((it,i)=>{
+    const saldo=_estoqueSaldo(it.id);
+    const baixo = it.estoqueMinimo>0 && saldo<=it.estoqueMinimo;
+    const cs=_caStatus(it.validadeCa);
+    const caCor = cs==='vencido'?'#C62828':(cs==='vencendo'?'#E65100':'#1B5E20');
+    const caTxt = it.ca ? `${esc(it.ca)}${it.validadeCa?`<br><small style="color:${caCor}">val. ${formatDateBr(it.validadeCa)}${cs==='vencido'?' — VENCIDO':cs==='vencendo'?' — vencendo':''}</small>`:''}` : dash;
+    return `<tr style="background:${i%2?'#F8FAFF':'#fff'}">
+      <td style="padding:8px 10px"><strong>${esc(it.nome||'—')}</strong>${it.tamanho?` <small style="color:#666">· ${esc(it.tamanho)}</small>`:''}</td>
+      <td style="padding:8px 10px">${esc(it.tipo||'—')}</td>
+      <td style="padding:8px 10px;font-size:12px">${caTxt}</td>
+      <td style="padding:8px 10px;text-align:center;font-weight:700;color:${baixo?'#C62828':'#1B5E20'}">${saldo}${it.unidade?` <small style="font-weight:400;color:#666">${esc(it.unidade)}</small>`:''}${baixo?' <i class="fa-solid fa-triangle-exclamation" title="Estoque baixo (≤ mínimo)"></i>':''}</td>
+      <td style="padding:8px 10px;text-align:center;color:#666">${it.estoqueMinimo>0?it.estoqueMinimo:dash}</td>
+      <td style="padding:8px 10px;text-align:right;white-space:nowrap">
+        <button class="btn btn-sm" style="background:#1B5E20;color:#fff" onclick="openEstoqueEntrada('${it.id}')" title="Entrada (compra)"><i class="fa-solid fa-plus"></i></button>
+        <button class="btn btn-sm" style="background:#C62828;color:#fff" onclick="openEstoqueBaixa('${it.id}')" title="Baixa (descarte/perda/ajuste)"><i class="fa-solid fa-minus"></i></button>
+        <button class="btn btn-sm btn-outline" onclick="openEstoqueHistorico('${it.id}')" title="Histórico de movimentos"><i class="fa-solid fa-clock-rotate-left"></i></button>
+        <button class="btn btn-sm btn-outline" onclick="openEstoqueItem('${it.id}')" title="Editar item"><i class="fa-solid fa-pen"></i></button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+function openEstoqueItem(id){
+  const it=(State.estoqueItens||[]).find(x=>x.id===id)||{};
+  setVal('estq-item-id', it.id||'');
+  setVal('estq-item-nome', it.nome||'');
+  setVal('estq-item-tipo', it.tipo||'EPI');
+  setVal('estq-item-ca', it.ca||'');
+  setVal('estq-item-validade-ca', it.validadeCa||'');
+  setVal('estq-item-tamanho', it.tamanho||'');
+  setVal('estq-item-unidade', it.unidade||'un');
+  setVal('estq-item-minimo', it.estoqueMinimo||'');
+  setVal('estq-item-obs', it.obs||'');
+  const t=document.getElementById('estq-item-title'); if(t) t.textContent = it.id ? 'Editar item' : 'Novo item';
+  const d=document.getElementById('estq-item-del'); if(d) d.style.display = it.id ? '' : 'none';
+  document.getElementById('modal-estq-item').classList.remove('hidden');
+}
+async function saveEstoqueItem(){
+  const nome=val('estq-item-nome'); if(!nome){ toast('Informe o nome do item.','error'); return; }
+  const id=val('estq-item-id')||genId();
+  const ex=(State.estoqueItens||[]).find(x=>x.id===id);
+  const rec={ id, nome, tipo:val('estq-item-tipo')||'EPI', ca:val('estq-item-ca')||'',
+    validadeCa:val('estq-item-validade-ca')||'', tamanho:val('estq-item-tamanho')||'',
+    unidade:val('estq-item-unidade')||'un', estoqueMinimo:numVal('estq-item-minimo')||0,
+    obs:val('estq-item-obs')||'', arquivado:false,
+    criadoEm: ex?.criadoEm || new Date().toISOString(), updatedAt:new Date().toISOString() };
+  const btn=document.querySelector('#modal-estq-item .btn-primary'); setBtnLoading(btn,true,'');
+  try{ await DB.save('estoqueItens', rec); closeModal('modal-estq-item'); toast('Item salvo!');
+    Auth.log('ESTOQUE_ITEM_SAVED', null, nome); }
+  catch(e){ toast('Erro ao salvar item.','error'); }
+  finally{ setBtnLoading(btn,false,'<i class="fa-solid fa-floppy-disk"></i> Salvar'); }
+}
+function confirmDeleteEstoqueItem(){
+  const id=val('estq-item-id'); if(!id) return;
+  document.getElementById('confirm-message').innerHTML='Excluir este item do estoque? Os movimentos já lançados ficam no histórico.';
+  const btn=document.getElementById('confirm-ok-btn'); btn.innerHTML='<i class="fa-solid fa-trash"></i> Excluir';
+  btn.onclick=async()=>{ closeModal('modal-confirm'); try{ await DB.remove('estoqueItens', id); closeModal('modal-estq-item'); toast('Item excluído.'); }catch(e){ toast('Erro ao excluir.','error'); } };
+  document.getElementById('modal-confirm').classList.remove('hidden');
+}
+function openEstoqueEntrada(itemId){
+  const it=(State.estoqueItens||[]).find(x=>x.id===itemId); if(!it){ toast('Item não encontrado.','error'); return; }
+  setVal('estq-ent-item-id', itemId);
+  const n=document.getElementById('estq-ent-item-nome'); if(n) n.textContent=it.nome;
+  setVal('estq-ent-qtd',''); setVal('estq-ent-fornecedor',''); setVal('estq-ent-nf','');
+  setVal('estq-ent-data', new Date().toISOString().substring(0,10)); setVal('estq-ent-valor','');
+  document.getElementById('modal-estq-entrada').classList.remove('hidden');
+}
+async function saveEstoqueEntrada(){
+  const itemId=val('estq-ent-item-id'); const it=(State.estoqueItens||[]).find(x=>x.id===itemId); if(!it) return;
+  const qtd=numVal('estq-ent-qtd'); if(!(qtd>0)){ toast('Informe a quantidade.','error'); return; }
+  const valorUnit=numVal('estq-ent-valor')||0;
+  const rec={ id:genId(), itemId, itemNome:it.nome, tipo:'entrada', quantidade:qtd,
+    data:val('estq-ent-data')||new Date().toISOString().substring(0,10),
+    fornecedor:val('estq-ent-fornecedor')||'', numeroNF:val('estq-ent-nf')||'',
+    valorUnit, valorTotal:+(valorUnit*qtd).toFixed(2),
+    porNome:Auth.currentUser?.username||'', createdAt:new Date().toISOString() };
+  const btn=document.querySelector('#modal-estq-entrada .btn-primary'); setBtnLoading(btn,true,'');
+  try{ await DB.save('estoqueMov', rec); closeModal('modal-estq-entrada'); toast(`Entrada de ${qtd} registrada.`); }
+  catch(e){ toast('Erro ao registrar entrada.','error'); }
+  finally{ setBtnLoading(btn,false,'<i class="fa-solid fa-floppy-disk"></i> Registrar entrada'); }
+}
+function openEstoqueBaixa(itemId){
+  const it=(State.estoqueItens||[]).find(x=>x.id===itemId); if(!it){ toast('Item não encontrado.','error'); return; }
+  setVal('estq-bx-item-id', itemId);
+  const n=document.getElementById('estq-bx-item-nome'); if(n) n.textContent=`${it.nome} — saldo atual: ${_estoqueSaldo(itemId)}`;
+  setVal('estq-bx-qtd',''); setVal('estq-bx-motivo','descarte'); setVal('estq-bx-obs','');
+  document.getElementById('modal-estq-baixa').classList.remove('hidden');
+}
+async function saveEstoqueBaixa(){
+  const itemId=val('estq-bx-item-id'); const it=(State.estoqueItens||[]).find(x=>x.id===itemId); if(!it) return;
+  const qtd=numVal('estq-bx-qtd'); if(!(qtd>0)){ toast('Informe a quantidade.','error'); return; }
+  const saldo=_estoqueSaldo(itemId);
+  if(qtd>saldo && !confirm(`A baixa (${qtd}) é MAIOR que o saldo atual (${saldo}). O saldo ficará negativo. Continuar?`)) return;
+  const rec={ id:genId(), itemId, itemNome:it.nome, tipo:'baixa', quantidade:qtd,
+    data:new Date().toISOString().substring(0,10), motivo:val('estq-bx-motivo')||'descarte',
+    obs:val('estq-bx-obs')||'', porNome:Auth.currentUser?.username||'', createdAt:new Date().toISOString() };
+  const btn=document.querySelector('#modal-estq-baixa .btn-primary'); setBtnLoading(btn,true,'');
+  try{ await DB.save('estoqueMov', rec); closeModal('modal-estq-baixa'); toast(`Baixa de ${qtd} registrada.`); }
+  catch(e){ toast('Erro ao registrar baixa.','error'); }
+  finally{ setBtnLoading(btn,false,'<i class="fa-solid fa-floppy-disk"></i> Registrar baixa'); }
+}
+function openEstoqueHistorico(itemId){
+  const it=(State.estoqueItens||[]).find(x=>x.id===itemId); if(!it) return;
+  const t=document.getElementById('estq-hist-title'); if(t) t.textContent=`Histórico — ${it.nome}`;
+  const movs=(State.estoqueMov||[]).filter(m=>m && m.itemId===itemId)
+    .sort((a,b)=>String(b.data||b.createdAt||'').localeCompare(String(a.data||a.createdAt||'')));
+  const _motivoLbl={descarte:'Descarte',perda:'Perda/Extravio',entrega:'Entrega a colaborador',devolucao:'Devolução',ajuste:'Ajuste'};
+  const tbody=document.getElementById('estq-hist-tbody');
+  if(tbody) tbody.innerHTML = movs.length ? movs.map(m=>{
+    const ent=m.tipo==='entrada';
+    const det = ent ? `${esc(m.fornecedor||'—')}${m.numeroNF?' · NF '+esc(m.numeroNF):''}${(+m.valorUnit||0)>0?' · '+fmtMoney(m.valorUnit)+'/un':''}` : esc(m.obs||'—');
+    return `<tr>
+      <td style="padding:5px 8px">${m.data?formatDateBr(m.data):'—'}</td>
+      <td style="padding:5px 8px;text-align:center;color:${ent?'#1B5E20':'#C62828'};font-weight:700">${ent?'+':'−'}${m.quantidade}</td>
+      <td style="padding:5px 8px">${ent?'Entrada (compra)':('Baixa · '+(_motivoLbl[m.motivo]||m.motivo||''))}</td>
+      <td style="padding:5px 8px;font-size:12px">${det}</td>
+      <td style="padding:5px 8px;font-size:11px;color:#666">${esc(m.porNome||'—')}</td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="5" style="text-align:center;padding:18px;color:#888">Sem movimentos.</td></tr>`;
+  document.getElementById('modal-estq-historico').classList.remove('hidden');
+}
+
 // Configuração de todos os tipos de relatório disponíveis
 const _ALL_REPORT_TYPES = [
   {type:'financeiro',      icon:'fa-money-bill-wave',   label:'Financeiro Mensal',    desc:'Salário + benefícios por mês'},
@@ -26093,13 +26264,14 @@ const MODULOS_LABELS={
   disciplinaApagar:   'Anular Atos Disciplinares (Disciplina)',
   autorizarPonto:     'Autorizar Batidas Fora do Horário (Supervisor)',
   monitorarFaltas:    'Monitorar Faltas (quem não bateu entrada)',
-  gerirFolgasEscala:  'Folgas / Dia avulso / Troca e mudança de escala'
+  gerirFolgasEscala:  'Folgas / Dia avulso / Troca e mudança de escala',
+  estoque:            'Estoque / EPIs'
 };
 
 // Retorna os módulos permitidos para o usuário
 function getUserModules(user){
   if(!user) return {};
-  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,escalas:true,criarEscalas:true,aprovaHE:true,reports:true,pagamentos:true,pagamentosLancar:true,pagamentosAprovar:true,decimoterceiro:true,ferias:true,rescisao:true,contabilidade:true,postos:true,contratos:true,users:true,log:true,comunicacao:true,comunicacoesApagar:true,disciplinaApagar:true,autorizarPonto:true,monitorarFaltas:true,revisarContrato:true,gerirFolgasEscala:true};
+  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,escalas:true,criarEscalas:true,aprovaHE:true,reports:true,pagamentos:true,pagamentosLancar:true,pagamentosAprovar:true,decimoterceiro:true,ferias:true,rescisao:true,contabilidade:true,postos:true,contratos:true,users:true,log:true,comunicacao:true,comunicacoesApagar:true,disciplinaApagar:true,autorizarPonto:true,monitorarFaltas:true,revisarContrato:true,gerirFolgasEscala:true,estoque:true};
   if(user.role==='operador') return {dashboard:true,employees:false,payroll:true,escalas:true,criarEscalas:false,aprovaHE:false,reports:true,pagamentos:true,pagamentosLancar:false,pagamentosAprovar:false,decimoterceiro:true,ferias:true,rescisao:false,contabilidade:true,postos:false,contratos:false,users:false,log:!!user.showLog};
   if(user.role&&user.role.startsWith('p_')){
     const perfilId=user.role.replace('p_','');
@@ -26546,6 +26718,14 @@ async function _carregarDadosPosLogin(){
     State.contratos = data;
     if(State.currentSection==='contratos') renderContratosTable();
     if(State.currentSection==='dashboard') renderAlerts();
+  });
+  DB.listen('estoqueItens', data => {
+    State.estoqueItens = data;
+    if(State.currentSection==='estoque') renderEstoque();
+  });
+  DB.listen('estoqueMov', data => {
+    State.estoqueMov = data;
+    if(State.currentSection==='estoque') renderEstoque();
   });
   DB.listen('decimoTerceiro', data => {
     State.decimoTerceiro = data;

@@ -21561,7 +21561,10 @@ function _fdsLivreResolve(emp, ano, mes, dia){
   const d=new Date(ano, mes-1, dia), dow=d.getDay();
   if(dow!==0 && dow!==6) return null;
   const dias=_fdsLivreFolhaDias(emp, ano, mes, dia);
-  const batido=dt=>{ const x=(dias||[]).find(b=>b && Number(b.dia)===dt.getDate()); return !!(x && x.entrada && x.saida); };
+  // "Trabalhou esse dia?" = tem entrada + (saída OU início de intervalo). O "ou intIni"
+  // cobre batida antiga mal-arquivada (2ª batida do dia curto caiu no slot de intervalo
+  // em vez da saída) — senão a fds-livre não reconhecia o fim de semana trabalhado. #fds-livre-batido
+  const batido=dt=>{ const x=(dias||[]).find(b=>b && Number(b.dia)===dt.getDate()); return !!(x && x.entrada && (x.saida || x.intIni)); };
   const sab=new Date(d), dom=new Date(d);
   if(dow===6){ dom.setDate(d.getDate()+1); } else { sab.setDate(d.getDate()-1); }
   const esteBatido=batido(d);

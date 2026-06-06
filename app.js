@@ -4942,7 +4942,8 @@ function _renderEsocialDiagnostico(){
     <div style="margin-top:12px;padding-top:10px;border-top:1px dashed #e0e0e0">
       <div style="font-weight:700;color:#1a3a6b;font-size:13px;margin-bottom:6px"><i class="fa-solid fa-file-code"></i> Gerar eventos (XML)</div>
       <button class="btn btn-outline btn-sm" ${empOk?'':'disabled'} onclick="_gerarEsocialS1000()" style="${empOk?'border-color:#1a3a6b;color:#1a3a6b':''}" title="${empOk?'Gera o XML do S-1000 (dados do empregador)':'Corrija as pendências da empresa primeiro'}"><i class="fa-solid fa-building"></i> Gerar S-1000 (empregador)</button>
-      <span style="font-size:11px;color:#999;margin-left:8px">Ambiente: <b>produção restrita</b> (tpAmb=2). Valide o XML no eSocial antes da produção. Próximos eventos: S-2200, S-1200/S-1210.</span>
+      <button class="btn btn-outline btn-sm" ${empOk?'':'disabled'} onclick="_gerarEsocialS1005()" style="${empOk?'border-color:#1a3a6b;color:#1a3a6b':''}" title="${empOk?'Gera o XML do S-1005 (estabelecimento — CNAE/RAT/FAP)':'Corrija as pendências da empresa primeiro'}"><i class="fa-solid fa-location-dot"></i> Gerar S-1005 (estabelecimento)</button>
+      <div style="font-size:11px;color:#999;margin-top:6px">Ambiente: <b>produção restrita</b> (tpAmb=2). Valide os XMLs no eSocial antes da produção. Próximos eventos (S-2200 admissão, S-1200 remuneração) exigem dados extras: código IBGE do município, sindicato e tabela de horários/rubricas.</div>
     </div>
     <div style="margin-top:10px;font-size:11px;color:#999;line-height:1.5"><i class="fa-solid fa-circle-info"></i> Conferência de cadastro p/ o eSocial (CPF/PIS validados com dígito verificador). Corrija as pendências no cadastro de cada colaborador (e em Configurações, a empresa) antes de gerar os eventos.</div>`;
   card.style.display='';
@@ -5022,6 +5023,65 @@ function _gerarEsocialS1000(){
   const cnpj=_soDigitos((State.empresa||{}).cnpj);
   _baixarArquivo(`S-1000_${cnpj}_${compISO}.xml`, xml, 'application/xml');
   toast('S-1000 gerado (produção restrita). Valide no eSocial antes de transmitir.','success');
+}
+// S-1005 (evtTabEstab) — tabela de estabelecimentos. Reaproveita CNAE + RAT/FAP da config
+// de encargos. aliqGilrat: aliqRat (1/2/3) × FAP = aliqRatAjust. Leiaute S-1.3, produção
+// restrita. Em Simples com GILRAT substituído, ajustar com o contador. #esocial
+function _esocialEventoS1005(competenciaISO){
+  const e=State.empresa||{}; const Q=_esocialParams(); const P=_encParamsEmpresa();
+  const cnpj14=Q.cnpj.padStart(14,'0');
+  const raiz=cnpj14.slice(0,8);
+  const id=_esocialId(cnpj14);
+  const iniValid=competenciaISO || (new Date().toISOString().slice(0,7));
+  const cnae7=_soDigitos(e.cnae).slice(0,7);
+  const aliqRat=String(Math.round(P.ratAliq)||1);
+  const fap=(P.fap||1).toFixed(2);
+  const aliqAjust=((Math.round(P.ratAliq)||1)*(P.fap||1)).toFixed(2);
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<eSocial xmlns="http://www.esocial.gov.br/schema/evt/tabelas/evtTabEstab/v_S_01_03_00">
+  <evtTabEstab Id="${id}">
+    <ideEvento>
+      <tpAmb>${Q.tpAmb}</tpAmb>
+      <procEmi>1</procEmi>
+      <verProc>${_xmlEsc(Q.verProc)}</verProc>
+    </ideEvento>
+    <ideEmpregador>
+      <tpInsc>1</tpInsc>
+      <nrInsc>${raiz}</nrInsc>
+    </ideEmpregador>
+    <infoEstab>
+      <inclusao>
+        <ideEstab>
+          <tpInsc>1</tpInsc>
+          <nrInsc>${cnpj14}</nrInsc>
+          <iniValid>${iniValid}</iniValid>
+        </ideEstab>
+        <dadosEstab>
+          <cnaePrep>${cnae7}</cnaePrep>
+          <aliqGilrat>
+            <aliqRat>${aliqRat}</aliqRat>
+            <fap>${fap}</fap>
+            <aliqRatAjust>${aliqAjust}</aliqRatAjust>
+          </aliqGilrat>
+        </dadosEstab>
+      </inclusao>
+    </infoEstab>
+  </evtTabEstab>
+</eSocial>`;
+}
+function _gerarEsocialS1005(){
+  if(Auth.currentUser?.role!=='master'){ toast('Apenas o master pode gerar eventos do eSocial','error'); return; }
+  const pend=_esocialPendenciasEmpresa();
+  if(pend.length){ toast('Complete os dados da empresa antes: '+pend.join(' · '),'error'); return; }
+  const e=State.empresa||{};
+  if(_soDigitos(e.cnae).length<7){ toast('CNAE incompleto (precisa de 7 dígitos) para o S-1005.','error'); return; }
+  const mes=parseInt(val('cont-mes')||currentMes());
+  const ano=parseInt(val('cont-ano')||currentAno());
+  const compISO=`${ano}-${String(mes).padStart(2,'0')}`;
+  const xml=_esocialEventoS1005(compISO);
+  const cnpj=_soDigitos(e.cnpj);
+  _baixarArquivo(`S-1005_${cnpj}_${compISO}.xml`, xml, 'application/xml');
+  toast('S-1005 gerado (produção restrita). Valide no eSocial.','success');
 }
 
 // Monta UMA linha da planilha do contador para um colaborador (e sua folha p).

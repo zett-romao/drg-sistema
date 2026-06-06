@@ -2004,7 +2004,12 @@ async function renderAvisos(){
     const dtFmt = `${created.toLocaleDateString('pt-BR')} ${created.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}`;
     const anexo = m.anexoUrl ? `<br><a href="${m.anexoUrl}" target="_blank" rel="noopener" style="color:#1e293b;font-weight:600;text-decoration:underline">📎 ${m.anexoNome||'anexo'}</a>` : '';
     const quem  = m.origemUserNome ? `<div style="margin-top:6px;font-size:11px;color:#64748b">— de ${m.origemUserNome} · ${dtFmt}</div>` : '';
-    const corpoHtml = (m.corpo||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+    // Mensagem com formatação (HTML do editor do gestor, já sanitizado no envio).
+    // Texto antigo (sem tags) = escapa + nl2br. HTML = remove script/eventos por garantia.
+    const _cp = (m.corpo||'');
+    const corpoHtml = /[<]/.test(_cp)
+      ? _cp.replace(/<\s*script[\s\S]*?<\s*\/\s*script\s*>/gi,'').replace(/ on\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,'').replace(/javascript:/gi,'')
+      : _cp.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
     const reacoesHtml = _avisosReacoesHtml(m);
     av.push({tipo:'aviso', icone:'✉️', titulo:m.assunto||'Mensagem da gestão', msg:`${corpoHtml}${anexo}${quem}${reacoesHtml}`});
     // Confirmação de leitura — marca como visualizada na primeira vez que

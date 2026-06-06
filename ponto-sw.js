@@ -3,7 +3,7 @@
 // Estrategia: network-first para HTML/JS/CSS (sempre busca versao
 // nova), cache-first para imagens/assets estaticos.
 // ============================================================
-const CACHE = 'drg-ponto-v42-20260606a';
+const CACHE = 'drg-ponto-v43-20260606b';
 const ASSETS = [
   'ponto.html',
   'ponto-manifest.json',

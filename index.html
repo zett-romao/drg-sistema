@@ -6546,7 +6546,35 @@
       </div>
       <div class="form-group">
         <label>Mensagem <span class="required">*</span></label>
-        <textarea id="comu-corpo" rows="6" placeholder="Escreva a mensagem..." style="width:100%;padding:9px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;resize:vertical"></textarea>
+        <style>
+          #comu-rtb{display:flex;flex-wrap:wrap;gap:2px;border:1px solid var(--border);border-bottom:none;border-radius:6px 6px 0 0;padding:5px 6px;background:#f8fafc}
+          #comu-rtb .rtb-btn{width:30px;height:30px;border:1px solid #e2e8f0;background:#fff;border-radius:5px;cursor:pointer;color:#334155;font-size:13px;display:inline-flex;align-items:center;justify-content:center}
+          #comu-rtb .rtb-btn:hover{background:#eef2ff;border-color:#c7d2fe}
+          #comu-rtb .rtb-sep{width:1px;background:#e2e8f0;margin:2px 4px}
+          #comu-rtb select{height:30px;border:1px solid #e2e8f0;border-radius:5px;font-size:12px;cursor:pointer;padding:0 4px}
+          #comu-corpo:empty:before{content:attr(data-placeholder);color:#94a3b8}
+        </style>
+        <div id="comu-rtb">
+          <button type="button" class="rtb-btn" title="Negrito" onmousedown="event.preventDefault()" onclick="_rtbCmd('bold')"><i class="fa-solid fa-bold"></i></button>
+          <button type="button" class="rtb-btn" title="Itálico" onmousedown="event.preventDefault()" onclick="_rtbCmd('italic')"><i class="fa-solid fa-italic"></i></button>
+          <button type="button" class="rtb-btn" title="Sublinhado" onmousedown="event.preventDefault()" onclick="_rtbCmd('underline')"><i class="fa-solid fa-underline"></i></button>
+          <span class="rtb-sep"></span>
+          <button type="button" class="rtb-btn" title="Alinhar à esquerda" onmousedown="event.preventDefault()" onclick="_rtbCmd('justifyLeft')"><i class="fa-solid fa-align-left"></i></button>
+          <button type="button" class="rtb-btn" title="Centralizar" onmousedown="event.preventDefault()" onclick="_rtbCmd('justifyCenter')"><i class="fa-solid fa-align-center"></i></button>
+          <button type="button" class="rtb-btn" title="Alinhar à direita" onmousedown="event.preventDefault()" onclick="_rtbCmd('justifyRight')"><i class="fa-solid fa-align-right"></i></button>
+          <button type="button" class="rtb-btn" title="Justificar" onmousedown="event.preventDefault()" onclick="_rtbCmd('justifyFull')"><i class="fa-solid fa-align-justify"></i></button>
+          <span class="rtb-sep"></span>
+          <button type="button" class="rtb-btn" title="Lista" onmousedown="event.preventDefault()" onclick="_rtbCmd('insertUnorderedList')"><i class="fa-solid fa-list-ul"></i></button>
+          <select title="Tamanho da fonte" onmousedown="event.stopPropagation()" onchange="_rtbCmd('fontSize', this.value); this.selectedIndex=0">
+            <option value="">Fonte…</option>
+            <option value="2">Pequena</option>
+            <option value="3">Normal</option>
+            <option value="5">Grande</option>
+            <option value="6">Muito grande</option>
+          </select>
+          <button type="button" class="rtb-btn" title="Limpar formatação" onmousedown="event.preventDefault()" onclick="_rtbCmd('removeFormat')"><i class="fa-solid fa-eraser"></i></button>
+        </div>
+        <div id="comu-corpo" contenteditable="true" data-placeholder="Escreva a mensagem..." style="width:100%;min-height:130px;max-height:320px;overflow-y:auto;padding:9px 11px;border:1px solid var(--border);border-radius:0 0 6px 6px;font-size:13px;line-height:1.5;background:#fff"></div>
       </div>
       <div class="form-group">
         <label>Anexo (opcional) <small style="color:var(--text-muted);font-weight:400">— PDF, imagem ou documento (até 10 MB)</small></label>
@@ -6917,6 +6945,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260606b-notas-arquivadas"></script>
+  <script src="app.js?v=20260606c-comunicacao-editor-rico"></script>
 </body>
 </html>

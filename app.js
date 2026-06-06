@@ -13988,7 +13988,7 @@ function openComunicarModal(empIdOrNull){
       });
   }
   setVal('comu-assunto','');
-  setVal('comu-corpo','');
+  _comuSetCorpo('');
   setVal('comu-tipo','normal');
   setVal('comu-disc-motivo','');
   setVal('comu-disc-dias','');
@@ -14052,7 +14052,7 @@ function editarMensagem(msgId){
   _comuEditandoId   = msgId;
   _comuDestinatarios = m.employeeId ? [m.employeeId] : [];
   setVal('comu-assunto', m.assunto||'');
-  setVal('comu-corpo',   m.corpo||'');
+  _comuSetCorpo(m.corpo||'');
   if(m.anexoUrl){
     _comuAnexoHerdado = { url:m.anexoUrl, nome:m.anexoNome||'anexo', tipo:m.anexoTipo||'' };
   }
@@ -14077,7 +14077,7 @@ function reenviarMensagem(msgId){
   if(!m){ toast('Mensagem não encontrada — recarregue a aba.','error'); return; }
   openComunicarModal();
   setVal('comu-assunto', m.assunto||'');
-  setVal('comu-corpo',   m.corpo||'');
+  _comuSetCorpo(m.corpo||'');
   if(m.anexoUrl){
     _comuAnexoHerdado = { url:m.anexoUrl, nome:m.anexoNome||'anexo', tipo:m.anexoTipo||'' };
   }
@@ -14110,7 +14110,7 @@ function _gerarReciboEnvioHTML(d){
                   : 'COMUNICADO';
   const corTipo = d.tipo==='advertencia' ? '#E65100' : '#c62828';
   const esc = s => (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const corpoEsc = esc(d.corpo).replace(/\n/g,'<br>');
+  const corpoEsc = _corpoHtml(d.corpo);
   const motivoEsc = esc(d.motivoDisc).replace(/\n/g,'<br>');
   const hashAnexoFmt = _formatHashLegivel(d.anexoHash||'');
   const hashMsgFmt   = _formatHashLegivel(d.mensagemHash||'');
@@ -15339,13 +15339,56 @@ function _comuAddFiltroAvancado(){
   });
 }
 
+// ── Editor rico da Comunicação (negrito/itálico/sublinhado/alinhamento/fonte) ──
+function _rtbCmd(cmd, valArg){
+  const ed=document.getElementById('comu-corpo'); if(!ed) return;
+  ed.focus();
+  try{ document.execCommand(cmd, false, valArg!=null?valArg:undefined); }catch(_){}
+}
+// Sanitiza o HTML da mensagem: mantém só formatação segura, remove script/eventos/etc.
+function _sanitizeMsgHtml(html){
+  if(!html) return '';
+  const tpl=document.createElement('template'); tpl.innerHTML=String(html);
+  const OK=new Set(['B','STRONG','I','EM','U','BR','P','DIV','SPAN','UL','OL','LI','FONT']);
+  const STYLE_OK=/^(text-align|font-weight|font-style|text-decoration|font-size)\s*:/i;
+  const walk=(node)=>{
+    [...node.childNodes].forEach(ch=>{
+      if(ch.nodeType===1){
+        if(!OK.has(ch.tagName)){ while(ch.firstChild) node.insertBefore(ch.firstChild, ch); node.removeChild(ch); return; }
+        [...ch.attributes].forEach(a=>{
+          const n=a.name.toLowerCase();
+          if(n==='style'){
+            const safe=(a.value||'').split(';').map(s=>s.trim()).filter(s=>STYLE_OK.test(s)).join('; ');
+            if(safe) ch.setAttribute('style', safe); else ch.removeAttribute('style');
+          } else if(n==='size' && ch.tagName==='FONT'){ /* mantém o size do <font> */ }
+          else ch.removeAttribute(a.name);
+        });
+        walk(ch);
+      } else if(ch.nodeType===8){ node.removeChild(ch); }
+    });
+  };
+  walk(tpl.content);
+  return tpl.innerHTML;
+}
+// HTML pronto pra EXIBIR o corpo: sanitiza; texto antigo (sem tags) vira nl2br.
+function _corpoHtml(corpo){
+  const s=_sanitizeMsgHtml(corpo||'');
+  if(!/[<]/.test(String(corpo||''))) return s.replace(/\n/g,'<br>');
+  return s;
+}
+// Texto puro do corpo (p/ prévia de notificação e busca).
+function _corpoTexto(corpo){ return String(corpo||'').replace(/<br\s*\/?>(?=)/gi,' ').replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/\s+/g,' ').trim(); }
+function _comuSetCorpo(html){ const ed=document.getElementById('comu-corpo'); if(ed) ed.innerHTML=_corpoHtml(html); }
+function _comuGetCorpo(){ const ed=document.getElementById('comu-corpo'); return ed?_sanitizeMsgHtml(ed.innerHTML):''; }
+function _comuCorpoVazio(){ const ed=document.getElementById('comu-corpo'); return !ed || !(ed.textContent||'').replace(/ /g,'').trim(); }
+
 async function enviarComunicacao(){
   const ids=[..._comuDestinatarios];
   if(!ids.length){ toast('Adicione ao menos um destinatário.','warning'); return; }
   const assunto=(val('comu-assunto')||'').trim();
   if(!assunto){ toast('Informe o assunto.','warning'); return; }
-  const corpo=(val('comu-corpo')||'').trim();
-  if(!corpo){ toast('Escreva a mensagem.','warning'); return; }
+  if(_comuCorpoVazio()){ toast('Escreva a mensagem.','warning'); return; }
+  const corpo=_comuGetCorpo();
   const tipo=(val('comu-tipo')||'normal').toLowerCase();
   const ehDisciplina = (tipo==='advertencia' || tipo==='suspensao');
   const fi=document.getElementById('comu-anexo');
@@ -15616,7 +15659,7 @@ async function renderComunicacoesTab(empId){
           <strong style="font-size:13px;color:var(--text)">${m.assunto||'(sem assunto)'}</strong>
           <span style="font-size:11px;color:#999;white-space:nowrap">${dt}${hr?' '+hr:''}</span>
         </div>
-        <div style="font-size:12px;color:#555;margin-top:4px;white-space:pre-wrap">${m.corpo||''}</div>
+        <div style="font-size:12px;color:#555;margin-top:4px;line-height:1.5">${_corpoHtml(m.corpo)}</div>
         ${anexo}
         ${reacHtml}
         <div style="margin-top:6px;font-size:11px">${lidaHtml}</div>
@@ -19246,7 +19289,7 @@ async function _reportComunicacoes(){
         const anexoTxt = m.anexoUrl
           ? `<a href="${m.anexoUrl}" target="_blank" rel="noopener" style="color:var(--primary)">📎 ${m.anexoNome||'anexo'}</a>`
           : '—';
-        const corpoTxt = (m.corpo||'').length > 250 ? (m.corpo||'').substring(0,250)+'...' : (m.corpo||'');
+        const _ct250 = _corpoTexto(m.corpo); const corpoTxt = _ct250.length > 250 ? _ct250.substring(0,250)+'...' : _ct250;
         const corpoEsc = corpoTxt.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
         const asEsc    = (m.assunto||'(sem assunto)').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
         const editadoStr = m.editadoEm ? `<br><em style="font-size:10px;color:#94a3b8">editado ${new Date(m.editadoEm).toLocaleString('pt-BR')}</em>` : '';
@@ -19313,7 +19356,7 @@ async function _reportComunicacoesIndividual(empId){
         const anexoTxt = m.anexoUrl
           ? `<a href="${m.anexoUrl}" target="_blank" rel="noopener" style="color:var(--primary)">📎 ${m.anexoNome||'anexo'}</a>`
           : '—';
-        const corpoTxt = (m.corpo||'').length > 400 ? (m.corpo||'').substring(0,400)+'...' : (m.corpo||'');
+        const _ct400 = _corpoTexto(m.corpo); const corpoTxt = _ct400.length > 400 ? _ct400.substring(0,400)+'...' : _ct400;
         const corpoEsc = corpoTxt.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
         const asEsc    = (m.assunto||'(sem assunto)').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
         const editadoStr = m.editadoEm ? `<br><em style="font-size:10px;color:#94a3b8">editado ${new Date(m.editadoEm).toLocaleString('pt-BR')}</em>` : '';
@@ -19417,7 +19460,7 @@ function _renderComunicacaoUI(){
     if(_comuSecaoFiltros.status==='naoLidas' && m.lida)  return false;
     if(_comuSecaoFiltros.somenteAnexo && !m.anexoUrl)    return false;
     if(busca){
-      const blob = `${m.assunto||''} ${m.corpo||''} ${m.employeeNome||''} ${m.origemUserNome||''}`.toLowerCase();
+      const blob = `${m.assunto||''} ${_corpoTexto(m.corpo)} ${m.employeeNome||''} ${m.origemUserNome||''}`.toLowerCase();
       if(!blob.includes(busca)) return false;
     }
     return true;
@@ -19523,7 +19566,7 @@ function _renderComunicacaoUI(){
           <div style="text-align:right;font-size:11px;color:#999">${dtTxt}</div>
         </div>
         <div style="font-weight:700;font-size:14px;color:var(--text);margin-top:8px">${(m.assunto||'(sem assunto)').replace(/</g,'&lt;')}</div>
-        <div style="font-size:13px;color:#555;margin-top:4px;white-space:pre-wrap;line-height:1.45">${(m.corpo||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
+        <div style="font-size:13px;color:#555;margin-top:4px;line-height:1.45">${_corpoHtml(m.corpo)}</div>
         ${anexo}
         <div style="margin-top:10px;padding-top:8px;border-top:1px dashed var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -19581,7 +19624,7 @@ function _comuDrillDown(stat){
     if(_comuSecaoFiltros.status==='naoLidas' && m.lida)  return false;
     if(_comuSecaoFiltros.somenteAnexo && !m.anexoUrl)    return false;
     if(busca){
-      const blob = `${m.assunto||''} ${m.corpo||''} ${m.employeeNome||''} ${m.origemUserNome||''}`.toLowerCase();
+      const blob = `${m.assunto||''} ${_corpoTexto(m.corpo)} ${m.employeeNome||''} ${m.origemUserNome||''}`.toLowerCase();
       if(!blob.includes(busca)) return false;
     }
     return true;

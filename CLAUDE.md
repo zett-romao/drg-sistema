@@ -364,13 +364,13 @@ Solicitada e implementada pelo usuário em 2026-05-18.
 
 ### Limpeza / Operacional
 - ✅ **Pasta `Netlify/` local — JÁ LIMPA (verificado 2026-06-06):** não existe pasta `Netlify/` nem nenhuma referência a "netlify" no repo. Nada a fazer localmente.
-- **Apagar projeto Netlify online** (`effervescent-lollipop-d43f31`) — já está pausado pelo Netlify por exceder limite de crédito; antes de excluir, conferir Forms e Domain management (espera-se vazios). **Ação manual do usuário no painel Netlify** (pendente).
+- ✅ **Projeto Netlify online APAGADO (2026-06-06)** — `effervescent-lollipop-d43f31` excluído pelo usuário no painel. Pendência de limpeza Netlify 100% fechada.
 - **Renomear pasta `Software/`** para algo mais descritivo (ex: `DRG_Sistema/`). Antes de tentar: fechar Claude Code, fechar editores, fechar Explorer, **pausar Google Drive Sync**, depois renomear pelo Explorer. Reabrir Claude Code no caminho novo depois.
 - **Mover ou criptografar `Backup_DR_Global/`** — contém dados pessoais (CPF/RG/salário/PIX) e está dentro do Google Drive sincronizado. Risco de LGPD se a conta Drive vazar. Mover para HD externo ou pasta criptografada (BitLocker/Veracrypt).
 - **Apagar `.claude/`** (opcional) — pasta de trabalho da IA, recriada automaticamente.
 
 ### Testes pendentes
-- ✅ **PWA — código validado (2026-06-06):** SW `ponto-sw.js` (CACHE `drg-ponto-v43-20260606b`) network-first p/ HTML/JS/CSS/JSON + cache-first imagens + Firebase sempre rede; auto-detecção de versão nova (`reg.update()` em visibilitychange + a cada 30min) + banner in-app "nova versão" (`controllerchange` → `aplicarNovaVersao` limpa sessão + reload). Isso resolve na raiz o cache prendendo versão velha (não precisa mais fechar/reabrir 2x manual). `node --check` OK. **Falta só o teste físico no celular** (ação do usuário) — se ainda persistir "Cannot access 'db' before initialization", seguir o protocolo "PWA / Debug". ⚠️ Detalhe cosmético: `PONTO_VERSION` (`25.06.01a-blindagem`) não acompanhou o último bump do CACHE — bumpar junto na próxima mexida (não quebra nada).
+- ✅ **PWA — código validado (2026-06-06):** SW `ponto-sw.js` (CACHE `drg-ponto-v43-20260606b`) network-first p/ HTML/JS/CSS/JSON + cache-first imagens + Firebase sempre rede; auto-detecção de versão nova (`reg.update()` em visibilitychange + a cada 30min) + banner in-app "nova versão" (`controllerchange` → `aplicarNovaVersao` limpa sessão + reload). Isso resolve na raiz o cache prendendo versão velha (não precisa mais fechar/reabrir 2x manual). `node --check` OK. ✅ **Teste físico no celular FEITO (2026-06-06) — tudo OK** (login, bater ponto, histórico, sem travar em versão velha). Pendência do PWA 100% fechada. `PONTO_VERSION` bumpado p/ `25.06.06a` (alinhado ao CACHE) no commit `7b23c4c`.
 - Testar leitura de IA com escalas 5x2A, 5x2B, 6x1A, 6x1B (apenas 12x36 foi validado).
 
 ### Segurança / Refactor

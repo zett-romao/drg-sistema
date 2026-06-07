@@ -209,9 +209,9 @@ Levantamento de inconsistências (foco: fechamento/competência, escalas, HE/fal
 1. **[DADO/OP] Competência publicada, migração NÃO rodada.** O código 26→25 está no ar; enquanto a migração não rodar, qualquer folha com batidas nos dias 26-31 é lida como mês anterior (maio 26-31 vira "abril") → HE/faltas/valores errados nesses dias. Os bugs já vistos (Juliana/Matheus) eram em dias ≤25, não afetados — mas é bomba latente ao fechar maio. **Correção:** backup → "Migrar p/ competência" → backfill → fechar maio. Até lá, evitar fechar/recalcular maio.
 
 🟠 **IMPORTANTE (gerando bugs visíveis)**
-2. **[DADO/OP — pendente] "Dias avulsos" (overrides) antigos e invisíveis → HE fantasma** (caso Juliana). Override tem prioridade máxima e não aparece na escala/folha. **Correção dado (pendente):** revisar bloco "Dias avulsos" de cada colaborador (noturnos/12x36 primeiro) e remover obsoletos. ✅ **Código FEITO (2026-05-28):** o painel de revisão de HE agora avisa quando o colaborador tem dias avulsos no período.
-3. **[DADO/OP — pendente] Cargo de confiança sem marcar "isento" → HE/faltas fantasma** (caso Matheus). **Correção:** marcar "Isento (CLT Art. 62)" em todos os de confiança.
-4. **[DADO/OP — pendente] Escala ≠ batidas reais → HE fantasma gigante** (padrão Juliana 06-18 vs 19-07). **Correção:** conferir escala correta de cada um (usar as 12x36/6x1 Alternado do sistema) e reprojetar+salvar.
+2. ✅ **[DADO/OP — FEITO 2026-06-06] "Dias avulsos" (overrides) antigos e invisíveis → HE fantasma** (caso Juliana). Os overrides obsoletos foram revisados e removidos. (Código já avisava no painel de revisão de HE.)
+3. ✅ **[DADO/OP — FEITO 2026-06-06] Cargo de confiança sem marcar "isento" → HE/faltas fantasma** (caso Matheus). Os cargos de confiança foram marcados "Isento (CLT Art. 62)".
+4. ✅ **[DADO/OP — FEITO 2026-06-06] Escala ≠ batidas reais → HE fantasma gigante** (padrão Juliana 06-18 vs 19-07). Escalas conferidas e reprojetadas+salvas.
 
 🟡 **CÓDIGO (✅ FEITO em 2026-05-28)**
 5. ✅ **`openHEReview` agora checa `isentoPonto`** — abrir o painel p/ um isento mostra aviso e não lista divergências.
@@ -363,14 +363,14 @@ Solicitada e implementada pelo usuário em 2026-05-18.
 **Status:** IMPLEMENTADA em 2026-05-18 — seção `adiantamentos` (funções `renderAdiantamentos`, `pagarAdiantamento`, `pagarAdiantamentosLote`, `_criarSolicAdiantamento`, `_abrirFolhaColaborador`). O pagamento cria `solicitacoesPagamento` com `origem:'adiantamento'` e `payrollId:''` (isolado do fluxo de salário — não foi preciso mexer no código de pagamento existente); idempotência por `employeeId`+`competencia`+`origem`. O pagamento real continua passando pela tela de Aprovações (2FA + Asaas). **Pendente:** testar com o sandbox do Asaas antes de uso real.
 
 ### Limpeza / Operacional
-- **Apagar pasta `Netlify/` local** — só tem `netlify.toml` antigo, projeto não é mais usado.
-- **Apagar projeto Netlify online** (`effervescent-lollipop-d43f31`) — já está pausado pelo Netlify por exceder limite de crédito; antes de excluir, conferir Forms e Domain management (espera-se vazios).
+- ✅ **Pasta `Netlify/` local — JÁ LIMPA (verificado 2026-06-06):** não existe pasta `Netlify/` nem nenhuma referência a "netlify" no repo. Nada a fazer localmente.
+- **Apagar projeto Netlify online** (`effervescent-lollipop-d43f31`) — já está pausado pelo Netlify por exceder limite de crédito; antes de excluir, conferir Forms e Domain management (espera-se vazios). **Ação manual do usuário no painel Netlify** (pendente).
 - **Renomear pasta `Software/`** para algo mais descritivo (ex: `DRG_Sistema/`). Antes de tentar: fechar Claude Code, fechar editores, fechar Explorer, **pausar Google Drive Sync**, depois renomear pelo Explorer. Reabrir Claude Code no caminho novo depois.
 - **Mover ou criptografar `Backup_DR_Global/`** — contém dados pessoais (CPF/RG/salário/PIX) e está dentro do Google Drive sincronizado. Risco de LGPD se a conta Drive vazar. Mover para HD externo ou pasta criptografada (BitLocker/Veracrypt).
 - **Apagar `.claude/`** (opcional) — pasta de trabalho da IA, recriada automaticamente.
 
 ### Testes pendentes
-- Validar destravamento do PWA no celular após fix do Service Worker (network-first). Se ainda persistir bug "Cannot access 'db' before initialization", seguir o protocolo "PWA / Debug" deste arquivo.
+- ✅ **PWA — código validado (2026-06-06):** SW `ponto-sw.js` (CACHE `drg-ponto-v43-20260606b`) network-first p/ HTML/JS/CSS/JSON + cache-first imagens + Firebase sempre rede; auto-detecção de versão nova (`reg.update()` em visibilitychange + a cada 30min) + banner in-app "nova versão" (`controllerchange` → `aplicarNovaVersao` limpa sessão + reload). Isso resolve na raiz o cache prendendo versão velha (não precisa mais fechar/reabrir 2x manual). `node --check` OK. **Falta só o teste físico no celular** (ação do usuário) — se ainda persistir "Cannot access 'db' before initialization", seguir o protocolo "PWA / Debug". ⚠️ Detalhe cosmético: `PONTO_VERSION` (`25.06.01a-blindagem`) não acompanhou o último bump do CACHE — bumpar junto na próxima mexida (não quebra nada).
 - Testar leitura de IA com escalas 5x2A, 5x2B, 6x1A, 6x1B (apenas 12x36 foi validado).
 
 ### Segurança / Refactor

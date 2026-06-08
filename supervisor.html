@@ -142,6 +142,8 @@
       <div class="nome" id="sup-nome">—</div>
       <div class="sub" id="sup-role">Supervisor de Ponto</div>
     </div>
+    <button id="btn-notif-push" onclick="ativarNotificacoesSup()" title="Notificações no celular (app fechado)"
+      style="background:#fff;border:1px solid #ddd;font-size:18px;line-height:1;width:40px;height:40px;border-radius:10px;cursor:pointer;margin-right:8px">📲</button>
     <button id="btn-som-avisos" onclick="_toggleSomAvisos()" title="Som de avisos"
       style="background:#fff;border:1px solid #ddd;font-size:18px;line-height:1;width:40px;height:40px;border-radius:10px;cursor:pointer;margin-right:8px">🔔</button>
     <button class="logout" onclick="doLogout()">Sair</button>
@@ -398,6 +400,7 @@ async function doLogin(){
     document.getElementById('login-screen').style.display='none';
     document.getElementById('app').style.display='flex';
     renderTopbar();
+    _refreshPushSubIfActive();
     await carregarEmployees();
     iniciarListenerPedidos();
   }catch(e){
@@ -425,6 +428,64 @@ function renderTopbar(){
   document.getElementById('sup-av').textContent = ini;
   const roleLbl = u.role==='master' ? 'Administrador (Master)' : 'Supervisor de Ponto';
   document.getElementById('sup-role').textContent = roleLbl;
+  _updateBtnNotif();
+}
+
+// ─── PUSH (notificações no celular, app fechado) ─────────────────────────── #janela-notif
+// Mesma chave pública VAPID do app principal (a privada fica só no worker drg-monitor).
+const PUSH_VAPID_PUBLIC = 'BIeMp4BsrGe1L68PELiLO5-KGWd3jixiBFE48kRAvmwUxT3j5N99jMsyEcGK9LSmjpcQdKvHmRuS_Z-6M8P-BY8';
+function _b64urlToU8(b64){
+  const pad='='.repeat((4-b64.length%4)%4);
+  const s=(b64+pad).replace(/-/g,'+').replace(/_/g,'/');
+  const raw=atob(s); const out=new Uint8Array(raw.length);
+  for(let i=0;i<raw.length;i++) out[i]=raw.charCodeAt(i);
+  return out;
+}
+function _pushUserKey(){ return String((currentUser&&(currentUser.username||currentUser.id))||'anon').replace(/[^\w.-]/g,'_'); }
+function _pushAtivo(){ try{ return localStorage.getItem('drg_sup_push')==='1'; }catch(_){ return false; } }
+function _updateBtnNotif(){
+  const b=document.getElementById('btn-notif-push'); if(!b) return;
+  const on=_pushAtivo();
+  b.style.background = on?'#16a34a':'#fff';
+  b.style.color      = on?'#fff':'';
+  b.title = on?'Notificações ativadas neste aparelho (toque p/ renovar)':'Ativar notificações no celular (app fechado)';
+}
+// Monta o doc de inscrição (psup_*) com a janela/postos atuais do supervisor.
+function _pushSubDoc(sub){
+  return {
+    sub: JSON.parse(JSON.stringify(sub)),
+    userKey:_pushUserKey(), userId:(currentUser&&currentUser.id)||'',
+    nome:(currentUser&&currentUser.username)||'',
+    postos: Array.isArray(currentUser&&currentUser.postosResponsavel)?currentUser.postosResponsavel:[],
+    janelaNotif:(currentUser&&currentUser.janelaNotif)||null,
+    app:'supervisor', recebePedidos:true, atualizadoEm:new Date().toISOString()
+  };
+}
+async function ativarNotificacoesSup(){
+  try{
+    if(!('serviceWorker' in navigator) || !('PushManager' in window)){ alert('Este aparelho não suporta notificações push.'); return; }
+    const perm=await Notification.requestPermission();
+    if(perm!=='granted'){ alert('Permissão negada — ative as notificações nas configurações do navegador/app.'); return; }
+    const reg=await navigator.serviceWorker.register('push-sup-sw.js?v=1');
+    await navigator.serviceWorker.ready;
+    let sub=await reg.pushManager.getSubscription();
+    if(!sub) sub=await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:_b64urlToU8(PUSH_VAPID_PUBLIC) });
+    await dbCol('configuracoes').doc('psup_'+_pushUserKey()).set(_pushSubDoc(sub), {merge:true});
+    try{ localStorage.setItem('drg_sup_push','1'); }catch(_){}
+    _updateBtnNotif();
+    alert('Notificações ativadas neste aparelho! Você será avisado de novos pedidos mesmo com o app fechado, respeitando sua janela de horários.');
+  }catch(e){ alert('Erro ao ativar notificações: '+(e&&e.message||e)); }
+}
+// No login, se o push já estava ativo, re-grava a inscrição com a janela/postos
+// mais recentes (o master pode ter mudado a janela no painel). Silencioso.
+async function _refreshPushSubIfActive(){
+  try{
+    if(!_pushAtivo() || !('serviceWorker' in navigator)) return;
+    const reg=await navigator.serviceWorker.getRegistration('push-sup-sw.js?v=1') || await navigator.serviceWorker.getRegistration();
+    const sub=reg && await reg.pushManager.getSubscription();
+    if(!sub) return;
+    await dbCol('configuracoes').doc('psup_'+_pushUserKey()).set(_pushSubDoc(sub), {merge:true});
+  }catch(_){}
 }
 
 // ─── DADOS ────────────────────────────────────────────────────────────────
@@ -806,7 +867,7 @@ setInterval(() => {
 if('serviceWorker' in navigator){
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('supervisor-sw.js?v=5').then(reg => {
+    navigator.serviceWorker.register('supervisor-sw.js?v=6').then(reg => {
       const checar = () => { try{ reg.update(); }catch(_){} };
       document.addEventListener('visibilitychange', () => {
         if(document.visibilityState === 'visible') checar();

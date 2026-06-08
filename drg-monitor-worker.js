@@ -18,6 +18,12 @@ export default {
   // Permite disparo manual p/ teste: GET https://<worker>/?run=1
   async fetch(req, env) {
     const u = new URL(req.url);
+    // CORS p/ chamadas do navegador (ponto.html → /notificar-pedido). #janela-notif
+    if (req.method === 'OPTIONS') return new Response(null, { status:204, headers:_corsMon() });
+    if (u.pathname === '/notificar-pedido' && req.method === 'POST') {
+      const r = await notificarPedido(req, env);
+      return new Response(JSON.stringify(r), { headers:{ 'content-type':'application/json', ..._corsMon() } });
+    }
     if (u.searchParams.get('run')  === '1') {
       if(!_manualRunAllowed(req, env, u)) return new Response('forbidden', {status:403});
       const r = await rodar(env); return new Response(JSON.stringify(r), {headers:{'content-type':'application/json'}});
@@ -161,6 +167,56 @@ async function enviarPush(env, sub){
     const res=await fetch(sub.endpoint,{method:'POST',headers:{authorization:auth,'ttl':'3600'}});
     return res.status; // 201 = ok; 404/410 = inscrição morta
   }catch(e){ return 'erro:'+(e&&e.message||e); }
+}
+
+// ───────── Janela de notificações + disparo de pedido (push instantâneo) ───────── #janela-notif
+function _corsMon(){ return { 'access-control-allow-origin':'*', 'access-control-allow-methods':'POST, OPTIONS', 'access-control-allow-headers':'content-type' }; }
+function _hmW(s){ const p=String(s||'').split(':'); return (parseInt(p[0])||0)*60+(parseInt(p[1])||0); }
+// `now` (Date em BRT, leitura via getUTC*) está dentro da janela? Trata virada de meia-noite.
+function _inJanelaW(janela, d){
+  const wd=d.getUTCDay(), now=d.getUTCHours()*60+d.getUTCMinutes();
+  const dias=(janela&&janela.dias)||[];
+  const hoje=dias[wd];
+  if(hoje && hoje.on){ const ini=_hmW(hoje.ini), fim=_hmW(hoje.fim);
+    if(fim>ini){ if(now>=ini && now<fim) return true; } else { if(now>=ini) return true; } }
+  const prev=dias[(wd+6)%7];
+  if(prev && prev.on){ const ini=_hmW(prev.ini), fim=_hmW(prev.fim); if(fim<=ini && now<fim) return true; }
+  return false;
+}
+function _janelaPermiteAgoraW(janela, tipo, d){
+  if(!janela || !janela.ativa) return true;       // sem restrição = recebe sempre
+  if(_inJanelaW(janela, d)) return true;
+  const e=janela.excecoes||{};
+  if(tipo==='folga'      && e.folga)      return true;
+  if(tipo==='foraJanela' && e.foraJanela) return true;
+  if(tipo==='falta'      && e.falta)      return true;
+  return false;                                    // fora da janela e sem exceção → segura
+}
+// POST /notificar-pedido { pedidoId } — colaborador criou um pedido; avisa os
+// supervisores responsáveis pelo posto, respeitando a janela de cada um.
+async function notificarPedido(req, env){
+  let body={}; try{ body=await req.json(); }catch(_){}
+  const pedidoId=String(body.pedidoId||'').trim();
+  if(!pedidoId) return { ok:false, erro:'pedidoId ausente' };
+  const ped=await fsGetDoc(env,'autorizacoesPonto',pedidoId);
+  if(!ped) return { ok:false, erro:'pedido não encontrado' };
+  if(ped.status && ped.status!=='pendente') return { ok:true, msg:'pedido não está pendente' };
+  const posto=ped.posto||'';
+  const tipo=(ped.ehFolga || ped.tipoBloqueio==='folga') ? 'folga' : 'foraJanela';
+  const d=brtNow();
+  const cfgs=await fsListCol(env,'configuracoes');
+  const subs=cfgs.filter(c=>c.id.startsWith('psup_') && c.data && c.data.sub && c.data.sub.endpoint);
+  let enviados=0, segurados=0, foraEscopo=0;
+  for(const s of subs){
+    const postos=s.data.postos;
+    const escopo=(Array.isArray(postos)&&postos.length)?postos:null;   // null/[] = todos os postos
+    if(escopo && posto && !escopo.includes(posto)){ foraEscopo++; continue; }
+    if(_janelaPermiteAgoraW(s.data.janelaNotif, tipo, d)){
+      const st=await enviarPush(env, s.data.sub);
+      if(st===201||st===200) enviados++;
+    } else { segurados++; }
+  }
+  return { ok:true, enviados, segurados, foraEscopo, supervisores:subs.length, tipo, posto };
 }
 
 // ───────── tempo BRT (UTC-3, sem horário de verão) ─────────

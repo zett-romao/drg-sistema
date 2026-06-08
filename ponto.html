@@ -532,7 +532,7 @@ try{ window.__APP_BOOTED = true; }catch(_){}
 // ─── VERSÃO DO APP DO COLABORADOR ─────────────────────────────────────────────
 // Bumpe SEMPRE em conjunto com o CACHE do ponto-sw.js e o ?v= do firebase-config.
 // Formato: AA.MM.DD + letra (a, b, c...) — alinhado com o nome do cache.
-const PONTO_VERSION = '25.06.06a';
+const PONTO_VERSION = '25.06.08a';
 // Exibe a versão no rodapé (script roda após o DOM, então o elemento já existe)
 (function _setVersionTag(){
   const t = document.getElementById('app-version-tag');
@@ -580,6 +580,8 @@ const _authReady = new Promise(resolve => {
   });
 });
 const PONTO_LOGIN_URL = 'https://drg-aprovacao.zett-romao.workers.dev/ponto-login';
+// Worker que dispara o push instantâneo aos supervisores quando há pedido novo. #janela-notif
+const NOTIFICAR_PEDIDO_URL = 'https://drg-monitor.zett-romao.workers.dev/notificar-pedido';
 
 // ─── ESTADO ───────────────────────────────────────────────────────────────────
 let currentEmp     = null;
@@ -592,7 +594,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=30').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=31').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -1397,6 +1399,7 @@ async function solicitarAutorizacao(prox, hora, analise, comp){
     employeeNome: currentEmp.nome || '',
     employeeRegistro: currentEmp.registro || '',
     employeeCpf: currentEmp.cpf || '',
+    posto: currentEmp.posto || '',            // p/ rotear o push ao supervisor do posto. #janela-notif
     tentativaEm: agoraISO,
     tipoBatida: prox,                         // 'entrada'|'intIni'|'intFim'|'saida'
     horarioPrevisto: analise.esperado || '',
@@ -1416,6 +1419,8 @@ async function solicitarAutorizacao(prox, hora, analise, comp){
   };
   try{
     await dbCol('autorizacoesPonto').doc(docId).set(sol);
+    // Dispara o push instantâneo aos supervisores do posto (não bloqueia a UI). #janela-notif
+    try{ fetch(NOTIFICAR_PEDIDO_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ pedidoId:docId }) }); }catch(_){}
     return docId;
   }catch(e){
     console.error('solicitarAutorizacao', e);

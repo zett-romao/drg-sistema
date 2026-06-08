@@ -21,7 +21,8 @@ export default {
     // CORS p/ chamadas do navegador (ponto.html → /notificar-pedido). #janela-notif
     if (req.method === 'OPTIONS') return new Response(null, { status:204, headers:_corsMon() });
     if (u.pathname === '/notificar-pedido' && req.method === 'POST') {
-      const r = await notificarPedido(req, env);
+      let r; try { r = await notificarPedido(req, env); }
+      catch(e){ r = { ok:false, erro:String(e&&e.message||e) }; }   // não estoura 500 cru — devolve a causa
       return new Response(JSON.stringify(r), { headers:{ 'content-type':'application/json', ..._corsMon() } });
     }
     if (u.searchParams.get('run')  === '1') {

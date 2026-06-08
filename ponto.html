@@ -999,7 +999,7 @@ function renderHoje() {
   const p = getDiaHoje();
   // Esconde os cards de intervalo quando HOJE não tem refeição: "trabalha sozinho"
   // OU dia curto da escala (sáb 6x1A/6x1C/ALT-S11). #sabado-curto-ponto
-  const semRef = !!(currentEmp && currentEmp.semRefeicao) || !_jornadaHoje(currentEmp).intIni;
+  const semRef = !_temRefeicaoHojeFn(currentEmp);
   ['intIni','intFim'].forEach(k => {
     const wrap = document.getElementById('pi-' + k);
     if (wrap) wrap.style.display = semRef ? 'none' : '';
@@ -1021,7 +1021,7 @@ function getProxima() {
   // Pula os intervalos quando HOJE não tem refeição: "trabalha sozinho" (semRefeicao)
   // OU dia curto da escala (sáb 6x1A/6x1C/ALT-S11). Sem isso, a saída do sábado curto
   // caía no slot "Início Intervalo". #sabado-curto-ponto
-  const _temRefeicaoHoje = !(currentEmp && currentEmp.semRefeicao) && !!_jornadaHoje(currentEmp).intIni;
+  const _temRefeicaoHoje = _temRefeicaoHojeFn(currentEmp);
   if (_temRefeicaoHoje) {
     if (!p.intIni) return 'intIni';
     if (!p.intFim) return 'intFim';
@@ -1126,6 +1126,27 @@ function _jornadaHoje(emp){
   if((diaSem===0||diaSem===6) && (escala==='6x1ALT-0800-1700-S16'||escala==='6x1LIV-0800-1700-S16')){ saida='16:00'; }  // 8h, mantém almoço
   if(diaSem===5 && (escala==='5x2A'||escala==='5x2B')){ saida='16:00'; }            // sexta curta, mantém almoço
   return { folga:false, entrada, saida, intIni, intFim };
+}
+
+// "Tem refeição hoje?" — decide se o ponto PEDE as batidas de intervalo. Regras:
+// - "trabalha sozinho" (semRefeicao) → NÃO (recebe indenização, não bate);
+// - folga → não;
+// - refeição com horário fixo (escala fixa) → sim;
+// - 12x36 → SIM por padrão: 60min de refeição FLEXÍVEL dentro da jornada (sem horário
+//   fixo — sai quando quiser; a trava só cobra os 60min na volta). #jornada-12x36-refeicao
+function _escala12x36Hoje(emp){
+  const e = emp || currentEmp || {};
+  const vig = _vigenciaEscalaHoje(e);
+  const escala = ((vig && vig.escala) || e.escala || '').toString().toLowerCase();
+  return escala.indexOf('12x36') === 0;
+}
+function _temRefeicaoHojeFn(emp){
+  const e = emp || currentEmp || {};
+  if(e.semRefeicao) return false;
+  const j = _jornadaHoje(e);
+  if(j.folga) return false;
+  if(j.intIni) return true;
+  return _escala12x36Hoje(e);
 }
 
 // Horário previsto de HOJE para o slot pedido (entrada/saída/intIni/intFim).

@@ -6777,7 +6777,7 @@ function onDemissaoChange(){
   if(demissao){ setVal('emp-status','inativo'); }
 }
 
-function onEscalaChange(){
+function onEscalaChange(userChanged){
   const escala=val('emp-escala');
   const is12=(escalaFamilia(escala)==='12x36');
   const isAlt=(typeof escala==='string' && escala.startsWith('6x1ALT'));
@@ -6789,12 +6789,17 @@ function onEscalaChange(){
   if(rowAlt) rowAlt.style.display=isAlt?'':'none';
   // Escala do sistema com horário fixo: já preenche entrada/saída/refeição e o
   // turno noturno conforme a variante.
+  // Os horários (entrada/saída/refeição) são do CONTRATO. Na ABERTURA do cadastro NÃO os
+  // tocamos — a JORNADA SEGUE O CONTRATO, sem autonomia. O preenchimento pelo padrão da
+  // escala só ocorre quando o GESTOR troca a escala no seletor (conveniência) e NUNCA
+  // apaga a refeição já definida (12x36 não tem refeição padrão → mantém a do contrato). #jornada-segue-contrato
+  if(!userChanged) return;
   const def=ESCALA_HORARIOS_DEFAULT[escala];
   if(def && _escalaFixa(escala)){
     setVal('emp-horario-entrada', def.entrada);
     setVal('emp-horario-saida', def.saida);
-    setVal('emp-horario-ref-ini', def.intIni||'');
-    setVal('emp-horario-ref-fim', def.intFim||'');
+    if(def.intIni) setVal('emp-horario-ref-ini', def.intIni);   // só preenche se a escala TEM refeição padrão; não zera o contrato
+    if(def.intFim) setVal('emp-horario-ref-fim', def.intFim);
     const nt=document.getElementById('emp-turno-noturno');
     if(nt) nt.checked=_escala12x36Noturna(escala);
   }
@@ -7060,7 +7065,7 @@ function openEmployeeModal(id=null){
     setVal('emp-plano-saude','0.00');
     renderOutrosItens([],'descontos');
     renderOutrosItens([],'proventos');
-    onEscalaChange();
+    onEscalaChange(true);
     onExamePrazoChange(false);
     document.getElementById('doc-list').innerHTML=`<div class="empty-state small"><i class="fa-solid fa-folder-open"></i><p>Salve o colaborador antes de enviar documentos</p></div>`;
   }
@@ -27377,8 +27382,10 @@ async function aplicarAjusteEscala(){
     // "Trocar horários para o padrão da nova escala" (senão mantém os do cadastro).
     emp.horarioEntrada = def.entrada;
     emp.horarioSaida   = def.saida;
-    emp.horarioRefIni  = _escalaFixa(novaEscala) ? (def.intIni||'') : '';
-    emp.horarioRefFim  = _escalaFixa(novaEscala) ? (def.intFim||'') : '';
+    // A refeição é do CONTRATO: só sobrescreve se a nova escala TEM refeição padrão;
+    // senão MANTÉM a do colaborador (não zera). #jornada-segue-contrato
+    emp.horarioRefIni  = (def && def.intIni) ? def.intIni : (emp.horarioRefIni||'');
+    emp.horarioRefFim  = (def && def.intFim) ? def.intFim : (emp.horarioRefFim||'');
   }
   emp.updatedAt = new Date().toISOString();
   try {

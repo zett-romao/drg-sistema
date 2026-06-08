@@ -14,7 +14,7 @@
 // =====================================================================
 
 export default {
-  async scheduled(event, env, ctx) { ctx.waitUntil(rodar(env)); },
+  async scheduled(event, env, ctx) { ctx.waitUntil(Promise.all([rodar(env), varrerPedidosSegurados(env)])); },
   // Permite disparo manual p/ teste: GET https://<worker>/?run=1
   async fetch(req, env) {
     const u = new URL(req.url);
@@ -31,6 +31,10 @@ export default {
     if (u.searchParams.get('test') === '1') {
       if(!_manualRunAllowed(req, env, u)) return new Response('forbidden', {status:403});
       const r = await enviarTeste(env); return new Response(JSON.stringify(r), {headers:{'content-type':'application/json'}});
+    }
+    if (u.searchParams.get('sweep') === '1') {
+      if(!_manualRunAllowed(req, env, u)) return new Response('forbidden', {status:403});
+      const r = await varrerPedidosSegurados(env); return new Response(JSON.stringify(r), {headers:{'content-type':'application/json'}});
     }
     return new Response('drg-monitor-worker ok', {status:200});
   }
@@ -145,6 +149,24 @@ function toFields(o){ const f={}; for(const k in o){ const v=o[k];
   else if(v==null) f[k]={nullValue:null};
   else f[k]={stringValue:JSON.stringify(v)};
  } return f; }
+// PATCH parcial (só os campos passados — usa updateMask p/ não apagar o resto). #janela-notif
+async function fsPatchDoc(env,col,id,obj){
+  const t=await getAccessToken(env);
+  const fields=toFields(obj);
+  const mask=Object.keys(obj).map(k=>'updateMask.fieldPaths='+encodeURIComponent(k)).join('&');
+  const res=await fetch(`${fsBase(env)}/${col}/${encodeURIComponent(id)}?${mask}`,{method:'PATCH',headers:{authorization:'Bearer '+t,'content-type':'application/json'},body:JSON.stringify({fields})});
+  if(!res.ok) throw new Error('fsPatch '+res.status);
+}
+// Query de igualdade num campo (string ou boolean). Devolve [{id,data}].
+async function fsQueryEq(env,col,field,value){
+  const t=await getAccessToken(env);
+  const v=(typeof value==='boolean')?{booleanValue:value}:{stringValue:String(value)};
+  const q={structuredQuery:{from:[{collectionId:col}],where:{fieldFilter:{field:{fieldPath:field},op:'EQUAL',value:v}}}};
+  const res=await fetch(`${fsBase(env)}:runQuery`,{method:'POST',headers:{authorization:'Bearer '+t,'content-type':'application/json'},body:JSON.stringify(q)});
+  if(!res.ok) throw new Error('fsQueryEq '+res.status);
+  const arr=await res.json();
+  return arr.filter(x=>x.document).map(x=>({ id:x.document.name.split('/').pop(), data:fsMap(x.document.fields||{}) }));
+}
 
 // ───────── VAPID (ES256) + Web Push vazio ─────────
 async function vapidAuth(env, endpoint){
@@ -206,17 +228,60 @@ async function notificarPedido(req, env){
   const d=brtNow();
   const cfgs=await fsListCol(env,'configuracoes');
   const subs=cfgs.filter(c=>c.id.startsWith('psup_') && c.data && c.data.sub && c.data.sub.endpoint);
-  let enviados=0, segurados=0, foraEscopo=0;
+  let enviados=0, segurados=0, foraEscopo=0; const sentTo=[], heldFor=[];
   for(const s of subs){
     const postos=s.data.postos;
     const escopo=(Array.isArray(postos)&&postos.length)?postos:null;   // null/[] = todos os postos
     if(escopo && posto && !escopo.includes(posto)){ foraEscopo++; continue; }
+    const uk=s.data.userKey||s.id;
     if(_janelaPermiteAgoraW(s.data.janelaNotif, tipo, d)){
       const st=await enviarPush(env, s.data.sub);
-      if(st===201||st===200) enviados++;
-    } else { segurados++; }
+      if(st===201||st===200){ enviados++; sentTo.push(uk); }
+    } else { segurados++; heldFor.push(uk); }
   }
+  // Registra o estado p/ a varredura reabrir quando a janela do supervisor abrir. #janela-notif
+  try{
+    if(heldFor.length)      await fsPatchDoc(env,'autorizacoesPonto',pedidoId,{ notifHeld:true,  notifTipo:tipo, notifSentTo:sentTo });
+    else if(sentTo.length)  await fsPatchDoc(env,'autorizacoesPonto',pedidoId,{ notifHeld:false, notifTipo:tipo, notifSentTo:sentTo });
+  }catch(_){}
   return { ok:true, enviados, segurados, foraEscopo, supervisores:subs.length, tipo, posto };
+}
+// Varredura (roda no cron): pedidos pendentes "segurados" fora da janela — quando
+// a janela do supervisor responsável abre, dispara o push e marca como enviado. #janela-notif
+async function varrerPedidosSegurados(env){
+  const d=brtNow();
+  let held;
+  try{ held=await fsQueryEq(env,'autorizacoesPonto','notifHeld',true); }
+  catch(e){ return { ok:false, erro:'query '+(e&&e.message||e) }; }
+  const pend=held.filter(h=>h.data && (h.data.status==='pendente' || !h.data.status));
+  if(!pend.length) return { ok:true, msg:'nada segurado' };
+  const cfgs=await fsListCol(env,'configuracoes');
+  const subs=cfgs.filter(c=>c.id.startsWith('psup_') && c.data && c.data.sub && c.data.sub.endpoint);
+  let enviados=0, aindaSegurados=0;
+  for(const h of pend){
+    const ped=h.data;
+    const tipo=ped.notifTipo || (ped.ehFolga?'folga':'foraJanela');
+    const posto=ped.posto||'';
+    const sentTo=new Set(Array.isArray(ped.notifSentTo)?ped.notifSentTo:[]);
+    let mudou=false, faltaAlguem=false;
+    for(const s of subs){
+      const postos=s.data.postos;
+      const escopo=(Array.isArray(postos)&&postos.length)?postos:null;
+      if(escopo && posto && !escopo.includes(posto)) continue;   // não é responsável por esse posto
+      const uk=s.data.userKey||s.id;
+      if(sentTo.has(uk)) continue;                               // já recebeu antes
+      if(_janelaPermiteAgoraW(s.data.janelaNotif, tipo, d)){
+        const st=await enviarPush(env,s.data.sub);
+        if(st===201||st===200){ enviados++; sentTo.add(uk); mudou=true; }
+        else faltaAlguem=true;
+      } else faltaAlguem=true;                                   // ainda fora da janela
+    }
+    if(mudou || !faltaAlguem){
+      try{ await fsPatchDoc(env,'autorizacoesPonto',h.id,{ notifSentTo:Array.from(sentTo), notifHeld:faltaAlguem }); }catch(_){}
+    }
+    if(faltaAlguem) aindaSegurados++;
+  }
+  return { ok:true, segurados:pend.length, enviados, aindaSegurados };
 }
 
 // ───────── tempo BRT (UTC-3, sem horário de verão) ─────────
@@ -265,6 +330,7 @@ async function rodar(env){
     const escopo=(Array.isArray(postos) && postos.length)?postos:null;  // null/[] = todos os postos
     const relevantes=escopo?novos.filter(f=>escopo.includes(f.posto)):novos;
     if(!relevantes.length) continue;                                    // nada do escopo desse supervisor
+    if(!_janelaPermiteAgoraW(s.data.janelaNotif, 'falta', d)) continue; // fora da janela do gestor → segura (retenta no próximo cron). #janela-notif
     const st=await enviarPush(env,s.data.sub);
     if(st===201||st===200){ enviados++; relevantes.forEach(f=>notificadosAgora.add(f.empId)); }
   }

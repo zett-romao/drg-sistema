@@ -20798,12 +20798,29 @@ async function _ativarNotificacoesFaltas(){
     await navigator.serviceWorker.ready;
     let sub=await reg.pushManager.getSubscription();
     if(!sub) sub=await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:_b64urlToU8(PUSH_VAPID_PUBLIC) });
-    await DB.saveDoc('configuracoes','pushsub_'+_pushUserKey(),
-      { sub: JSON.parse(JSON.stringify(sub)), userKey:_pushUserKey(), nome:(Auth.currentUser&&(Auth.currentUser.nome||Auth.currentUser.username))||'', monitorarFaltas:true, postos:_postosDoUsuario(Auth.currentUser)||[], atualizadoEm:new Date().toISOString() }, true);
+    await DB.saveDoc('configuracoes','pushsub_'+_pushUserKey(), _pushSubFaltasDoc(sub), true);
     try{ localStorage.setItem('drg_push_faltas','1'); }catch(_){}
     toast('Notificações ativadas neste aparelho!','success');
     if(State.currentSection==='monitorfaltas') renderMonitorFaltas();
   }catch(e){ toast('Erro ao ativar notificações: '+(e.message||e),'error'); }
+}
+// Monta o doc de inscrição do gestor (pushsub_*) com a janela/postos atuais. #janela-notif
+function _pushSubFaltasDoc(sub){
+  const u=Auth.currentUser||{};
+  return { sub: JSON.parse(JSON.stringify(sub)), userKey:_pushUserKey(), userId:u.id||'',
+    nome:(u.nome||u.username)||'', monitorarFaltas:true, postos:_postosDoUsuario(u)||[],
+    janelaNotif: u.janelaNotif||null, atualizadoEm:new Date().toISOString() };
+}
+// No login, se o push de faltas já estava ativo, re-grava a inscrição com a
+// janela/postos mais recentes (o master pode ter mudado a janela). Silencioso.
+async function _refreshPushSubFaltas(){
+  try{
+    if(!_pushAtivoNesteAparelho() || !('serviceWorker' in navigator)) return;
+    const reg=await navigator.serviceWorker.getRegistration('push-sw.js?v=1') || await navigator.serviceWorker.getRegistration();
+    const sub=reg && await reg.pushManager.getSubscription();
+    if(!sub) return;
+    await DB.saveDoc('configuracoes','pushsub_'+_pushUserKey(), _pushSubFaltasDoc(sub), true);
+  }catch(_){}
 }
 
 // Detecta as faltas de entrada de HOJE (em memoria, sem gravar).
@@ -28207,6 +28224,7 @@ async function _carregarDadosPosLogin(){
 
   hideLoading();
   _dadosCarregados = true;
+  _refreshPushSubFaltas();   // mantém a janela do push de faltas em dia. #janela-notif
   return true;
 }
 

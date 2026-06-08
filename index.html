@@ -4260,7 +4260,7 @@
       <div class="form-group" id="usr-janela-group">
         <label><i class="fa-solid fa-bell" style="color:var(--primary)"></i> Janela de notificações</label>
         <small style="color:var(--text-muted);font-size:11px;display:block;margin:-2px 0 6px">
-          Dias e horários em que este usuário recebe avisos dos colaboradores (pedidos de autorização de ponto, faltas). Fora da janela fica silencioso — exceto as exceções marcadas. Para virar a meia-noite (turno noturno), use fim menor que o início (ex.: 18:00 → 06:00).
+          Dias e horários em que este usuário recebe avisos dos colaboradores (pedidos de autorização de ponto, faltas). <strong>Dia desmarcado = não recebe nesse dia</strong> (ex.: Seg–Sex marcado, Sáb e Dom desmarcados). Fora da janela fica silencioso — exceto as exceções marcadas. Para virar a meia-noite (turno noturno), use fim menor que o início (ex.: 18:00 → 06:00).
         </small>
         <label class="checkbox-label" style="font-size:13px;display:flex;align-items:center;gap:8px;padding:4px 2px;cursor:pointer">
           <input type="checkbox" id="usr-janela-ativa" onchange="_toggleJanelaGrid()">
@@ -7076,6 +7076,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260608a-janela-notif"></script>
+  <script src="app.js?v=20260608b-janela-notif"></script>
 </body>
 </html>

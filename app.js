@@ -2028,20 +2028,29 @@ function _janelaNormalize(j){
 function _renderJanelaGrid(j){
   const box=document.getElementById('usr-janela-grid'); if(!box) return;
   const jn=_janelaNormalize(j);
+  const dim=on=>on?'':'opacity:.4';
   box.innerHTML = jn.dias.map((d,i)=>`
-    <div style="display:flex;align-items:center;gap:8px;padding:3px 0">
+    <div class="usr-janela-row" style="display:flex;align-items:center;gap:8px;padding:3px 0">
       <label style="display:flex;align-items:center;gap:6px;min-width:78px;cursor:pointer;font-size:13px">
-        <input type="checkbox" class="usr-janela-dia-on" data-dia="${i}" ${d.on?'checked':''}> <span>${_JANELA_DIAS_LABEL[i]}</span>
+        <input type="checkbox" class="usr-janela-dia-on" data-dia="${i}" onchange="_janelaDiaToggle(this)" ${d.on?'checked':''}> <span>${_JANELA_DIAS_LABEL[i]}</span>
       </label>
-      <input type="time" class="usr-janela-dia-ini" data-dia="${i}" value="${d.ini}" style="padding:4px 6px;border:1px solid var(--border);border-radius:6px;font-size:13px">
-      <span style="color:var(--text-muted)">→</span>
-      <input type="time" class="usr-janela-dia-fim" data-dia="${i}" value="${d.fim}" style="padding:4px 6px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+      <input type="time" class="usr-janela-dia-ini" data-dia="${i}" value="${d.ini}" ${d.on?'':'disabled'} style="padding:4px 6px;border:1px solid var(--border);border-radius:6px;font-size:13px;${dim(d.on)}">
+      <span class="usr-janela-arrow" style="color:var(--text-muted);${dim(d.on)}">→</span>
+      <input type="time" class="usr-janela-dia-fim" data-dia="${i}" value="${d.fim}" ${d.on?'':'disabled'} style="padding:4px 6px;border:1px solid var(--border);border-radius:6px;font-size:13px;${dim(d.on)}">
+      <span class="usr-janela-naorecebe" style="font-size:11px;color:#c62828;font-weight:600;${d.on?'display:none':''}">não recebe</span>
     </div>`).join('');
   document.getElementById('usr-janela-ativa').checked = jn.ativa;
   document.getElementById('usr-exc-folga').checked = jn.excecoes.folga;
   document.getElementById('usr-exc-forajanela').checked = jn.excecoes.foraJanela;
   document.getElementById('usr-exc-falta').checked = jn.excecoes.falta;
   _toggleJanelaGrid();
+}
+// Liga/desliga os horários de um dia: desmarcado = não recebe (esmaece + rótulo).
+function _janelaDiaToggle(cb){
+  const on=cb.checked, row=cb.closest('.usr-janela-row'); if(!row) return;
+  row.querySelectorAll('input[type=time]').forEach(inp=>{ inp.disabled=!on; inp.style.opacity=on?'':'.4'; });
+  const arrow=row.querySelector('.usr-janela-arrow'); if(arrow) arrow.style.opacity=on?'':'.4';
+  const nr=row.querySelector('.usr-janela-naorecebe'); if(nr) nr.style.display=on?'none':'';
 }
 // Mostra/esconde a grade conforme o checkbox "Restringir por dias/horários".
 function _toggleJanelaGrid(){

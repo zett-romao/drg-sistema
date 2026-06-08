@@ -1918,6 +1918,7 @@ function openUserModal(id=null){
     setVal('usr-password',''); setVal('usr-password-confirm','');
     _renderUsrPostosCheckboxes(Array.isArray(u.postosResponsavel)?u.postosResponsavel:[]);
     setVal('usr-max-dispositivos', String(u.maxDispositivos||1));
+    _renderJanelaGrid(u.janelaNotif);
     editNote.style.display='';
     _refreshUsrDeviceRow();
   } else {
@@ -1925,6 +1926,7 @@ function openUserModal(id=null){
     ['usr-id','usr-username','usr-email','usr-password','usr-password-confirm'].forEach(i=>setVal(i,''));
     setVal('usr-role','operador'); setVal('usr-active','true');
     setVal('usr-max-dispositivos','1');
+    _renderJanelaGrid(null);
     editNote.style.display='none';
     _refreshUsrDeviceRow();
   }
@@ -2003,6 +2005,94 @@ function _renderUsrPostosCheckboxes(selecionados){
   }).join('');
 }
 
+// ── Janela de notificações (por usuário) ──────────────────────────────── #janela-notif
+// Define os dias/horários em que o usuário (supervisor/gestor) recebe avisos dos
+// colaboradores via push. Fora da janela fica silencioso, exceto as exceções marcadas.
+const _JANELA_DIAS_LABEL = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+function _janelaDefault(){
+  return { ativa:false,
+    dias: Array.from({length:7}, ()=>({ on:false, ini:'06:00', fim:'22:00' })),
+    excecoes: { folga:false, foraJanela:false, falta:false } };
+}
+// Coage um valor salvo (possivelmente incompleto/antigo) p/ o formato seguro.
+function _janelaNormalize(j){
+  const d=_janelaDefault();
+  if(!j || typeof j!=='object') return d;
+  const hm=(s,def)=>{ const m=/^(\d{1,2}):(\d{2})$/.exec(String(s||'')); if(!m) return def;
+    let h=Math.min(23,+m[1]), mi=Math.min(59,+m[2]); return String(h).padStart(2,'0')+':'+String(mi).padStart(2,'0'); };
+  const dias=[]; for(let i=0;i<7;i++){ const s=(Array.isArray(j.dias)&&j.dias[i])||{}; dias.push({ on:!!s.on, ini:hm(s.ini,'06:00'), fim:hm(s.fim,'22:00') }); }
+  const ex=j.excecoes||{};
+  return { ativa:!!j.ativa, dias, excecoes:{ folga:!!ex.folga, foraJanela:!!ex.foraJanela, falta:!!ex.falta } };
+}
+// Renderiza a grade dos 7 dias dentro do modal de usuário.
+function _renderJanelaGrid(j){
+  const box=document.getElementById('usr-janela-grid'); if(!box) return;
+  const jn=_janelaNormalize(j);
+  box.innerHTML = jn.dias.map((d,i)=>`
+    <div style="display:flex;align-items:center;gap:8px;padding:3px 0">
+      <label style="display:flex;align-items:center;gap:6px;min-width:78px;cursor:pointer;font-size:13px">
+        <input type="checkbox" class="usr-janela-dia-on" data-dia="${i}" ${d.on?'checked':''}> <span>${_JANELA_DIAS_LABEL[i]}</span>
+      </label>
+      <input type="time" class="usr-janela-dia-ini" data-dia="${i}" value="${d.ini}" style="padding:4px 6px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+      <span style="color:var(--text-muted)">→</span>
+      <input type="time" class="usr-janela-dia-fim" data-dia="${i}" value="${d.fim}" style="padding:4px 6px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+    </div>`).join('');
+  document.getElementById('usr-janela-ativa').checked = jn.ativa;
+  document.getElementById('usr-exc-folga').checked = jn.excecoes.folga;
+  document.getElementById('usr-exc-forajanela').checked = jn.excecoes.foraJanela;
+  document.getElementById('usr-exc-falta').checked = jn.excecoes.falta;
+  _toggleJanelaGrid();
+}
+// Mostra/esconde a grade conforme o checkbox "Restringir por dias/horários".
+function _toggleJanelaGrid(){
+  const ativa=document.getElementById('usr-janela-ativa');
+  const grid=document.getElementById('usr-janela-grid');
+  const exc=document.getElementById('usr-janela-excecoes');
+  if(!ativa||!grid||!exc) return;
+  const on=ativa.checked;
+  grid.style.display = on?'':'none';
+  exc.style.display  = on?'':'none';
+}
+// Lê a UI do modal → objeto janelaNotif.
+function _collectJanelaNotif(){
+  const j=_janelaDefault();
+  j.ativa = !!document.getElementById('usr-janela-ativa')?.checked;
+  document.querySelectorAll('.usr-janela-dia-on').forEach(c=>{ const i=+c.dataset.dia; if(j.dias[i]) j.dias[i].on=c.checked; });
+  document.querySelectorAll('.usr-janela-dia-ini').forEach(c=>{ const i=+c.dataset.dia; if(j.dias[i]&&c.value) j.dias[i].ini=c.value; });
+  document.querySelectorAll('.usr-janela-dia-fim').forEach(c=>{ const i=+c.dataset.dia; if(j.dias[i]&&c.value) j.dias[i].fim=c.value; });
+  j.excecoes.folga      = !!document.getElementById('usr-exc-folga')?.checked;
+  j.excecoes.foraJanela = !!document.getElementById('usr-exc-forajanela')?.checked;
+  j.excecoes.falta      = !!document.getElementById('usr-exc-falta')?.checked;
+  return _janelaNormalize(j);
+}
+// ── Avaliação da janela (lógica compartilhada com o worker) ──────────────
+// `now` está NA janela? Trata virada de meia-noite (fim<=ini) e o rabo do dia anterior.
+function _inJanela(janela, d){
+  const wd=d.getDay(), now=d.getHours()*60+d.getMinutes();
+  const hm=s=>{ const p=String(s||'').split(':'); return (+p[0]||0)*60+(+p[1]||0); };
+  const dias=(janela&&janela.dias)||[];
+  const hoje=dias[wd];
+  if(hoje && hoje.on){
+    const ini=hm(hoje.ini), fim=hm(hoje.fim);
+    if(fim>ini){ if(now>=ini && now<fim) return true; }
+    else       { if(now>=ini) return true; }            // vira meia-noite: ini→24:00 é hoje
+  }
+  const prev=dias[(wd+6)%7];                              // rabo do dia anterior (00:00→fim)
+  if(prev && prev.on){ const ini=hm(prev.ini), fim=hm(prev.fim); if(fim<=ini && now<fim) return true; }
+  return false;
+}
+// Decide se um aviso do tipo `tipo` ('foraJanela'|'folga'|'falta') pode notificar AGORA.
+function _janelaPermiteAgora(janela, tipo, d){
+  d=d||new Date();
+  if(!janela || !janela.ativa) return true;              // sem restrição = recebe sempre
+  if(_inJanela(janela, d)) return true;
+  const e=janela.excecoes||{};
+  if(tipo==='folga'      && e.folga)      return true;
+  if(tipo==='foraJanela' && e.foraJanela) return true;
+  if(tipo==='falta'      && e.falta)      return true;
+  return false;                                          // fora da janela e sem exceção → segura
+}
+
 // Carrega a lista de usuários do Worker (a coleção users é só-servidor).
 async function loadUsersFromWorker(){
   try {
@@ -2031,11 +2121,12 @@ async function saveUser(){
     ? []
     : Array.from(document.querySelectorAll('#usr-postos-list input[name="usr-posto"]:checked')).map(c=>c.value);
   const maxDispositivos = role==='master' ? 1 : Math.max(1, parseInt(val('usr-max-dispositivos'))||1);
+  const janelaNotif = _collectJanelaNotif();
   const btn=document.querySelector('#modal-user .btn-primary');
   setBtnLoading(btn,true,'');
   try {
     const r=await _aprovacaoReq('/usuarios/salvar',{
-      user:{ id:id||undefined, username, email, role, active, postosResponsavel, maxDispositivos },
+      user:{ id:id||undefined, username, email, role, active, postosResponsavel, maxDispositivos, janelaNotif },
       novaSenha: password||undefined,
     });
     if(!r || r.ok!==true){ toast((r&&r.erro)||'Não foi possível salvar o usuário.','error'); return; }

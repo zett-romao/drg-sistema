@@ -926,6 +926,21 @@ function _sanitizePostosResponsavel(v, role){
   }
   return out;
 }
+// Sanitiza a janela de notificações (dias/horários + exceções). #janela-notif
+function _sanitizeJanelaNotif(v){
+  const def = () => ({ ativa:false,
+    dias: Array.from({length:7}, () => ({ on:false, ini:'06:00', fim:'22:00' })),
+    excecoes: { folga:false, foraJanela:false, falta:false } });
+  if (!v || typeof v !== 'object') return def();
+  const hm = (s, d) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(s || '')); if (!m) return d;
+    const h = Math.min(23, parseInt(m[1])), mi = Math.min(59, parseInt(m[2]));
+    return String(h).padStart(2,'0') + ':' + String(mi).padStart(2,'0'); };
+  const dias = [];
+  for (let i = 0; i < 7; i++) { const s = (Array.isArray(v.dias) && v.dias[i]) || {};
+    dias.push({ on: !!s.on, ini: hm(s.ini, '06:00'), fim: hm(s.fim, '22:00') }); }
+  const ex = v.excecoes || {};
+  return { ativa: !!v.ativa, dias, excecoes: { folga: !!ex.folga, foraJanela: !!ex.foraJanela, falta: !!ex.falta } };
+}
 async function handleUsuariosSalvar(auth, body, token){
   const m = await exigirMaster(auth, token);
   if (m.erro) return { ok:false, erro:m.erro };
@@ -949,6 +964,8 @@ async function handleUsuariosSalvar(auth, body, token){
     if ('showLog' in dados) merged.showLog = !!dados.showLog;
     if ('postosResponsavel' in dados)
       merged.postosResponsavel = _sanitizePostosResponsavel(dados.postosResponsavel, role);
+    if ('janelaNotif' in dados)
+      merged.janelaNotif = _sanitizeJanelaNotif(dados.janelaNotif);
     if ('maxDispositivos' in dados) {
       const md = parseInt(dados.maxDispositivos);
       merged.maxDispositivos = (Number.isFinite(md) && md >= 1) ? Math.min(md, 20) : 1;
@@ -971,6 +988,7 @@ async function handleUsuariosSalvar(auth, body, token){
     id, username, email, role,
     active: dados.active !== false, passwordHash: await hashPassword(novaSenha),
     postosResponsavel: _sanitizePostosResponsavel(dados.postosResponsavel, role),
+    janelaNotif: _sanitizeJanelaNotif(dados.janelaNotif),
     maxDispositivos: (Number.isFinite(mdNovo) && mdNovo >= 1) ? Math.min(mdNovo, 20) : 1,
     deviceIds: [],
     createdAt: new Date().toISOString(), lastLogin: null, forceChange: false,

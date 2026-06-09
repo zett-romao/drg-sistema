@@ -234,7 +234,8 @@ const EMPRESA_DEFAULTS = {
   esocialVerProc:      'DRG-Kronos',// verProc — identificação do software emissor
   esocialRubricas:     {},          // mapa rubrica→{cod,nat,tp,cp,ir,fg} p/ o S-1010/S-1200
   esocialIdeTabRubr:   '1',         // identificador da tabela de rubricas do empregador
-  esocialCodLotacao:   '1'          // código de lotação tributária (S-1020) — default 1
+  esocialCodLotacao:   '1',         // código de lotação tributária (S-1020) — default 1
+  cnpjSindicato:       ''           // CNPJ do sindicato da categoria (padrão p/ TODOS os colaboradores; cada cadastro pode sobrescrever) #esocial
 };
 
 // Parâmetros legais — tabelas oficiais atualizáveis (INSS/IRRF/FGTS/aviso prévio).
@@ -4791,6 +4792,7 @@ function _preencherEncargosConfig(){
   setVal('enc-classtrib', (State.empresa&&State.empresa.esocialClassTrib)||'');
   setVal('enc-contato-nome', (State.empresa&&State.empresa.esocialContatoNome)||'');
   setVal('enc-contato-cpf', (State.empresa&&State.empresa.esocialContatoCpf)||'');
+  setVal('enc-cnpj-sindicato', (State.empresa&&State.empresa.cnpjSindicato)||'');
   _toggleEncargosAliq();
 }
 function _toggleEncargosAliq(){
@@ -4812,7 +4814,8 @@ async function salvarEncargosConfig(){
     esocialModo:         val('enc-esocial-modo')||'exportar',
     esocialClassTrib:    val('enc-classtrib')||'',
     esocialContatoNome:  val('enc-contato-nome')||'',
-    esocialContatoCpf:   _soDigitos(val('enc-contato-cpf'))
+    esocialContatoCpf:   _soDigitos(val('enc-contato-cpf')),
+    cnpjSindicato:       _soDigitos(val('enc-cnpj-sindicato'))
   };
   try{
     await DB.saveDoc('configuracoes','empresa',dados,true);
@@ -4831,6 +4834,7 @@ function resetarEncargosConfig(){
   setVal('enc-classtrib', EMPRESA_DEFAULTS.esocialClassTrib);
   setVal('enc-contato-nome', EMPRESA_DEFAULTS.esocialContatoNome);
   setVal('enc-contato-cpf', EMPRESA_DEFAULTS.esocialContatoCpf);
+  setVal('enc-cnpj-sindicato', EMPRESA_DEFAULTS.cnpjSindicato);
   _toggleEncargosAliq();
   toast('Padrão restaurado. Clique em Salvar para aplicar.','info');
 }
@@ -4999,6 +5003,8 @@ function _esocialPendenciasEmpresa(){
   if(!_cpfValido(Q.contatoCpf)) f.push('CPF do responsável/contato');
   return f;
 }
+// CNPJ do sindicato da categoria: usa o do colaborador; se vazio, cai no padrão da empresa. #esocial
+function _cnpjSindEmp(e){ return _soDigitos((e&&e.cnpjSindicato)||'') || _soDigitos((State.empresa&&State.empresa.cnpjSindicato)||''); }
 function _esocialPendenciasColab(e){
   const f=[];
   if(!e.cpf || !_cpfValido(e.cpf)) f.push('CPF inválido/ausente');
@@ -5014,7 +5020,7 @@ function _esocialPendenciasColab(e){
   if(!e.nomeMae) f.push('Nome da mãe');
   if(!e.cep || !e.endereco) f.push('Endereço');
   if(_soDigitos(e.codMunicipio).length!==7) f.push('Cód. IBGE município (reabrir CEP)');
-  if(!_cnpjValido(e.cnpjSindicato)) f.push('CNPJ do sindicato');
+  if(!_cnpjValido(_cnpjSindEmp(e))) f.push('CNPJ do sindicato');
   return f;
 }
 function _renderEsocialDiagnostico(){
@@ -5266,7 +5272,7 @@ function _esocialEventoS2200(emp){
           <indAdmissao>1</indAdmissao>
           <tpRegJor>1</tpRegJor>
           <natAtividade>1</natAtividade>
-          <cnpjSindCategProf>${_soDigitos(emp.cnpjSindicato)}</cnpjSindCategProf>
+          <cnpjSindCategProf>${_cnpjSindEmp(emp)}</cnpjSindCategProf>
         </infoCeletista>
       </infoRegimeTrab>
       <infoContrato>

@@ -2197,6 +2197,10 @@
                   <label title="CPF do responsável/contato — obrigatório no S-1000 (cpfCtt)">CPF do responsável</label>
                   <input type="text" id="enc-contato-cpf" placeholder="000.000.000-00">
                 </div>
+                <div class="form-group form-group-sm" style="max-width:220px">
+                  <label title="CNPJ do sindicato da categoria profissional (cnpjSindCategProf do S-2200). Vale como PADRÃO para TODOS os colaboradores; o cadastro individual pode sobrescrever.">CNPJ do sindicato (todos)</label>
+                  <input type="text" id="enc-cnpj-sindicato" placeholder="00.000.000/0000-00">
+                </div>
               </div>
               <div style="font-size:11px;color:#999;margin-top:4px">Define como o eSocial será entregue. O <b>motor de eventos</b> (folha → XML) é o mesmo nos dois caminhos. Exportar/transmitir vêm a seguir (Fase 3b/3c); a <b>classTrib</b> é exigida pelo S-1000 e pela checagem de prontidão.</div>
             </div>
@@ -7076,6 +7080,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260608d-jornada-segue-contrato"></script>
+  <script src="app.js?v=20260609a-cnpj-sindicato-empresa"></script>
 </body>
 </html>

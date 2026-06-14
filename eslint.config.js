@@ -13,6 +13,7 @@ const externos = {
   FIREBASE_CONFIG: 'readonly',    // firebase-config.js
   JSZip: 'readonly',              // jszip (CDN)
   pdfjsLib: 'readonly',           // pdf.js (CDN)
+  html2canvas: 'readonly',        // html2canvas (CDN) — recibo em PNG/PDF
   QRCode: 'readonly', qrcode: 'readonly',   // qrcode (CDN)
   __APP_BOOTED: 'writable', __APP_ERRORS: 'writable',  // blindagem (#blindagem-erro)
 };

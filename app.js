@@ -284,7 +284,7 @@ const State = {
   editingEmployeeId: null,
   currentPdfFile: null,
   currentPdfText: '',
-  employeeFilter: 'all'
+  employeeFilter: 'ativo'   // a tela de Colaboradores abre filtrando ATIVOS (regra padrão)
 };
 
 // ============================================
@@ -1315,7 +1315,7 @@ function showSection(name){
                 contabilidade:'Contabilidade',banco:'Banco de Dados',users:'Usuários & Acessos',postos:'Postos de Trabalho',rubricas:'Rubricas',contratos:'Contratos',comunicacao:'Comunicação',autorizacoes:'Autorizações de Ponto',monitorfaltas:'Monitor de Faltas',estoque:'Estoque / EPIs',documentos:'Documentos do Colaborador',configuracoes:'Configurações'};
   document.getElementById('topbar-title').textContent=titles[name]||name;
   State.currentSection=name;
-  if(name==='employees') renderEmployeeTable();
+  if(name==='employees') setEmployeeFilter('ativo');   // abre sempre em ATIVOS (atalhos do dashboard sobrescrevem depois)
   if(name==='payroll')   { initPayrollSection(); renderPayrollStats(); }
   if(name==='escalas')   renderEscalas();
   if(name==='dashboard') renderDashboard();

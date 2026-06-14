@@ -272,6 +272,7 @@ const State = {
   documentos: [],
   rescisoes: [],
   holeritesEnviados: [],
+  beneficioRecibos: [],
   parametrosLegais: null,
   cct: null,
   rubricas: [],
@@ -6948,6 +6949,7 @@ function openEmployeeModal(id=null){
     setVal('emp-bairro',emp.bairro||''); setVal('emp-cidade',emp.cidade||''); setVal('emp-estado',emp.estado||'SP');
     setVal('emp-codmunicipio',emp.codMunicipio||''); setVal('emp-categoria-esocial',emp.categoriaESocial||'101'); setVal('emp-cnpj-sindicato',emp.cnpjSindicato||'');   // #esocial
     setVal('emp-tipo-transporte',emp.tipoTransporte||'vt');
+    setVal('emp-benef-periodicidade', emp.beneficioPeriodicidade||'mensal');
     setVal('emp-vt-freq', emp.vtFreq||'diario');
     setVal('emp-vr-freq', emp.vrFreq||'diario');
     setVal('emp-vt-canal', emp.vtCanal||'cartao');
@@ -7062,6 +7064,7 @@ function openEmployeeModal(id=null){
     setVal('emp-exp-periodo1',45); setVal('emp-exp-periodo2',45);
     setVal('emp-insalubridade',0);
     setVal('emp-vt-freq','diario'); setVal('emp-vr-freq','diario');
+    setVal('emp-benef-periodicidade','mensal');
     setVal('emp-vt-canal','cartao'); setVal('emp-vr-canal','cartao');
     onEmpStatusChange();
     onEmpTipoContratoChange();
@@ -7354,6 +7357,9 @@ async function saveEmployee(){
     categoriaESocial:val('emp-categoria-esocial')||'101',
     cnpjSindicato:_soDigitos(val('emp-cnpj-sindicato')),
     tipoTransporte:val('emp-tipo-transporte')||'vt',
+    // Periodicidade do RECIBO/pagamento de benefícios (separada da frequência de
+    // cálculo VT/VR). Usada só p/ filtrar quem pagar e agrupar o recibo. #benef-recibo
+    beneficioPeriodicidade: val('emp-benef-periodicidade')||'mensal',
     vtFreq: val('emp-vt-freq')||'diario',
     vrFreq: val('emp-vr-freq')||'diario',
     vtCanal: val('emp-vt-canal')||'cartao',
@@ -8042,6 +8048,12 @@ let _beneficioCustomFim = '';
 // principal só mostra colaboradores do canal selecionado e o banner do filtro
 // expõe atalhos de impressão/exportação.
 let _beneficioCanalFiltro = null;
+// Filtro por PERIODICIDADE de pagamento do colaborador ('' = todos). #benef-recibo
+let _beneficioPeriodicidadeFiltro = '';
+function _benefAplicarFiltroPeriodicidade(p){
+  _beneficioPeriodicidadeFiltro = p || '';
+  renderBeneficiosLista();
+}
 // VIEW (visualização) ativa dentro da seção Benefícios:
 //   'aPagar'    → padrão · colaboradores com valor a pagar no período
 //   'pagos'     → quem já foi pago (status='pago') no período
@@ -8432,6 +8444,8 @@ function renderBeneficiosLista(){
   const _compKey = _benefCompKey(tab);
   (State.employees||[])
     .filter(e => (e.status||'ativo') === 'ativo')
+    // Filtro por periodicidade de pagamento (default mensal p/ quem não definiu). #benef-recibo
+    .filter(e => !_beneficioPeriodicidadeFiltro || (e.beneficioPeriodicidade||'mensal') === _beneficioPeriodicidadeFiltro)
     .forEach(e => {
       const b = _ctxMes
         ? _calcBeneficiosColabPrevisto(e, _ctxMes.mUso, _ctxMes.aUso, _ctxMes.mPag, _ctxMes.aPag)
@@ -9290,10 +9304,15 @@ function _abrirModalPagoBenef(chks){
         </div>`;
       } else {
         countBenef++;
+        const formaDefault = canal==='dinheiro' ? 'dinheiro' : 'plataforma';
         cells += `<div class="pb-row" data-emp="${empId}" data-nome="${(nome||'').replace(/"/g,'&quot;')}" data-tipo="${t.k}" data-valor="${val}" style="display:flex;align-items:center;gap:8px;padding:4px 0;border-top:1px solid #F0F0F0">
           <label style="width:46px;font-weight:700;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" class="pb-chk" checked> ${t.lbl}</label>
           <input type="date" class="pb-data" value="${hojeISO}" style="font-size:12px;padding:2px 4px">
-          <input type="text" class="pb-plat" value="${platDefault}" placeholder="Plataforma/operadora" style="flex:1;font-size:12px;padding:2px 6px;min-width:90px">
+          <select class="pb-forma" onchange="_pbFormaChange(this)" style="font-size:12px;padding:2px 4px" title="Como este benefício foi pago">
+            <option value="plataforma" ${formaDefault==='plataforma'?'selected':''}>Plataforma</option>
+            <option value="dinheiro" ${formaDefault==='dinheiro'?'selected':''}>Dinheiro</option>
+          </select>
+          <input type="text" class="pb-plat" value="${platDefault}" placeholder="Plataforma/operadora" style="flex:1;font-size:12px;padding:2px 6px;min-width:90px;display:${formaDefault==='dinheiro'?'none':''}">
           <span style="font-weight:700;white-space:nowrap">${fmtMoney(val)}</span>
         </div>`;
       }
@@ -9345,6 +9364,19 @@ function _pbFecharModal(){
   _pbCtx = null;
 }
 
+// Mostra/esconde o campo "plataforma/operadora" conforme a forma escolhida. #benef-recibo
+function _pbFormaChange(sel){
+  const row = sel.closest('.pb-row');
+  const plat = row && row.querySelector('.pb-plat');
+  if(!plat) return;
+  if(sel.value === 'dinheiro'){
+    plat.style.display = 'none';
+  } else {
+    plat.style.display = '';
+    if(!plat.value.trim() || plat.value.trim()==='Dinheiro') plat.value = 'Plataforma';
+  }
+}
+
 async function confirmarPagoBenef(){
   if(!_pbCtx){ toast('Contexto perdido — reabra a janela.','error'); return; }
   const { ini, fim, periodoLabel } = _pbCtx;
@@ -9361,15 +9393,18 @@ async function confirmarPagoBenef(){
     const tipo  = r.dataset.tipo;
     const valor = parseFloat(r.dataset.valor) || 0;
     const data  = (r.querySelector('.pb-data') && r.querySelector('.pb-data').value) || agora.slice(0,10);
-    const plat  = ((r.querySelector('.pb-plat') && r.querySelector('.pb-plat').value) || '').trim();
+    const forma = (r.querySelector('.pb-forma') && r.querySelector('.pb-forma').value) || 'plataforma';
+    const platRaw = ((r.querySelector('.pb-plat') && r.querySelector('.pb-plat').value) || '').trim();
+    // Forma explícita: dinheiro grava "Dinheiro"; plataforma grava o nome informado. #benef-recibo
+    const plat  = forma==='dinheiro' ? 'Dinheiro' : (platRaw || 'Plataforma');
     try{
       const sol = {
         id: genId(),
         employeeId: empId, employeeNome: nome, payrollId: '',
         valor, pixKey:'', keyType:'',
-        descricao: `${LBL[tipo]||tipo} pago manual ${periodoLabel}${plat?(' · '+plat):''} — ${nome}`.slice(0,500),
+        descricao: `${LBL[tipo]||tipo} pago manual ${periodoLabel} · ${forma==='dinheiro'?'Dinheiro':plat} — ${nome}`.slice(0,500),
         scheduleDate: data, competencia: `BEN${tipo.toUpperCase()}_${ini}_${fim}`,
-        origem: 'beneficio-manual', beneficioTipo: tipo, plataforma: plat,
+        origem: 'beneficio-manual', beneficioTipo: tipo, plataforma: plat, formaPagamento: forma,
         status: 'pago', pagoEm: data,
         criadoPor: u.username||u.id||'', criadoPorNome: u.username||'', criadoEm: agora,
         aprovadoPor: u.username||u.id||'', aprovadoPorNome: u.username||'', aprovadoEm: agora,
@@ -13284,6 +13319,219 @@ function verHoleriteAssinado(payrollId){
   if(!win){ toast('Pop-ups bloqueados — habilite pra ver o holerite.','error'); return; }
   win.document.write(p.holeriteAssinatura.htmlRender);
   win.document.close();
+}
+
+// ============================================================================
+// RECIBO DE BENEFÍCIOS → CONFERÊNCIA PELO COLABORADOR (Fase 2). Espelha o fluxo
+// do holerite, mas em coleção PRÓPRIA `beneficioRecibos` (período de benefício
+// não casa 1:1 com a folha mensal). Consolida o que foi pago no período num
+// recibo só → app → visualizar/assinar/contestar → aceite tácito em 24h →
+// armazena na aba "Recibos de Benefício" do cadastro (download PNG/PDF). #benef-recibo
+// ============================================================================
+const _BENEF_RECIBO_PRAZO_HORAS = 24;
+
+// Período corrente da tela de Benefícios (mesmo critério do registrar pagamento).
+function _benefPeriodoCorrente(){
+  const tab = _beneficioTabAtual || 'hoje';
+  const hojeISO = new Date().toISOString().substring(0,10);
+  if(tab === 'mes'){
+    const d=new Date(); const cMes=d.getMonth()+1, cAno=d.getFullYear();
+    const per=_compPeriodo(cMes,cAno);
+    return { ini:per.deISO, fim:per.ateISO, periodoLabel:`Competência ${MESES[cMes]}/${cAno} (${_compLabel(cMes,cAno)})` };
+  } else if(tab === 'custom'){
+    if(!_beneficioCustomIni || !_beneficioCustomFim) return null;
+    return { ini:_beneficioCustomIni, fim:_beneficioCustomFim, periodoLabel:`Personalizado ${new Date(_beneficioCustomIni+'T12:00:00').toLocaleDateString('pt-BR')}–${new Date(_beneficioCustomFim+'T12:00:00').toLocaleDateString('pt-BR')}` };
+  } else if(tab === 'hoje'){
+    return { ini:hojeISO, fim:hojeISO, periodoLabel:`dia ${new Date().toLocaleDateString('pt-BR')}` };
+  }
+  const s=_semanaDe(hojeISO);
+  return { ini:s.inicio, fim:s.fim, periodoLabel:`semana ${new Date(s.inicio+'T12:00:00').toLocaleDateString('pt-BR')}–${new Date(s.fim+'T12:00:00').toLocaleDateString('pt-BR')}` };
+}
+
+// HTML do recibo de benefícios (self-contained — o colab só EXIBE/assina).
+function _reciboBeneficioHTML(emp, doc){
+  const linhas = (doc.itens||[]).map(i=>{
+    const dt = i.data ? new Date(i.data+'T12:00:00').toLocaleDateString('pt-BR') : '—';
+    const formaTxt = (i.forma==='dinheiro') ? 'Dinheiro'
+      : ('Plataforma'+(i.plataforma && i.plataforma!=='Plataforma' && i.plataforma!=='Dinheiro' ? ` (${esc(i.plataforma)})` : ''));
+    return `<tr><td style="padding:6px 8px;border-bottom:1px solid #ECEFF1">${esc(i.label||i.tipo)}</td><td style="text-align:center;padding:6px 8px;border-bottom:1px solid #ECEFF1">${dt}</td><td style="text-align:center;padding:6px 8px;border-bottom:1px solid #ECEFF1">${formaTxt}</td><td style="text-align:right;padding:6px 8px;border-bottom:1px solid #ECEFF1">${fmtMoney(i.valor||0)}</td></tr>`;
+  }).join('');
+  return `<div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;color:#1a1a2e">
+    <div style="display:flex;align-items:center;gap:12px;border-bottom:2px solid #0288D1;padding-bottom:10px;margin-bottom:14px">
+      <div style="background:#fff;padding:4px;border-radius:6px;border:1px solid #eee"><img src="${_logoSrc()}" style="height:44px;display:block" onerror="this.style.display='none'"></div>
+      <div><div style="font-weight:800;font-size:16px">${esc(_e('nomeEmpresa'))}</div>
+      <div style="font-size:12px;color:#555">Recibo de Benefícios — ${esc(doc.periodoLabel||'')}</div></div>
+    </div>
+    <div style="font-size:13px;margin-bottom:10px"><strong>Colaborador:</strong> ${esc(emp.nome||'')}${emp.registro?` · Matrícula ${String(emp.registro).padStart(4,'0')}`:''}${emp.cpf?` · CPF ${esc(emp.cpf)}`:''}</div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="background:#E1F5FE">
+        <th style="text-align:left;padding:6px 8px;border-bottom:1px solid #B3E5FC">Benefício</th>
+        <th style="text-align:center;padding:6px 8px;border-bottom:1px solid #B3E5FC">Pago em</th>
+        <th style="text-align:center;padding:6px 8px;border-bottom:1px solid #B3E5FC">Forma</th>
+        <th style="text-align:right;padding:6px 8px;border-bottom:1px solid #B3E5FC">Valor</th>
+      </tr></thead>
+      <tbody>${linhas}</tbody>
+      <tfoot><tr><td colspan="3" style="text-align:right;padding:8px;font-weight:700;border-top:2px solid #0288D1">Total</td><td style="text-align:right;padding:8px;font-weight:800;border-top:2px solid #0288D1;color:#0277BD">${fmtMoney(doc.total||0)}</td></tr></tfoot>
+    </table>
+    <div style="font-size:11px;color:#777;margin-top:12px;line-height:1.5">Declaro o recebimento dos benefícios acima discriminados, referentes ao período indicado. Documento gerado eletronicamente pelo sistema DRG-Kronos.</div>
+  </div>`;
+}
+
+// Envia recibo de benefícios (consolidado do período) p/ os colaboradores marcados.
+async function enviarRecibosBeneficioSelecionados(){
+  if(Auth.currentUser?.role!=='master' && !getUserModules(Auth.currentUser).folhaEnviar){ toast('Sem permissão pra enviar recibos.','error'); return; }
+  const chks = [...document.querySelectorAll('.benef-chk:checked')];
+  if(!chks.length){ toast('Marque ao menos um colaborador na lista.','info'); return; }
+  const per = _benefPeriodoCorrente();
+  if(!per){ toast('Defina o período (Personalizado) primeiro.','warning'); return; }
+  const { ini, fim, periodoLabel } = per;
+  if(!confirm(`Enviar recibo de benefícios de ${chks.length} colaborador(es) — ${periodoLabel}?\n\nVai pro app deles conferir/assinar. Prazo ${_BENEF_RECIBO_PRAZO_HORAS}h → depois vira aceite tácito.`)) return;
+  const u = Auth.currentUser||{};
+  const agora = new Date();
+  const prazo = new Date(agora.getTime()+_BENEF_RECIBO_PRAZO_HORAS*60*60*1000);
+  const TIPOS=[{k:'vt',lbl:'VT — Vale Transporte'},{k:'vr',lbl:'VR — Vale Refeição'},{k:'va',lbl:'VA — Vale Alimentação'}];
+  let ok=0, vazios=0, erros=0;
+  for(const c of chks){
+    const empId=c.dataset.empId; const emp=State.employees.find(e=>e.id===empId); if(!emp){erros++;continue;}
+    const itens=[];
+    TIPOS.forEach(t=>{
+      const sol=(State.solicitacoes||[]).find(s=>s.origem==='beneficio-manual'&&s.beneficioTipo===t.k&&s.employeeId===empId&&s.status==='pago'&&s.competencia===`BEN${t.k.toUpperCase()}_${ini}_${fim}`);
+      if(sol&&(sol.valor||0)>0){ itens.push({ tipo:t.k, label:t.lbl, valor:sol.valor, data:sol.pagoEm||sol.scheduleDate||'', forma:sol.formaPagamento||((sol.plataforma==='Dinheiro')?'dinheiro':'plataforma'), plataforma:sol.plataforma||'' }); }
+    });
+    if(!itens.length){ vazios++; continue; }
+    const total=itens.reduce((s,i)=>s+(+i.valor||0),0);
+    const id=`BR_${empId}_${ini}_${fim}`.replace(/[^A-Za-z0-9_]/g,'');
+    const exist=(State.beneficioRecibos||[]).find(r=>r.id===id);
+    let contestHist = (exist&&exist.contestacoesHistorico)?[...exist.contestacoesHistorico]:[];
+    if(exist && exist.status==='contestada' && exist.contestacao){ contestHist.push({...exist.contestacao, comp:exist.periodoLabel}); }
+    const docR={
+      id, employeeId:empId, employeeNome:emp.nome||'', periodoKey:`${ini}_${fim}`, periodoLabel, ini, fim,
+      itens, total, status:'pendente', prazoExpiraEm:prazo.toISOString(),
+      enviadoEm:agora.toISOString(), enviadoPor:u.username||u.id||'', enviadoPorNome:u.username||'',
+      visualizadoEm:null, assinatura:null, contestacao:null, contestacoesHistorico:contestHist, reciboHtml:''
+    };
+    docR.reciboHtml=_reciboBeneficioHTML(emp, docR);
+    try{ await DB.save('beneficioRecibos', docR); ok++; }catch(e){ console.error('envio recibo benef', e); erros++; }
+  }
+  Auth.log('BENEF_RECIBO_ENVIADO', null, `${periodoLabel} — ${ok} recibo(s)`);
+  toast(`${ok} recibo(s) enviado(s)${vazios?` · ${vazios} sem pagamento no período`:''}${erros?` · ${erros} erro(s)`:''}. Prazo ${_BENEF_RECIBO_PRAZO_HORAS}h.`, erros?'warning':'success');
+}
+
+// Job aceite tácito 24h (roda no listener de beneficioRecibos).
+async function _aceitarPorSilencioBeneficioJob(){
+  const agora=new Date();
+  const cand=(State.beneficioRecibos||[]).filter(r=>{
+    if(!r) return false;
+    if(r.status!=='pendente'&&r.status!=='visualizada') return false;
+    if(!r.prazoExpiraEm) return false;
+    return new Date(r.prazoExpiraEm)<=agora;
+  });
+  if(!cand.length) return;
+  for(const r of cand){
+    try{
+      await DB.merge('beneficioRecibos', r.id, { status:'aceita_por_silencio', silencioEm:agora.toISOString() });
+      const idx=(State.beneficioRecibos||[]).findIndex(x=>x.id===r.id);
+      if(idx>=0) State.beneficioRecibos[idx]={...r, status:'aceita_por_silencio', silencioEm:agora.toISOString()};
+    }catch(e){ console.error('silencio benef', r.id, e); }
+  }
+  Auth.log('BENEF_RECIBO_SILENCIO', null, `${cand.length} recibo(s) de benefício aceitos por silêncio`);
+}
+
+// Aba "Recibos de Benefício" no cadastro do colaborador.
+function renderRecibosBeneficioColab(){
+  const empId = State.editingEmployeeId || val('emp-id');
+  const container = document.getElementById('recibos-beneficio-list');
+  if(!container) return;
+  if(!empId){ container.innerHTML='<div style="font-size:12px;color:#94a3b8;padding:8px 2px">Salve o colaborador primeiro.</div>'; return; }
+  const lista=(State.beneficioRecibos||[]).filter(r=>r.employeeId===empId).sort((a,b)=>new Date(b.enviadoEm||0)-new Date(a.enviadoEm||0));
+  if(!lista.length){ container.innerHTML=`<div class="empty-state small"><i class="fa-solid fa-receipt" style="font-size:32px;color:#cbd5e0"></i><p style="font-size:13px;margin-top:8px">Nenhum recibo de benefício enviado ainda.</p></div>`; return; }
+  const stMap={ pendente:{txt:'Aguardando',cor:'#E65100',bg:'#FFF3E0',icon:'fa-clock'}, visualizada:{txt:'Visualizado',cor:'#1565C0',bg:'#E3F2FD',icon:'fa-eye'}, assinada:{txt:'Assinado',cor:'#2E7D32',bg:'#E8F5E9',icon:'fa-circle-check'}, aceita_por_silencio:{txt:'Aceito por silêncio',cor:'#558B2F',bg:'#F1F8E9',icon:'fa-clock-rotate-left'}, contestada:{txt:'Contestado',cor:'#C62828',bg:'#FFEBEE',icon:'fa-circle-xmark'} };
+  container.innerHTML=lista.map(r=>{
+    const cfg=stMap[r.status]||stMap.pendente;
+    const hash=r.assinatura&&r.assinatura.hash||'';
+    const hashTrunc=hash?`${hash.substring(0,16)}…`:'—';
+    const enviado=r.enviadoEm?new Date(r.enviadoEm).toLocaleString('pt-BR'):'—';
+    const motivo=(r.status==='contestada'&&r.contestacao&&r.contestacao.motivo)?`<div style="background:#FFEBEE;color:#C62828;padding:8px 10px;border-radius:5px;font-size:11px;margin-top:6px"><strong>Contestação:</strong> ${esc(r.contestacao.motivo)}</div>`:'';
+    const btnResp=(r.status==='contestada')?`<button class="btn btn-sm" style="font-size:11px;background:#C62828;color:#fff;border:none" onclick="responderReabrirContestacaoBeneficio('${r.id}')"><i class="fa-solid fa-reply"></i> Responder / reenviar</button>`:'';
+    return `<div style="border:1px solid #e0e0e0;border-radius:8px;padding:12px 14px;margin-bottom:10px;background:#fafafa">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <div><div style="font-weight:700;font-size:14px">${esc(r.periodoLabel||'')}</div>
+        <div style="font-size:11px;color:#888;margin-top:2px">Enviado: ${enviado} · Total ${fmtMoney(r.total||0)}</div></div>
+        <span style="background:${cfg.bg};color:${cfg.cor};padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700"><i class="fa-solid ${cfg.icon}"></i> ${cfg.txt.toUpperCase()}</span>
+      </div>
+      <div style="margin-top:6px;font-family:monospace;font-size:11px;color:#666"><strong>Hash:</strong> ${hashTrunc}</div>
+      ${motivo}
+      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn btn-sm btn-outline" style="font-size:11px" onclick="verReciboBeneficio('${r.id}')"><i class="fa-solid fa-eye"></i> Ver</button>
+        <button class="btn btn-sm btn-outline" style="font-size:11px" onclick="_baixarReciboBeneficio('${r.id}','pdf')"><i class="fa-solid fa-file-pdf"></i> PDF</button>
+        <button class="btn btn-sm btn-outline" style="font-size:11px" onclick="_baixarReciboBeneficio('${r.id}','png')"><i class="fa-solid fa-file-image"></i> PNG</button>
+        ${btnResp}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function verReciboBeneficio(reciboId){
+  const r=(State.beneficioRecibos||[]).find(x=>x.id===reciboId);
+  const html = (r&&r.assinatura&&r.assinatura.htmlRender) || (r&&r.reciboHtml);
+  if(!html){ toast('Recibo sem HTML disponível.','warning'); return; }
+  const win=window.open('','_blank','width=900,height=900,scrollbars=yes');
+  if(!win){ toast('Pop-ups bloqueados — habilite pra ver o recibo.','error'); return; }
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Recibo de Benefícios</title></head><body style="margin:20px;background:#fff">${html}</body></html>`);
+  win.document.close();
+}
+
+// Responde à contestação e REENVIA (reinicia o prazo de 24h). #benef-recibo
+async function responderReabrirContestacaoBeneficio(reciboId){
+  if(Auth.currentUser?.role!=='master' && !getUserModules(Auth.currentUser).folhaEnviar){ toast('Sem permissão.','error'); return; }
+  const r=(State.beneficioRecibos||[]).find(x=>x.id===reciboId);
+  if(!r){ toast('Recibo não encontrado.','error'); return; }
+  const resp=prompt('Resposta à contestação (fica registrada no histórico). Ao confirmar, o recibo é REENVIADO e o prazo de 24h reinicia:', '');
+  if(resp===null) return;
+  const emp=State.employees.find(e=>e.id===r.employeeId);
+  const agora=new Date();
+  const prazo=new Date(agora.getTime()+_BENEF_RECIBO_PRAZO_HORAS*60*60*1000);
+  const hist=[...(r.contestacoesHistorico||[])];
+  if(r.contestacao){ hist.push({...r.contestacao, comp:r.periodoLabel, respostaGestor:resp, respondidoEm:agora.toISOString(), respondidoPor:(Auth.currentUser&&Auth.currentUser.username)||''}); }
+  const upd={ status:'pendente', prazoExpiraEm:prazo.toISOString(), reenviadoEm:agora.toISOString(), respostaGestor:resp, contestacao:null, visualizadoEm:null, assinatura:null, contestacoesHistorico:hist };
+  if(emp) upd.reciboHtml=_reciboBeneficioHTML(emp, r);
+  try{
+    await DB.merge('beneficioRecibos', reciboId, upd);
+    const idx=(State.beneficioRecibos||[]).findIndex(x=>x.id===reciboId);
+    if(idx>=0) State.beneficioRecibos[idx]={...r, ...upd};
+    Auth.log('BENEF_RECIBO_REENVIADO', null, `${r.employeeNome} — ${r.periodoLabel}`);
+    toast('Resposta registrada e recibo reenviado (24h).','success');
+    renderRecibosBeneficioColab();
+  }catch(e){ console.error(e); toast('Erro ao reenviar.','error'); }
+}
+
+// Baixa o recibo em PNG ou PDF (html2canvas + jsPDF).
+async function _baixarReciboBeneficio(reciboId, formato){
+  const r=(State.beneficioRecibos||[]).find(x=>x.id===reciboId);
+  const html=(r&&r.assinatura&&r.assinatura.htmlRender) || (r&&r.reciboHtml);
+  if(!html){ toast('Recibo sem HTML disponível.','warning'); return; }
+  if(typeof html2canvas==='undefined'){ toast('Biblioteca de imagem ainda carregando — tente de novo em instantes.','warning'); return; }
+  const holder=document.createElement('div');
+  holder.style.cssText='position:fixed;left:-99999px;top:0;width:680px;background:#fff;padding:20px;z-index:-1';
+  holder.innerHTML=html;
+  document.body.appendChild(holder);
+  try{
+    const canvas=await html2canvas(holder, {scale:2, backgroundColor:'#ffffff', useCORS:true});
+    const nomeBase=`recibo-beneficio-${(r.employeeNome||'colab').replace(/[^A-Za-z0-9]+/g,'_')}-${r.periodoKey||''}`;
+    if(formato==='png'){
+      const a=document.createElement('a'); a.href=canvas.toDataURL('image/png'); a.download=`${nomeBase}.png`;
+      document.body.appendChild(a); a.click(); a.remove();
+    } else {
+      const jsPDFctor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+      if(!jsPDFctor){ toast('Biblioteca de PDF ainda carregando — tente de novo.','warning'); return; }
+      const pdf=new jsPDFctor('p','mm','a4');
+      const pw=pdf.internal.pageSize.getWidth();
+      const imgW=pw-20; const imgH=canvas.height*imgW/canvas.width;
+      pdf.addImage(canvas.toDataURL('image/jpeg',0.95),'JPEG',10,10,imgW,imgH);
+      pdf.save(`${nomeBase}.pdf`);
+    }
+  }catch(e){ console.error('download recibo', e); toast('Erro ao gerar o arquivo.','error'); }
+  finally{ holder.remove(); }
 }
 
 // Apura a Boa Permanência de uma folha SALVA no fechamento (sem o formulário).
@@ -28358,6 +28606,21 @@ async function _carregarDadosPosLogin(){
     if(State.currentSection==='aprovacoes') renderAprovacoes();
     if(State.currentSection==='adiantamentos') renderAdiantamentos();
     if(State.currentSection==='dashboard') renderDashboard();
+  });
+  DB.listen('beneficioRecibos', data => {
+    State.beneficioRecibos = data;
+    // Atualiza a aba "Recibos de Benefício" da ficha se estiver aberta
+    const fichaModal = document.getElementById('modal-employee');
+    if(fichaModal && !fichaModal.classList.contains('hidden')){
+      const aba = document.getElementById('tab-recibos-beneficio');
+      if(aba && aba.classList.contains('active')) renderRecibosBeneficioColab();
+    }
+    if(State.currentSection==='beneficios' && typeof renderBeneficiosLista==='function') renderBeneficiosLista();
+    if(State.currentSection==='dashboard') renderDashboard();
+    // Job aceite tácito 24h (só quem pode enviar/gerir). #benef-recibo
+    if(Auth.currentUser?.role==='master' || getUserModules(Auth.currentUser).folhaEnviar){
+      _aceitarPorSilencioBeneficioJob().catch(e=>console.error('silencio benef job:', e));
+    }
   });
 
   // Configurar datas na UI

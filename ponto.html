@@ -285,6 +285,11 @@
     💵 <span id="banner-holerites-count">0</span> holerite(s) aguardando sua conferência — clique para abrir
   </div>
 
+  <!-- Banner: recibos de benefício pendentes de conferência (aparece quando há). #benef-recibo -->
+  <div id="banner-recibos-benef-conferir" style="display:none;background:linear-gradient(90deg,#B3E5FC 0%,#81D4FA 100%);padding:12px 16px;cursor:pointer;border-bottom:2px solid #0277BD;text-align:center;font-weight:600;color:#01579B;font-size:14px" onclick="abrirInboxRecibosBenef()">
+    🧾 <span id="banner-recibos-benef-count">0</span> recibo(s) de benefício aguardando sua conferência — clique para abrir
+  </div>
+
   <!-- Banner: batidas aguardando aprovação do supervisor (aparece quando há). #ponto-provisorio -->
   <div id="banner-autz-pendente" style="display:none;background:linear-gradient(90deg,#FFE0B2 0%,#FFCC80 100%);padding:12px 16px;border-bottom:2px solid #E65100;text-align:center;font-weight:600;color:#E65100;font-size:14px">
     ⏳ <span id="banner-autz-count">0</span> batida(s) aguardando aprovação do supervisor
@@ -535,7 +540,7 @@ try{ window.__APP_BOOTED = true; }catch(_){}
 // ─── VERSÃO DO APP DO COLABORADOR ─────────────────────────────────────────────
 // Bumpe SEMPRE em conjunto com o CACHE do ponto-sw.js e o ?v= do firebase-config.
 // Formato: AA.MM.DD + letra (a, b, c...) — alinhado com o nome do cache.
-const PONTO_VERSION = '26.06.14a';
+const PONTO_VERSION = '26.06.14b';
 // Exibe a versão no rodapé (script roda após o DOM, então o elemento já existe)
 (function _setVersionTag(){
   const t = document.getElementById('app-version-tag');
@@ -597,7 +602,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=32').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=33').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -2618,6 +2623,23 @@ async function confirmarAssinatura(){
       if(_episPendentes.length) setTimeout(()=>abrirProximoEpi(), 400);
       return;
     }
+    // --- RECIBO DE BENEFÍCIO: assina sobre o HTML gravado pelo gestor (beneficioRecibos). #benef-recibo ---
+    if(_confMode === 'beneficio'){
+      const r = _confCurrentBenef || {};
+      const reciboHtml = r.reciboHtml || '';
+      const hashInput = `${reciboHtml}|${pinHash}|${ip}|${ua}|${fingerprint}|${ts}`;
+      const hash = await _sha256(hashInput);
+      const htmlRender = _construirHtmlReciboBenefAssinado(r, reciboHtml, hash, ts);
+      const assinatura = { hash, pinHash, ip, userAgent: ua, deviceFingerprint: fingerprint, htmlRender, assinadoEm: ts };
+      await dbCol('beneficioRecibos').doc(r.id).set({ status:'assinada', assinadoEm: ts, assinatura }, { merge:true });
+      r.status='assinada'; r.assinatura=assinatura;
+      fecharModalPin();
+      fecharConferenciaReciboBenef();
+      _recibosBenefInboxCache = _recibosBenefInboxCache.filter(x=>x.id!==r.id);
+      _atualizarBannerRecibosBenef();
+      alert('✅ Recibo de benefícios assinado!\n\nHash: ' + hash.substring(0,16) + '...\n\nObrigado pela conferência.');
+      return;
+    }
     // --- HOLERITE: assina sobre o HTML do recibo gravado pelo gestor ---
     if(_confMode === 'holerite'){
       const reciboHtml = p.holeriteConferencia?.reciboHtml || '';
@@ -2741,6 +2763,19 @@ async function confirmarContestar(){
   try{
     const p = _confCurrentPayroll;
     const ts = new Date().toISOString();
+    // --- RECIBO DE BENEFÍCIO: contestação grava em beneficioRecibos. #benef-recibo ---
+    if(_confMode === 'beneficio'){
+      const r = _confCurrentBenef || {};
+      const contestacao = { motivo, contestadoEm: ts };
+      await dbCol('beneficioRecibos').doc(r.id).set({ status:'contestada', contestadoEm: ts, contestacao }, { merge:true });
+      r.status='contestada'; r.contestacao=contestacao;
+      fecharModalContestar();
+      fecharConferenciaReciboBenef();
+      _recibosBenefInboxCache = _recibosBenefInboxCache.filter(x=>x.id!==r.id);
+      _atualizarBannerRecibosBenef();
+      alert('⚠️ Contestação enviada.\n\nO gestor vai revisar e te responder. Aguarde o retorno.');
+      return;
+    }
     // --- HOLERITE: contestação grava nos campos próprios ---
     if(_confMode === 'holerite'){
       const envioH = { ...(p.holeriteConferencia||{}), status:'contestada', contestadoEm: ts };
@@ -2772,12 +2807,118 @@ async function confirmarContestar(){
   }
 }
 
+// ====================== RECIBO DE BENEFÍCIO → CONFERÊNCIA ======================
+// Espelha o holerite, mas na coleção beneficioRecibos. O gestor já gravou o HTML
+// (r.reciboHtml); o colab EXIBE, ASSINA (hash/PIN) ou CONTESTA. #benef-recibo
+let _recibosBenefInboxCache = [];
+let _confCurrentBenef = null;
+
+async function _carregarInboxRecibosBenef(){
+  if(!currentEmp) return;
+  try{
+    const snap = await dbCol('beneficioRecibos').where('employeeId','==', currentEmp.id).get();
+    const items=[];
+    snap.forEach(doc=>{ const r={id:doc.id,...doc.data()}; if(r.status==='pendente'||r.status==='visualizada') items.push(r); });
+    items.sort((a,b)=>(b.enviadoEm||'').localeCompare(a.enviadoEm||''));
+    _recibosBenefInboxCache=items;
+    _atualizarBannerRecibosBenef();
+  }catch(e){ console.error('inbox recibos benef:', e); }
+}
+function _atualizarBannerRecibosBenef(){
+  const banner=document.getElementById('banner-recibos-benef-conferir');
+  const cnt=document.getElementById('banner-recibos-benef-count');
+  if(!banner||!cnt) return;
+  if(_recibosBenefInboxCache.length>0){ cnt.textContent=_recibosBenefInboxCache.length; banner.style.display='block'; }
+  else banner.style.display='none';
+}
+function abrirInboxRecibosBenef(){
+  const old=document.getElementById('modal-recibos-benef-inbox'); if(old) old.remove();
+  const div=document.createElement('div');
+  div.id='modal-recibos-benef-inbox';
+  div.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9998;display:flex;align-items:flex-end;justify-content:center';
+  let linhas;
+  if(!_recibosBenefInboxCache.length){ linhas='<div style="padding:20px;text-align:center;color:#999">Nenhum recibo pendente.</div>'; }
+  else linhas=_recibosBenefInboxCache.map(r=>{
+    const prazo=r.prazoExpiraEm?new Date(r.prazoExpiraEm).toLocaleString('pt-BR'):'—';
+    const total='R$ '+(parseFloat(r.total)||0).toFixed(2).replace('.',',');
+    const stBadge=r.status==='visualizada'?'<span style="background:#81D4FA;color:#01579B;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700">VISTO</span>':'<span style="background:#FFCDD2;color:#C62828;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700">NOVO</span>';
+    return `<div onclick="abrirConferenciaReciboBenef('${r.id}')" style="padding:14px 16px;border-bottom:1px solid #eee;cursor:pointer;display:flex;justify-content:space-between;align-items:center;background:#fff">
+      <div><div style="font-weight:700;color:#1a1a2e;font-size:14px">${r.periodoLabel||'Recibo de benefícios'} ${stBadge}</div>
+      <div style="font-size:11px;color:#888;margin-top:2px">Total: ${total} · Prazo: ${prazo}</div></div>
+      <i style="color:#9E9E9E;font-size:18px">›</i></div>`;
+  }).join('');
+  div.innerHTML=`<div style="background:#fff;border-radius:16px 16px 0 0;width:100%;max-width:540px;max-height:80vh;display:flex;flex-direction:column">
+    <div style="padding:14px 16px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center">
+      <strong style="font-size:15px;color:#01579B">🧾 Recibos de Benefício</strong>
+      <button onclick="document.getElementById('modal-recibos-benef-inbox').remove()" style="background:none;border:none;font-size:22px;color:#999;cursor:pointer">×</button>
+    </div>
+    <div style="overflow-y:auto;flex:1">${linhas}</div>
+  </div>`;
+  document.body.appendChild(div);
+}
+async function abrirConferenciaReciboBenef(id){
+  const inbox=document.getElementById('modal-recibos-benef-inbox'); if(inbox) inbox.remove();
+  const r=_recibosBenefInboxCache.find(x=>x.id===id);
+  if(!r){ alert('Recibo não encontrado.'); return; }
+  _confCurrentBenef=r; _confMode='beneficio';
+  if(r.status==='pendente'){
+    try{ await dbCol('beneficioRecibos').doc(r.id).set({status:'visualizada', visualizadoEm:new Date().toISOString()},{merge:true}); r.status='visualizada'; }
+    catch(e){ console.error('marcar visto recibo benef:', e); }
+  }
+  const old=document.getElementById('modal-conf-recibo-benef'); if(old) old.remove();
+  const div=document.createElement('div');
+  div.id='modal-conf-recibo-benef';
+  div.style.cssText='position:fixed;inset:0;background:#fff;z-index:9999;display:flex;flex-direction:column';
+  div.innerHTML=`<div style="flex:1;display:flex;flex-direction:column;max-width:680px;width:100%;margin:0 auto">
+    <div style="padding:12px 16px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center">
+      <strong style="font-size:15px;color:#01579B">Conferência — Recibo de Benefício</strong>
+      <button onclick="fecharConferenciaReciboBenef()" style="background:none;border:none;font-size:22px;color:#999;cursor:pointer">×</button>
+    </div>
+    <div style="overflow-y:auto;flex:1;padding:16px;background:#fff">${r.reciboHtml||'<p style="color:#999;text-align:center;padding:20px">Recibo indisponível.</p>'}</div>
+    <div style="padding:12px 16px;border-top:1px solid #eee;display:flex;gap:8px;background:#fff">
+      <button onclick="escolherContestar()" style="flex:1;background:#fff;border:2px solid #C62828;color:#C62828;padding:12px;border-radius:8px;font-weight:700;cursor:pointer">⚠️ Contestar</button>
+      <button onclick="escolherConcordo()" style="flex:1;background:#2E7D32;border:none;color:#fff;padding:12px;border-radius:8px;font-weight:700;cursor:pointer">✓ De acordo / Assinar</button>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+}
+function fecharConferenciaReciboBenef(){
+  const m=document.getElementById('modal-conf-recibo-benef'); if(m) m.remove();
+  _confCurrentBenef=null; _confMode='folha';
+  _carregarInboxRecibosBenef();
+}
+// HTML self-contained do recibo de benefício ASSINADO (recibo + caixa de assinatura).
+function _construirHtmlReciboBenefAssinado(r, reciboHtml, hash, assinadoEm){
+  const dt = currentEmp || {};
+  const dtAssin = new Date(assinadoEm).toLocaleString('pt-BR');
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Recibo de Benefícios — ${dt.nome||''}</title>
+<style>body{font-family:Arial,sans-serif;padding:24px;max-width:760px;margin:0 auto;color:#212529;font-size:13px}
+.assinatura-box{margin-top:24px;background:#FFFDE7;border:2px solid #FFE082;border-radius:8px;padding:14px;font-size:11px;color:#5D4037}
+.assinatura-box .label{font-weight:700;color:#E65100;font-size:12px;margin-bottom:6px}
+.hash{font-family:monospace;font-size:10px;word-break:break-all;background:#fff;padding:6px;border-radius:4px;border:1px solid #FFE082;margin-top:4px}
+.botoes{text-align:center;margin:20px 0;padding:14px;background:#F1F5F9;border-radius:8px}
+.botoes button{background:#1565C0;color:#fff;padding:10px 18px;border:none;border-radius:6px;font-weight:700;cursor:pointer;font-size:13px;margin:0 4px}
+@media print{.botoes{display:none}}</style></head><body>
+${reciboHtml}
+<div class="assinatura-box">
+  <div class="label">🔐 Assinatura Eletrônica Simples — MP 2.200-2/2001</div>
+  <div><strong>Assinado por:</strong> ${dt.nome||'—'} (CPF ${dt.cpf||'—'})</div>
+  <div><strong>Data/hora:</strong> ${dtAssin}</div>
+  <div><strong>Hash SHA-256:</strong></div>
+  <div class="hash">${hash}</div>
+  <div style="margin-top:6px;font-size:10px;color:#666;font-style:italic">A hash combina o conteúdo deste recibo + PIN + IP + identificador do dispositivo + timestamp. Qualquer alteração invalida a hash.</div>
+</div>
+<div class="botoes"><button onclick="window.print()">🖨️ Imprimir / Salvar PDF</button><button onclick="window.close()" style="background:#9E9E9E">✕ Fechar</button></div>
+</body></html>`;
+}
+
 // Hook no carregarHome — carrega inbox sempre que entra na home
 const _origCarregarHome = carregarHome;
 window.carregarHome = async function(){
   await _origCarregarHome.apply(this, arguments);
   _carregarInboxFolhas();
   _carregarInboxHolerites();
+  _carregarInboxRecibosBenef();
 };
 </script>
 

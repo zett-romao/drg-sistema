@@ -63,6 +63,9 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <!-- Recibos: exportar em PNG (html2canvas) e PDF (jsPDF). #benef-recibo -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
@@ -2355,6 +2358,7 @@
           <button class="btn btn-primary btn-sm" onclick="pagarBeneficiosForcarPIX()" style="background:#D84315;white-space:nowrap;flex-shrink:0;font-size:12px" title="CONTINGÊNCIA: paga via PIX o VALOR TOTAL (cartão+dinheiro) dos selecionados. Use quando a plataforma do cartão estiver fora do ar. Depois não carregue o cartão (pagaria 2x)."><i class="fa-solid fa-bolt"></i> Forçar PIX</button>
           <button class="btn btn-primary btn-sm" onclick="pagarBoaPermanencia()" style="background:#F57F17;white-space:nowrap;flex-shrink:0;font-size:12px" title="Paga via PIX SÓ a Boa Permanência (comissão de assiduidade). Só funciona na aba 'Este Período' (competência). Dedup independente de VT/VR/VA."><i class="fa-solid fa-medal"></i> B.Perm. PIX</button>
           <button class="btn btn-primary btn-sm" onclick="marcarBeneficiosPagoManual()" style="background:#455A64;white-space:nowrap;flex-shrink:0;font-size:12px" title="Registra como PAGO MANUAL (sem disparar PIX/cartão). Use quando o pagamento foi feito FORA do sistema (espécie, cheque, transferência manual etc.)."><i class="fa-solid fa-money-bill-wave"></i> Pago Manual</button>
+          <button class="btn btn-primary btn-sm" onclick="enviarRecibosBeneficioSelecionados()" style="background:#0288D1;white-space:nowrap;flex-shrink:0;font-size:12px" title="Envia o recibo dos benefícios JÁ PAGOS no período para o app dos colaboradores marcados conferirem/assinarem (prazo 24h → aceite tácito)."><i class="fa-solid fa-receipt"></i> Enviar Recibo</button>
           <span style="display:inline-flex;align-items:center;gap:6px;margin-left:12px;flex-shrink:0">
             <i class="fa-solid fa-filter" style="color:var(--text-muted)" title="Filtrar a lista por canal"></i>
             <select id="benef-filtro-canal" onchange="_benefAplicarFiltroCanalDropdown(this.value)" style="padding:4px 8px;border:1px solid #CFD8DC;border-radius:5px;font-size:12px;background:#fff" title="Filtra a lista visualmente por canal de pagamento">
@@ -2363,6 +2367,16 @@
               <option value="vr">Cartão VR</option>
               <option value="dinheiro">Dinheiro / PIX</option>
               <option value="bp">Boa Permanência</option>
+            </select>
+          </span>
+          <span style="display:inline-flex;align-items:center;gap:6px;margin-left:8px;flex-shrink:0">
+            <i class="fa-solid fa-calendar-check" style="color:#5C6BC0" title="Filtrar por periodicidade de pagamento do colaborador"></i>
+            <select id="benef-filtro-periodicidade" onchange="_benefAplicarFiltroPeriodicidade(this.value)" style="padding:4px 8px;border:1px solid #CFD8DC;border-radius:5px;font-size:12px;background:#fff" title="Mostra só colaboradores com esta periodicidade de pagamento de benefícios">
+              <option value="">Toda periodicidade</option>
+              <option value="diario">Diário</option>
+              <option value="semanal">Semanal</option>
+              <option value="quinzenal">Quinzenal</option>
+              <option value="mensal">Mensal</option>
             </select>
           </span>
           <span style="display:inline-flex;align-items:center;gap:6px;margin-left:8px;flex-shrink:0">
@@ -3041,6 +3055,9 @@
         </button>
         <button class="modal-tab" data-tab-id="tab-holerites-assinados" onclick="switchTab('tab-holerites-assinados');renderHoleritesAssinadosColab()">
           <i class="fa-solid fa-file-invoice-dollar"></i> Holerites Assinados
+        </button>
+        <button class="modal-tab" data-tab-id="tab-recibos-beneficio" onclick="switchTab('tab-recibos-beneficio');renderRecibosBeneficioColab()">
+          <i class="fa-solid fa-receipt"></i> Recibos de Benefício
         </button>
         <button class="modal-tab" data-tab-id="tab-pagamentos" onclick="switchTab('tab-pagamentos')">
           <i class="fa-solid fa-money-bill-wave"></i> Pagamentos
@@ -3727,6 +3744,18 @@
         </div>
         <div class="form-row">
           <div class="form-group">
+            <label><i class="fa-solid fa-calendar-check" style="color:#5C6BC0"></i> Periodicidade de pagamento / recibo de benefícios</label>
+            <select id="emp-benef-periodicidade">
+              <option value="diario">Diário</option>
+              <option value="semanal">Semanal</option>
+              <option value="quinzenal">Quinzenal</option>
+              <option value="mensal">Mensal</option>
+            </select>
+            <small style="color:var(--text-muted)">Usada para FILTRAR quem pagar na tela de Benefícios e para agrupar o recibo enviado ao colaborador. Não muda o cálculo de VT/VR acima.</small>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
             <label><i class="fa-solid fa-bus" style="color:#4fc3f7"></i> Modalidade de Transporte</label>
             <select id="emp-tipo-transporte" onchange="onTipoTransporteChange()">
               <option value="vt">VT — Vale Transporte (creditado na plataforma)</option>
@@ -3947,6 +3976,17 @@
           Holerites (recibos de pagamento) que o colaborador conferiu e assinou (ou aceitou por silêncio após 48h sem ação) via app. Cada um tem hash SHA-256 — assinatura eletrônica simples (MP 2.200-2/2001).
         </div>
         <div id="holerites-assinados-list">
+          <div style="font-size:12px;color:#94a3b8;padding:8px 2px">Carregando...</div>
+        </div>
+      </div>
+
+      <!-- Tab: Recibos de Benefício — recibos de VT/VR/VA que o colab conferiu/assinou via app. -->
+      <div class="tab-pane" id="tab-recibos-beneficio">
+        <div class="info-banner">
+          <i class="fa-solid fa-receipt"></i>
+          Recibos de benefícios (VT/VR/VA) enviados ao colaborador para conferência. Ele visualiza, assina (hash SHA-256) ou contesta no app; sem ação em 24h vira aceite tácito. Baixe cada recibo em PNG ou PDF para o arquivo.
+        </div>
+        <div id="recibos-beneficio-list">
           <div style="font-size:12px;color:#94a3b8;padding:8px 2px">Carregando...</div>
         </div>
       </div>
@@ -7080,6 +7120,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260614a-refeicao-nao-rendida"></script>
+  <script src="app.js?v=20260614b-beneficios-recibo"></script>
 </body>
 </html>

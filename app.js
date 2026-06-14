@@ -2480,12 +2480,14 @@ function renderDashboard(){
     totalBenSemana += b.total;
   });
   // HE Pendente de revisão: percorre payrolls do mês e conta dias com divergência > tolerância e status pendente
-  let heRevisaoEmps = 0, heRevisaoDias = 0;
+  let heRevisaoEmps = 0, heRevisaoDias = 0, heRevisaoRef = 0;
   payThisMonth.forEach(p => {
     const emp = State.employees.find(e=>e.id===p.employeeId);
     if(!emp || emp.isentoPonto || !p.pontoManualDias) return;  // isento não tem HE
     let hasPendente = false;
     p.pontoManualDias.forEach(d => {
+      // Pedido de refeição não rendida aguardando o supervisor. #ref-nao-rendida-solicitada
+      if(d.refExtra && d.refExtra.status==='pendente'){ heRevisaoRef++; hasPendente = true; }
       if(!d.entrada || !d.saida) return;
       const exp = _getExpectedDayComp(emp, p.mes, p.ano, d.dia);
       // NÃO pula folga: _detectHEDivergencia é a fonte única (folga trabalhada =
@@ -2519,8 +2521,8 @@ function renderDashboard(){
     onclick:"showSection('postos')", title:'Ver postos de trabalho'})});
   if(heRevisaoEmps>0) catalogo.push({key:'heRevisao', html:_statCard({label:'Pendentes de revisar HE', value:heRevisaoEmps, icon:'fa-magnifying-glass',
     accent:'#E65100', iconBg:'#FFF3E0', iconColor:'#E65100', valueColor:'#E65100',
-    sub:`<i class="fa-solid fa-triangle-exclamation"></i> ${heRevisaoDias} dia(s) — clique pra revisar`, subColor:'#E65100',
-    onclick:"_dashGotoHEReview()", title:'Colaboradores com HE acima da tolerância CLT aguardando revisão'})});
+    sub:`<i class="fa-solid fa-triangle-exclamation"></i> ${heRevisaoDias} dia(s) de HE${heRevisaoRef?` + <span style="color:#6A1B9A">${heRevisaoRef} refeição</span>`:''} — clique pra revisar`, subColor:'#E65100',
+    onclick:"_dashGotoHEReview()", title:'Colaboradores com HE acima da tolerância CLT e/ou refeição não rendida aguardando revisão'})});
   {
     const pendAprov=(State.solicitacoes||[]).filter(s=>s.status==='pendente');
     const md=getUserModules(Auth.currentUser);
@@ -4536,7 +4538,7 @@ function _repararBatidasDia(pd, exp){
 // do espelho da folha (_buildFolhaHtmlFromRecord) — manter em sincronia p/ os
 // números da Contabilidade baterem com a folha impressa. #folha-detalhada
 function _apuracaoPontoTotais(emp, p){
-  const out={trabMin:0,prevMin:0,atrasoMin:0,extraMin:0,faltaMin:0,faltaQtd:0,naoRendMin:0};
+  const out={trabMin:0,prevMin:0,atrasoMin:0,extraMin:0,faltaMin:0,faltaQtd:0,naoRendMin:0,naoRendAprovadoMin:0};
   if(!emp || !p) return out;
   if(emp.isentoPonto) return out;
   const mes=p.mes, ano=p.ano;
@@ -4568,6 +4570,11 @@ function _apuracaoPontoTotais(emp, p){
     if(!ehFolga&&temBatida){ const _ir=_calcIntervaloMin(intIni,intFim,entrada,saida); const delta=is12x36?((minLiq+_ir)-(prevMin+contratualIntMin)):(minLiq-prevMin); if(delta<0&&Math.abs(delta)>HE_TOLERANCIA_DIA_MIN){ out.atrasoMin+=-delta; } const _nr=Math.max(0,contratualIntMin-_ir); out.naoRendMin+=(_nr>HE_TOLERANCIA_DIA_MIN?_nr:0); }   /* ref. não rendida só conta acima da tolerância 10min/dia (Súmula 366). #ref-tolerancia */
     else if(!ehFolga&&!temBatida&&temPonto&&_diaEmBrancoEhFalta(emp,cd.mes,cd.ano,d,isWknd,is12x36)){ out.faltaMin+=prevMin; out.faltaQtd++; }
     out.trabMin+=(minLiq>0?minLiq:0); out.prevMin+=prevMin;
+    // Refeição não rendida SOLICITADA pelo colaborador (app) e APROVADA pelo supervisor.
+    // Conta os minutos do pedido independente de folga/feriado (caso típico: trabalha
+    // sozinho corrido em feriado/sáb/dom). Paga 50% indenizatório só p/ quem NÃO é
+    // semRefeicao (esses já recebem por naoRendMin). #ref-nao-rendida-solicitada
+    if(pd.refExtra && pd.refExtra.status==='aprovado'){ out.naoRendAprovadoMin += (+pd.refExtra.min||0); }
   }
   // SEM ponto lançado no registro → NÃO conta todo dia previsto como falta (isso fazia
   // a contabilidade mostrar Faltas = Horas Previstas pra quem tem 0 faltas). Usa o nº de
@@ -11494,10 +11501,15 @@ function recalculate(){
   // (CLT art. 71 §4) → NÃO-tributável: entra só no líquido (igual provNtrib), fora da
   // base de INSS/IRRF/FGTS. O tempo em si já é jornada normal no salário deles (semRefeicao
   // zera o intervalo no esperado) → paga-se só os 50%. #ref-nao-rendida #folha-detalhada
+  // Dois caminhos de pagamento:
+  //  (a) semRefeicao=true → trabalha sozinho SEMPRE → paga TODA refeição não rendida apurada.
+  //  (b) demais → paga só os dias em que o colaborador SOLICITOU no app E o supervisor
+  //      APROVOU (naoRendAprovadoMin). Caso típico: zelador que goza o almoço nos dias
+  //      úteis (o colega rende) mas trabalha corrido sozinho em feriado/sáb/dom. #ref-nao-rendida-solicitada
   let refNaoRendidaMin=0, refNaoRendidaValor=0;
-  if(emp && emp.semRefeicao && !isentoPonto && salBase>0){
+  if(emp && !isentoPonto && salBase>0){
     const _apNR=_apuracaoPontoTotais(emp,{mes:_mesR,ano:_anoR,pontoManualDias:_pontoDiasR});
-    refNaoRendidaMin=_apNR.naoRendMin;
+    refNaoRendidaMin = emp.semRefeicao ? _apNR.naoRendMin : _apNR.naoRendAprovadoMin;
     refNaoRendidaValor=+((refNaoRendidaMin/60)*valorHora*(_paramLegal('refNaoRendidaPerc')/100)).toFixed(2);
   }
   setVal('payroll-ref-nao-rendida-min', refNaoRendidaMin||'');
@@ -23442,6 +23454,8 @@ function _collectPontoManualDias(){
     });
     // Preserva heReview do dia (decisão de aprovação)
     if(existingDay.heReview) obj.heReview = existingDay.heReview;
+    // Preserva o pedido de refeição não rendida (solicitação/decisão). #ref-nao-rendida-solicitada
+    if(existingDay.refExtra) obj.refExtra = existingDay.refExtra;
     // Preserva aprovação do benefício de feriado trabalhado. #feriados
     if(existingDay.feriadoBenefOk) obj.feriadoBenefOk = existingDay.feriadoBenefOk;
     dias.push(obj);
@@ -23600,7 +23614,7 @@ function _diaEmBrancoEhFalta(emp, mes, ano, dia, isWeekend, is12x36){
 
 function calcResumoManual(){
   const cards=_getPontoManualCards();
-  let diasTrabalhados=0, faltas=0, totalHEmin=0, totalAtrasoMin=0, pendentes=0;
+  let diasTrabalhados=0, faltas=0, totalHEmin=0, totalAtrasoMin=0, pendentes=0, refPendentes=0;
   const empId=val('payroll-employee');
   const emp=State.employees.find(e=>e.id===empId);
   const mes=parseInt(val('payroll-mes'));
@@ -23661,6 +23675,10 @@ function calcResumoManual(){
     } else if(!entrada&&!saida && _diaEmBrancoEhFalta(emp,rmes,rano,dia,isWeekend,is12x36)) faltas++;
   });
   _fdsLivreCtxDias=null; _fdsLivreCtxEmp=null;
+  // Pedidos de refeição não rendida pendentes (vêm do payroll, não dos cards do DOM). #ref-nao-rendida-solicitada
+  if(existingPayroll && Array.isArray(existingPayroll.pontoManualDias)){
+    refPendentes = existingPayroll.pontoManualDias.filter(d=>d.refExtra && d.refExtra.status==='pendente').length;
+  }
   const diasEl=document.getElementById('ponto-resumo-dias');
   const faltasEl=document.getElementById('ponto-resumo-faltas');
   const heEl=document.getElementById('ponto-resumo-he');
@@ -23671,9 +23689,12 @@ function calcResumoManual(){
   if(heEl)     heEl.textContent=totalHEmin>0?minutesToStr(totalHEmin):'0h';
   if(atrasoEl) atrasoEl.textContent=totalAtrasoMin>0?minutesToStr(totalAtrasoMin):'0h';
   if(pendEl){
-    if(pendentes>0){
+    if(pendentes>0 || refPendentes>0){
       pendEl.style.display='';
-      pendEl.innerHTML=`<i class="fa-solid fa-triangle-exclamation" style="color:#E65100"></i> <strong>${pendentes} dia(s)</strong> com HE acima da tolerância — <a href="#" onclick="openHEReview();return false" style="color:#E65100;font-weight:700;text-decoration:underline">revisar agora</a>`;
+      const _parts=[];
+      if(pendentes>0)    _parts.push(`<strong>${pendentes} dia(s)</strong> com HE acima da tolerância`);
+      if(refPendentes>0) _parts.push(`<strong style="color:#6A1B9A">${refPendentes} refeição(ões) não rendida(s)</strong> a aprovar`);
+      pendEl.innerHTML=`<i class="fa-solid fa-triangle-exclamation" style="color:#E65100"></i> ${_parts.join(' · ')} — <a href="#" onclick="openHEReview();return false" style="color:#E65100;font-weight:700;text-decoration:underline">revisar agora</a>`;
     } else {
       pendEl.style.display='none';
     }
@@ -23690,6 +23711,8 @@ function _payrollTemPendente(payroll){
   const emp = State.employees.find(e=>e.id===payroll.employeeId);
   if(!emp || emp.isentoPonto) return false;  // isento (CLT Art. 62) não tem HE a revisar
   return payroll.pontoManualDias.some(d => {
+    // Pedido de refeição não rendida aguardando o supervisor. #ref-nao-rendida-solicitada
+    if(d.refExtra && d.refExtra.status==='pendente') return true;
     if(!d.entrada || !d.saida) return false;
     const exp = _getExpectedDayComp(emp, payroll.mes, payroll.ano, d.dia);
     if(!exp) return false; // folga NÃO é pulada — _detectHEDivergencia trata folga trabalhada. #he-folga-consistencia
@@ -23724,9 +23747,11 @@ function _getPendentesHEList(mes, ano){
     const emp = State.employees.find(e=>e.id===p.employeeId);
     if(!emp || emp.isentoPonto || !p.pontoManualDias) return;  // isento não tem HE
     if(!_empNoEscopo(emp)) return; // respeita o escopo de postos do supervisor
-    let nDias = 0, totalMin = 0;
+    let nDias = 0, totalMin = 0, nRef = 0;
     const detalhes = [];
     p.pontoManualDias.forEach(d => {
+      // Pedido de refeição não rendida aguardando aprovação. #ref-nao-rendida-solicitada
+      if(d.refExtra && d.refExtra.status==='pendente') nRef++;
       if(!d.entrada || !d.saida) return;
       const exp = _getExpectedDayComp(emp, p.mes, p.ano, d.dia);
       // NÃO pula folga: _detectHEDivergencia é a fonte única (folga trabalhada =
@@ -23740,9 +23765,9 @@ function _getPendentesHEList(mes, ano){
         detalhes.push({ dia: d.dia, totalMin: detec.totalMin, motivos: detec.motivos||[] });
       }
     });
-    if(nDias > 0){
+    if(nDias > 0 || nRef > 0){
       const posto = emp.posto || '—';
-      list.push({ emp, posto, payroll: p, nDias, totalMin, detalhes });
+      list.push({ emp, posto, payroll: p, nDias, totalMin, detalhes, nRef });
     }
   });
   list.sort((a,b) => (a.emp.nome||'').localeCompare(b.emp.nome||''));
@@ -23760,11 +23785,13 @@ function openPendentesHEList(){
   const lista = _getPendentesHEList(mes, ano);
   const totalDias = lista.reduce((s,l)=>s+l.nDias, 0);
   const totalMin  = lista.reduce((s,l)=>s+l.totalMin, 0);
+  const totalRef  = lista.reduce((s,l)=>s+(l.nRef||0), 0);
   document.getElementById('pendentes-he-info').innerHTML =
     `<strong>Período:</strong> ${MESES[mes]}/${ano} &middot; ` +
     `<strong>${lista.length}</strong> colaborador(es) pendente(s) &middot; ` +
-    `<strong>${totalDias}</strong> dia(s) totais &middot; ` +
-    `<strong>${minutesToStr(totalMin)}</strong> de divergência acumulada`;
+    `<strong>${totalDias}</strong> dia(s) de HE &middot; ` +
+    `<strong>${minutesToStr(totalMin)}</strong> de divergência` +
+    (totalRef ? ` &middot; <strong style="color:#6A1B9A">${totalRef}</strong> refeição(ões) a aprovar` : '');
   const listEl = document.getElementById('pendentes-he-list');
   if(!lista.length){
     listEl.innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-check" style="color:#1B5E20"></i><p>Nenhuma HE pendente neste mês.</p></div>';
@@ -23795,7 +23822,8 @@ function openPendentesHEList(){
       <td style="padding:8px 10px;border-bottom:1px solid #EEF2F7;font-size:12px">${l.posto}</td>
       <td style="padding:8px 10px;text-align:center;border-bottom:1px solid #EEF2F7">
         <strong style="color:#E65100;font-size:15px">${l.nDias}</strong>
-        <br><small style="color:var(--text-muted)">dia(s): ${diasLabel}</small>
+        ${l.nDias?`<br><small style="color:var(--text-muted)">dia(s): ${diasLabel}</small>`:''}
+        ${l.nRef?`<div style="margin-top:4px"><span style="background:#F3E5F5;color:#6A1B9A;border:1px solid #CE93D8;border-radius:10px;padding:1px 8px;font-size:11px;font-weight:700"><i class="fa-solid fa-utensils"></i> ${l.nRef} refeição</span></div>`:''}
       </td>
       <td style="padding:8px 10px;text-align:right;border-bottom:1px solid #EEF2F7">
         <strong style="color:#E65100">${minutesToStr(l.totalMin)}</strong>
@@ -23877,15 +23905,82 @@ async function openHEReview(){
   const _ovrAviso = (_ovr.length && linhas.length)
     ? `<div style="margin-top:6px;padding:6px 10px;background:#FFF8E1;border:1px solid #F9A825;border-radius:4px;color:#E65100;font-size:12px"><i class="fa-solid fa-triangle-exclamation"></i> Este colaborador tem <strong>${_ovr.length} dia(s) avulso(s)</strong> neste período (${_ovr.map(o=>_fmtDtBr(o.data)).join(', ')}). Eles têm <strong>prioridade sobre a escala</strong> — se uma divergência abaixo não fizer sentido, confira/remova no cadastro (bloco "Dias avulsos").</div>`
     : '';
+  // Pedidos de refeição não rendida (colaborador marcou "trabalhei sem intervalo" no app)
+  const refDias = dias.filter(d => d.refExtra && d.refExtra.status).sort((a,b)=>a.dia-b.dia);
+  const refPend = refDias.filter(d => d.refExtra.status==='pendente').length;
   document.getElementById('he-review-info').innerHTML =
-    `<strong>${emp.nome}</strong> &middot; ${MESES[mes]}/${ano} &middot; <strong>${linhas.length}</strong> dia(s) com divergência acima de 10min/dia` + _ovrAviso;
+    `<strong>${emp.nome}</strong> &middot; ${MESES[mes]}/${ano} &middot; <strong>${linhas.length}</strong> dia(s) com divergência acima de 10min/dia` +
+    (refPend ? ` &middot; <strong style="color:#6A1B9A">${refPend}</strong> refeição(ões) não rendida(s) a aprovar` : '') + _ovrAviso;
   const listEl = document.getElementById('he-review-list');
-  if(!linhas.length){
-    listEl.innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-check" style="color:#1B5E20"></i><p>Nenhuma divergência acima da tolerância CLT neste mês.</p></div>';
-  } else {
-    listEl.innerHTML = linhas.map(({d,expected,detec}) => _renderHEReviewRow(d, expected, detec)).join('');
+  let html = '';
+  if(refDias.length){
+    html += `<div style="margin:2px 0 10px;padding:8px 12px;background:#F3E5F5;border:1px solid #CE93D8;border-radius:6px;color:#6A1B9A;font-size:13px;font-weight:700"><i class="fa-solid fa-utensils"></i> Refeição não rendida — pedidos do colaborador (trabalhou sem intervalo)</div>`;
+    html += refDias.map(d => _renderRefExtraReviewRow(d)).join('');
   }
+  if(linhas.length){
+    if(refDias.length) html += `<div style="margin:14px 0 8px;padding:8px 12px;background:#FFF3E0;border:1px solid #FFCC80;border-radius:6px;color:#E65100;font-size:13px;font-weight:700"><i class="fa-solid fa-business-time"></i> Horas extras — dias com divergência</div>`;
+    html += linhas.map(({d,expected,detec}) => _renderHEReviewRow(d, expected, detec)).join('');
+  }
+  if(!html){
+    html = '<div class="empty-state"><i class="fa-solid fa-circle-check" style="color:#1B5E20"></i><p>Nenhuma divergência de HE nem refeição não rendida pendente neste mês.</p></div>';
+  }
+  listEl.innerHTML = html;
   document.getElementById('modal-he-review').classList.remove('hidden');
+}
+
+// Card de aprovação de um pedido de refeição não rendida (1 dia). Espelha o visual
+// dos cards de HE; status guardado em data-refextra-status p/ o saveHEReview coletar.
+function _renderRefExtraReviewRow(d){
+  const re = d.refExtra || {};
+  const status = re.status || 'pendente';
+  const min = +re.min || 60;
+  const obs = re.observacao || '';
+  const sem = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][d.diaSem] || '';
+  const decidido = re.aprovadoPor
+    ? `<small style="color:#1B5E20">aprovada por <strong>${re.aprovadoPor}</strong>${re.aprovadoEm?` em ${new Date(re.aprovadoEm).toLocaleDateString('pt-BR')}`:''}</small>`
+    : (re.recusadoPor ? `<small style="color:#B71C1C">recusada por <strong>${re.recusadoPor}</strong>${re.recusadoEm?` em ${new Date(re.recusadoEm).toLocaleDateString('pt-BR')}`:''}</small>` : '');
+  const solic = re.solicitadoEm ? `<div style="font-size:11px;color:#888">Solicitado pelo colaborador em ${new Date(re.solicitadoEm).toLocaleDateString('pt-BR')}</div>` : '';
+  return `<div class="refextra-review-card" data-dia="${d.dia}" data-refextra-status="${status}"
+       style="border:1.5px solid #CE93D8;border-radius:8px;padding:10px 14px;margin-bottom:10px;background:#fff">
+    <div style="display:flex;justify-content:space-between;align-items:start;gap:10px;flex-wrap:wrap">
+      <div>
+        <div style="font-weight:700;font-size:14px;color:#6A1B9A"><i class="fa-solid fa-utensils"></i> Dia ${String(d.dia).padStart(2,'0')} (${sem}) — refeição não rendida</div>
+        <div style="font-size:12px;color:#666;margin-top:3px">Colaborador declarou que trabalhou <strong>sem fazer o intervalo</strong> neste dia.</div>
+        ${solic}
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;min-width:280px">
+        <div style="display:flex;gap:4px;flex-wrap:wrap">
+          <button type="button" data-act="aprovado" onclick="_selectRefExtra(this,'aprovado')" style="flex:1;padding:6px 10px;border:1.5px solid ${status==='aprovado'?'#1B5E20':'#CFD8DC'};background:${status==='aprovado'?'#E8F5E9':'#fff'};color:${status==='aprovado'?'#1B5E20':'#666'};border-radius:4px;cursor:pointer;font-weight:600;font-size:12px"><i class="fa-solid fa-circle-check"></i> Aprovar</button>
+          <button type="button" data-act="pendente" onclick="_selectRefExtra(this,'pendente')" style="flex:1;padding:6px 10px;border:1.5px solid ${status==='pendente'?'#E65100':'#CFD8DC'};background:${status==='pendente'?'#FFF3E0':'#fff'};color:${status==='pendente'?'#E65100':'#666'};border-radius:4px;cursor:pointer;font-weight:600;font-size:12px"><i class="fa-solid fa-clock"></i> Pendente</button>
+          <button type="button" data-act="recusado" onclick="_selectRefExtra(this,'recusado')" title="Não pagar — o colaborador gozou o intervalo / não trabalhou corrido." style="flex:1;padding:6px 10px;border:1.5px solid ${status==='recusado'?'#B71C1C':'#CFD8DC'};background:${status==='recusado'?'#FFEBEE':'#fff'};color:${status==='recusado'?'#B71C1C':'#666'};border-radius:4px;cursor:pointer;font-weight:600;font-size:12px"><i class="fa-solid fa-ban"></i> Não pagar</button>
+        </div>
+        <div class="refextra-min-row" style="display:${status==='aprovado'?'flex':'none'};gap:6px;align-items:center">
+          <label style="font-size:11px;color:#666;font-weight:600">Minutos:</label>
+          <input type="number" class="refextra-min" min="1" max="240" value="${min}" style="width:70px;padding:4px;font-size:12px;border:1px solid #CFD8DC;border-radius:4px">
+          <small style="color:#888">× 50% sobre o valor-hora (indenizatório)</small>
+        </div>
+        <input type="text" class="refextra-obs" placeholder="${status==='recusado'?'Motivo da recusa (obrigatório)':'Observação (opcional)'}" value="${obs.replace(/"/g,'&quot;')}" style="font-size:11px;padding:4px 6px;border:1px solid ${status==='recusado'?'#EF9A9A':'#CFD8DC'};border-radius:4px">
+        ${decidido?`<div style="font-size:10px;text-align:right">${decidido}</div>`:''}
+      </div>
+    </div>
+  </div>`;
+}
+
+// Seleciona a decisão de um pedido de refeição não rendida (igual ao _selectHEReview)
+function _selectRefExtra(btn, action){
+  const card = btn.closest('.refextra-review-card');
+  if(!card) return;
+  card.dataset.refextraStatus = action;
+  card.querySelectorAll('[data-act]').forEach(b => {
+    const on = b.dataset.act === action;
+    const cor = action==='aprovado'?'#1B5E20':(action==='recusado'?'#B71C1C':'#E65100');
+    const bg  = action==='aprovado'?'#E8F5E9':(action==='recusado'?'#FFEBEE':'#FFF3E0');
+    b.style.borderColor = on ? cor : '#CFD8DC';
+    b.style.background   = on ? bg  : '#fff';
+    b.style.color        = on ? cor : '#666';
+  });
+  const minRow = card.querySelector('.refextra-min-row');
+  if(minRow) minRow.style.display = (action==='aprovado') ? 'flex' : 'none';
 }
 
 function _renderHEReviewRow(d, expected, detec){
@@ -24082,6 +24177,31 @@ async function saveHEReview(){
       };
     }
   });
+  // Decisões dos pedidos de refeição não rendida (cards roxos). #ref-nao-rendida-solicitada
+  const refDecisoes = {};
+  document.querySelectorAll('#he-review-list .refextra-review-card').forEach(card => {
+    const dia = parseInt(card.dataset.dia);
+    const status = card.dataset.refextraStatus || 'pendente';
+    const min = Math.max(1, parseInt(card.querySelector('.refextra-min')?.value)||60);
+    const obs = card.querySelector('.refextra-obs')?.value || '';
+    refDecisoes[dia] = {
+      status,
+      min: status==='aprovado' ? min : (min||60),
+      observacao: obs,
+      aprovadoPor: (status==='aprovado') ? Auth.currentUser?.username : null,
+      aprovadoEm:  (status==='aprovado') ? new Date().toISOString() : null,
+      recusadoPor: (status==='recusado') ? Auth.currentUser?.username : null,
+      recusadoEm:  (status==='recusado') ? new Date().toISOString() : null
+    };
+  });
+  // Recusar refeição não rendida exige motivo (auditoria)
+  const refRecusadosSemMotivo = Object.entries(refDecisoes)
+    .filter(([dia,dec]) => dec.status==='recusado' && !(dec.observacao||'').trim())
+    .map(([dia]) => dia);
+  if(refRecusadosSemMotivo.length){
+    toast(`Informe o motivo da recusa da refeição no(s) dia(s): ${refRecusadosSemMotivo.join(', ')}.`, 'error');
+    return;
+  }
   // Recusar HE exige motivo registrado (auditoria — "funcionário esperto")
   const recusadosSemMotivo = Object.entries(decisoes)
     .filter(([dia,dec]) => dec.status==='recusado' && !(dec.observacao||'').trim())
@@ -24097,6 +24217,11 @@ async function saveHEReview(){
     const dec = decisoes[d.dia];
     const ed  = edicoes[d.dia];
     let out = { ...d };
+    // Decisão do pedido de refeição não rendida (preserva os campos de origem). #ref-nao-rendida-solicitada
+    const refDec = refDecisoes[d.dia];
+    if(refDec && out.refExtra){
+      out.refExtra = { ...out.refExtra, ...refDec };
+    }
     if(ed){
       // Aplica edição inline + marca origem='manual' nos campos editados
       ['entrada','saida','intIni','intFim'].forEach(k => {
@@ -24120,11 +24245,10 @@ async function saveHEReview(){
     }
     return out;
   });
-  // Se modal Ponto Manual está aberto, atualiza os dados em memória direto
-  if(_getPontoManualCards().length){
-    // Aplica também no payroll do State
-    payroll.pontoManualDias = newDias;
-  }
+  // Aplica os dias revisados no payroll do State ANTES do recalculate, pra ele
+  // enxergar tanto a HE quanto a refeição não rendida aprovada (recalculate lê
+  // pontoManualDias do State quando o Ponto Manual não está aberto). #ref-nao-rendida-solicitada
+  payroll.pontoManualDias = newDias;
   const btn = document.querySelector('#modal-he-review .btn-primary');
   if(btn) setBtnLoading(btn, true, '');
   try {
@@ -24148,6 +24272,9 @@ async function saveHEReview(){
       updated.inss              = numVal('payroll-inss')||0;
       updated.irrf              = numVal('payroll-irrf')||0;
       updated.fgts              = numVal('payroll-fgts')||0;
+      // Snapshot da refeição não rendida (vem do recalculate p/ o recibo/holerite). #ref-nao-rendida-solicitada
+      updated.refNaoRendidaMin   = numVal('payroll-ref-nao-rendida-min')||0;
+      updated.refNaoRendidaValor = numVal('payroll-ref-nao-rendida-valor')||0;
       updated.totalLiquidoFinal = numVal('payroll-total-liquido-final')||updated.totalLiquidoFinal||0;
     } else {
       // Folha não está na tela: recalcula o valor de HE direto.
@@ -24155,6 +24282,12 @@ async function saveHEReview(){
       const percRev    = parseInt(payroll.horasExtrasPerc)||50;
       updated.horasExtrasValor = (payroll.heDestino==='banco') ? 0
         : (heHorasRev>0 && salBaseRev>0 ? +(heHorasRev*(salBaseRev/220)*(1+percRev/100)).toFixed(2) : 0);
+      // Refeição não rendida (off-screen): recomputa direto dos dias revisados. #ref-nao-rendida-solicitada
+      const _apNRrev = _apuracaoPontoTotais(empObj, { mes, ano, pontoManualDias:newDias });
+      const _refMinRev = empObj?.semRefeicao ? _apNRrev.naoRendMin : _apNRrev.naoRendAprovadoMin;
+      updated.refNaoRendidaMin   = _refMinRev;
+      updated.refNaoRendidaValor = (_refMinRev>0 && salBaseRev>0)
+        ? +((_refMinRev/60)*(salBaseRev/220)*(_paramLegal('refNaoRendidaPerc')/100)).toFixed(2) : 0;
     }
     updated.updatedAt = new Date().toISOString();
     await DB.save('payrolls', updated);
@@ -24705,6 +24838,10 @@ function printFolhaPonto(isPreview=false){
     } else if(!ehFolga && !temBatida && _diaEmBrancoEhFalta(emp,cd.mes,cd.ano,d,isWknd,is12x36)){
       faltaMin = prevMin; totFaltaQtd++;
     }
+    // Refeição não rendida exibida por dia: quem NÃO é semRefeicao só mostra (e recebe)
+    // o pedido APROVADO pelo supervisor — alinha a coluna ao valor pago. Vale também em
+    // folga/feriado trabalhado (caso típico do zelador sozinho). #ref-nao-rendida-solicitada
+    if(!emp.semRefeicao){ naoRendMin = (pontodia.refExtra && pontodia.refExtra.status==='aprovado') ? (+pontodia.refExtra.min||0) : 0; }
     totTrab += (minLiq>0?minLiq:0); totPrev += prevMin; totAtraso += atrasoMin;
     totExtra += extraMin; totFaltaMin += faltaMin; totNaoRend += naoRendMin;
 
@@ -25092,6 +25229,10 @@ function _buildFolhaHtmlFromRecord(emp, p){
     } else if(!ehFolga && !temBatida && _diaEmBrancoEhFalta(emp,cd.mes,cd.ano,d,isWknd,is12x36)){
       faltaMin = prevMin; totFaltaQtd++;
     }
+    // Refeição não rendida exibida por dia: quem NÃO é semRefeicao só mostra (e recebe)
+    // o pedido APROVADO pelo supervisor — alinha a coluna ao valor pago. Vale também em
+    // folga/feriado trabalhado (caso típico do zelador sozinho). #ref-nao-rendida-solicitada
+    if(!emp.semRefeicao){ naoRendMin = (pontodia.refExtra && pontodia.refExtra.status==='aprovado') ? (+pontodia.refExtra.min||0) : 0; }
     totTrab += (minLiq>0?minLiq:0); totPrev += prevMin; totAtraso += atrasoMin;
     totExtra += extraMin; totFaltaMin += faltaMin; totNaoRend += naoRendMin;
 

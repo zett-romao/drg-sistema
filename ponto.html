@@ -353,6 +353,9 @@
           </button>
         </div>
 
+        <!-- Refeição não rendida: dia em que trabalhou SEM fazer intervalo (vai p/ aprovação do supervisor) -->
+        <div id="ref-extra-wrap" style="text-align:center;margin-top:10px"></div>
+
       </div>
     </div>
 
@@ -532,7 +535,7 @@ try{ window.__APP_BOOTED = true; }catch(_){}
 // ─── VERSÃO DO APP DO COLABORADOR ─────────────────────────────────────────────
 // Bumpe SEMPRE em conjunto com o CACHE do ponto-sw.js e o ?v= do firebase-config.
 // Formato: AA.MM.DD + letra (a, b, c...) — alinhado com o nome do cache.
-const PONTO_VERSION = '25.06.08a';
+const PONTO_VERSION = '26.06.14a';
 // Exibe a versão no rodapé (script roda após o DOM, então o elemento já existe)
 (function _setVersionTag(){
   const t = document.getElementById('app-version-tag');
@@ -594,7 +597,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=31').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=32').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -1013,6 +1016,72 @@ function renderHoje() {
     if (v) { el.style.color = ''; wrap.classList.add('done'); }
     else   { el.style.color = '#cbd5e1'; wrap.classList.remove('done'); }
   });
+  renderRefExtra();
+}
+
+// ─── REFEIÇÃO NÃO RENDIDA (trabalhou sem fazer o intervalo) ───────────────────
+// O colaborador sinaliza que HOJE trabalhou sem o intervalo de refeição. Vira um
+// pedido PENDENTE no dia (não entra na folha agora); o supervisor aprova/recusa na
+// folha e só depois paga os 50% (indenizatório). #ref-nao-rendida-solicitada
+function _refExtraDefaultMin(){
+  const ri = currentEmp && currentEmp.horarioRefIni, rf = currentEmp && currentEmp.horarioRefFim;
+  if(ri && rf){ let m = timeToMin(rf) - timeToMin(ri); if(m<0) m+=1440; if(m>0) return m; }
+  return 60;   // jornada > 6h: intervalo legal de 1h (CLT Art. 71)
+}
+function renderRefExtra(){
+  const wrap = document.getElementById('ref-extra-wrap');
+  if(!wrap) return;
+  const re = (getDiaHoje()||{}).refExtra;
+  if(re && re.status==='aprovado'){
+    wrap.innerHTML = `<div style="background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;padding:9px 14px;border-radius:10px;font-size:13px;font-weight:600">✅ Refeição não rendida de hoje aprovada (${re.min||60} min) — entra na sua folha.</div>`;
+    return;
+  }
+  if(re && re.status==='recusado'){
+    wrap.innerHTML = `<div style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;padding:9px 14px;border-radius:10px;font-size:13px;font-weight:600">⛔ Pedido de refeição não rendida de hoje recusado pelo supervisor.</div>`;
+    return;
+  }
+  if(re && re.status==='pendente'){
+    wrap.innerHTML = `<div style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:9px 14px;border-radius:10px;font-size:13px;font-weight:600">⏳ Pedido enviado — aguardando o supervisor.</div>
+      <button onclick="cancelarRefExtra()" style="margin-top:7px;background:none;border:1px solid #cbd5e1;color:#475569;padding:6px 14px;border-radius:10px;font-size:12px;font-weight:600;cursor:pointer">Cancelar pedido</button>`;
+    return;
+  }
+  wrap.innerHTML = `<button onclick="solicitarRefExtra()" style="background:none;border:1px solid #cbd5e1;color:#475569;padding:7px 16px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer">🍽 Trabalhei sem intervalo hoje</button>
+    <div style="font-size:11px;color:#94a3b8;margin-top:5px;line-height:1.4">Use só se HOJE você trabalhou sem fazer o intervalo de refeição.<br>O pedido vai para a aprovação do supervisor.</div>`;
+}
+async function solicitarRefExtra(){
+  if(!currentEmp){ toast('Recarregue o app e tente de novo.','error'); return; }
+  const j = _diaJornada();
+  const dias = [...(currentPayroll && currentPayroll.pontoManualDias || [])];
+  let day = dias.find(d => d.dia === j.dia);
+  if(day && day.refExtra && day.refExtra.status==='aprovado'){ toast('Já aprovado pelo supervisor.','success'); return; }
+  if(!confirm('Confirmar que HOJE você trabalhou SEM fazer o intervalo de refeição?\n\nO pedido vai para o supervisor. Só depois de aprovado entra na folha como refeição não rendida (50%).')) return;
+  if(!day){ day = { dia:j.dia, diaSem:new Date(j.ano,j.mes-1,j.dia).getDay(), entrada:'', saida:'', intIni:'', intFim:'' }; dias.push(day); }
+  day.refExtra = { status:'pendente', min:_refExtraDefaultMin(), solicitadoEm:new Date().toISOString(), solicitadoPor:'colaborador' };
+  const id = currentPayroll?.id || (Date.now().toString(36) + Math.random().toString(36).substr(2));
+  const record = { id, employeeId:currentEmp.id, mes:j.mes, ano:j.ano, pontoManualDias:dias, updatedAt:new Date().toISOString(), createdAt:currentPayroll?.createdAt || new Date().toISOString() };
+  try{
+    await dbCol('payrolls').doc(id).set(record, { merge:true });
+    currentPayroll = { ...(currentPayroll || {}), ...record };
+    toast('✅ Pedido enviado ao supervisor.','success');
+    renderRefExtra();
+  }catch(e){ console.error(e); toast('Erro ao enviar. Tente de novo.','error'); }
+}
+async function cancelarRefExtra(){
+  const j = _diaJornada();
+  const dias = [...(currentPayroll && currentPayroll.pontoManualDias || [])];
+  const day = dias.find(d => d.dia === j.dia);
+  if(!day || !day.refExtra){ renderRefExtra(); return; }
+  if(day.refExtra.status!=='pendente'){ toast('O supervisor já avaliou este pedido.','error'); renderRefExtra(); return; }
+  delete day.refExtra;
+  const id = currentPayroll?.id;
+  if(!id){ renderRefExtra(); return; }
+  const record = { id, employeeId:currentEmp.id, mes:j.mes, ano:j.ano, pontoManualDias:dias, updatedAt:new Date().toISOString() };
+  try{
+    await dbCol('payrolls').doc(id).set(record, { merge:true });
+    currentPayroll = { ...(currentPayroll || {}), ...record };
+    toast('Pedido cancelado.','');
+    renderRefExtra();
+  }catch(e){ console.error(e); toast('Erro ao cancelar.','error'); }
 }
 
 function getProxima() {

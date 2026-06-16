@@ -8867,13 +8867,18 @@ function _benefSelCount(){
 // "Excluir" da tela de Colaboradores (remove o cadastro + as folhas dele). É
 // DEFINITIVO → exige permissão de gestão de colaboradores + confirmação que lista
 // os nomes e o nº de folhas (duplicata real costuma ter 0). #benef-excluir-dup
-async function excluirColabsBenefSelecionados(){
+// Núcleo compartilhado: exclui os COLABORADORES dos ids dados (cadastro + folhas).
+// Usado pelos botões "Excluir selecionados (duplicados)" das telas de Benefícios e
+// de Adiantamento Quinzenal — para remover cadastros DUPLICADOS (a mesma pessoa
+// cadastrada 2+ vezes, cada cadastro vira 1 registro/folha → linhas repetidas).
+// Reaproveita o caminho do confirmDeleteEmployee. DEFINITIVO → permissão de gestão de
+// colaboradores + confirmação que lista nomes e nº de folhas. #benef-excluir-dup
+async function _excluirColabsDuplicados(ids, origem, reRender){
   if(!(getUserModules(Auth.currentUser).employees || Auth.currentUser?.role==='master')){
     toast('Você não tem permissão para excluir colaboradores.','error'); return;
   }
-  const chks=[...document.querySelectorAll('.benef-chk:checked')];
-  if(!chks.length){ toast('Marque os cadastros duplicados que quer excluir.','info'); return; }
-  const ids=[...new Set(chks.map(c=>c.dataset.empId).filter(Boolean))];   // dedup defensivo
+  ids=[...new Set((ids||[]).filter(Boolean))];   // dedup defensivo
+  if(!ids.length){ toast('Marque os cadastros duplicados que quer excluir.','info'); return; }
   const emps=ids.map(id=>(State.employees||[]).find(e=>e.id===id)).filter(Boolean);
   if(!emps.length){ toast('Nenhum colaborador encontrado para os itens marcados.','error'); return; }
   const folhasDe=e=>(State.payrolls||[]).filter(p=>p.employeeId===e.id).length;
@@ -8889,14 +8894,24 @@ async function excluirColabsBenefSelecionados(){
     try{
       const payIds=(State.payrolls||[]).filter(p=>p.employeeId===e.id).map(p=>p.id);
       await Promise.all([DB.remove('employees',e.id), ...payIds.map(pid=>DB.remove('payrolls',pid))]);
-      Auth.log('EMPLOYEE_DELETED', null, `[duplicado via Benefícios] ${e.nome} (CPF: ${e.cpf||'—'}, Posto: ${e.posto||'—'})`);
+      Auth.log('EMPLOYEE_DELETED', null, `[duplicado via ${origem}] ${e.nome} (CPF: ${e.cpf||'—'}, Posto: ${e.posto||'—'})`);
       const ix=(State.employees||[]).findIndex(x=>x.id===e.id); if(ix>=0) State.employees.splice(ix,1);
       State.payrolls=(State.payrolls||[]).filter(p=>p.employeeId!==e.id);
       ok++;
-    }catch(ex){ console.error('excluir dup benef:',ex); err++; }
+    }catch(ex){ console.error('excluir dup colab:',ex); err++; }
   }
   toast(`${ok} colaborador(es) excluído(s)${err?` · ${err} com erro`:''}.`, ok?'warning':'error');
-  if(ok){ renderBeneficiosLista(); _benefSelCount(); }
+  if(ok && typeof reRender==='function') reRender();
+}
+// Tela Benefícios a Pagar — checkbox .benef-chk (data-emp-id).
+function excluirColabsBenefSelecionados(){
+  const ids=[...document.querySelectorAll('.benef-chk:checked')].map(c=>c.dataset.empId);
+  _excluirColabsDuplicados(ids, 'Benefícios', ()=>{ renderBeneficiosLista(); _benefSelCount(); });
+}
+// Tela Adiantamento Quinzenal — checkbox .adiant-check (data-emp).
+function excluirColabsAdiantSelecionados(){
+  const ids=[...document.querySelectorAll('.adiant-check:checked')].map(c=>c.dataset.emp);
+  _excluirColabsDuplicados(ids, 'Adiantamento', renderAdiantamentos);
 }
 // Lupa: filtra a lista por nome / matrícula / setor / posto (ignora acento).
 function _benefFiltrar(q){

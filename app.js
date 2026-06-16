@@ -7328,6 +7328,18 @@ async function saveEmployee(){
   const nome=val('emp-nome'), cpf=val('emp-cpf');
   if(!nome){ toast('Nome obrigatório.','error'); return; }
   if(!cpf){  toast('CPF obrigatório.','error');  return; }
+  // Aviso de CPF DUPLICADO: se já existe OUTRO colaborador com o mesmo CPF, confirma
+  // antes de gravar — evita cadastros em duplicidade (que viram linhas repetidas em
+  // Adiantamento/Benefícios). NÃO bloqueia: o gestor pode confirmar se for proposital.
+  // Compara só os dígitos (ignora pontos/traços). Ao EDITAR, ignora o próprio registro. #cpf-duplicado
+  const _cpfDig = (cpf||'').replace(/\D/g,'');
+  if(_cpfDig){
+    const _dups = (State.employees||[]).filter(e => e && e.id!==State.editingEmployeeId && String(e.cpf||'').replace(/\D/g,'') === _cpfDig);
+    if(_dups.length){
+      const _quem = _dups.map(e=>`• ${e.nome||'—'}${(e.status&&e.status!=='ativo')?' (inativo)':''}`).join('\n');
+      if(!confirm(`Já existe ${_dups.length===1?'um cadastro':_dups.length+' cadastros'} com este CPF:\n\n${_quem}\n\nGravar assim mesmo cria uma CÓPIA (duplicidade). Deseja continuar?`)) return;
+    }
+  }
   const demissao=val('emp-data-demissao');
   let status=val('emp-status')||'ativo';
   if(demissao) status='inativo'; // auto-inativar se data de demissão preenchida

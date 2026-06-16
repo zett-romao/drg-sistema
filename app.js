@@ -8943,38 +8943,52 @@ async function restaurarColabsApagados(){
   };
   inp.click();
 }
-// Corrige FOLHAS duplicadas: o MESMO colaborador com 2+ folhas na MESMA competência
-// (a causa das linhas repetidas no Adiantamento). MANTÉM a folha mais completa de cada
+// Corrige FOLHAS duplicadas em TODAS as competências: o MESMO colaborador com 2+ folhas
+// na MESMA competência (causa das linhas repetidas). MANTÉM a folha mais completa de cada
 // um (fechada > paga > mais dias de ponto > mais recente) e remove as cópias. Mexe SÓ em
-// folhas (payrolls) — NUNCA apaga o colaborador. Mostra preview com os dias de cada
-// folha antes de confirmar. #corrige-folha-dup
+// folhas (payrolls) — NUNCA apaga o colaborador. TRAVA DE SEGURANÇA: se um caso tiver 2+
+// folhas COM ponto (risco de ponto espalhado), NÃO remove — separa p/ revisão manual.
+// Recarrega do banco antes de varrer e mostra preview. #corrige-folha-dup
 async function corrigirFolhasDuplicadas(){
   if(!(getUserModules(Auth.currentUser).employees || Auth.currentUser?.role==='master')){
     toast('Você não tem permissão para isso.','error'); return;
   }
-  const {mes,ano,comp}=_adiantMesAno();
-  const doComp=(State.payrolls||[]).filter(p=>p && p.mes==mes && p.ano==ano);
-  const porEmp={};
-  doComp.forEach(p=>{ (porEmp[p.employeeId]=porEmp[p.employeeId]||[]).push(p); });
-  // dedup defensivo por id + só grupos com 2+ folhas DISTINTAS
-  const grupos=Object.entries(porEmp).map(([empId,arr])=>{
-    const vistos=new Set(); const distintas=arr.filter(p=> p.id && !vistos.has(p.id) && vistos.add(p.id));
-    return [empId, distintas];
-  }).filter(([,arr])=>arr.length>1);
-  if(!grupos.length){ toast(`Nenhuma folha duplicada na competência ${comp}. (Se ainda aparecer repetido na tela, recarregue com Ctrl+F5.)`,'info'); return; }
+  try{ State.payrolls = await DB.getAll('payrolls'); }catch(_e){}   // varre o estado REAL
+  // Agrupa TODAS as folhas por colaborador + competência (ano|mes).
+  const porChave={};
+  (State.payrolls||[]).forEach(p=>{ if(p&&p.employeeId){ const k=`${p.employeeId}|${p.ano}|${p.mes}`; (porChave[k]=porChave[k]||[]).push(p); } });
   const diasDe=p=>Array.isArray(p.pontoManualDias)?p.pontoManualDias.filter(d=>d&&(d.entrada||d.saida)).length:0;
   const score=p=>(p.status==='fechada'?1e13:0)+(p.adiantamentoPagoExterno?1e12:0)+diasDe(p)*1e6+((Date.parse(p.updatedAt||p.createdAt)||0)/1e3);
-  const aRemover=[]; const linhasTxt=[];
-  grupos.forEach(([empId,arr])=>{
-    const emp=(State.employees||[]).find(e=>e.id===empId)||{};
-    const ord=arr.slice().sort((a,b)=>score(b)-score(a));
-    const manter=ord[0]; const remover=ord.slice(1);
-    aRemover.push(...remover);
-    const reg=emp.registro?String(emp.registro).padStart(4,'0'):'—';
-    linhasTxt.push(`• ${emp.nome||'—'} (Matr ${reg}): ${arr.length} folhas [dias de ponto: ${ord.map(diasDe).join(', ')}] → MANTÉM a de ${diasDe(manter)} dia(s)${manter.status==='fechada'?' (fechada)':''}, remove ${remover.length}`);
+  const nomeReg=p=>{ const e=(State.employees||[]).find(x=>x.id===p.employeeId)||{}; return `${e.nome||p.employeeId} (Matr ${e.registro?String(e.registro).padStart(4,'0'):'—'})`; };
+  const aRemover=[]; const okTxt=[]; const revisarTxt=[]; let nOk=0;
+  Object.values(porChave).forEach(arr=>{
+    const vistos=new Set(); const dist=arr.filter(p=> p.id && !vistos.has(p.id) && vistos.add(p.id));   // dedup por id
+    if(dist.length<2) return;                                        // não é duplicada
+    const ord=dist.slice().sort((a,b)=>score(b)-score(a));
+    const comp=`${MESES[ord[0].mes]||ord[0].mes}/${ord[0].ano}`;
+    const diasArr=ord.map(diasDe);
+    if(dist.filter(p=>diasDe(p)>0).length>=2){
+      // AMBÍGUO: 2+ folhas com ponto → não mexe; vai p/ revisão manual.
+      revisarTxt.push(`• ${nomeReg(ord[0])} — ${comp}: ${dist.length} folhas COM ponto [${diasArr.join(', ')}]`);
+    } else {
+      const manter=ord[0]; const remover=ord.slice(1);
+      aRemover.push(...remover); nOk++;
+      okTxt.push(`• ${nomeReg(manter)} — ${comp}: ${dist.length} folhas [${diasArr.join(', ')}] → mantém ${diasDe(manter)}${manter.status==='fechada'?' (fechada)':''}, remove ${remover.length}`);
+    }
   });
-  const msg=`Corrigir FOLHAS duplicadas — competência ${comp}.\n\nNÃO apaga colaborador. Só remove a folha REPETIDA, mantendo a mais completa de cada um:\n\n${linhasTxt.join('\n')}\n\nTotal a remover: ${aRemover.length} folha(s).\n\n⚠️ Se algum colaborador tiver 2+ folhas com dias de ponto DIFERENTES (ex.: [12, 8]), CANCELE e me avise — pode haver ponto espalhado em 2 folhas. Confirmar?`;
-  if(!confirm(msg)) return;
+  if(!aRemover.length && !revisarTxt.length){ toast('Nenhuma folha duplicada encontrada em nenhuma competência. 🎉','success'); return; }
+  const cap=(arr,n)=>arr.slice(0,n).join('\n')+(arr.length>n?`\n…e mais ${arr.length-n} caso(s).`:'');
+  let msg='';
+  if(aRemover.length){
+    msg+=`Vou corrigir ${nOk} caso(s) de folha duplicada (remove ${aRemover.length} folha(s) repetida(s), mantendo a mais completa). NÃO apaga colaborador:\n\n${cap(okTxt,20)}\n\n`;
+  } else {
+    msg+=`Não há caso SEGURO para corrigir automaticamente.\n\n`;
+  }
+  if(revisarTxt.length){
+    msg+=`⚠️ ${revisarTxt.length} caso(s) NÃO serão tocados (têm 2+ folhas COM ponto — pode haver lançamento espalhado em duas). Me mande estes para eu juntar à mão:\n\n${cap(revisarTxt,15)}\n\n`;
+  }
+  if(!aRemover.length){ alert(msg); return; }     // só avisa dos casos manuais, nada a remover
+  if(!confirm(msg+'Confirmar a remoção dos casos seguros?')) return;
   let ok=0, err=0;
   for(const p of aRemover){
     try{
@@ -8983,8 +8997,8 @@ async function corrigirFolhasDuplicadas(){
       ok++;
     }catch(ex){ console.error('corrigir folha dup',ex); err++; }
   }
-  Auth.log('PAYROLL_DEDUP', null, `Removidas ${ok} folha(s) duplicada(s) em ${comp}`);
-  toast(`${ok} folha(s) duplicada(s) removida(s)${err?` · ${err} erro(s)`:''}.`, ok?'success':'error');
+  Auth.log('PAYROLL_DEDUP', null, `Removidas ${ok} folha(s) duplicada(s) (varredura geral, ${nOk} casos; ${revisarTxt.length} p/ revisão manual)`);
+  toast(`${ok} folha(s) duplicada(s) removida(s)${err?` · ${err} erro(s)`:''}.${revisarTxt.length?` · ${revisarTxt.length} caso(s) p/ revisão manual.`:''}`, ok?'success':'error');
   if(typeof renderAdiantamentos==='function') renderAdiantamentos();
 }
 // Lupa: filtra a lista por nome / matrícula / setor / posto (ignora acento).

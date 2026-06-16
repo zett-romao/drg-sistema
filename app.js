@@ -4568,7 +4568,7 @@ function _apuracaoPontoTotais(emp, p){
     // HE = SÓ a AUTORIZADA — mesma fonte (_heMinDia) que o pagamento usa; HE não
     // aprovada na revisão não entra na apuração. Atraso/ref.não rendida seguem pelo déficit. #he-autorizada-folha
     if(temBatida){ out.extraMin += _heMinDia({...(_bat||{}), heReview: pd.heReview}, exp, _MCa); }
-    if(!ehFolga&&temBatida){ const _ir=_calcIntervaloMin(intIni,intFim,entrada,saida); const delta=is12x36?((minLiq+_ir)-(prevMin+contratualIntMin)):(minLiq-prevMin); if(delta<0&&Math.abs(delta)>HE_TOLERANCIA_DIA_MIN){ out.atrasoMin+=-delta; } const _nr=Math.max(0,contratualIntMin-_ir); out.naoRendMin+=(_nr>HE_TOLERANCIA_DIA_MIN?_nr:0); }   /* ref. não rendida só conta acima da tolerância 10min/dia (Súmula 366). #ref-tolerancia */
+    if(!ehFolga&&temBatida){ const _ir=_calcIntervaloMin(intIni,intFim,entrada,saida); const delta=(is12x36||_usaFdsLivreResolve(emp.escala))?((minLiq+_ir)-(prevMin+contratualIntMin)):(minLiq-prevMin); if(delta<0&&Math.abs(delta)>HE_TOLERANCIA_DIA_MIN){ out.atrasoMin+=-delta; } const _nr=Math.max(0,contratualIntMin-_ir); out.naoRendMin+=(_nr>HE_TOLERANCIA_DIA_MIN?_nr:0); }   /* ref. não rendida só conta acima da tolerância 10min/dia (Súmula 366). #ref-tolerancia */
     else if(!ehFolga&&!temBatida&&temPonto&&_diaEmBrancoEhFalta(emp,cd.mes,cd.ano,d,isWknd,is12x36)){ out.faltaMin+=prevMin; out.faltaQtd++; }
     out.trabMin+=(minLiq>0?minLiq:0); out.prevMin+=prevMin;
     // Refeição não rendida SOLICITADA pelo colaborador (app) e APROVADA pelo supervisor.
@@ -7888,7 +7888,7 @@ function _escala12x36Noturna(escala){
 // ESCALA_HORARIOS_DEFAULT (entrada/saida e, se tiver, intIni/intFim) + nos
 // <select> de escala (index.html).
 function _escalaFixa(escala){
-  return typeof escala==='string' && (escala.startsWith('12x36-') || escala==='6x1ALT-0900-1720' || escala==='6x1ALT-0800-1620' || escala==='6x1ALT-0800-1700-S16' || escala==='6x1ALT-0700-1600-S11' || escala==='6x1LIV-0800-1700-S16' || escala==='6x1LIV-0800-1700-S12' || escala==='6x1LIV-0700-1600-S11' || escala==='6x1LIV-0900-1720');
+  return typeof escala==='string' && (escala.startsWith('12x36-') || escala==='6x1ALT-0900-1720' || escala==='6x1ALT-0800-1620' || escala==='6x1ALT-0800-1700-S16' || escala==='6x1ALT-0700-1600-S11' || escala==='6x1LIV-0800-1700-S16' || escala==='6x1LIV-0800-1700-S12' || escala==='6x1LIV-0700-1600-S11' || escala==='6x1LIV-0900-1720' || escala==='5x2LIV-0730-1630-S15');
 }
 
 // Retorna o modelo de escala customizado (escala no formato m_{id}) ou null
@@ -7945,6 +7945,7 @@ function escalaLabel(escala){
     '6x1LIV-0800-1700-S12':'6x1 FDS Livre (Seg–Sex 08–17 / Sáb OU Dom 08–12)',
     '6x1LIV-0700-1600-S11':'6x1 FDS Livre (Seg–Sex 07–16 / Sáb OU Dom 07–11)',
     '6x1LIV-0900-1720':'6x1 FDS Livre (09h–17h20)',
+    '5x2LIV-0730-1630-S15':'5x2 FDS Opcional (Seg–Sex 07:30–16:30 / Sáb OU Dom 07–15, sem falta)',
     '12x36':'12x36',
     '12x36-07-19':'12x36 (07h–19h)',
     '12x36-06-18':'12x36 (06h–18h)',
@@ -11282,7 +11283,7 @@ function _detectAtrasosPonto(emp, p){
     const realDay={dia:cd.dia, diaSem:cd.diaSem, entrada, saida, intIni, intFim};
     if(pd.heReview) realDay.heReview=pd.heReview;
     const effLiq=_effectiveMinLiq(realDay, exp, minContratados);
-    const faltaDia = is12x36 ? (_presencaMin(exp)-_presencaMin(realDay)) : (_liqMin(exp)-effLiq);
+    const faltaDia = (is12x36||_usaFdsLivreResolve(emp.escala)) ? (_presencaMin(exp)-_presencaMin(realDay)) : (_liqMin(exp)-effLiq);
     if(faltaDia>HE_TOLERANCIA_DIA_MIN) out.push({dia:cd.dia, minutos:Math.round(faltaDia)});
   }
   return out;
@@ -22858,6 +22859,15 @@ function aplicarParametrosLegais(){
 // domingo folga (conta 1 dia/fds, dando os 6 dias da semana).
 let _fdsLivreCtxDias = null, _fdsLivreCtxEmp = null;
 function _ehFds6x1Livre(escala){ return typeof escala==='string' && escala.startsWith('6x1LIV'); }
+// ── 5x2 FIM DE SEMANA OPCIONAL (5x2LIV) ─────────────────────────────────────
+// Seg–Sex OBRIGATÓRIO (falta se em branco). O dia de fim de semana (sáb OU dom,
+// livre) é VOLUNTÁRIO: conta as horas no dia que ela bater; fim de semana não
+// trabalhado é FOLGA — NUNCA falta. Para quem faz "um fds sim, outro não" e
+// mantém a média semanal dentro das 44h da CLT. Resolve o dia pelas batidas
+// (mesmo par sáb/dom do 6x1LIV), mas sem gerar a falta do fds. #fds-opcional
+function _ehFdsOpcional(escala){ return typeof escala==='string' && escala.startsWith('5x2LIV'); }
+// Escalas que resolvem o dia do fim de semana pelas BATIDAS (par sáb/dom).
+function _usaFdsLivreResolve(escala){ return _ehFds6x1Livre(escala) || _ehFdsOpcional(escala); }
 // Escalas CÍCLICAS (padrão derivado de âncora/ciclo, não de dia-da-semana fixo):
 // 12x36, 6x1 Alternado, 6x1B. Para elas NÃO se confia na escala salva antiga (que
 // foi gerada com âncora errada/bug de fronteira e "envenena" a apuração) — usa-se
@@ -23218,7 +23228,7 @@ function _getExpectedDay(emp, mes, ano, dia, ignoreAdmissao){
   // (ex.: 26/04 domingo virou "trabalho" porque calculou como 26/05=terça). A
   // projeção determinística abaixo (weekday / ciclo 6x1 / âncora 12x36) é
   // comp-aware e correta; o override avulso (tratado acima) ainda vence. #fronteira-escala-salva
-  if(esc?.dias?.length && dia < 26 && !_ehFds6x1Livre(lot.escala) && !_escalaCiclica(lot.escala)){
+  if(esc?.dias?.length && dia < 26 && !_usaFdsLivreResolve(lot.escala) && !_escalaCiclica(lot.escala)){
     const d = esc.dias.find(x => x.dia===dia);
     if(d){
       const tipo = d.tipo || 'trabalho';
@@ -23294,6 +23304,19 @@ function _getExpectedDay(emp, mes, ano, dia, ignoreAdmissao){
     const _trab = _r.esteBatido || (!_r.algumBatido && diaSem===6);
     if(!_trab) return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
     return { tipo:'trabalho', entrada:_h.entrada, saida:_h.saida, intIni:_h.intIni, intFim:_h.intFim };
+  }
+  // 5x2 FIM DE SEMANA OPCIONAL: Seg–Sex trabalha; no fds, trabalha SÓ o dia que ela
+  // BATEU (sáb OU dom). Fim de semana sem batida → FOLGA (nunca falta). Em projeção
+  // (sem ponto) → folga nos dois dias do fds (ela faz um fds sim, outro não, então
+  // o baseline projetado é 40h/semana; o dia de fds entra quando realmente batido). #fds-opcional
+  if(_ehFdsOpcional(lot.escala)){
+    const _h = _escalaHorariosDia(emp, diaSem, lot);
+    if(diaSem>=1 && diaSem<=5)
+      return { tipo:'trabalho', entrada:_h.entrada, saida:_h.saida, intIni:_h.intIni, intFim:_h.intFim };
+    const _r = _fdsLivreResolve(emp, ano, mes, dia);
+    if(_r && _r.esteBatido)
+      return { tipo:'trabalho', entrada:_h.entrada, saida:_h.saida, intIni:_h.intIni, intFim:_h.intFim };
+    return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
   }
   // Para 5x2 e fins de semana, sem horário esperado (é folga)
   if(fam==='5x2' && isWknd) return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
@@ -23817,6 +23840,10 @@ function _diaEmBrancoEhFalta(emp, mes, ano, dia, isWeekend, is12x36){
     if(!_r) deveriaTrabalhar = true;
     else if(_r.algumBatido) deveriaTrabalhar = false;
     else deveriaTrabalhar = (new Date(ano, mes-1, dia).getDay()===6);
+  } else if(_ehFdsOpcional(_escDia)){
+    // 5x2 FDS OPCIONAL: Seg–Sex = trabalho (falta se em branco). O fim de semana é
+    // VOLUNTÁRIO → NUNCA falta, mesmo sem bater nem sábado nem domingo. #fds-opcional
+    deveriaTrabalhar = !isWeekend;
   } else if(escalaSalva && Array.isArray(escalaSalva.dias) && dia < 26 && !_escalaCiclica(_escDia)){
     const d = escalaSalva.dias.find(x => x.dia===dia);
     deveriaTrabalhar = !!(d && d.tipo!=='folga' && d.entrada);
@@ -23877,7 +23904,7 @@ function calcResumoManual(){
   const _modMC=emp?_escalaModelo(emp.escala):null;
   if(_modMC) minContratados=_modeloMinContratados(_modMC);
   const existingPayroll=State.payrolls.find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
-  if(emp && _ehFds6x1Livre(emp.escala)){ _fdsLivreCtxDias=_collectPontoManualDias(); _fdsLivreCtxEmp=empId; }
+  if(emp && _usaFdsLivreResolve(emp.escala)){ _fdsLivreCtxDias=_collectPontoManualDias(); _fdsLivreCtxEmp=empId; }
   cards.forEach(card=>{
     const dia=parseInt(card.dataset.dia);
     const diaSem=parseInt(card.dataset.semana);
@@ -23912,7 +23939,7 @@ function calcResumoManual(){
         // (jornada cumprida), não pelo líquido, senão fazer o almoço viraria atraso. #plantao-refeicao
         let _atrasoDiaBadge=0;
         if(expectedDay && expectedDay.tipo!=='folga' && expectedDay.entrada && expectedDay.saida){
-          const faltaDia = is12x36 ? (_presencaMin(expectedDay)-_presencaMin(realDay)) : (_liqMin(expectedDay)-effLiq);
+          const faltaDia = (is12x36||_usaFdsLivreResolve(emp.escala)) ? (_presencaMin(expectedDay)-_presencaMin(realDay)) : (_liqMin(expectedDay)-effLiq);
           if(faltaDia>HE_TOLERANCIA_DIA_MIN){ totalAtrasoMin+=faltaDia; _atrasoDiaBadge=Math.round(faltaDia); }
         }
         _updateAtrasoBadge(card, _atrasoDiaBadge);   // aviso visual por dia (>10min). #atraso-badge-manual
@@ -24657,7 +24684,7 @@ async function applyPontoManual(){
   const _modMC=emp?_escalaModelo(emp.escala):null;
   if(_modMC) minContratados=_modeloMinContratados(_modMC);
   const existingPayroll=State.payrolls.find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
-  if(emp && _ehFds6x1Livre(emp.escala)){ _fdsLivreCtxDias=_collectPontoManualDias(); _fdsLivreCtxEmp=empId; }
+  if(emp && _usaFdsLivreResolve(emp.escala)){ _fdsLivreCtxDias=_collectPontoManualDias(); _fdsLivreCtxEmp=empId; }
   cards.forEach(card=>{
     const dia=parseInt(card.dataset.dia);
     const diaSem=parseInt(card.dataset.semana);
@@ -24681,7 +24708,7 @@ async function applyPontoManual(){
       // jornada sem horário fixo, com 60min de refeição DENTRO → atraso pela PRESENÇA
       // (jornada cumprida), não pelo líquido, senão fazer o almoço viraria atraso. #plantao-refeicao
       if(expectedDay && expectedDay.tipo!=='folga' && expectedDay.entrada && expectedDay.saida){
-        const faltaDia = is12x36 ? (_presencaMin(expectedDay)-_presencaMin(realDay)) : (_liqMin(expectedDay)-effLiq);
+        const faltaDia = (is12x36||_usaFdsLivreResolve(emp.escala)) ? (_presencaMin(expectedDay)-_presencaMin(realDay)) : (_liqMin(expectedDay)-effLiq);
         if(faltaDia>HE_TOLERANCIA_DIA_MIN){
           totalAtrasoMin+=faltaDia;
           atrasosDoPonto.push({dia, minutos:Math.round(faltaDia)});
@@ -24780,7 +24807,7 @@ function printPreviewParcial(){
   const is12x36=fam==='12x36';
   const _pvMes=parseInt(val('payroll-mes')||currentMes());
   const _pvAno=parseInt(val('payroll-ano')||currentAno());
-  if(emp && _ehFds6x1Livre(emp.escala)){ _fdsLivreCtxDias=_collectPontoManualDias(); _fdsLivreCtxEmp=empId; }
+  if(emp && _usaFdsLivreResolve(emp.escala)){ _fdsLivreCtxDias=_collectPontoManualDias(); _fdsLivreCtxEmp=empId; }
   cards.forEach(card=>{
     const dia=parseInt(card.dataset.dia);
     const diaSem=parseInt(card.dataset.semana);
@@ -25080,7 +25107,7 @@ function printFolhaPonto(isPreview=false){
       const realIntMin = _calcIntervaloMin(intIni,intFim,entrada,saida);
       // Plantão 12x36: jornada sem horário fixo, com 60min de refeição DENTRO → atraso
       // pela PRESENÇA (jornada cumprida), não pelo líquido, senão fazer o almoço viraria atraso. #plantao-refeicao
-      const delta = is12x36 ? ((minLiq+realIntMin)-(prevMin+contratualIntMin)) : (minLiq - prevMin);
+      const delta = (is12x36||_usaFdsLivreResolve(emp.escala)) ? ((minLiq+realIntMin)-(prevMin+contratualIntMin)) : (minLiq - prevMin);
       if(delta < 0 && Math.abs(delta) > HE_TOLERANCIA_DIA_MIN) atrasoMin = -delta;   // atraso = déficit acima da tolerância (Súmula 366)
       const _nrShort = Math.max(0, contratualIntMin - realIntMin);
       naoRendMin = (_nrShort > HE_TOLERANCIA_DIA_MIN) ? _nrShort : 0;   // tolerância 10min/dia (Súmula 366) — resíduo de poucos min não conta. #ref-tolerancia
@@ -26696,7 +26723,10 @@ const ESCALA_HORARIOS_DEFAULT = {
   '6x1LIV-0800-1700-S12': { entrada:'08:00', saida:'17:00', intIni:'12:00', intFim:'13:00' },
   '6x1LIV-0700-1600-S11': { entrada:'07:00', saida:'16:00', intIni:'12:00', intFim:'13:00' },
   // FDS livre 09:00-17:20 (fim de semana com o MESMO horário do dia útil, sem encurtar).
-  '6x1LIV-0900-1720': { entrada:'09:00', saida:'17:20', intIni:'12:00', intFim:'13:00' }
+  '6x1LIV-0900-1720': { entrada:'09:00', saida:'17:20', intIni:'12:00', intFim:'13:00' },
+  // 5x2 FDS OPCIONAL: Seg-Sex 07:30-16:30 (almoço 12-13); fim de semana trabalhado
+  // 07:00-15:00 (almoço 12-13). O dia de fds é voluntário (nunca falta). #fds-opcional
+  '5x2LIV-0730-1630-S15': { entrada:'07:30', saida:'16:30', intIni:'12:00', intFim:'13:00' }
 };
 
 // Retorna horários default para um colaborador num dia da semana específico
@@ -26764,6 +26794,11 @@ function _escalaHorariosDia(emp, diaSem, lot){
   // (4h, sem refeição). Seg-Sex segue 08-17 com almoço 12-13.
   if((diaSem===0 || diaSem===6) && escala==='6x1LIV-0800-1700-S12'){
     saida = '12:00'; intIni = ''; intFim = '';
+  }
+  // 5x2 FDS Opcional 07:30-16:30: o dia de fim de semana trabalhado é 07:00–15:00
+  // (com almoço 12-13). Seg-Sex segue 07:30-16:30. #fds-opcional
+  if((diaSem===0 || diaSem===6) && escala==='5x2LIV-0730-1630-S15'){
+    entrada = '07:00'; saida = '15:00'; intIni = '12:00'; intFim = '13:00';
   }
   // 6x1 Alternado 07-16 com fim de semana curto: sáb/dom trabalhado sai 11:00
   // (4h, sem refeição). Seg-Sex segue 07-16 com almoço 12-13.

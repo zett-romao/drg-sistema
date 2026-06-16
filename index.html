@@ -7128,8 +7128,9 @@
   document.addEventListener('visibilitychange', () => {
     if(document.visibilityState === 'visible') checar();
   });
-  setInterval(checar, 5*60*1000);   // checa a cada 5 minutos
-  setTimeout(checar, 30*1000);      // primeira checagem 30s apos o load
+  window.addEventListener('focus', checar);   // ao voltar o foco pra janela do navegador
+  setInterval(checar, 3*60*1000);   // checa a cada 3 minutos
+  setTimeout(checar, 3*1000);       // primeira checagem 3s apos o load (pega deploy feito enquanto a maquina estava off)
   window.aplicarNovaVersao = function(){
     // Forca reload com cache-buster pra escapar do cache do navegador
     const u = new URL(window.location.href);
@@ -7139,6 +7140,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260616n-perm-estoque-perfil"></script>
+  <script src="app.js?v=20260616o-update-checker-rapido"></script>
 </body>
 </html>

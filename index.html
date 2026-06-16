@@ -1329,6 +1329,17 @@
               <button class="btn btn-outline" onclick="importDatabase()" style="width:100%;margin-bottom:8px"><i class="fa-solid fa-upload"></i> Importar backup</button>
               <button class="btn btn-outline" onclick="setupAutoBackup()" style="width:100%"><i class="fa-solid fa-clock-rotate-left"></i> Configurar auto-backup</button>
               <div id="ab-modal-info" style="margin-top:10px;padding:10px 12px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;line-height:1.35"></div>
+              <details style="margin-top:10px;font-size:12px;color:#334155;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:8px 12px">
+                <summary style="cursor:pointer;font-weight:700;color:#1565C0"><i class="fa-solid fa-circle-question"></i> Como restaurar dados (exclusão por engano)</summary>
+                <div style="margin-top:8px;line-height:1.55">
+                  <strong>1.</strong> Os backups ficam na <strong>pasta</strong> que você escolheu no auto-backup (ex.: <code>C:\Backup_zett\DRG-Kronos</code>). Cada arquivo tem <strong>data e hora</strong> no nome.<br>
+                  <strong>2.</strong> Para recuperar <strong>colaboradores apagados</strong>: vá em <strong>Adiantamentos</strong> → botão azul <strong>“Restaurar colaboradores apagados”</strong> → escolha um backup de <strong>ANTES</strong> da exclusão. Ele recoloca só quem sumiu (não altera o resto).<br>
+                  <strong>3.</strong> Para corrigir <strong>folhas duplicadas</strong> (mesma pessoa repetida): em <strong>Adiantamentos</strong> → botão roxo <strong>“Corrigir folhas duplicadas”</strong> (mantém a folha mais completa, nunca apaga o colaborador).<br>
+                  <strong>4.</strong> Para restaurar <strong>tudo</strong> de um backup: <strong>“Importar backup”</strong> aqui em cima (atenção: sobrescreve com o conteúdo do arquivo).<br>
+                  <strong>5.</strong> <strong>Antes de operações de risco</strong> (corrigir folhas, preencher período, migração): faça uma <strong>cópia</strong> do backup atual na pasta, renomeando, para ter um ponto seguro.<br>
+                  <span style="color:#64748b">O auto-backup salva a cada 15 min e mantém os últimos 100 arquivos. Funciona no Chrome/Edge.</span>
+                </div>
+              </details>
             </div>
           </div>
           <div class="card">
@@ -7126,6 +7137,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260616i-autobackup-15min-100"></script>
+  <script src="app.js?v=20260616j-ajuda-restaurar"></script>
 </body>
 </html>

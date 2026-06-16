@@ -830,10 +830,12 @@ const Auth = {
 // ============================================
 const AutoBackup = {
   fileHandle: null, intervalId: null, countdownId: null,
-  nextIn: 300, INTERVAL: 300,
+  nextIn: 900, INTERVAL: 900, MAX_BACKUPS: 100,
   _DB_NAME: 'drg_backup_db', _STORE: 'handles', _KEY: 'autobackup_handle',
 
-  isSupported() { return typeof window.showSaveFilePicker === 'function'; },
+  // Suporte = File System Access API. Para o modo PASTA (100 rotativos) usamos
+  // showDirectoryPicker; o modo legado (1 arquivo) ainda funciona se já configurado.
+  isSupported() { return typeof window.showDirectoryPicker === 'function'; },
 
   // Persiste o file handle no IndexedDB para restaurar na próxima sessão
   async _saveHandle(handle) {
@@ -916,15 +918,14 @@ const AutoBackup = {
       return;
     }
     try {
-      const date = new Date().toLocaleDateString('pt-BR').replace(/\//g,'-');
-      this.fileHandle = await window.showSaveFilePicker({
-        suggestedName: `DRGlobal_autobackup_${date}.json`,
-        types: [{ description:'JSON Backup', accept:{'application/json':['.json']} }]
-      });
+      // Escolhe uma PASTA: cada backup vira um arquivo datado dentro dela, mantendo
+      // os últimos MAX_BACKUPS (rotação). Dica: aponte para a mesma pasta de hoje
+      // (ex.: C:\Backup_zett\DRG-Kronos) — os arquivos antigos continuam intactos.
+      this.fileHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
       await this._saveHandle(this.fileHandle);
       this.start();
-      toast('Auto-backup configurado! Salvando a cada 5 minutos.');
-      Auth.log('BACKUP_AUTO_CONFIG', null, 'Auto-backup ativado');
+      toast(`Auto-backup configurado! Salva a cada 15 min, guardando os últimos ${this.MAX_BACKUPS}.`);
+      Auth.log('BACKUP_AUTO_CONFIG', null, `Auto-backup ativado (pasta, ${this.MAX_BACKUPS} rotativos, 15min)`);
     } catch(e) { if (e.name !== 'AbortError') toast('Erro ao configurar auto-backup.','error'); }
   },
 
@@ -954,14 +955,44 @@ const AutoBackup = {
   async write() {
     if (!this.fileHandle) return;
     try {
-      const backup = buildBackupObject();
-      const writable = await this.fileHandle.createWritable();
-      await writable.write(JSON.stringify(backup, null, 2));
-      await writable.close();
+      const json = JSON.stringify(buildBackupObject(), null, 2);
+      if (this.fileHandle.kind === 'directory') {
+        // MODO PASTA: cada backup é um arquivo NOVO com timestamp (datado/horado, em
+        // formato ordenável) → mantém histórico. Depois, rotaciona p/ os últimos N.
+        const d = new Date(), z = n => String(n).padStart(2,'0');
+        const nome = `DRGlobal_autobackup_${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}_${z(d.getHours())}-${z(d.getMinutes())}-${z(d.getSeconds())}.json`;
+        const fh = await this.fileHandle.getFileHandle(nome, { create: true });
+        const w = await fh.createWritable();
+        await w.write(json); await w.close();
+        await this._pruneOld();
+      } else {
+        // MODO LEGADO: 1 arquivo fixo (sobrescreve). Mantido p/ quem já configurou assim.
+        const w = await this.fileHandle.createWritable();
+        await w.write(json); await w.close();
+      }
       this.nextIn = this.INTERVAL;
       this._markDone();   // relógio do último backup feito — prova p/ o usuário de que rodou. #auto-backup-relogio
-      Auth.log('BACKUP_AUTO', null, this.fileHandle.name);
+      Auth.log('BACKUP_AUTO', null, this.fileHandle.name || 'pasta');
     } catch(e) { console.error('Auto-backup write:', e); }
+  },
+
+  // Rotação: mantém só os últimos MAX_BACKUPS arquivos do modo PASTA (apaga os mais
+  // antigos). Só toca nos arquivos do padrão NOVO (com data+hora) — os backups
+  // legados de 1 arquivo (DD-MM-AAAA) NÃO são mexidos. #auto-backup-rotacao
+  async _pruneOld() {
+    try {
+      if (!this.fileHandle || this.fileHandle.kind !== 'directory') return;
+      const re = /^DRGlobal_autobackup_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.json$/;
+      const nomes = [];
+      for await (const [nome, h] of this.fileHandle.entries()) {
+        if (h.kind === 'file' && re.test(nome)) nomes.push(nome);
+      }
+      nomes.sort();   // nome AAAA-MM-DD_HH-mm-ss → ordem cronológica
+      const excedente = nomes.length - this.MAX_BACKUPS;
+      for (let i = 0; i < excedente; i++) {
+        try { await this.fileHandle.removeEntry(nomes[i]); } catch(_){}
+      }
+    } catch(e) { console.warn('Auto-backup prune:', e); }
   },
 
   // Marca o horário do último backup AUTOMÁTICO bem-sucedido (persiste e mostra na tela).
@@ -996,11 +1027,11 @@ const AutoBackup = {
       ? ((last.toDateString() === new Date().toDateString()) ? `hoje às ${last.toLocaleTimeString('pt-BR')}` : last.toLocaleString('pt-BR'))
       : null;
     if (ativo) {
-      el.innerHTML = `<div style="display:flex;align-items:center;gap:7px;color:#1B5E20;font-weight:700;font-size:13px"><span style="width:9px;height:9px;border-radius:50%;background:#2E7D32;display:inline-block;box-shadow:0 0 0 3px #C8E6C9"></span> Auto-backup ATIVO — salva a cada 5 min</div>`
+      el.innerHTML = `<div style="display:flex;align-items:center;gap:7px;color:#1B5E20;font-weight:700;font-size:13px"><span style="width:9px;height:9px;border-radius:50%;background:#2E7D32;display:inline-block;box-shadow:0 0 0 3px #C8E6C9"></span> Auto-backup ATIVO — salva a cada 15 min${this.fileHandle && this.fileHandle.kind==='directory'?` (mantém ${this.MAX_BACKUPS})`:''}</div>`
         + `<div style="margin-top:5px;font-size:12px;color:#333"><i class="fa-regular fa-clock" style="color:#1565C0"></i> Último backup: <strong>${lastTxt || 'salvando…'}</strong></div>`;
     } else {
       el.innerHTML = `<div style="color:#B26A00;font-weight:700;font-size:13px"><i class="fa-solid fa-circle-pause"></i> Auto-backup desligado</div>`
-        + (lastTxt ? `<div style="margin-top:5px;font-size:12px;color:#777"><i class="fa-regular fa-clock"></i> Último backup (antes de desligar/recarregar): <strong>${lastTxt}</strong></div>` : `<div style="margin-top:5px;font-size:12px;color:#777">Clique no botão acima para ativar — ele salva sozinho a cada 5 min.</div>`);
+        + (lastTxt ? `<div style="margin-top:5px;font-size:12px;color:#777"><i class="fa-regular fa-clock"></i> Último backup (antes de desligar/recarregar): <strong>${lastTxt}</strong></div>` : `<div style="margin-top:5px;font-size:12px;color:#777">Clique no botão acima para ativar — escolha uma PASTA; ele salva sozinho a cada 15 min e guarda os últimos ${this.MAX_BACKUPS}.</div>`);
     }
   },
 

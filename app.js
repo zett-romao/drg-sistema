@@ -8907,6 +8907,50 @@ async function restaurarColabsApagados(){
   };
   inp.click();
 }
+// Corrige FOLHAS duplicadas: o MESMO colaborador com 2+ folhas na MESMA competência
+// (a causa das linhas repetidas no Adiantamento). MANTÉM a folha mais completa de cada
+// um (fechada > paga > mais dias de ponto > mais recente) e remove as cópias. Mexe SÓ em
+// folhas (payrolls) — NUNCA apaga o colaborador. Mostra preview com os dias de cada
+// folha antes de confirmar. #corrige-folha-dup
+async function corrigirFolhasDuplicadas(){
+  if(!(getUserModules(Auth.currentUser).employees || Auth.currentUser?.role==='master')){
+    toast('Você não tem permissão para isso.','error'); return;
+  }
+  const {mes,ano,comp}=_adiantMesAno();
+  const doComp=(State.payrolls||[]).filter(p=>p && p.mes==mes && p.ano==ano);
+  const porEmp={};
+  doComp.forEach(p=>{ (porEmp[p.employeeId]=porEmp[p.employeeId]||[]).push(p); });
+  // dedup defensivo por id + só grupos com 2+ folhas DISTINTAS
+  const grupos=Object.entries(porEmp).map(([empId,arr])=>{
+    const vistos=new Set(); const distintas=arr.filter(p=> p.id && !vistos.has(p.id) && vistos.add(p.id));
+    return [empId, distintas];
+  }).filter(([,arr])=>arr.length>1);
+  if(!grupos.length){ toast(`Nenhuma folha duplicada na competência ${comp}. (Se ainda aparecer repetido na tela, recarregue com Ctrl+F5.)`,'info'); return; }
+  const diasDe=p=>Array.isArray(p.pontoManualDias)?p.pontoManualDias.filter(d=>d&&(d.entrada||d.saida)).length:0;
+  const score=p=>(p.status==='fechada'?1e13:0)+(p.adiantamentoPagoExterno?1e12:0)+diasDe(p)*1e6+((Date.parse(p.updatedAt||p.createdAt)||0)/1e3);
+  const aRemover=[]; const linhasTxt=[];
+  grupos.forEach(([empId,arr])=>{
+    const emp=(State.employees||[]).find(e=>e.id===empId)||{};
+    const ord=arr.slice().sort((a,b)=>score(b)-score(a));
+    const manter=ord[0]; const remover=ord.slice(1);
+    aRemover.push(...remover);
+    const reg=emp.registro?String(emp.registro).padStart(4,'0'):'—';
+    linhasTxt.push(`• ${emp.nome||'—'} (Matr ${reg}): ${arr.length} folhas [dias de ponto: ${ord.map(diasDe).join(', ')}] → MANTÉM a de ${diasDe(manter)} dia(s)${manter.status==='fechada'?' (fechada)':''}, remove ${remover.length}`);
+  });
+  const msg=`Corrigir FOLHAS duplicadas — competência ${comp}.\n\nNÃO apaga colaborador. Só remove a folha REPETIDA, mantendo a mais completa de cada um:\n\n${linhasTxt.join('\n')}\n\nTotal a remover: ${aRemover.length} folha(s).\n\n⚠️ Se algum colaborador tiver 2+ folhas com dias de ponto DIFERENTES (ex.: [12, 8]), CANCELE e me avise — pode haver ponto espalhado em 2 folhas. Confirmar?`;
+  if(!confirm(msg)) return;
+  let ok=0, err=0;
+  for(const p of aRemover){
+    try{
+      await DB.remove('payrolls', p.id);
+      const ix=(State.payrolls||[]).findIndex(x=>x.id===p.id); if(ix>=0) State.payrolls.splice(ix,1);
+      ok++;
+    }catch(ex){ console.error('corrigir folha dup',ex); err++; }
+  }
+  Auth.log('PAYROLL_DEDUP', null, `Removidas ${ok} folha(s) duplicada(s) em ${comp}`);
+  toast(`${ok} folha(s) duplicada(s) removida(s)${err?` · ${err} erro(s)`:''}.`, ok?'success':'error');
+  if(typeof renderAdiantamentos==='function') renderAdiantamentos();
+}
 // Lupa: filtra a lista por nome / matrícula / setor / posto (ignora acento).
 function _benefFiltrar(q){
   const norm = s => (s||'').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');

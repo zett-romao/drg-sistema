@@ -2359,7 +2359,6 @@
           <button class="btn btn-primary btn-sm" onclick="pagarBoaPermanencia()" style="background:#F57F17;white-space:nowrap;flex-shrink:0;font-size:12px" title="Paga via PIX SÓ a Boa Permanência (comissão de assiduidade). Só funciona na aba 'Este Período' (competência). Dedup independente de VT/VR/VA."><i class="fa-solid fa-medal"></i> B.Perm. PIX</button>
           <button class="btn btn-primary btn-sm" onclick="marcarBeneficiosPagoManual()" style="background:#455A64;white-space:nowrap;flex-shrink:0;font-size:12px" title="Registra como PAGO MANUAL (sem disparar PIX/cartão). Use quando o pagamento foi feito FORA do sistema (espécie, cheque, transferência manual etc.)."><i class="fa-solid fa-money-bill-wave"></i> Pago Manual</button>
           <button class="btn btn-primary btn-sm" onclick="enviarRecibosBeneficioSelecionados()" style="background:#0288D1;white-space:nowrap;flex-shrink:0;font-size:12px" title="Envia o recibo dos benefícios JÁ PAGOS no período para o app dos colaboradores marcados conferirem/assinarem (prazo 24h → aceite tácito)."><i class="fa-solid fa-receipt"></i> Enviar Recibo</button>
-          <button class="btn btn-sm btn-outline" onclick="excluirColabsBenefSelecionados()" style="color:#C62828;border-color:#C62828;white-space:nowrap;flex-shrink:0;font-size:12px;margin-left:8px" title="EXCLUIR os COLABORADORES marcados (cadastro + folhas). Use SÓ para apagar cadastros DUPLICADOS — confira que mantém 1 cópia de cada pessoa. Ação definitiva."><i class="fa-solid fa-trash"></i> Excluir selecionados (duplicados)</button>
           <span style="display:inline-flex;align-items:center;gap:6px;margin-left:12px;flex-shrink:0">
             <i class="fa-solid fa-filter" style="color:var(--text-muted)" title="Filtrar a lista por canal"></i>
             <select id="benef-filtro-canal" onchange="_benefAplicarFiltroCanalDropdown(this.value)" style="padding:4px 8px;border:1px solid #CFD8DC;border-radius:5px;font-size:12px;background:#fff" title="Filtra a lista visualmente por canal de pagamento">
@@ -2518,7 +2517,7 @@
               <select id="adiant-ano" onchange="renderAdiantamentos()" style="font-weight:700"></select>
               <button class="btn btn-primary btn-sm" onclick="pagarAdiantamentosLote()"><i class="fa-solid fa-money-bill-transfer"></i> Pagar selecionados</button>
               <button class="btn btn-sm" onclick="marcarPagoExternoLote()" style="background:#00695C;color:#fff;border:none"><i class="fa-solid fa-circle-check"></i> Pago fora selecionados</button>
-              <button class="btn btn-sm btn-outline" onclick="excluirColabsAdiantSelecionados()" style="color:#C62828;border-color:#C62828" title="EXCLUIR os COLABORADORES marcados (cadastro + folhas). Use SÓ para apagar cadastros DUPLICADOS — confira que mantém 1 cópia de cada pessoa. Ação definitiva."><i class="fa-solid fa-trash"></i> Excluir selecionados (duplicados)</button>
+              <button class="btn btn-sm" onclick="restaurarColabsApagados()" style="background:#1565C0;color:#fff;border:none" title="Recupera colaboradores apagados por engano a partir de um arquivo de BACKUP (JSON). Só ADICIONA de volta quem sumiu — não altera nada do que existe hoje."><i class="fa-solid fa-rotate-left"></i> Restaurar colaboradores apagados</button>
             </div>
           </div>
           <div class="card-body" style="overflow-x:auto;padding:0">
@@ -7126,6 +7125,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260616f-adiant-matricula"></script>
+  <script src="app.js?v=20260616g-restaurar-apagados"></script>
 </body>
 </html>

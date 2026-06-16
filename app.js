@@ -8873,57 +8873,39 @@ function _benefSelCount(){
   const el=document.getElementById('benef-sel-count');
   if(el) el.textContent = document.querySelectorAll('.benef-chk:checked').length;
 }
-// Exclui os COLABORADORES marcados na lista de benefícios — para remover cadastros
-// DUPLICADOS (mesma pessoa lançada 2+ vezes, mesmo nome/PIX). Cada linha = 1
-// colaborador; o checkbox carrega data-emp-id. Reaproveita o mesmo caminho do botão
-// "Excluir" da tela de Colaboradores (remove o cadastro + as folhas dele). É
-// DEFINITIVO → exige permissão de gestão de colaboradores + confirmação que lista
-// os nomes e o nº de folhas (duplicata real costuma ter 0). #benef-excluir-dup
-// Núcleo compartilhado: exclui os COLABORADORES dos ids dados (cadastro + folhas).
-// Usado pelos botões "Excluir selecionados (duplicados)" das telas de Benefícios e
-// de Adiantamento Quinzenal — para remover cadastros DUPLICADOS (a mesma pessoa
-// cadastrada 2+ vezes, cada cadastro vira 1 registro/folha → linhas repetidas).
-// Reaproveita o caminho do confirmDeleteEmployee. DEFINITIVO → permissão de gestão de
-// colaboradores + confirmação que lista nomes e nº de folhas. #benef-excluir-dup
-async function _excluirColabsDuplicados(ids, origem, reRender){
+// RESTAURAÇÃO de colaboradores apagados por engano — lê um arquivo de BACKUP (JSON do
+// auto-backup ou export manual) e recoloca SÓ os colaboradores que estão no backup mas
+// NÃO existem mais hoje (foram apagados), junto com as folhas deles. Compara por id →
+// é puramente ADITIVO: nada do que existe hoje é sobrescrito. #restaurar-apagados
+async function restaurarColabsApagados(){
   if(!(getUserModules(Auth.currentUser).employees || Auth.currentUser?.role==='master')){
-    toast('Você não tem permissão para excluir colaboradores.','error'); return;
+    toast('Você não tem permissão para restaurar colaboradores.','error'); return;
   }
-  ids=[...new Set((ids||[]).filter(Boolean))];   // dedup defensivo
-  if(!ids.length){ toast('Marque os cadastros duplicados que quer excluir.','info'); return; }
-  const emps=ids.map(id=>(State.employees||[]).find(e=>e.id===id)).filter(Boolean);
-  if(!emps.length){ toast('Nenhum colaborador encontrado para os itens marcados.','error'); return; }
-  const folhasDe=e=>(State.payrolls||[]).filter(p=>p.employeeId===e.id).length;
-  const totFolhas=emps.reduce((s,e)=>s+folhasDe(e),0);
-  const nomes=emps.map(e=>`• ${e.nome||'—'} — ${folhasDe(e)} folha(s)`).join('\n');
-  const msg=`EXCLUIR ${emps.length} colaborador(es) marcado(s)?\n\n${nomes}\n\n`+
-    `Ação DEFINITIVA: apaga o cadastro e TODAS as folhas/lançamentos`+
-    (totFolhas>0?` (${totFolhas} folha(s) no total)`:'')+`.\n\n`+
-    `Use SÓ para apagar cadastros DUPLICADOS — confira que está MANTENDO 1 cópia de cada pessoa (a marcada será apagada).`;
-  if(!confirm(msg)) return;
-  let ok=0, err=0;
-  for(const e of emps){
-    try{
-      const payIds=(State.payrolls||[]).filter(p=>p.employeeId===e.id).map(p=>p.id);
-      await Promise.all([DB.remove('employees',e.id), ...payIds.map(pid=>DB.remove('payrolls',pid))]);
-      Auth.log('EMPLOYEE_DELETED', null, `[duplicado via ${origem}] ${e.nome} (CPF: ${e.cpf||'—'}, Posto: ${e.posto||'—'})`);
-      const ix=(State.employees||[]).findIndex(x=>x.id===e.id); if(ix>=0) State.employees.splice(ix,1);
-      State.payrolls=(State.payrolls||[]).filter(p=>p.employeeId!==e.id);
-      ok++;
-    }catch(ex){ console.error('excluir dup colab:',ex); err++; }
-  }
-  toast(`${ok} colaborador(es) excluído(s)${err?` · ${err} com erro`:''}.`, ok?'warning':'error');
-  if(ok && typeof reRender==='function') reRender();
-}
-// Tela Benefícios a Pagar — checkbox .benef-chk (data-emp-id).
-function excluirColabsBenefSelecionados(){
-  const ids=[...document.querySelectorAll('.benef-chk:checked')].map(c=>c.dataset.empId);
-  _excluirColabsDuplicados(ids, 'Benefícios', ()=>{ renderBeneficiosLista(); _benefSelCount(); });
-}
-// Tela Adiantamento Quinzenal — checkbox .adiant-check (data-emp).
-function excluirColabsAdiantSelecionados(){
-  const ids=[...document.querySelectorAll('.adiant-check:checked')].map(c=>c.dataset.emp);
-  _excluirColabsDuplicados(ids, 'Adiantamento', renderAdiantamentos);
+  const inp=document.createElement('input');
+  inp.type='file'; inp.accept='.json,application/json';
+  inp.onchange=async()=>{
+    const file=inp.files&&inp.files[0]; if(!file) return;
+    let backup;
+    try{ backup=JSON.parse(await file.text()); }
+    catch(e){ toast('Arquivo inválido — selecione o JSON do backup.','error'); return; }
+    if(!backup || !Array.isArray(backup.employees)){ toast('Esse arquivo não tem a lista de colaboradores do backup.','error'); return; }
+    const idsHoje=new Set((State.employees||[]).map(e=>e.id));
+    const faltando=backup.employees.filter(e=>e && e.id && !idsHoje.has(e.id));
+    if(!faltando.length){ toast('Nada a restaurar: todos os colaboradores do backup já existem.','info'); return; }
+    const payIdsHoje=new Set((State.payrolls||[]).map(p=>p.id));
+    const faltIds=new Set(faltando.map(e=>e.id));
+    const folhas=(backup.payrolls||[]).filter(p=>p && faltIds.has(p.employeeId) && !payIdsHoje.has(p.id));
+    const quando=backup.exportedAt?new Date(backup.exportedAt).toLocaleString('pt-BR'):'data desconhecida';
+    const nomes=faltando.map(e=>`• ${e.nome||'—'} (Matr. ${e.registro?String(e.registro).padStart(4,'0'):'—'})`).join('\n');
+    if(!confirm(`Backup de ${quando}.\n\nRESTAURAR ${faltando.length} colaborador(es) que sumiram (estão no backup e não existem hoje):\n\n${nomes}\n\n+ ${folhas.length} folha(s) deles. Só ADICIONA o que faltava — nada existente é alterado. Confirmar?`)) return;
+    let okE=0, okF=0, err=0;
+    for(const e of faltando){ try{ await DB.save('employees', _sanitizeForFirestore(e)); State.employees.push(e); okE++; }catch(ex){ console.error('restaurar emp',ex); err++; } }
+    for(const p of folhas){ try{ await DB.save('payrolls', _sanitizeForFirestore(p)); State.payrolls.push(p); okF++; }catch(ex){ console.error('restaurar folha',ex); err++; } }
+    Auth.log('EMPLOYEE_RESTORE', null, `Restaurados ${okE} colaborador(es) + ${okF} folha(s) do backup ${backup.exportedAt||''}`);
+    toast(`${okE} colaborador(es) e ${okF} folha(s) restaurados.${err?` · ${err} erro(s)`:''}`, okE?'success':'error');
+    if(typeof renderAdiantamentos==='function') renderAdiantamentos();
+  };
+  inp.click();
 }
 // Lupa: filtra a lista por nome / matrícula / setor / posto (ignora acento).
 function _benefFiltrar(q){

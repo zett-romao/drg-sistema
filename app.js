@@ -8861,6 +8861,43 @@ function _benefSelCount(){
   const el=document.getElementById('benef-sel-count');
   if(el) el.textContent = document.querySelectorAll('.benef-chk:checked').length;
 }
+// Exclui os COLABORADORES marcados na lista de benefícios — para remover cadastros
+// DUPLICADOS (mesma pessoa lançada 2+ vezes, mesmo nome/PIX). Cada linha = 1
+// colaborador; o checkbox carrega data-emp-id. Reaproveita o mesmo caminho do botão
+// "Excluir" da tela de Colaboradores (remove o cadastro + as folhas dele). É
+// DEFINITIVO → exige permissão de gestão de colaboradores + confirmação que lista
+// os nomes e o nº de folhas (duplicata real costuma ter 0). #benef-excluir-dup
+async function excluirColabsBenefSelecionados(){
+  if(!(getUserModules(Auth.currentUser).employees || Auth.currentUser?.role==='master')){
+    toast('Você não tem permissão para excluir colaboradores.','error'); return;
+  }
+  const chks=[...document.querySelectorAll('.benef-chk:checked')];
+  if(!chks.length){ toast('Marque os cadastros duplicados que quer excluir.','info'); return; }
+  const ids=[...new Set(chks.map(c=>c.dataset.empId).filter(Boolean))];   // dedup defensivo
+  const emps=ids.map(id=>(State.employees||[]).find(e=>e.id===id)).filter(Boolean);
+  if(!emps.length){ toast('Nenhum colaborador encontrado para os itens marcados.','error'); return; }
+  const folhasDe=e=>(State.payrolls||[]).filter(p=>p.employeeId===e.id).length;
+  const totFolhas=emps.reduce((s,e)=>s+folhasDe(e),0);
+  const nomes=emps.map(e=>`• ${e.nome||'—'} — ${folhasDe(e)} folha(s)`).join('\n');
+  const msg=`EXCLUIR ${emps.length} colaborador(es) marcado(s)?\n\n${nomes}\n\n`+
+    `Ação DEFINITIVA: apaga o cadastro e TODAS as folhas/lançamentos`+
+    (totFolhas>0?` (${totFolhas} folha(s) no total)`:'')+`.\n\n`+
+    `Use SÓ para apagar cadastros DUPLICADOS — confira que está MANTENDO 1 cópia de cada pessoa (a marcada será apagada).`;
+  if(!confirm(msg)) return;
+  let ok=0, err=0;
+  for(const e of emps){
+    try{
+      const payIds=(State.payrolls||[]).filter(p=>p.employeeId===e.id).map(p=>p.id);
+      await Promise.all([DB.remove('employees',e.id), ...payIds.map(pid=>DB.remove('payrolls',pid))]);
+      Auth.log('EMPLOYEE_DELETED', null, `[duplicado via Benefícios] ${e.nome} (CPF: ${e.cpf||'—'}, Posto: ${e.posto||'—'})`);
+      const ix=(State.employees||[]).findIndex(x=>x.id===e.id); if(ix>=0) State.employees.splice(ix,1);
+      State.payrolls=(State.payrolls||[]).filter(p=>p.employeeId!==e.id);
+      ok++;
+    }catch(ex){ console.error('excluir dup benef:',ex); err++; }
+  }
+  toast(`${ok} colaborador(es) excluído(s)${err?` · ${err} com erro`:''}.`, ok?'warning':'error');
+  if(ok){ renderBeneficiosLista(); _benefSelCount(); }
+}
 // Lupa: filtra a lista por nome / matrícula / setor / posto (ignora acento).
 function _benefFiltrar(q){
   const norm = s => (s||'').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
@@ -23315,7 +23352,10 @@ function _getExpectedDay(emp, mes, ano, dia, ignoreAdmissao){
       return { tipo:'trabalho', entrada:_h.entrada, saida:_h.saida, intIni:_h.intIni, intFim:_h.intFim };
     const _r = _fdsLivreResolve(emp, ano, mes, dia);
     if(_r && _r.esteBatido)
-      return { tipo:'trabalho', entrada:_h.entrada, saida:_h.saida, intIni:_h.intIni, intFim:_h.intFim };
+      // heGraceMin: no dia de fim de semana, trabalhar até 30min ALÉM da saída prevista
+      // (15:00 → 15:30) NÃO vira hora extra — decisão do dono: até 15:30 fecha a carga
+      // semanal. Sair ANTES das 15:00 continua sendo déficit (a saída prevista é 15:00). #fds-opcional-1530
+      return { tipo:'trabalho', entrada:_h.entrada, saida:_h.saida, intIni:_h.intIni, intFim:_h.intFim, heGraceMin:30 };
     return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
   }
   // Para 5x2 e fins de semana, sem horário esperado (é folga)
@@ -23377,7 +23417,9 @@ function _detectHEDivergencia(realDay, expectedDay){
   if(_shiftCrossesMidnight(realDay.entrada, realDay.saida) && sai <= ent) sai += 24*60;
   if(_shiftCrossesMidnight(expectedDay.entrada, expectedDay.saida) && eSai <= eEnt) eSai += 24*60;
   if(sai > eSai){
-    const d = sai - eSai;
+    // heGraceMin: tolerância da ESCALA para saída depois (ex.: fds 5x2LIV até 15:30 não
+    // é extra). Some à tolerância padrão de batida só nesse excedente de saída. #fds-opcional-1530
+    const d = Math.max(0, (sai - eSai) - (expectedDay.heGraceMin || 0));
     out.totalMin += d;
     if(d > HE_TOLERANCIA_BATIDA_MIN) out.motivos.push(`Saiu ${d}min depois`);
   }
@@ -23444,7 +23486,9 @@ function _heMinDia(realDay, expectedDay, minContratados){
   // Dia de trabalho: HE = excesso sobre a jornada esperada (ou mínimo contratual
   // se a escala não tiver horário projetado nesse dia). Só conta se aprovada.
   const baseLiq = (expectedDay.entrada && expectedDay.saida) ? _liqMin(expectedDay) : minContratados;
-  const excesso = realLiq - baseLiq;
+  // heGraceMin: tolerância da escala (ex.: fds 5x2LIV até 15:30) — só vira HE o que
+  // passar dela; até a tolerância é jornada normal. #fds-opcional-1530
+  const excesso = (realLiq - baseLiq) - (expectedDay.heGraceMin || 0);
   if(excesso <= 0) return 0;
   // Súmula 366 TST: divergências dentro da tolerância (≤5min/batida e ≤10min/dia)
   // NÃO contam — nem que tenham sido aprovadas numa sessão antiga. Sem isso,

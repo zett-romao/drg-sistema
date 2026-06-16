@@ -14896,7 +14896,7 @@ function renderAdiantamentos(){
     const pix=semPix?'<span style="color:#c62828">sem chave PIX</span>':`<span style="font-family:monospace;font-size:11px">${x.emp.chavePix}</span>`;
     return `<tr style="background:${bg};cursor:pointer" onclick="_abrirFolhaColaborador('${x.emp.id}')" title="Abrir a folha de ${(x.emp.nome||'').replace(/"/g,'')}">
       <td style="padding:9px 10px;text-align:center">${chk}</td>
-      <td style="padding:9px 10px"><strong>${x.emp.nome||'—'}</strong></td>
+      <td style="padding:9px 10px"><span style="color:#64748b;font-weight:600;margin-right:8px" title="Matrícula">${x.emp.registro?String(x.emp.registro).padStart(4,'0'):'—'}</span><strong>${x.emp.nome||'—'}</strong></td>
       <td style="padding:9px 10px;text-align:right;font-weight:700;color:#00695C">${fmtMoney(x.valor)}</td>
       <td style="padding:9px 10px">${pix}</td>
       <td style="padding:9px 10px;text-align:center">${statusHtml}</td>

@@ -1054,6 +1054,11 @@ const MESES = ['','Janeiro','Fevereiro','Março','Abril','Maio','Junho',
                'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
 function genId()    { return Date.now().toString(36) + Math.random().toString(36).substr(2,8); }
+// Id DETERMINÍSTICO de FOLHA: 1 documento por colaborador+competência. Se duas criações
+// acontecerem ao mesmo tempo (2 PCs/abas, ou rodada repetida antes de sincronizar), as
+// duas gravam o MESMO doc → impossível duplicar folha. Folhas antigas (id genId) seguem
+// válidas — são achadas por employeeId+mes+ano; só FOLHA NOVA usa este id. #folha-id-deterministico
+function _payrollId(employeeId, mes, ano){ return `pay_${employeeId}_${ano}_${String(mes).padStart(2,'0')}`; }
 function fmtMoney(v){ return 'R$ ' + parseFloat(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function fmtDate(iso){ if(!iso) return '—'; return new Date(iso).toLocaleDateString('pt-BR'); }
 function fmtDateTime(iso){ if(!iso) return '—'; return new Date(iso).toLocaleString('pt-BR'); }
@@ -12234,7 +12239,7 @@ async function savePayroll(){
   const valeTransporteTotal = numVal('payroll-vt-total');
   const valeRefeicaoTotal   = numVal('payroll-vr-total');
   const record={
-    id:existing?existing.id:genId(), employeeId:empId,
+    id:existing?existing.id:_payrollId(empId,mes,ano), employeeId:empId,
     mes:parseInt(mes), ano:parseInt(ano),
     diasTrabalhados:dias,
     faltas:totalFaltas,
@@ -13793,6 +13798,10 @@ async function backfillFolhasPeriodo(){
   if(!emps.length){ toast('Nenhum colaborador ativo no escopo.','error'); return; }
   if(!confirm(`Preencher automaticamente as folhas de ${emps.length} colaborador(es) na competência ${MESES[mes]}/${ano} (${_compLabel(mes,ano)})?\n\n• Projeta as horas previstas (escala/cadastro) nos dias SEM ponto real, até a 1ª batida de cada colaborador.\n• Dias com ponto batido NÃO são tocados.\n• Recomendado: fazer backup antes.\n\nContinuar?`)) return;
 
+  // ANTI-DUPLICIDADE: recarrega as folhas do banco AGORA, pra o "já existe folha?" deste
+  // lote olhar o estado REAL (não a memória que pode estar velha — causa das folhas
+  // duplicadas). Combina com o id determinístico de folha. #anti-dup-folha
+  try{ State.payrolls = await DB.getAll('payrolls'); }catch(_e){}
   let nFolhas=0, nDias=0, nPulados=0;
   for(const emp of emps){
     if(_cadastroPendencias(emp).length){ nPulados++; continue; }
@@ -13850,7 +13859,7 @@ async function backfillFolhasPeriodo(){
       faltasInjustificadas:faltas, faltasJustificadas:(reg?.faltasJustificadas||0),
       horasExtrasTotal:(heMin>0?+(heMin/60).toFixed(2):0), updatedAt:new Date().toISOString() };
     const record = reg ? {...reg, ...base}
-      : { id:genId(), employeeId:emp.id, mes, ano, createdAt:new Date().toISOString(), ...base };
+      : { id:_payrollId(emp.id,mes,ano), employeeId:emp.id, mes, ano, createdAt:new Date().toISOString(), ...base };
     try{
       await DB.save('payrolls', _sanitizeForFirestore(record));
       const ix=State.payrolls.findIndex(p=>p.id===record.id);
@@ -14156,6 +14165,9 @@ async function migrarParaCompetencia(){
 
   if(!confirm(`Migrar para o modelo de competência (fecha dia 25)?\n\n• ${comDias2631.length} folha(s) têm dias 26-31, que irão para a competência do mês SEGUINTE.\n• Os dias 1-25 permanecem onde estão.\n• Esta ação roda UMA única vez. Faça backup antes.\n\nContinuar?`)) return;
 
+  // ANTI-DUPLICIDADE: recarrega as folhas do banco antes do lote (estado real, não a
+  // memória velha). Combina com o id determinístico de folha. #anti-dup-folha
+  try{ State.payrolls = await DB.getAll('payrolls'); }catch(_e){}
   let nFolhas=0, nMovidos=0;
   for(const {employeeId,mes,ano} of alvos.values()){
     const emp=State.employees.find(e=>e.id===employeeId);
@@ -14191,7 +14203,7 @@ async function migrarParaCompetencia(){
       faltasInjustificadas:faltas, faltasJustificadas:(reg?.faltasJustificadas||0),
       horasExtrasTotal:(heMin>0?+(heMin/60).toFixed(2):0), updatedAt:new Date().toISOString() };
     const record = reg ? {...reg, ...base}
-      : { id:genId(), employeeId, mes, ano, status:'aberta', createdAt:new Date().toISOString(), ...base };
+      : { id:_payrollId(employeeId,mes,ano), employeeId, mes, ano, status:'aberta', createdAt:new Date().toISOString(), ...base };
     try{
       await DB.save('payrolls', _sanitizeForFirestore(record));
       const ix=State.payrolls.findIndex(p=>p.id===record.id);
@@ -23872,7 +23884,7 @@ async function savePontoManualRascunho(){
   const existing=State.payrolls.find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
   const record=existing
     ? {...existing, pontoManualDias:dias, updatedAt:new Date().toISOString()}
-    : { id:genId(), employeeId:empId, mes, ano, pontoManualDias:dias,
+    : { id:_payrollId(empId,mes,ano), employeeId:empId, mes, ano, pontoManualDias:dias,
         updatedAt:new Date().toISOString(), createdAt:new Date().toISOString() };
   const btn=document.getElementById('btn-salvar-rascunho-ponto');
   if(btn) setBtnLoading(btn,true,'');
@@ -24852,7 +24864,7 @@ async function applyPontoManual(){
     const existing=State.payrolls.find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
     const record=existing
       ? {...existing, pontoManualDias:dias, horasExtrasTotal:heHorasAplic, updatedAt:new Date().toISOString()}
-      : { id:genId(), employeeId:empId, mes, ano, pontoManualDias:dias, horasExtrasTotal:heHorasAplic,
+      : { id:_payrollId(empId,mes,ano), employeeId:empId, mes, ano, pontoManualDias:dias, horasExtrasTotal:heHorasAplic,
           updatedAt:new Date().toISOString(), createdAt:new Date().toISOString() };
     try{
       await DB.save('payrolls', record);

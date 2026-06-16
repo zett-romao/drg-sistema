@@ -1558,9 +1558,14 @@ async function doLogin(event){
     }
     if(!r || r.ok!==true || !r.user || !r.customToken){
       Auth.log('LOGIN_FAILED',username,(r&&r.erro)||'recusado pelo servidor');
+      const _erro=(r&&r.erro)||'';
       let msg;
       if(r && r.deviceBlocked) msg='Este usuário só pode acessar do dispositivo autorizado. Procure o administrador para liberar esta máquina.';
-      else if(/senha/i.test((r&&r.erro)||'')) msg='Senha incorreta.';
+      else if(/senha/i.test(_erro)) msg='Senha incorreta.';
+      // Mostra o MOTIVO REAL do servidor (ex.: "Muitas tentativas erradas. Aguarde 15 min",
+      // "usuário inativo") — antes qualquer erro virava "Usuário inválido ou sem acesso",
+      // o que confundia (ex.: lockout de rate-limit aparecia como conta inexistente). #login-msg-real
+      else if(_erro) msg = _erro.charAt(0).toUpperCase()+_erro.slice(1);
       else msg='Usuário inválido ou sem acesso.';
       errorMsg.textContent = msg;
       errorEl.classList.remove('hidden'); return;

@@ -21290,7 +21290,7 @@ function _monitorFaltasHoje(){
     if(nowMin < entMin + MONITOR_FALTAS_TOLERANCIA_MIN) return;  // ainda dentro da tolerancia
     const reg = _pontoDiaReal(emp, ano, mes, dia);
     if(reg && reg.entrada) return;                  // ja bateu a entrada
-    out.push({ id:emp.id, nome:emp.nome||'(sem nome)', setor:emp.setor||'', cargo:emp.cargo||'',
+    out.push({ id:emp.id, nome:emp.nome||'(sem nome)', setor:emp.setor||'', cargo:emp.cargo||'', posto:emp.posto||'',
                escala: emp.escala||'', escalaFam: escalaFamilia(emp.escala||'5x2A'),
                previsto:exp.entrada, atrasoMin: nowMin - entMin, aguardando: !!(r && r.status==='aguardando') });
   });
@@ -21410,6 +21410,7 @@ async function renderMonitorFaltas(){
       return `<tr style="border-bottom:1px solid #eee">
         <td style="padding:10px 8px;font-weight:600"><a href="javascript:void(0)" onclick="openPayrollForEmployee('${f.id}')" title="Abrir a folha de ponto de ${esc(f.nome)}" style="color:#dc2626;text-decoration:none;border-bottom:1px dotted #dc2626">${esc(f.nome)}</a>${tag}</td>
         <td style="padding:10px 8px;color:#555">${esc(f.setor||f.cargo||'—')}</td>
+        <td style="padding:10px 8px;color:#555">${esc(f.posto||'—')}</td>
         ${escCell}
         <td style="padding:10px 8px;text-align:center;font-variant-numeric:tabular-nums">${esc(f.previsto)}</td>
         <td style="padding:10px 8px;text-align:center;color:#dc2626;font-weight:700;font-variant-numeric:tabular-nums">${_fmtAtraso(f.atrasoMin)}</td>
@@ -21420,6 +21421,7 @@ async function renderMonitorFaltas(){
         <thead><tr style="background:#fafafa;border-bottom:2px solid #e5e7eb;text-align:left">
           <th style="padding:10px 8px">Colaborador</th>
           <th style="padding:10px 8px">Setor / Cargo</th>
+          <th style="padding:10px 8px">Posto de Trabalho</th>
           <th style="padding:10px 8px;text-align:center">Escala</th>
           <th style="padding:10px 8px;text-align:center">Entrada prevista</th>
           <th style="padding:10px 8px;text-align:center">Atraso</th>

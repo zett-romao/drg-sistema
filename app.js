@@ -14891,6 +14891,8 @@ function renderAdiantamentos(){
     selMes.dataset.inicializado='1';
   }
   const {mes,ano,comp}=_adiantMesAno();
+  // O seletor "Agendar para:" não aceita datas passadas (bloqueia no calendário). #adiant-agendar
+  const _sd=document.getElementById('adiant-schedule-date'); if(_sd) _sd.min=_hojeISO();
 
   // Vencimento: dia limite configurado em Configurações da Empresa (default 15).
   // Passou do dia E nada foi pago (nem PIX via sistema nem registro "pago fora")
@@ -15016,6 +15018,35 @@ function renderAdiantamentos(){
 
 function _adiantToggleAll(master){
   document.querySelectorAll('#adiant-tbody .adiant-check').forEach(c=>{ c.checked=master.checked; });
+}
+
+// ── Agendar pagamento de adiantamento para data futura. #adiant-agendar ──
+// Campo "Agendar para:" no topo. Vazio = paga hoje. Com data futura, a
+// solicitação leva o scheduleDate; ao APROVAR (2FA agora) o worker manda
+// esse scheduleDate ao Asaas, que solta o PIX sozinho na data escolhida.
+function _hojeISO(){ return new Date().toISOString().substring(0,10); }
+// Lê/valida a data do campo. Retorna {date:'YYYY-MM-DD', futura:bool} ou
+// null se for uma data no passado (não dá pra agendar pra trás).
+function _adiantScheduleDate(){
+  const hoje=_hojeISO();
+  const v=(val('adiant-schedule-date')||'').trim();
+  if(!v) return {date:hoje, futura:false};
+  if(v<hoje) return null;
+  return {date:v, futura:v>hoje};
+}
+function _brDate(iso){ return (iso||'').split('-').reverse().join('/'); }
+function _adiantScheduleChanged(){
+  const hint=document.getElementById('adiant-schedule-hint');
+  const hoje=_hojeISO();
+  const v=(val('adiant-schedule-date')||'').trim();
+  if(!v){ if(hint) hint.textContent=''; return; }
+  if(v<hoje){
+    toast('Data no passado — escolha hoje ou uma data futura.','warning');
+    setVal('adiant-schedule-date',''); if(hint) hint.textContent=''; return;
+  }
+  if(hint) hint.textContent = v>hoje
+    ? `📅 Pagamentos serão AGENDADOS para ${_brDate(v)} — você aprova agora com 2FA e o banco (Asaas) solta o PIX nessa data.`
+    : 'Pagamento para hoje.';
 }
 
 function _abrirFolhaColaborador(empId){
@@ -15181,7 +15212,7 @@ async function desfazerPagoExterno(empId, mes, ano){
 }
 
 // Cria a solicitação de pagamento de um adiantamento — reaproveita _criarSolicitacaoPagamento.
-async function _criarSolicAdiantamento(emp, valor, comp){
+async function _criarSolicAdiantamento(emp, valor, comp, scheduleDate){
   if(!(valor>0)) throw new Error('valor do adiantamento inválido');
   const pixKey=emp.chavePix||'';
   if(!pixKey) throw new Error('colaborador sem chave PIX cadastrada');
@@ -15189,11 +15220,12 @@ async function _criarSolicAdiantamento(emp, valor, comp){
   const jaPend=(State.solicitacoes||[]).some(s=>s.origem==='adiantamento' && s.employeeId===emp.id
     && s.competencia===comp && s.status==='pendente');
   if(jaPend) throw new Error('já existe uma solicitação pendente para este adiantamento');
+  const sched=scheduleDate||_hojeISO();
   return _criarSolicitacaoPagamento({
     employeeId:emp.id, employeeNome:emp.nome, payrollId:'',
     valor, pixKey:_pixKeyParaAsaas(pixKey,pixTipo), keyType:pixTipo,
-    descricao:`Adiantamento ${comp} — ${emp.nome}`,
-    scheduleDate:new Date().toISOString().split('T')[0],
+    descricao:`Adiantamento ${comp} — ${emp.nome}${sched>_hojeISO()?` (agendado p/ ${_brDate(sched)})`:''}`,
+    scheduleDate:sched,
     competencia:comp, origem:'adiantamento',
   });
 }
@@ -15207,10 +15239,15 @@ async function pagarAdiantamento(empId){
   const emp=State.employees.find(e=>e.id===empId);
   if(!emp || !_adiantAtivoDe(emp,p)){ toast('Adiantamento não encontrado.','error'); return; }
   const _val=_adiantValorDe(emp,p);
+  const sched=_adiantScheduleDate();
+  if(!sched){ toast('A data em "Agendar para:" está no passado. Corrija (ou deixe vazia p/ hoje).','error'); return; }
+  if(sched.futura && !confirm(`Agendar o adiantamento de ${emp.nome} (${fmtMoney(_val)}) para ${_brDate(sched.date)}?\n\nVai para Aprovações: você aprova AGORA com 2FA e o banco (Asaas) solta o PIX na data agendada.`)) return;
   try{
-    const sol=await _criarSolicAdiantamento(emp, _val, comp);
-    Auth.log('PAGAMENTO_SOLICITADO', null, `Adiantamento ${comp} | ${emp.nome} | R$ ${_val.toFixed(2)} | sol ${sol.id}`);
-    toast(`Adiantamento de ${emp.nome}: solicitação criada — aguardando aprovação.`,'success');
+    const sol=await _criarSolicAdiantamento(emp, _val, comp, sched.date);
+    Auth.log('PAGAMENTO_SOLICITADO', null, `Adiantamento ${comp} | ${emp.nome} | R$ ${_val.toFixed(2)}${sched.futura?` | agendado ${sched.date}`:''} | sol ${sol.id}`);
+    toast(sched.futura
+      ? `Adiantamento de ${emp.nome} agendado p/ ${_brDate(sched.date)} — aprove em Aprovações (2FA).`
+      : `Adiantamento de ${emp.nome}: solicitação criada — aguardando aprovação.`,'success');
     renderAdiantamentos();
   }catch(e){
     toast('Não foi possível: '+(e.message||e),'error');
@@ -15223,6 +15260,9 @@ async function pagarAdiantamentosLote(){
   }
   const checks=[...document.querySelectorAll('#adiant-tbody .adiant-check:checked')];
   if(!checks.length){ toast('Selecione ao menos um colaborador (marque as caixas).','warning'); return; }
+  const sched=_adiantScheduleDate();
+  if(!sched){ toast('A data em "Agendar para:" está no passado. Corrija (ou deixe vazia p/ hoje).','error'); return; }
+  if(sched.futura && !confirm(`Agendar ${checks.length} adiantamento(s) para ${_brDate(sched.date)}?\n\nCada um vai para Aprovações: você aprova AGORA com 2FA e o banco (Asaas) solta o PIX na data agendada.`)) return;
   const {mes,ano,comp}=_adiantMesAno();
   let ok=0, erros=0;
   for(const c of checks){
@@ -15232,12 +15272,12 @@ async function pagarAdiantamentosLote(){
     if(!emp || !_adiantAtivoDe(emp,p)){ erros++; continue; }
     const _val=_adiantValorDe(emp,p);
     try{
-      const sol=await _criarSolicAdiantamento(emp, _val, comp);
-      Auth.log('PAGAMENTO_SOLICITADO', null, `Adiantamento ${comp} | ${emp.nome} | R$ ${_val.toFixed(2)} | sol ${sol.id}`);
+      const sol=await _criarSolicAdiantamento(emp, _val, comp, sched.date);
+      Auth.log('PAGAMENTO_SOLICITADO', null, `Adiantamento ${comp} | ${emp.nome} | R$ ${_val.toFixed(2)}${sched.futura?` | agendado ${sched.date}`:''} | sol ${sol.id}`);
       ok++;
     }catch(e){ erros++; }
   }
-  toast(`${ok} solicitação(ões) de adiantamento criada(s)${erros?` · ${erros} pulada(s)/com erro`:''}.`, erros?'warning':'success');
+  toast(`${ok} solicitação(ões)${sched.futura?` agendada(s) p/ ${_brDate(sched.date)}`:' de adiantamento criada(s)'}${erros?` · ${erros} pulada(s)/com erro`:''}.`, erros?'warning':'success');
   renderAdiantamentos();
 }
 

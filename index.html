@@ -2526,7 +2526,10 @@
                 <option value="10">Outubro</option><option value="11">Novembro</option><option value="12">Dezembro</option>
               </select>
               <select id="adiant-ano" onchange="renderAdiantamentos()" style="font-weight:700"></select>
+              <label for="adiant-schedule-date" style="font-size:12px;color:#475569;font-weight:600;display:flex;align-items:center;gap:5px"><i class="fa-solid fa-calendar-day" style="color:#1565C0"></i> Agendar para:</label>
+              <input type="date" id="adiant-schedule-date" onchange="_adiantScheduleChanged()" title="Deixe vazio para pagar hoje. Com uma data futura, o PIX é aprovado agora (2FA) e o banco (Asaas) solta o pagamento na data escolhida." style="font-weight:600;padding:4px 8px;border:1px solid #cbd5e1;border-radius:6px">
               <button class="btn btn-primary btn-sm" onclick="pagarAdiantamentosLote()"><i class="fa-solid fa-money-bill-transfer"></i> Pagar selecionados</button>
+              <span id="adiant-schedule-hint" style="font-size:11px;color:#1565C0;font-weight:600;flex-basis:100%"></span>
               <button class="btn btn-sm" onclick="marcarPagoExternoLote()" style="background:#00695C;color:#fff;border:none"><i class="fa-solid fa-circle-check"></i> Pago fora selecionados</button>
               <button class="btn btn-sm" onclick="corrigirFolhasDuplicadas()" style="background:#6A1B9A;color:#fff;border:none" title="Varre TODAS as competências e corrige folhas duplicadas (mesmo colaborador com 2+ folhas no mesmo mês). Mantém a mais completa, remove as cópias, NÃO apaga o colaborador. Casos com ponto em 2 folhas ficam para revisão manual. Mostra preview antes."><i class="fa-solid fa-wand-magic-sparkles"></i> Corrigir folhas duplicadas (todos os meses)</button>
               <button class="btn btn-sm" onclick="restaurarColabsApagados()" style="background:#1565C0;color:#fff;border:none" title="Recupera colaboradores apagados por engano a partir de um arquivo de BACKUP (JSON). Só ADICIONA de volta quem sumiu — não altera nada do que existe hoje."><i class="fa-solid fa-rotate-left"></i> Restaurar colaboradores apagados</button>
@@ -7140,6 +7143,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260618a-estoque-obrigatorios"></script>
+  <script src="app.js?v=20260618b-adiant-agendar"></script>
 </body>
 </html>

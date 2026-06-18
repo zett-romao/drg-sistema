@@ -5633,14 +5633,14 @@
       <div class="form-group"><label>Nome do item <span class="required">*</span></label><input type="text" id="estq-item-nome" placeholder="Ex.: Bota de segurança, Luva nitrílica, Capacete..."></div>
       <div class="form-row">
         <div class="form-group flex-1"><label>Tipo</label>
-          <select id="estq-item-tipo"><option value="EPI">EPI</option><option value="Uniforme">Uniforme</option><option value="Material">Material / Consumível</option><option value="Outro">Outro</option></select>
+          <select id="estq-item-tipo" onchange="_estqTipoChange()"><option value="EPI">EPI</option><option value="Uniforme">Uniforme</option><option value="Material">Material / Consumível</option><option value="Outro">Outro</option></select>
         </div>
-        <div class="form-group flex-1"><label>Tamanho / Numeração</label><input type="text" id="estq-item-tamanho" placeholder="Ex.: 42, M, G..."></div>
-        <div class="form-group flex-1"><label>Unidade</label><input type="text" id="estq-item-unidade" placeholder="un, par, cx..." value="un"></div>
+        <div class="form-group flex-1"><label>Tamanho / Numeração <span class="required">*</span></label><input type="text" id="estq-item-tamanho" placeholder="Ex.: 42, M, G, único..."></div>
+        <div class="form-group flex-1"><label>Unidade <span class="required">*</span></label><input type="text" id="estq-item-unidade" placeholder="un, par, cx..." value="un"></div>
       </div>
       <div class="form-row">
-        <div class="form-group flex-1"><label>CA — Certificado de Aprovação <small style="color:var(--text-muted)">— obrigatório p/ EPI (NR-6)</small></label><input type="text" id="estq-item-ca" placeholder="Nº do CA"></div>
-        <div class="form-group flex-1"><label>Validade do CA</label><input type="date" id="estq-item-validade-ca"></div>
+        <div class="form-group flex-1"><label>CA — Certificado de Aprovação <span class="required" id="estq-item-ca-req">*</span> <small style="color:var(--text-muted)">— obrigatório p/ EPI (NR-6)</small></label><input type="text" id="estq-item-ca" placeholder="Nº do CA"></div>
+        <div class="form-group flex-1"><label>Validade do CA <span class="required" id="estq-item-validade-req">*</span></label><input type="date" id="estq-item-validade-ca"></div>
       </div>
       <div class="form-group"><label>Estoque mínimo (alerta) <small style="color:var(--text-muted)">— 0 = sem alerta</small></label><input type="number" id="estq-item-minimo" min="0" step="1" placeholder="0" style="max-width:160px"></div>
       <div class="form-group"><label>Observações</label><textarea id="estq-item-obs" rows="2" placeholder="Opcional"></textarea></div>
@@ -5805,8 +5805,8 @@
       </div>
       <div class="form-row">
         <div class="form-group flex-1"><label>Quantidade <span class="required">*</span></label><input type="number" id="epi-ent-qtd" min="0" step="1" value="1"></div>
-        <div class="form-group flex-1"><label>Tamanho / Numeração</label><input type="text" id="epi-ent-tamanho" placeholder="Ex.: 42, M, G..."></div>
-        <div class="form-group flex-1"><label>Data</label><input type="date" id="epi-ent-data"></div>
+        <div class="form-group flex-1"><label>Tamanho / Numeração <span class="required">*</span></label><input type="text" id="epi-ent-tamanho" placeholder="Ex.: 42, M, G..."></div>
+        <div class="form-group flex-1"><label>Data <span class="required">*</span></label><input type="date" id="epi-ent-data"></div>
       </div>
       <div class="form-group"><label>Motivo</label>
         <select id="epi-ent-motivo">
@@ -7140,6 +7140,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260616p-login-msg-real"></script>
+  <script src="app.js?v=20260618a-estoque-obrigatorios"></script>
 </body>
 </html>

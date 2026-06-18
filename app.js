@@ -19911,15 +19911,34 @@ function openEstoqueItem(id){
   // modo normal: esconde a caixa "Entrada desta NF" (só aparece vindo da importação por IA)
   setVal('estq-item-imp-idx','');
   const _impBox=document.getElementById('estq-item-import-box'); if(_impBox) _impBox.style.display='none';
+  _estqTipoChange();   // mostra/esconde o * do CA conforme o tipo
   document.getElementById('modal-estq-item').classList.remove('hidden');
+}
+// CA + Validade só são obrigatórios para EPI — mostra/esconde o asterisco visual. #estoque-obrigatorios
+function _estqTipoChange(){
+  const ehEpi = (val('estq-item-tipo')||'EPI')==='EPI';
+  const ca=document.getElementById('estq-item-ca-req');
+  const vd=document.getElementById('estq-item-validade-req');
+  if(ca) ca.style.display = ehEpi ? '' : 'none';
+  if(vd) vd.style.display = ehEpi ? '' : 'none';
 }
 async function saveEstoqueItem(){
   const nome=val('estq-item-nome'); if(!nome){ toast('Informe o nome do item.','error'); return; }
+  const tipo=val('estq-item-tipo')||'EPI';
+  // Campos obrigatórios em todo item (decisão do dono 2026-06-18). #estoque-obrigatorios
+  const tamanho=(val('estq-item-tamanho')||'').trim(); if(!tamanho){ toast('Informe o tamanho / numeração.','error'); return; }
+  const unidade=(val('estq-item-unidade')||'').trim(); if(!unidade){ toast('Informe a unidade (un, par, cx...).','error'); return; }
+  // CA + validade só são exigidos para EPI (NR-6); uniforme/material/outro não têm CA.
+  const ca=(val('estq-item-ca')||'').trim();
+  const validadeCa=val('estq-item-validade-ca')||'';
+  if(tipo==='EPI'){
+    if(!ca){ toast('EPI exige o número do CA (NR-6).','error'); return; }
+    if(!validadeCa){ toast('Informe a validade do CA do EPI.','error'); return; }
+  }
   const id=val('estq-item-id')||genId();
   const ex=(State.estoqueItens||[]).find(x=>x.id===id);
-  const rec={ id, nome, tipo:val('estq-item-tipo')||'EPI', ca:val('estq-item-ca')||'',
-    validadeCa:val('estq-item-validade-ca')||'', tamanho:val('estq-item-tamanho')||'',
-    unidade:val('estq-item-unidade')||'un', estoqueMinimo:numVal('estq-item-minimo')||0,
+  const rec={ id, nome, tipo, ca, validadeCa, tamanho, unidade,
+    estoqueMinimo:numVal('estq-item-minimo')||0,
     obs:val('estq-item-obs')||'', arquivado:false,
     criadoEm: ex?.criadoEm || new Date().toISOString(), updatedAt:new Date().toISOString() };
   const btn=document.querySelector('#modal-estq-item .btn-primary'); setBtnLoading(btn,true,'');
@@ -20087,14 +20106,19 @@ async function saveEntregaEpi(printAfter){
   if(!it){ toast('Escolha o item.','error'); return; }
   if(!emp){ toast('Escolha o colaborador.','error'); return; }
   const qtd=numVal('epi-ent-qtd'); if(!(qtd>0)){ toast('Informe a quantidade.','error'); return; }
+  // Campos obrigatórios na entrega (decisão do dono 2026-06-18). #estoque-obrigatorios
+  const tamanho=(val('epi-ent-tamanho')||'').trim(); if(!tamanho){ toast('Informe o tamanho / numeração.','error'); return; }
+  const dataEnt=val('epi-ent-data'); if(!dataEnt){ toast('Informe a data da entrega.','error'); return; }
+  // Não entregar EPI sem CA cadastrado no item (NR-6).
+  if((it.tipo||'EPI')==='EPI' && !(it.ca||'').trim()){ toast('Este EPI não tem CA cadastrado. Edite o item e informe o CA antes de entregar (NR-6).','error'); return; }
   const motivo=val('epi-ent-motivo')||'primeira';
   const tipo = motivo==='devolucao' ? 'devolucao' : 'entrega';
   const saldo=_estoqueSaldo(itemId);
   if(tipo==='entrega' && qtd>saldo && !confirm(`A entrega (${qtd}) é maior que o saldo atual (${saldo}). O estoque ficará negativo. Continuar?`)) return;
   const rec={ id:genId(), itemId, itemNome:it.nome, tipo, quantidade:qtd,
-    data:val('epi-ent-data')||new Date().toISOString().substring(0,10),
+    data:dataEnt,
     colaboradorId:colabId, colaboradorNome:emp.nome,
-    ca:it.ca||'', tamanho:val('epi-ent-tamanho')||it.tamanho||'', motivo,
+    ca:it.ca||'', tamanho, motivo,
     obs:val('epi-ent-obs')||'', porNome:Auth.currentUser?.username||'', createdAt:new Date().toISOString() };
   const btn=document.querySelector('#modal-epi-entrega .btn-primary'); setBtnLoading(btn,true,'');
   try{

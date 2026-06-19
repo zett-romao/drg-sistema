@@ -695,6 +695,13 @@ async function _gravarBatidaNaFolha(p, horarioEfetivo){
   entry[tp+'_autorizacaoId']     = p.id;
   entry[tp+'_motivoPedido']      = p.motivo || '';
   if(p.geo) entry[tp+'_geo'] = p.geo;
+  // Pedido de HORA EXTRA: ao liberar a batida, a HE do dia já fica APROVADA na folha
+  // (a aprovação do supervisor É a aprovação da HE). #regra-ponto-he-atraso
+  if(p.tipoBloqueio === 'horaExtra'){
+    entry.heReview = { status:'aprovado', perc:50, observacao:'HE aprovada via pedido de ponto',
+      aprovadoPor: currentUser.username || '', aprovadoEm: new Date().toISOString(),
+      recusadoPor:null, recusadoEm:null };
+  }
   await dbCol('payrolls').doc(docId).set({
     id:docId, employeeId:empId, mes, ano, pontoManualDias:dias,
     updatedAt:new Date().toISOString(), createdAt

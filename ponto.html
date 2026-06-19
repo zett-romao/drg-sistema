@@ -1391,28 +1391,26 @@ function analisarHorario(prox, now){
     return { tipo:'ok', esperado:horaIda, diff:decorrido };
   }
 
-  // Entrada/Saída — precisam do horário esperado (tolerância ±5min).
+  // Entrada/Saída — precisam do horário esperado.
   const esp = _horarioEsperado(prox);
   // Sem horario cadastrado → trava desligada para essa batida
   if(!esp) return { tipo:'ok' };
 
-  // 4. Entrada e Saida — +/- 5 min do horario previsto
-  const diff = atualMin - timeToMin(esp);
-  if(Math.abs(diff) <= TOLERANCIA_MIN){
-    // Mesmo dentro dos +/-5min, checa a SOMATORIA do dia (Sumula 366: 10min/dia).
-    // Ex.: entrou 4min cedo + saiu 4min depois + almoco 4min a mais = 12min → autorizacao.
-    const _somaDia = _somatoriaDivergenciaDia(prox, atualMin);
-    if(_somaDia > TOLERANCIA_DIA_MIN){
-      return { tipo:'foraJanela', esperado:esp, diff,
-        msg:`A soma dos minutos fora do horário no dia (${_somaDia} min) passou de 10min. Solicite autorização ao supervisor.` };
-    }
-    return { tipo:'ok', esperado:esp, diff };
+  // REGRA (2026-06-19): a batida que gera MAIS trabalho é HORA EXTRA e precisa da
+  // aprovação do supervisor → fica PENDENTE (não entra na folha até liberar). A que
+  // gera MENOS trabalho (ATRASO) registra NORMAL e é apurada/descontada na folha pela
+  // Súmula 366 (soma > 10min/dia desconta o total). Tolerância de 5min por batida.
+  //   entrada ANTES do previsto = HE ; entrada DEPOIS = atraso (chegou tarde)
+  //   saída   DEPOIS do previsto = HE ; saída  ANTES   = atraso (saiu cedo)
+  // #regra-ponto-he-atraso
+  const diff = atualMin - timeToMin(esp);   // + = depois do previsto
+  const ehHoraExtra = (prox === 'entrada') ? (diff < 0) : (diff > 0);
+  if(ehHoraExtra && Math.abs(diff) > TOLERANCIA_MIN){
+    return { tipo:'horaExtra', esperado:esp, diff,
+      msg:`Você está fazendo HORA EXTRA (${Math.abs(diff)} min ${prox==='entrada'?'antes da entrada prevista':'após a saída prevista'}). A hora extra precisa da aprovação do supervisor: você bate agora, justifica, e ela fica PENDENTE — só entra na folha quando o supervisor liberar.` };
   }
-  const nome = (prox==='entrada') ? 'entrada' : 'saída';
-  const msg = (diff < 0)
-    ? `Muito cedo. Sua ${nome} é prevista para ${esp} (faltam ${-diff} min). Solicite autorização ao supervisor.`
-    : `Você está atrasado. Sua ${nome} era prevista para ${esp} (atrasou ${diff} min). Solicite autorização ao supervisor.`;
-  return { tipo:'foraJanela', esperado:esp, diff, msg };
+  // Atraso (entrada tarde / saída cedo) ou dentro da tolerância → registra NORMAL.
+  return { tipo:'ok', esperado:esp, diff };
 }
 
 // Mostra a mensagem de bloqueio. Retorna:
@@ -1426,6 +1424,7 @@ function mostrarBloqueio(prox, hora, analise){
     let icone='⚠️', titulo='Fora do horário previsto';
     if(analise.tipo==='descansoInsuficiente'){ icone='⏳'; titulo='Aguarde mais um pouco'; }
     else if(analise.tipo==='folga')          { icone='🛌'; titulo='Você está de folga hoje'; }
+    else if(analise.tipo==='horaExtra')      { icone='⏱️'; titulo='Hora extra — precisa de aprovação'; }
     document.getElementById('aviso-icone').textContent  = icone;
     document.getElementById('aviso-titulo').textContent = titulo;
     document.getElementById('aviso-msg').textContent    = analise.msg;
@@ -1438,10 +1437,10 @@ function mostrarBloqueio(prox, hora, analise){
     }
     const btnOk = document.getElementById('aviso-confirmar');
     const btnCancel = document.getElementById('aviso-cancelar');
-    const podeAutorizar = (analise.tipo === 'foraJanela' || analise.tipo === 'folga');
+    const podeAutorizar = (analise.tipo === 'foraJanela' || analise.tipo === 'folga' || analise.tipo === 'horaExtra');
     if(podeAutorizar){
       // Caso autorizavel pelo supervisor: oferece solicitar
-      btnOk.innerHTML = '📨 Solicitar autorização ao supervisor';
+      btnOk.innerHTML = (analise.tipo==='horaExtra') ? '📨 Bater e enviar para aprovação' : '📨 Solicitar autorização ao supervisor';
       btnOk.style.background = '#1976D2';
       btnCancel.style.display = '';
       btnCancel.textContent = 'Cancelar';

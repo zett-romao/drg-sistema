@@ -24205,6 +24205,10 @@ function _diaEmBrancoEhFalta(emp, mes, ano, dia, isWeekend, is12x36){
   if(_ov && _ov.tipo === 'folga') return false;
   // De FÉRIAS/abono cobrindo o dia → não é falta (período pago, registrado em Férias). #monitor-ferias
   if(_emFeriasNoDia(emp, _ymdOv)) return false;
+  // ATESTADO (dia, aprovado) cobrindo o dia → justificado/abonado: NÃO é falta (igual férias).
+  // O dia é pago via diasPagos e NUNCA descontado. Como deriva direto do atestado, a regra
+  // se auto-corrige a cada recálculo — nunca mais "perde a referência". #atestado-abona-falta
+  if(typeof _temAtestadoNoDia==='function' && _temAtestadoNoDia(emp.id, _ymdOv)) return false;
   let deveriaTrabalhar;
   // Escala salva é keyed pela COMPETÊNCIA (26→25); converte a data real do dia pra
   // competência antes de buscar (senão dias 26-31 leem a escala do mês errado e
@@ -25153,6 +25157,10 @@ function _obsDiaSemBatida(emp, mes, ano, cd, d, isWknd, is12x36){
   const exp = _getExpectedDayComp(emp, mes, ano, d);
   const ehTrabalho = !!(exp && exp.tipo!=='folga' && exp.entrada);
   if(!ehTrabalho) return { txt:'Folga', cor:'#7e22ce' };
+  // Dia de trabalho coberto por ATESTADO aprovado → justificado/abonado: mostra
+  // "Atestado" (verde), nunca "Falta". Deriva do atestado, então fica firme. #atestado-abona-falta
+  const _ymdAt = `${cd.ano}-${String(cd.mes).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  if(typeof _temAtestadoNoDia==='function' && _temAtestadoNoDia(emp.id, _ymdAt)) return { txt:'Atestado', cor:'#1B5E20' };
   // Dia de trabalho sem batida: FALTA se já passou; A CUMPRIR se ainda é futuro
   // (plantão não cumprido numa competência em andamento — não é folga nem falta).
   if(_diaEmBrancoEhFalta(emp, cd.mes, cd.ano, d, isWknd, is12x36)) return { txt:'Falta', cor:'#C62828' };

@@ -10871,14 +10871,19 @@ function calcIRRF(bruto, dependentes, pensao, planoSaude, inss){
 // Coleção `atestados`. Atestado médico aprovado abate dias/horas das
 // faltas e atrasos da folha — pago, sem desconto.
 function _atestadoTotais(empId, mes, ano){
-  let dias=0, horasMin=0;
+  let dias=0, horasMin=0, diasNaoAbonados=0;
   (State.atestados||[]).forEach(a=>{
     if(a.employeeId!==empId || a.mes!=mes || a.ano!=ano) return;
     if(a.status==='pendente') return; // só aprovados abatem
-    if(a.tipo==='horas') horasMin += Math.round((parseFloat(a.horas)||0)*60);
-    else dias += parseInt(a.dias)||0;
+    if(a.tipo==='horas'){ horasMin += Math.round((parseFloat(a.horas)||0)*60); return; }
+    const d = parseInt(a.dias)||0;
+    // Abono NÃO abonado (categoria 'abono' + abona===false): justifica (sem penalidade
+    // DSR/VA/BP) mas NÃO paga → desconta salário÷30. Atestado médico e abono abonado
+    // entram nos dias PAGOS. #atestado-abona-falta
+    if(a.categoria==='abono' && a.abona===false) diasNaoAbonados += d;
+    else dias += d;
   });
-  return {dias, horasMin};
+  return {dias, horasMin, diasNaoAbonados};
 }
 
 function _diasEntreInclusivo(ini, fim){
@@ -10893,6 +10898,37 @@ function onAtestadoTipoChange(){
   document.getElementById('atest-fim-wrap').style.display   = horas?'none':'';
   document.getElementById('atest-horas-wrap').style.display = horas?'':'none';
   _atestRecalc();
+}
+// Categoria do lançamento: 'medico' (atestado, sempre paga) ou 'abono' (justificativa
+// sem documento, com toggle "Abona o dia?"). Ajusta banner, CID, documento e motivo.
+// #atestado-abona-falta
+function onAtestadoCategoriaChange(){
+  const cat=val('atest-categoria')||'medico';
+  const abona=val('atest-abona')||'sim';
+  const ehAbono=cat==='abono';
+  const _show=(id,on)=>{ const e=document.getElementById(id); if(e) e.style.display=on?'':'none'; };
+  _show('atest-abona-wrap', ehAbono);
+  _show('atest-cid-wrap', !ehAbono);   // CID só faz sentido p/ atestado médico
+  const banner=document.getElementById('atest-banner');
+  const txt=document.getElementById('atest-banner-txt');
+  const obsLbl=document.getElementById('atest-obs-label');
+  const arqHint=document.getElementById('atest-arquivo-hint');
+  if(ehAbono){
+    if(obsLbl) obsLbl.innerHTML='Motivo <span style="color:#c62828">*</span>';
+    if(arqHint) arqHint.textContent='(opcional)';
+    if(abona==='nao'){
+      if(banner){ banner.style.background='#FFF3E0'; banner.style.color='#E65100'; }
+      if(txt) txt.innerHTML='Falta <strong>justificada, NÃO abonada</strong>: o dia é descontado (salário÷30), mas <strong>não perde DSR</strong> nem derruba VA/BP. Informe o motivo.';
+    } else {
+      if(banner){ banner.style.background='#E8F5E9'; banner.style.color='#2E7D32'; }
+      if(txt) txt.innerHTML='Falta <strong>justificada e abonada</strong>: <strong>paga o dia</strong> (não desconta) e não perde DSR/VA/BP. Documento é opcional. Informe o motivo.';
+    }
+  } else {
+    if(obsLbl) obsLbl.textContent='Observação / Motivo';
+    if(arqHint) arqHint.textContent='(foto ou PDF)';
+    if(banner){ banner.style.background='#E0F2F1'; banner.style.color='#00695C'; }
+    if(txt) txt.innerHTML='O atestado médico justifica e <strong>paga</strong> os dias ou horas — abatidos das faltas/atrasos, sem desconto no salário.';
+  }
 }
 function _atestRecalc(){
   const info=document.getElementById('atest-dias-info'); if(!info) return;
@@ -10912,6 +10948,8 @@ function openAtestadoModal(id){
   document.getElementById('atest-arquivo').value='';
   const a = id ? (State.atestados||[]).find(x=>x.id===id) : null;
   setVal('atest-id', a?a.id:'');
+  setVal('atest-categoria', a?.categoria || 'medico');
+  setVal('atest-abona', (a && a.abona===false) ? 'nao' : 'sim');
   setVal('atest-tipo', a?.tipo||'dia');
   setVal('atest-cid', a?.cid||'');
   setVal('atest-inicio', a?.dataInicio||'');
@@ -10923,14 +10961,20 @@ function openAtestadoModal(id){
     ? `<i class="fa-solid fa-paperclip"></i> Documento atual: <a href="${a.arquivoUrl}" target="_blank">${a.arquivoNome||'ver arquivo'}</a> — envie outro para substituir.`
     : '';
   onAtestadoTipoChange();
+  onAtestadoCategoriaChange();
   document.getElementById('modal-atestado').classList.remove('hidden');
 }
 
 async function saveAtestado(){
   const empId=val('atest-emp-id'); if(!empId){ toast('Colaborador não definido.','error'); return; }
+  const categoria=val('atest-categoria')||'medico';
+  const ehAbono=categoria==='abono';
+  // Abono médico SEMPRE paga; abono/justificativa sem documento tem o toggle.
+  const abona = ehAbono ? (val('atest-abona')!=='nao') : true;
   const tipo=val('atest-tipo');
   const inicio=val('atest-inicio');
   if(!inicio){ toast('Informe a data de início.','error'); return; }
+  if(ehAbono && !((val('atest-obs')||'').trim())){ toast('Informe o motivo do abono/justificativa.','error'); return; }
   const id=val('atest-id');
   const existente = id ? (State.atestados||[]).find(x=>x.id===id) : null;
   let dias=0, horas=0, fim=inicio;
@@ -10964,19 +11008,21 @@ async function saveAtestado(){
     const m=parseInt(val('atest-mes'))||currentMes(), an=parseInt(val('atest-ano'))||currentAno();
     const doc={
       id:id||genId(), employeeId:empId, mes:m, ano:an,
+      categoria, abona,
       tipo, dataInicio:inicio, dataFim:tipo==='horas'?inicio:fim,
-      dias, horas, cid:val('atest-cid')||'', observacao:val('atest-obs')||'',
+      dias, horas, cid:ehAbono?'':(val('atest-cid')||''), observacao:val('atest-obs')||'',
       arquivoUrl, arquivoNome,
-      origem:existente?.origem||'gestor',
+      origem:existente?.origem||(ehAbono?'abono-gestor':'gestor'),
       status:'aprovado',
       createdAt:existente?.createdAt||new Date().toISOString(),
       updatedAt:new Date().toISOString()
     };
     await DB.save('atestados', doc);
     const empNome=(State.employees.find(e=>e.id===empId)||{}).nome||'—';
-    Auth.log('ATESTADO_LANCADO', null, `${empNome} — ${tipo==='horas'?horas+'h':dias+' dia(s)'}`);
+    const _rotulo = ehAbono ? (abona?'Abono (pago)':'Falta justificada (não abonada)') : 'Atestado';
+    Auth.log('ATESTADO_LANCADO', null, `${empNome} — ${_rotulo} — ${tipo==='horas'?horas+'h':dias+' dia(s)'}`);
     closeModal('modal-atestado');
-    toast('Atestado salvo!');
+    toast(ehAbono ? (abona?'Abono salvo — dia pago e justificado!':'Falta justificada salva (dia descontado, sem penalidade).') : 'Atestado salvo!','success');
     renderAtestadosFolha(); recalculate();
   } catch(e){
     toast('Erro ao salvar atestado: '+(e?.message||e),'error');
@@ -10997,9 +11043,10 @@ function renderAtestadosFolha(){
     .sort((a,b)=>(a.dataInicio||'').localeCompare(b.dataInicio||''));
   const tot=_atestadoTotais(empId,mes,ano);
   const pend=arr.filter(a=>a.status==='pendente').length;
-  resumo.innerHTML = (tot.dias>0||tot.horasMin>0)
-    ? `<i class="fa-solid fa-circle-check" style="color:#2E7D32"></i> <strong>${tot.dias} dia(s)${tot.horasMin>0?' e '+minutesToStr(tot.horasMin):''}</strong> de atestado — pagos, abatidos das faltas/atrasos.`
-    : 'Nenhum atestado aprovado neste mês.';
+  const _rp=[];
+  if(tot.dias>0||tot.horasMin>0) _rp.push(`<i class="fa-solid fa-circle-check" style="color:#2E7D32"></i> <strong>${tot.dias} dia(s)${tot.horasMin>0?' e '+minutesToStr(tot.horasMin):''}</strong> de atestado/abono — pagos, abatidos das faltas/atrasos.`);
+  if(tot.diasNaoAbonados>0) _rp.push(`<i class="fa-solid fa-circle-minus" style="color:#E65100"></i> <strong>${tot.diasNaoAbonados} dia(s)</strong> justificado(s) NÃO abonado(s) — descontado(s) (salário÷30), sem perder DSR/VA/BP.`);
+  resumo.innerHTML = _rp.length ? _rp.join('<br>') : 'Nenhum atestado/abono aprovado neste mês.';
   if(pend>0) resumo.innerHTML += `<br><i class="fa-solid fa-clock" style="color:#E65100"></i> ${pend} atestado(s) enviado(s) pelo app — <strong>aguardando aprovação</strong>.`;
   if(!arr.length){ lista.innerHTML=''; return; }
   lista.innerHTML=arr.map(a=>{
@@ -11007,12 +11054,21 @@ function renderAtestadosFolha(){
       ? `${formatDateBr(a.dataInicio)} · ${a.horas}h`
       : (a.dataInicio===a.dataFim?formatDateBr(a.dataInicio):`${formatDateBr(a.dataInicio)} a ${formatDateBr(a.dataFim)} · ${a.dias} dia(s)`);
     const pendente=a.status==='pendente';
+    const _ehAb = a.categoria==='abono';
+    const _naoAb = _ehAb && a.abona===false;
+    const _ic   = _ehAb ? (_naoAb?'fa-calendar-xmark':'fa-calendar-check') : 'fa-notes-medical';
+    const _icCor= _ehAb ? (_naoAb?'#E65100':'#1565C0') : '#00897B';
+    const _tag  = _ehAb
+      ? (_naoAb
+          ? ' <span style="background:#FFF3E0;color:#E65100;border:1px solid #FFCC80;border-radius:6px;padding:0 6px;font-size:10px;font-weight:700">JUSTIF. (não paga)</span>'
+          : ' <span style="background:#E3F2FD;color:#1565C0;border:1px solid #90CAF9;border-radius:6px;padding:0 6px;font-size:10px;font-weight:700">ABONO (pago)</span>')
+      : '';
     const arq=a.arquivoUrl
       ? `<a href="${a.arquivoUrl}" target="_blank" title="Ver documento"><i class="fa-solid fa-paperclip"></i></a>`
       : `<span style="color:#bbb" title="Sem documento"><i class="fa-solid fa-paperclip"></i></span>`;
     return `<div style="display:flex;align-items:center;gap:8px;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;margin-bottom:5px;${pendente?'background:#FFF3E0':''}">
-      <i class="fa-solid fa-notes-medical" style="color:#00897B"></i>
-      <span style="flex:1">${periodo}${a.observacao?' — '+a.observacao:''}${a.origem==='app'?' <span style="color:#E65100;font-size:10px">(via app)</span>':''}</span>
+      <i class="fa-solid ${_ic}" style="color:${_icCor}"></i>
+      <span style="flex:1">${periodo}${_tag}${a.observacao?' — '+a.observacao:''}${a.origem==='app'?' <span style="color:#E65100;font-size:10px">(via app)</span>':''}</span>
       ${arq}
       ${pendente?`<button class="btn-icon" onclick="aprovarAtestado('${a.id}')" title="Aprovar"><i class="fa-solid fa-check" style="color:#2E7D32"></i></button>`:''}
       <button class="btn-icon" onclick="openAtestadoModal('${a.id}')" title="Editar"><i class="fa-solid fa-pen" style="color:#1565C0"></i></button>
@@ -11751,11 +11807,14 @@ function recalculate(){
     // desconta cada falta injustificada como DIA (salário÷30) + DSR da semana (salário÷30).
     // remuneração mantém o sentido de "salário líquido já descontado" → recibo/INSS/IRRF/
     // folha continuam corretos sem alteração (descFaltas = salBase − remuneração). #fix-dsr-falta
-    const diasEmpregado = Math.min(diasPrevistos, diasPagos + faltasInjust);
+    // Dias não-abonados (abono c/ abona=false) entram em diasEmpregado e são descontados
+    // a salário÷30 (igual falta injustificada), porém SEM DSR — são justificados. #atestado-abona-falta
+    const _diasNaoAbon = _atest.diasNaoAbonados||0;
+    const diasEmpregado = Math.min(diasPrevistos, diasPagos + faltasInjust + _diasNaoAbon);
     const baseEmpregado = salBase*(diasEmpregado/diasPrevistos);
     const valorDiaDSR   = salBase/30;
     const dsrSemanas    = _dsrSemanasComFalta(emp, _mesR, _anoR, _pontoDiasR, faltasInjust);
-    remuneracaoProp = baseEmpregado - faltasInjust*valorDiaDSR - dsrSemanas*valorDiaDSR;
+    remuneracaoProp = baseEmpregado - faltasInjust*valorDiaDSR - dsrSemanas*valorDiaDSR - _diasNaoAbon*valorDiaDSR;
   } else remuneracaoProp = 0;
   // Folga NÃO remunerada: desconta o dia (salário/30) da remuneração — reduz a base
   // (e por tabela INSS/IRRF, como um dia não trabalhado/não pago). NÃO é falta → sem DSR. #folga-avulsa
@@ -21505,6 +21564,12 @@ function _temAtestadoNoDia(empId, ymd){
   return (State.atestados||[]).some(a=> a && a.employeeId===empId && a.status!=='pendente'
     && a.tipo!=='horas' && a.dataInicio && a.dataInicio<=ymd && (a.dataFim||a.dataInicio)>=ymd);
 }
+// Retorna o doc do atestado/abono (tipo dia, aprovado) que cobre o dia — p/ rotular
+// "Atestado" / "Abonado" / "Falta justific." no registro diário. #atestado-abona-falta
+function _atestadoDoDia(empId, ymd){
+  return (State.atestados||[]).find(a=> a && a.employeeId===empId && a.status!=='pendente'
+    && a.tipo!=='horas' && a.dataInicio && a.dataInicio<=ymd && (a.dataFim||a.dataInicio)>=ymd) || null;
+}
 // Colaborador de FÉRIAS/abono cobrindo a data ymd → não é falta. #monitor-ferias
 function _emFeriasNoDia(emp, ymd){
   return (emp && emp.ferias||[]).some(f=> f && f.inicio && f.inicio<=ymd && (f.fim||f.inicio)>=ymd);
@@ -25157,10 +25222,16 @@ function _obsDiaSemBatida(emp, mes, ano, cd, d, isWknd, is12x36){
   const exp = _getExpectedDayComp(emp, mes, ano, d);
   const ehTrabalho = !!(exp && exp.tipo!=='folga' && exp.entrada);
   if(!ehTrabalho) return { txt:'Folga', cor:'#7e22ce' };
-  // Dia de trabalho coberto por ATESTADO aprovado → justificado/abonado: mostra
-  // "Atestado" (verde), nunca "Falta". Deriva do atestado, então fica firme. #atestado-abona-falta
+  // Dia de trabalho coberto por ATESTADO/ABONO aprovado → justificado: mostra
+  // "Atestado"/"Abonado"/"Falta justific." conforme a categoria, nunca "Falta"
+  // injustificada. Deriva do atestado, então fica firme. #atestado-abona-falta
   const _ymdAt = `${cd.ano}-${String(cd.mes).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-  if(typeof _temAtestadoNoDia==='function' && _temAtestadoNoDia(emp.id, _ymdAt)) return { txt:'Atestado', cor:'#1B5E20' };
+  const _atDia = (typeof _atestadoDoDia==='function') ? _atestadoDoDia(emp.id, _ymdAt) : null;
+  if(_atDia){
+    if(_atDia.categoria==='abono')
+      return _atDia.abona===false ? { txt:'Falta justific.', cor:'#E65100' } : { txt:'Abonado', cor:'#1565C0' };
+    return { txt:'Atestado', cor:'#1B5E20' };
+  }
   // Dia de trabalho sem batida: FALTA se já passou; A CUMPRIR se ainda é futuro
   // (plantão não cumprido numa competência em andamento — não é folga nem falta).
   if(_diaEmBrancoEhFalta(emp, cd.mes, cd.ano, d, isWknd, is12x36)) return { txt:'Falta', cor:'#C62828' };

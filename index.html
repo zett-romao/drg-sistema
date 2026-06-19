@@ -911,13 +911,13 @@
                 <div class="benefit-card ocorr-card" id="atestados-card" style="border-left:3px solid #00897B">
                   <div class="benefit-label">
                     <i class="fa-solid fa-notes-medical" style="color:#00897B"></i>
-                    <span>Atestados</span>
-                    <span class="benefit-platform">justifica e paga dias/horas</span>
+                    <span>Atestados / Abonos</span>
+                    <span class="benefit-platform">justifica e paga (ou abona) dias/horas</span>
                   </div>
                   <div id="atestados-resumo" style="font-size:12px;color:#00695C;margin-bottom:6px"></div>
                   <div id="atestados-lista"></div>
                   <button type="button" class="btn btn-outline" onclick="openAtestadoModal()" style="margin-top:8px;font-size:12px;color:#00897B;border-color:#00897B">
-                    <i class="fa-solid fa-plus"></i> Adicionar atestado
+                    <i class="fa-solid fa-plus"></i> Adicionar atestado / abono
                   </button>
                 </div>
 
@@ -5233,9 +5233,25 @@
       <input type="hidden" id="atest-emp-id">
       <input type="hidden" id="atest-mes">
       <input type="hidden" id="atest-ano">
-      <div class="info-banner" style="background:#E0F2F1;color:#00695C">
+      <div class="info-banner" id="atest-banner" style="background:#E0F2F1;color:#00695C">
         <i class="fa-solid fa-circle-info"></i>
-        <span>O atestado médico justifica e <strong>paga</strong> os dias ou horas — eles são abatidos das faltas/atrasos, sem desconto no salário.</span>
+        <span id="atest-banner-txt">O atestado médico justifica e <strong>paga</strong> os dias ou horas — eles são abatidos das faltas/atrasos, sem desconto no salário.</span>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Categoria</label>
+          <select id="atest-categoria" onchange="onAtestadoCategoriaChange()">
+            <option value="medico">Atestado médico (justifica e paga)</option>
+            <option value="abono">Abono / Justificativa (sem documento)</option>
+          </select>
+        </div>
+        <div class="form-group" id="atest-abona-wrap" style="display:none">
+          <label>Abona o dia?</label>
+          <select id="atest-abona" onchange="onAtestadoCategoriaChange()">
+            <option value="sim">Sim — paga o dia (não desconta)</option>
+            <option value="nao">Não — desconta o dia (mantém DSR/VA/BP)</option>
+          </select>
+        </div>
       </div>
       <div class="form-row">
         <div class="form-group">
@@ -5245,7 +5261,7 @@
             <option value="horas">Horas</option>
           </select>
         </div>
-        <div class="form-group">
+        <div class="form-group" id="atest-cid-wrap">
           <label>CID <span style="font-size:11px;color:#888">(opcional)</span></label>
           <input type="text" id="atest-cid" placeholder="Ex.: J11">
         </div>
@@ -5266,11 +5282,11 @@
       </div>
       <div id="atest-dias-info" style="font-size:12px;color:#00695C;margin-bottom:8px"></div>
       <div class="form-group">
-        <label>Observação</label>
+        <label id="atest-obs-label">Observação / Motivo</label>
         <input type="text" id="atest-obs" placeholder="Ex.: consulta médica, repouso...">
       </div>
-      <div class="form-group">
-        <label>Documento do atestado <span style="font-size:11px;color:#888">(foto ou PDF)</span></label>
+      <div class="form-group" id="atest-arquivo-wrap">
+        <label>Documento do atestado <span style="font-size:11px;color:#888" id="atest-arquivo-hint">(foto ou PDF)</span></label>
         <input type="file" id="atest-arquivo" accept=".pdf,image/jpeg,image/png,image/webp">
       </div>
       <div id="atest-arquivo-atual" style="font-size:12px;margin-top:4px;color:#00695C"></div>
@@ -7169,6 +7185,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260619a-atestado-abona-falta"></script>
+  <script src="app.js?v=20260619b-abono-justificativa"></script>
 </body>
 </html>

@@ -2119,6 +2119,11 @@ async function renderAvisos(){
       m.lida = true;
       m.lidaEm = nowISO;
       try{ dbCol('comunicacoes').doc(m.id).update({ lida:true, lidaEm:nowISO }).catch(()=>{}); }catch(_){}
+      // Se a mensagem é de um ato disciplinar (advertência/suspensão), sincroniza o
+      // ato em 'disciplina' como visualizado no mesmo instante. #disciplina-sync-visualizacao
+      if(m.disciplinaId){
+        try{ dbCol('disciplina').doc(m.disciplinaId).update({ visualizadoEm:nowISO }).catch(()=>{}); }catch(_){}
+      }
     }
   });
   // Acabou de marcar tudo como lido nesta tela — zera o badge do sino.

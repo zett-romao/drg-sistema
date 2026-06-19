@@ -15856,6 +15856,26 @@ async function renderDisciplinaTab(empId){
     lista = snap.docs.map(d => ({ id:d.id, ...d.data() }));
   }catch(e){ console.error('disciplina:fetch', e); }
   lista.sort((a,b) => (b.criadoEm||'').localeCompare(a.criadoEm||''));
+
+  // Sincroniza a visualização com a MENSAGEM ligada (comunicacaoId): se o colaborador
+  // já LEU no app a mensagem da advertência/suspensão, o ato disciplinar passa a contar
+  // como visualizado. Cobre atos antigos (sem disciplinaId na msg) e persiste o carimbo
+  // pra não recalcular sempre. #disciplina-sync-visualizacao
+  try{
+    const pend = lista.filter(d => d && !d.visualizadoEm && !d.anulada && d.comunicacaoId);
+    if(pend.length){
+      const csnap = await firebase.firestore().collection('comunicacoes').where('employeeId','==',empId).get();
+      const msgs = {}; csnap.docs.forEach(c=>{ msgs[c.id]=c.data(); });
+      for(const d of pend){
+        const m = msgs[d.comunicacaoId];
+        if(m && m.lida){
+          const quando = m.lidaEm || m.criadoEm || new Date().toISOString();
+          d.visualizadoEm = quando;
+          try{ await DB.merge('disciplina', d.id, { visualizadoEm: quando }); }catch(_){}
+        }
+      }
+    }
+  }catch(e){ console.warn('disciplina:sync-visualizacao', e); }
   // Anuladas nao contam nas estatisticas — sao registros historicos
   const ativas = lista.filter(x => !x.anulada);
   const totAdv = ativas.filter(x=>x.tipo==='advertencia').length;
@@ -17035,6 +17055,7 @@ async function enviarComunicacao(){
     for(const empId of ids){
       const e=State.employees.find(x=>x.id===empId);
       const msgId = genId();
+      const discId = ehDisciplina ? genId() : '';   // ligação reversa msg→ato p/ sincronizar visualização. #disciplina-sync-visualizacao
       // Hash da mensagem disciplinar (assunto + corpo + hash do anexo +
       // timestamp + autor + colaborador) — preserva a integridade do conjunto.
       let mensagemHash = '';
@@ -17068,6 +17089,7 @@ async function enviarComunicacao(){
         msg.motivoDisciplina = motivoDisc;
         msg.diasSuspensao = diasSusp;
         msg.artigoCLT = artigoCLT;
+        msg.disciplinaId = discId;   // ← ao ler esta msg no app, o ato disciplinar é marcado visualizado
       }
       try{ await DB.save('comunicacoes', _sanitizeForFirestore(msg)); ok++; }
       catch(err){ console.error('Erro ao salvar comunicacao', err); continue; }
@@ -17075,7 +17097,6 @@ async function enviarComunicacao(){
       // Para disciplina: criar registro em "disciplina" + snapshot em
       // "auditoria_disciplina" + recibo de envio em HTML/PDF.
       if(ehDisciplina){
-        const discId = genId();
         const reciboHtml = _gerarReciboEnvioHTML({
           discId,
           tipo,

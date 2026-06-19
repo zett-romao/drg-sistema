@@ -25,6 +25,12 @@ export default {
       catch(e){ r = { ok:false, erro:String(e&&e.message||e) }; }   // não estoura 500 cru — devolve a causa
       return new Response(JSON.stringify(r), { headers:{ 'content-type':'application/json', ..._corsMon() } });
     }
+    // Operador lançou pagamento sem poder aprovar → avisa os Masters (push + e-mail). #autorizacao-master
+    if (u.pathname === '/notificar-autorizacao' && req.method === 'POST') {
+      let r; try { r = await notificarAutorizacao(req, env); }
+      catch(e){ r = { ok:false, erro:String(e&&e.message||e) }; }
+      return new Response(JSON.stringify(r), { headers:{ 'content-type':'application/json', ..._corsMon() } });
+    }
     if (u.searchParams.get('run')  === '1') {
       if(!_manualRunAllowed(req, env, u)) return new Response('forbidden', {status:403});
       const r = await rodar(env); return new Response(JSON.stringify(r), {headers:{'content-type':'application/json'}});
@@ -192,6 +198,25 @@ async function enviarPush(env, sub){
   }catch(e){ return 'erro:'+(e&&e.message||e); }
 }
 
+// ───────── E-mail via Resend (opcional) ─────────
+// Só envia se RESEND_API_KEY estiver no cofre do Worker. Sem a chave, devolve
+// {skip:true} e o fluxo segue (push + card no sistema cobrem o aviso). #autorizacao-master
+// ENV: RESEND_API_KEY (secret) · MAIL_FROM (ex.: "DRG-Kronos <avisos@seudominio.com.br>")
+async function enviarEmailResend(env, to, subject, html){
+  if(!env.RESEND_API_KEY) return { ok:false, skip:true, motivo:'sem RESEND_API_KEY' };
+  const dest=(Array.isArray(to)?to:[to]).filter(Boolean);
+  if(!dest.length) return { ok:false, skip:true, motivo:'sem destinatários' };
+  const from=env.MAIL_FROM || 'DRG-Kronos <onboarding@resend.dev>';
+  try{
+    const res=await fetch('https://api.resend.com/emails',{
+      method:'POST',
+      headers:{ authorization:'Bearer '+env.RESEND_API_KEY, 'content-type':'application/json' },
+      body: JSON.stringify({ from, to:dest, subject, html })
+    });
+    return { ok:res.ok, status:res.status };
+  }catch(e){ return { ok:false, erro:String(e&&e.message||e) }; }
+}
+
 // ───────── Janela de notificações + disparo de pedido (push instantâneo) ───────── #janela-notif
 function _corsMon(){ return { 'access-control-allow-origin':'*', 'access-control-allow-methods':'POST, OPTIONS', 'access-control-allow-headers':'content-type' }; }
 function _hmW(s){ const p=String(s||'').split(':'); return (parseInt(p[0])||0)*60+(parseInt(p[1])||0); }
@@ -247,6 +272,47 @@ async function notificarPedido(req, env){
   }catch(_){}
   return { ok:true, enviados, segurados, foraEscopo, supervisores:subs.length, tipo, posto };
 }
+// POST /notificar-autorizacao { porNome, count, total } — um operador (sem poder
+// aprovar) lançou pagamento(s); avisa TODOS os Masters por push e por e-mail.
+// É reforço: o card "Pedidos de autorização" no sistema é a garantia. #autorizacao-master
+async function notificarAutorizacao(req, env){
+  let body={}; try{ body=await req.json(); }catch(_){}
+  const porNome=String(body.porNome||'operador').trim() || 'operador';
+  const count=Math.max(1, parseInt(body.count)||1);
+  const total=Number(body.total)||0;
+  const totalBR='R$ '+total.toFixed(2).replace('.',',').replace(/\B(?=(\d{3})+(?!\d))/g,'.');
+
+  // 1) quem são os Masters (id, username, email)
+  const users=await fsListCol(env,'users');
+  const masters=users.filter(u=>u.data && u.data.role==='master' && u.data.active!==false)
+                     .map(u=>({ id:u.id, username:u.data.username||'', email:(u.data.email||'').trim() }));
+  const idsMaster=new Set(masters.map(m=>m.id));
+  const userKeysMaster=new Set(masters.map(m=>m.username).filter(Boolean));
+
+  // 2) push — qualquer inscrição (pushsub_/psup_) que pertença a um Master
+  const cfgs=await fsListCol(env,'configuracoes');
+  const subs=cfgs.filter(c=>(c.id.startsWith('pushsub_')||c.id.startsWith('psup_'))
+    && c.data && c.data.sub && c.data.sub.endpoint
+    && (idsMaster.has(c.data.userId) || userKeysMaster.has(c.data.userKey)));
+  let pushEnviados=0;
+  for(const s of subs){ const st=await enviarPush(env, s.data.sub); if(st===201||st===200) pushEnviados++; }
+
+  // 3) e-mail (se RESEND_API_KEY estiver configurada)
+  const emails=[...new Set(masters.map(m=>m.email).filter(e=>e && e.includes('@')))];
+  const assunto='DRG-Kronos — Pedido de autorização de pagamento';
+  const html=`<div style="font-family:Arial,sans-serif;font-size:14px;color:#222">
+    <h2 style="color:#00695C;margin:0 0 10px">Pedido de autorização de pagamento</h2>
+    <p><strong>${porNome}</strong> lançou <strong>${count}</strong> pagamento(s), total <strong>${totalBR}</strong>, e aguarda sua autorização.</p>
+    <p>Entre no DRG-Kronos → <strong>Aprovações de Pagamentos</strong> e responda às duas perguntas:
+       autorizar a <strong>inclusão</strong> e autorizar o <strong>pagamento</strong> (com seu código 2FA).</p>
+    <p style="color:#888;font-size:12px">Aviso automático — não responda este e-mail.</p>
+  </div>`;
+  const mail=await enviarEmailResend(env, emails, assunto, html);
+
+  return { ok:true, masters:masters.length, pushInscricoes:subs.length, pushEnviados,
+           emailDestinatarios:emails.length, email:mail };
+}
+
 // Varredura (roda no cron): pedidos pendentes "segurados" fora da janela — quando
 // a janela do supervisor responsável abre, dispara o push e marca como enviado. #janela-notif
 async function varrerPedidosSegurados(env){

@@ -2576,6 +2576,17 @@ function renderDashboard(){
         onclick:"showSection('aprovacoes')", title:'Solicitações de pagamento pendentes de aprovação'})});
     }
 
+    // Pedidos de autorização do operador aguardando o MASTER decidir (inclusão + pagamento). #autorizacao-master
+    const pedAutoriz=pendAprov.filter(s=>s.autorizacaoSolicitada);
+    const _ehAprovador = md.pagamentosAprovar || Auth.currentUser?.role==='master';
+    if(pedAutoriz.length>0 && _ehAprovador){
+      const totalA=pedAutoriz.reduce((s,x)=>s+(x.valor||0),0);
+      catalogo.push({key:'autorizacaoPend', html:_statCard({label:'Pedidos de autorização (você decide)', value:pedAutoriz.length, icon:'fa-user-shield',
+        accent:'#C2185B', iconBg:'#FCE4EC', iconColor:'#C2185B', valueColor:'#C2185B',
+        sub:`${fmtMoney(totalA)} — um operador pediu sua autorização. Clique para decidir.`, subColor:'#C2185B',
+        onclick:"showSection('aprovacoes')", title:'Pagamentos lançados por operador aguardando sua autorização (inclusão + pagamento)'})});
+    }
+
     // Documentos enviados pelo colaborador via app, aguardando aprovação
     const pendDocs=(State.documentos||[]).filter(d=>d.status==='pendente');
     if(pendDocs.length>0 && md.employees){
@@ -14413,6 +14424,11 @@ function onAsaasTipoChange() {
 // aqui — só ao ser aprovada na tela "Aprovações de Pagamentos" (com 2FA).
 async function _criarSolicitacaoPagamento(d){
   const u = Auth.currentUser || {};
+  // Quem NÃO pode aprovar (operador sem 'pagamentosAprovar' e não-Master) só
+  // LANÇA: a solicitação nasce marcada como "pedido de autorização ao Master".
+  // O Master decide os 2 portões (inclusão + pagamento) na tela de Aprovações.
+  // #autorizacao-master
+  const _podeAprovar = !!(getUserModules(u).pagamentosAprovar) || u.role==='master';
   const sol = {
     id:            genId(),
     employeeId:    d.employeeId || '',
@@ -14431,9 +14447,42 @@ async function _criarSolicitacaoPagamento(d){
     criadoEm:      new Date().toISOString(),
     aprovadoPor:'', aprovadoPorNome:'', aprovadoEm:'',
     asaasTransferId:'', asaasStatus:'', motivoRecusa:'', erro:'',
+    // Fluxo de autorização do Master (só quando o criador não pode aprovar):
+    autorizacaoSolicitada: !_podeAprovar,
+    solicitadaPorNome:     _podeAprovar ? '' : (u.username || ''),
+    solicitadaEm:          _podeAprovar ? '' : new Date().toISOString(),
+    inclusaoAutorizada:    false, inclusaoAutorizadaPorNome:'', inclusaoAutorizadaEm:'',
   };
   await DB.save('solicitacoesPagamento', sol);
+  if(!_podeAprovar) _agendarNotifMaster(1, sol.valor||0);   // avisa o Master (push+e-mail), agrupado
   return sol;
+}
+
+// Aviso ao Master de pedidos de autorização — agrupa vários (lote) em UM único
+// disparo para não floodar push/e-mail. O card no sistema é a garantia; o
+// push/e-mail é o reforço (não-crítico, falha em silêncio). #autorizacao-master
+let _notifMasterTimer=null, _notifMasterAcc={count:0,total:0};
+function _agendarNotifMaster(count, total){
+  _notifMasterAcc.count += count; _notifMasterAcc.total += (+total||0);
+  if(_notifMasterTimer) clearTimeout(_notifMasterTimer);
+  _notifMasterTimer=setTimeout(()=>{
+    const payload={...(_notifMasterAcc)};
+    _notifMasterAcc={count:0,total:0}; _notifMasterTimer=null;
+    _notificarMasterAutorizacao(payload.count, payload.total);
+    try{ toast(`Pedido de autorização enviado ao Master (${payload.count} pagamento${payload.count>1?'s':''}). Ele decide a inclusão e o pagamento.`,'success'); }catch(_){}
+  }, 1500);
+}
+async function _notificarMasterAutorizacao(count, total){
+  try{
+    await fetch('https://drg-monitor.zett-romao.workers.dev/notificar-autorizacao', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        porNome: Auth.currentUser?.username || '',
+        count, total,
+        tenantId: (window.DB && DB.tenantId) || ''
+      })
+    });
+  }catch(_){ /* aviso é reforço; o card no sistema sempre aparece */ }
 }
 
 // ============================================
@@ -17381,19 +17430,85 @@ function openAprovarPagamento(id){
   const s=(State.solicitacoes||[]).find(x=>x.id===id);
   if(!s){ toast('Solicitação não encontrada.','error'); return; }
   _aprovacaoAtualId=id;
+  const _pedido = !!s.autorizacaoSolicitada;
   document.getElementById('aprovar-pag-info').innerHTML=`
     <div style="font-weight:700;color:#00695C;font-size:15px">${s.employeeNome}</div>
     <div style="font-size:14px;margin-top:6px"><strong>${fmtMoney(s.valor)}</strong> &rarr; <i class="fa-brands fa-pix" style="color:#00695C"></i> <code style="background:#fff;padding:2px 6px;border-radius:4px">${s.pixKey}</code></div>
     <div style="font-size:12px;color:#666;margin-top:6px">${s.descricao||''}${s.scheduleDate?' · data '+s.scheduleDate.split('-').reverse().join('/'):''}</div>
-    <div style="font-size:11px;color:#999;margin-top:4px">Lançado por ${s.criadoPorNome||'—'}</div>`;
+    <div style="font-size:11px;color:#999;margin-top:4px">Lançado por ${s.criadoPorNome||'—'}${_pedido?` · <span style="color:#E65100;font-weight:700">pedido de autorização de ${esc(s.solicitadaPorNome||s.criadoPorNome||'operador')}</span>`:''}${s.inclusaoAutorizada?' · <span style="color:#1565C0;font-weight:700">inclusão já autorizada</span>':''}</div>`;
   setVal('aprovar-pag-code','');
   const resEl=document.getElementById('aprovar-pag-resultado');
   resEl.style.display='none'; resEl.innerHTML='';
   const btn=document.getElementById('btn-confirmar-aprovacao');
-  btn.style.display=''; btn.disabled=false;
-  btn.innerHTML='<i class="fa-solid fa-lock"></i> Aprovar e Pagar';
+  btn.disabled=false; btn.innerHTML='<i class="fa-solid fa-lock"></i> Aprovar e Pagar';
+  _aprConfigModal(s);   // mostra/esconde os 2 portões conforme for pedido de autorização
   document.getElementById('modal-aprovar-pagamento').classList.remove('hidden');
-  setTimeout(()=>document.getElementById('aprovar-pag-code')?.focus(),150);
+}
+
+// ── Os 2 portões do Master ────────────────────────────────────────────────
+// Pedido de autorização do operador → o Master responde: (1) autoriza a
+// INCLUSÃO? (2) autoriza o PAGAMENTO? Só com os dois "Sim" aparece o 2FA e o
+// botão "Aprovar e Pagar" (que dispara a ordem ao banco). #autorizacao-master
+let _aprGate1=null, _aprGate2=null;
+function _aprConfigModal(s){
+  _aprGate1=null; _aprGate2=null;
+  const gatesEl=document.getElementById('aprovar-pag-gates');
+  const precisa = !!(s && s.autorizacaoSolicitada);
+  if(!precisa){
+    // Pagamento lançado por quem já pode aprovar (ou Master) → fluxo direto de sempre.
+    if(gatesEl) gatesEl.style.display='none';
+    _aprToggle('aprovar-pag-2fa', true);
+    _aprToggle('btn-confirmar-aprovacao', true);
+    _aprToggle('btn-recusar-inclusao', false);
+    _aprToggle('btn-salvar-inclusao', false);
+    setTimeout(()=>document.getElementById('aprovar-pag-code')?.focus(),150);
+    return;
+  }
+  if(gatesEl) gatesEl.style.display='';
+  if(s.inclusaoAutorizada) _aprGate1=true;   // inclusão já autorizada antes → vai direto pro portão 2
+  _aprApplyGateState();
+}
+function _aprToggle(id, show){ const e=document.getElementById(id); if(e) e.style.display = show ? '' : 'none'; }
+function _aprGate(n, val){
+  if(n===1){ _aprGate1=val; if(!val) _aprGate2=null; }
+  else { _aprGate2=val; }
+  _aprApplyGateState();
+}
+function _aprApplyGateState(){
+  const mark=(id,on,cor)=>{ const b=document.getElementById(id); if(b){ b.style.outline = on?('2px solid '+cor):'none'; b.style.fontWeight = on?'800':'600'; } };
+  mark('apr-g1-sim', _aprGate1===true,  '#2e7d32'); mark('apr-g1-nao', _aprGate1===false, '#c62828');
+  mark('apr-g2-sim', _aprGate2===true,  '#2e7d32'); mark('apr-g2-nao', _aprGate2===false, '#c62828');
+  _aprToggle('apr-g2-wrap', _aprGate1===true);
+  const bothYes = _aprGate1===true && _aprGate2===true;
+  const incOnly = _aprGate1===true && _aprGate2===false;
+  const reject  = _aprGate1===false;
+  _aprToggle('aprovar-pag-2fa', bothYes);
+  _aprToggle('btn-confirmar-aprovacao', bothYes);
+  _aprToggle('btn-recusar-inclusao', reject);
+  _aprToggle('btn-salvar-inclusao', incOnly);
+  if(bothYes) setTimeout(()=>document.getElementById('aprovar-pag-code')?.focus(),60);
+}
+// Portão 1 = Não → recusa o pedido (reaproveita o fluxo de recusa existente).
+function _aprRecusarInclusao(){
+  const id=_aprovacaoAtualId; if(!id) return;
+  closeModal('modal-aprovar-pagamento');
+  recusarSolicitacao(id);
+}
+// Portão 1 = Sim, Portão 2 = Não → autoriza só a INCLUSÃO; fica pendente p/ pagar depois.
+async function _aprSalvarInclusao(){
+  const id=_aprovacaoAtualId; if(!id) return;
+  const u=Auth.currentUser||{};
+  try{
+    await DB.merge('solicitacoesPagamento', id, {
+      inclusaoAutorizada:true, inclusaoAutorizadaPorNome:u.username||'',
+      inclusaoAutorizadaEm:new Date().toISOString()
+    });
+    const s=(State.solicitacoes||[]).find(x=>x.id===id); if(s) s.inclusaoAutorizada=true;
+    Auth.log && Auth.log('PAGAMENTO_INCLUSAO_AUTORIZADA', null, `${s?.employeeNome||id} | R$ ${(s?.valor||0).toFixed(2)}`);
+    toast('Inclusão autorizada. O pagamento fica pendente — você envia ao banco quando quiser.','success');
+    closeModal('modal-aprovar-pagamento');
+    if(State.currentSection==='aprovacoes') renderAprovacoes();
+  }catch(e){ toast('Erro ao salvar a autorização: '+(e.message||e),'error'); }
 }
 
 async function confirmarAprovacaoPagamento(){
@@ -17409,6 +17524,10 @@ async function confirmarAprovacaoPagamento(){
     const r=await _aprovacaoReq('/aprovar-pagamento',{code,solicitacaoId:id});
     if(r.ok){
       const s=(State.solicitacoes||[]).find(x=>x.id===id);
+      // Pagou ⇒ a inclusão também fica registrada como autorizada (auditoria do fluxo do Master).
+      if(s && s.autorizacaoSolicitada && !s.inclusaoAutorizada){
+        try{ await DB.merge('solicitacoesPagamento', id, { inclusaoAutorizada:true, inclusaoAutorizadaPorNome:(Auth.currentUser?.username||''), inclusaoAutorizadaEm:new Date().toISOString() }); s.inclusaoAutorizada=true; }catch(_){}
+      }
       Auth.log('PAGAMENTO_APROVADO',null,
         `${s?.employeeNome||id} | R$ ${(s?.valor||0).toFixed(2)} | ID Asaas ${r.asaasTransferId||'—'}`);
       resEl.style.display='block';

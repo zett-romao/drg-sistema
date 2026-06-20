@@ -6983,6 +6983,61 @@ function collectOutrosItens(tipo){
   }).filter(Boolean);
 }
 
+// ── Empréstimos / Consignados (recorrente) ── #consignado-recorrente
+// Cada consignado guarda: tipo (privado/público), origem (banco/órgão), parcela,
+// nº total de parcelas e a competência de início. A parcela do mês é CALCULADA
+// (não decrementa um contador gravado) → auto-corretiva, nunca perde a referência.
+function _consignadoRowHtml(it){
+  it=it||{};
+  const ini=(it.inicioAno && it.inicioMes)?`${it.inicioAno}-${String(it.inicioMes).padStart(2,'0')}`:'';
+  const _v=v=>String(v==null?'':v).replace(/"/g,'&quot;');
+  return `<div class="consig-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;border:1px solid var(--border);border-radius:8px;padding:7px 8px">
+    <select class="cg-tipo" style="padding:7px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+      <option value="privado"${it.tipo!=='publico'?' selected':''}>Privado (banco)</option>
+      <option value="publico"${it.tipo==='publico'?' selected':''}>Público / Gov</option>
+    </select>
+    <input type="text" class="cg-origem" placeholder="Banco / órgão" value="${_v(it.origem)}" style="flex:1;min-width:110px;padding:7px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+    <input type="number" class="cg-parcela" placeholder="Parcela R$" min="0" step="0.01" value="${it.parcela||''}" style="width:108px;padding:7px;border:1px solid var(--border);border-radius:6px;font-size:12px" title="Valor da parcela mensal">
+    <input type="number" class="cg-num" placeholder="Nº parc." min="1" step="1" value="${it.parcelasTotais||''}" style="width:80px;padding:7px;border:1px solid var(--border);border-radius:6px;font-size:12px" title="Total de parcelas">
+    <input type="month" class="cg-inicio" value="${ini}" style="width:140px;padding:6px;border:1px solid var(--border);border-radius:6px;font-size:12px" title="Mês da 1ª parcela">
+    <button type="button" class="btn-icon btn-danger-icon" onclick="removeConsignado(this)" title="Remover"><i class="fa-solid fa-xmark"></i></button>
+  </div>`;
+}
+function renderConsignados(items){
+  const c=document.getElementById('emp-consignados'); if(!c) return;
+  c.innerHTML=(items||[]).map(_consignadoRowHtml).join('');
+}
+function addConsignado(){
+  const c=document.getElementById('emp-consignados'); if(!c) return;
+  c.insertAdjacentHTML('beforeend', _consignadoRowHtml({}));
+  c.lastElementChild?.querySelector('.cg-origem')?.focus();
+}
+function removeConsignado(btn){ const r=btn&&btn.closest('.consig-row'); if(r) r.remove(); }
+function collectConsignados(){
+  const c=document.getElementById('emp-consignados'); if(!c) return [];
+  return Array.from(c.querySelectorAll('.consig-row')).map(r=>{
+    const tipo=r.querySelector('.cg-tipo')?.value||'privado';
+    const origem=(r.querySelector('.cg-origem')?.value||'').trim();
+    const parcela=parseFloat(r.querySelector('.cg-parcela')?.value)||0;
+    const parcelasTotais=parseInt(r.querySelector('.cg-num')?.value)||0;
+    const ini=(r.querySelector('.cg-inicio')?.value||'').split('-');
+    const inicioAno=parseInt(ini[0])||0, inicioMes=parseInt(ini[1])||0;
+    if(!(parcela>0) || !(parcelasTotais>0) || !inicioMes || !inicioAno) return null;
+    return { tipo, origem, parcela:+parcela.toFixed(2), parcelasTotais, inicioMes, inicioAno };
+  }).filter(Boolean);
+}
+// Soma das parcelas ATIVAS na competência (mes/ano). idx = nº da parcela naquele mês.
+function _consignadoTotalDoMes(emp, mes, ano){
+  const arr=(emp && Array.isArray(emp.consignados))?emp.consignados:[];
+  let total=0; const detalhe=[];
+  arr.forEach(c=>{
+    if(!c || !(+c.parcela>0) || !(+c.parcelasTotais>0) || !c.inicioMes || !c.inicioAno) return;
+    const idx=(ano - c.inicioAno)*12 + (mes - c.inicioMes) + 1;   // 1-based
+    if(idx>=1 && idx<=c.parcelasTotais){ total+=+c.parcela; detalhe.push({...c, parcelaNum:idx}); }
+  });
+  return { total:+total.toFixed(2), detalhe };
+}
+
 function openEmployeeModal(id=null){
   State.editingEmployeeId=id;
   document.getElementById('modal-employee').classList.remove('hidden');
@@ -7059,6 +7114,7 @@ function openEmployeeModal(id=null){
     setVal('emp-plano-saude', (emp.planoSaude||0).toFixed(2));
     renderOutrosItens(emp.outrosDescontos||[], 'descontos');
     renderOutrosItens(emp.outrosProventos||[], 'proventos');
+    renderConsignados(emp.consignados||[]);
     onEscalaChange();
     // Histórico de salário
     renderHistoricoSalario(emp.historicoSalario||[]);
@@ -7139,6 +7195,7 @@ function openEmployeeModal(id=null){
     setVal('emp-plano-saude','0.00');
     renderOutrosItens([],'descontos');
     renderOutrosItens([],'proventos');
+    renderConsignados([]);
     onEscalaChange(true);
     onExamePrazoChange(false);
     document.getElementById('doc-list').innerHTML=`<div class="empty-state small"><i class="fa-solid fa-folder-open"></i><p>Salve o colaborador antes de enviar documentos</p></div>`;
@@ -7487,6 +7544,7 @@ async function saveEmployee(){
     planoSaude:numVal('emp-plano-saude')||0,
     outrosDescontos:collectOutrosItens('descontos'),
     outrosProventos:collectOutrosItens('proventos'),
+    consignados:collectConsignados(),
     updatedAt:new Date().toISOString()
   };
   if(!State.editingEmployeeId){
@@ -12324,6 +12382,17 @@ function loadPayrollRecord(id){
     ? (_adEmp.salarioBase * (_adPerc/100))
     : (p.adiantamentoValor || 0);
   setVal('payroll-adiantamento-valor', _adValor ? _adValor.toFixed(2) : '');
+  // Consignado recorrente: se a folha ainda não tem empréstimo lançado, preenche com a
+  // soma das parcelas ativas nesta competência (e mostra a nota). Não sobrescreve um
+  // valor já lançado/editado à mão. #consignado-recorrente
+  try{
+    const _cons=_consignadoTotalDoMes(_adEmp, p.mes, p.ano);
+    const _cnote=document.getElementById('payroll-consignado-note');
+    if(_cons.total>0){
+      if(!p.emprestimo || +p.emprestimo===0) setVal('payroll-emprestimo', _cons.total.toFixed(2));
+      if(_cnote) _cnote.innerHTML=`<i class="fa-solid fa-building-columns" style="color:#6A1B9A"></i> Consignado recorrente: `+_cons.detalhe.map(d=>`${d.tipo==='publico'?'Público':'Privado'}${d.origem?' '+esc(d.origem):''} — parcela ${d.parcelaNum}/${d.parcelasTotais} (${fmtMoney(d.parcela)})`).join(' · ');
+    } else if(_cnote){ _cnote.innerHTML=''; }
+  }catch(_){}
   // Jornada & Horas Extras
   setVal('payroll-entrada',       p.horarioEntrada||'');
   setVal('payroll-saida',         p.horarioSaida||'');

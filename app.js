@@ -21672,6 +21672,12 @@ function _monitorFaltasHoje(){
     if(r && (r.status==='informada' || r.status==='abonada')) return;  // ja decidido hoje
     if(_temAtestadoNoDia(emp.id, ymd)) return;       // justificado por atestado/abono cobrindo o dia
     if(_emFeriasNoDia(emp, ymd)) return;             // de férias/abono no dia → não é falta. #monitor-ferias
+    // FDS Livre / Opcional: o dia de FIM DE SEMANA é OPCIONAL (sáb OU dom) e só se
+    // resolve pelas batidas — não dá pra cravar falta no MESMO dia (ela pode trabalhar
+    // o OUTRO dia). A folha apura a falta de verdade depois do fim de semana (se não
+    // bater nenhum dos dois). Por isso o Monitor não alarma o fds dessas escalas. #fds-livre-monitor
+    const _dowMf = new Date(ano, mes-1, dia).getDay();
+    if((_dowMf===0 || _dowMf===6) && _usaFdsLivreResolve(emp.escala)) return;
     const exp = _getExpectedDay(emp, mes, ano, dia);
     if(!exp || exp.tipo==='folga' || !exp.entrada) return;   // nao trabalha hoje (inclui feriado-folga)
     const entMin = timeToMinutes(exp.entrada);

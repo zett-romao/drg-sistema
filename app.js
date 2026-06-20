@@ -22184,7 +22184,7 @@ function _renderAutzUI(){
         <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px">
           <div style="flex:1;min-width:0">
             <div style="font-weight:700;font-size:14px;color:var(--text)">${nomeLink}</div>
-            <div style="font-size:11px;color:#888;margin-top:2px">Matrícula ${matr}${p.employeeCpf?' · CPF '+p.employeeCpf:''}</div>
+            <div style="font-size:11px;color:#888;margin-top:2px">Matrícula ${matr}${p.employeeCpf?' · CPF '+p.employeeCpf:''}${(p.posto||empCad?.posto)?' · Posto '+esc(p.posto||empCad.posto):''}</div>
           </div>
           <span style="background:${corStatus};color:#fff;padding:3px 10px;border-radius:12px;font-size:10px;font-weight:700;letter-spacing:.4px">${lblStatus}</span>
         </div>

@@ -31,6 +31,12 @@ export default {
       catch(e){ r = { ok:false, erro:String(e&&e.message||e) }; }
       return new Response(JSON.stringify(r), { headers:{ 'content-type':'application/json', ..._corsMon() } });
     }
+    // Colaborador entrou atrasado (> tolerância) → avisa o supervisor do posto (push e/ou e-mail). #regra-ponto-he-atraso
+    if (u.pathname === '/notificar-atraso' && req.method === 'POST') {
+      let r; try { r = await notificarAtraso(req, env); }
+      catch(e){ r = { ok:false, erro:String(e&&e.message||e) }; }
+      return new Response(JSON.stringify(r), { headers:{ 'content-type':'application/json', ..._corsMon() } });
+    }
     if (u.searchParams.get('run')  === '1') {
       if(!_manualRunAllowed(req, env, u)) return new Response('forbidden', {status:403});
       const r = await rodar(env); return new Response(JSON.stringify(r), {headers:{'content-type':'application/json'}});
@@ -311,6 +317,50 @@ async function notificarAutorizacao(req, env){
 
   return { ok:true, masters:masters.length, pushInscricoes:subs.length, pushEnviados,
            emailDestinatarios:emails.length, email:mail };
+}
+
+// POST /notificar-atraso { posto, nome, registro, minutos } — colaborador entrou
+// atrasado acima da tolerância; avisa o supervisor do posto. Config em
+// configuracoes/avisoAtrasoCfg { push, email } (default push=on, email=off). #regra-ponto-he-atraso
+async function notificarAtraso(req, env){
+  let body={}; try{ body=await req.json(); }catch(_){}
+  const posto=String(body.posto||'').trim();
+  const nome=String(body.nome||'colaborador').trim() || 'colaborador';
+  const registro=String(body.registro||'').trim();
+  const minutos=Math.max(0, parseInt(body.minutos)||0);
+
+  let cfg={ push:true, email:false };
+  try{ const c=await fsGetDoc(env,'configuracoes','avisoAtrasoCfg'); if(c){ cfg.push = c.push!==false; cfg.email = !!c.email; } }catch(_){}
+
+  // Supervisores responsáveis pelo posto (e masters como retaguarda).
+  const users=await fsListCol(env,'users');
+  const respPosto=users.filter(u=>u.data && u.data.active!==false && Array.isArray(u.data.postosResponsavel) && u.data.postosResponsavel.includes(posto));
+  const masters=users.filter(u=>u.data && u.data.role==='master' && u.data.active!==false);
+  const alvo=respPosto.length?respPosto:masters;
+  const idsAlvo=new Set(alvo.map(u=>u.id));
+  const keysAlvo=new Set(alvo.map(u=>u.data.username).filter(Boolean));
+
+  let pushEnviados=0;
+  if(cfg.push){
+    const cfgs=await fsListCol(env,'configuracoes');
+    const subs=cfgs.filter(c=>c.id.startsWith('psup_') && c.data && c.data.sub && c.data.sub.endpoint
+      && (idsAlvo.has(c.data.userId) || keysAlvo.has(c.data.userKey)
+          || (() => { const ps=c.data.postos; return Array.isArray(ps) && ps.includes(posto); })()));
+    for(const s of subs){ const st=await enviarPush(env, s.data.sub); if(st===201||st===200) pushEnviados++; }
+  }
+  let mail={ skip:true };
+  if(cfg.email){
+    const emails=[...new Set(alvo.map(u=>(u.data.email||'').trim()).filter(e=>e.includes('@')))];
+    const assunto=`DRG-Kronos — atraso na entrada: ${nome} (${minutos} min)`;
+    const html=`<div style="font-family:Arial,sans-serif;font-size:14px;color:#222">
+      <h2 style="color:#C2410C;margin:0 0 10px">Atraso na entrada</h2>
+      <p><strong>${nome}</strong>${registro?` (matrícula ${registro})`:''} bateu a entrada com <strong>${minutos} min</strong> de atraso${posto?` no posto <strong>${posto}</strong>`:''}.</p>
+      <p style="color:#555">Aviso de ciência. O atraso é apurado automaticamente na folha (Súmula 366).</p>
+      <p style="color:#888;font-size:12px">Aviso automático — não responda este e-mail.</p>
+    </div>`;
+    mail=await enviarEmailResend(env, emails, assunto, html);
+  }
+  return { ok:true, posto, minutos, supervisores:alvo.length, pushEnviados, email:mail };
 }
 
 // Varredura (roda no cron): pedidos pendentes "segurados" fora da janela — quando

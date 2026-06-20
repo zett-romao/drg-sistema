@@ -590,6 +590,8 @@ const _authReady = new Promise(resolve => {
 const PONTO_LOGIN_URL = 'https://drg-aprovacao.zett-romao.workers.dev/ponto-login';
 // Worker que dispara o push instantâneo aos supervisores quando há pedido novo. #janela-notif
 const NOTIFICAR_PEDIDO_URL = 'https://drg-monitor.zett-romao.workers.dev/notificar-pedido';
+// Avisa o supervisor quando a ENTRADA é batida com atraso acima da tolerância. #regra-ponto-he-atraso
+const NOTIFICAR_ATRASO_URL = 'https://drg-monitor.zett-romao.workers.dev/notificar-atraso';
 
 // ─── ESTADO ───────────────────────────────────────────────────────────────────
 let currentEmp     = null;
@@ -1697,6 +1699,21 @@ async function baterPonto() {
     toast(`✅ ${nomes[prox]} registrada às ${hora}${geoMsg}`, 'success');
     renderHoje();
     renderBotao();
+
+    // Entrada batida com atraso acima da tolerância de 10min → avisa o supervisor
+    // do posto (push e/ou e-mail, conforme config). Não bloqueia a UI. #regra-ponto-he-atraso
+    if(prox === 'entrada'){
+      try{
+        const _esp = _horarioEsperado('entrada');
+        if(_esp){
+          const _atraso = (now.getHours()*60 + now.getMinutes()) - timeToMin(_esp);
+          if(_atraso > TOLERANCIA_DIA_MIN){
+            fetch(NOTIFICAR_ATRASO_URL, { method:'POST', headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({ posto: currentEmp.posto||'', nome: currentEmp.nome||'', registro: currentEmp.registro||'', minutos: _atraso }) });
+          }
+        }
+      }catch(_){}
+    }
 
   } catch (e) {
     console.error(e);

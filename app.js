@@ -21559,6 +21559,33 @@ function _monitorFaltasHoje(){
   });
   return out.sort((a,b)=> b.atrasoMin - a.atrasoMin);
 }
+// Quem BATEU a entrada hoje, porém com atraso acima da tolerância do Monitor (15 min).
+// Aparece na aba "Atrasos" do Monitor (separada de "não bateu"). #regra-ponto-he-atraso
+function _monitorAtrasosHoje(){
+  const now = new Date();
+  const ano = now.getFullYear(), mes = now.getMonth()+1, dia = now.getDate();
+  const tol = MONITOR_FALTAS_TOLERANCIA_MIN;   // 15 min (param legal)
+  const out = [];
+  (State.employees||[]).forEach(emp=>{
+    if((emp.status||'ativo') !== 'ativo') return;
+    if(emp.isentoPonto) return;
+    if(!_empNoEscopo(emp)) return;
+    const exp = _getExpectedDay(emp, mes, ano, dia);
+    if(!exp || exp.tipo==='folga' || !exp.entrada) return;
+    const entMin = timeToMinutes(exp.entrada);
+    if(!Number.isFinite(entMin)) return;
+    const reg = _pontoDiaReal(emp, ano, mes, dia);
+    if(!reg || !reg.entrada) return;            // não bateu entrada → é falta, não atraso
+    const realMin = timeToMinutes(reg.entrada);
+    if(!Number.isFinite(realMin)) return;
+    const atraso = realMin - entMin;
+    if(atraso > tol){                           // entrou mais de 15 min atrasado
+      out.push({ id:emp.id, nome:emp.nome||'(sem nome)', posto:emp.posto||'', setor:emp.setor||'', cargo:emp.cargo||'',
+                 previsto:exp.entrada, real:reg.entrada, atrasoMin:atraso });
+    }
+  });
+  return out.sort((a,b)=> b.atrasoMin - a.atrasoMin);
+}
 // Atestado/abono aprovado (em dias) cobrindo a data ymd → colaborador justificado. #monitor-faltas
 function _temAtestadoNoDia(empId, ymd){
   return (State.atestados||[]).some(a=> a && a.employeeId===empId && a.status!=='pendente'
@@ -21658,6 +21685,31 @@ async function renderMonitorFaltas(){
   const hhmm = String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
   const dataBR = now.toLocaleDateString('pt-BR');
 
+  // Aba "Atrasos" — quem bateu a entrada com mais de 15 min de atraso. #regra-ponto-he-atraso
+  const atrasos = _monitorAtrasosHoje();
+  const atrasosBloco = atrasos.length ? `
+    <div style="margin-top:22px">
+      <div style="margin:0 0 10px;padding:10px 14px;border-radius:8px;background:#FFF7ED;border:1px solid #FED7AA;font-weight:600;color:#C2410C">
+        <i class="fa-solid fa-user-clock"></i> ${atrasos.length} colaborador(es) entraram atrasados hoje (acima de ${MONITOR_FALTAS_TOLERANCIA_MIN} min)
+      </div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:14px">
+        <thead><tr style="background:#fff7ed;border-bottom:2px solid #FED7AA;text-align:left">
+          <th style="padding:10px 8px">Colaborador</th>
+          <th style="padding:10px 8px">Posto de Trabalho</th>
+          <th style="padding:10px 8px;text-align:center">Entrada prevista</th>
+          <th style="padding:10px 8px;text-align:center">Entrada real</th>
+          <th style="padding:10px 8px;text-align:center">Atraso</th>
+        </tr></thead><tbody>${atrasos.map(a=>`
+          <tr style="border-bottom:1px solid #eee">
+            <td style="padding:10px 8px;font-weight:600"><a href="javascript:void(0)" onclick="openPayrollForEmployee('${a.id}')" title="Abrir a folha de ${esc(a.nome)}" style="color:#C2410C;text-decoration:none;border-bottom:1px dotted #C2410C">${esc(a.nome)}</a></td>
+            <td style="padding:10px 8px;color:#555">${esc(a.posto||a.setor||'—')}</td>
+            <td style="padding:10px 8px;text-align:center;font-variant-numeric:tabular-nums">${esc(a.previsto)}</td>
+            <td style="padding:10px 8px;text-align:center;font-variant-numeric:tabular-nums">${esc(a.real)}</td>
+            <td style="padding:10px 8px;text-align:center;color:#C2410C;font-weight:700;font-variant-numeric:tabular-nums">${_fmtAtraso(a.atrasoMin)}</td>
+          </tr>`).join('')}</tbody></table></div>
+      <div style="margin-top:6px;font-size:11px;color:#9A3412">O atraso é apurado automaticamente na folha (Súmula 366: soma > 10 min/dia desconta o total). Esta lista é só para acompanhamento.</div>
+    </div>` : '';
+
   let corpo;
   if(!lista.length){
     corpo = `<div style="text-align:center;padding:48px 16px;color:#16a34a">
@@ -21715,6 +21767,7 @@ async function renderMonitorFaltas(){
       ${lista.length ? `<i class="fa-solid fa-triangle-exclamation"></i> ${lista.length} colaborador(es) sem entrada registrada` : `<i class="fa-solid fa-circle-check"></i> Nenhuma falta de entrada no momento`}
     </div>
     ${corpo}
+    ${atrasosBloco}
     <div style="margin-top:18px;padding:10px 14px;border-radius:8px;background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;font-size:13px">
       <i class="fa-solid fa-circle-info"></i> <strong>Abonar</strong> = justifica o dia (cria abono de 1 dia, a folha não desconta). <strong>Informar falta</strong> = injustificada (o dia sem batida já é descontado na folha). <strong>Aguardar</strong> = continua monitorando. A lista atualiza ao abrir e a cada 5 min.
     </div>`;

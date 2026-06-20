@@ -981,6 +981,22 @@ function _modeloDiaPonto(modelo, dateObj){
   }
   return modelo.dias[dateObj.getDay()] || { tipo:'folga' };
 }
+// Modelo personalizado FDS LIVRE: 1 dia de fim de semana (sáb OU dom) marcado trabalho →
+// trabalha sáb OU dom (resolve pelas batidas). Espelha o gestor. #escala-custom-fdslivre
+function _modeloFdsLivrePonto(escala){
+  const m=_modeloDeEscalaPonto(escala);
+  if(!m || m.tipo==='ciclo' || !Array.isArray(m.dias)) return null;
+  const _t = d => !!(d && (d.tipo==='trabalho' || d.tipo==='corrido'));
+  const sabT=_t(m.dias[6]), domT=_t(m.dias[0]);
+  if(sabT===domT) return null;
+  return m;
+}
+function _modeloFdsHorarioPonto(escala){
+  const m=_modeloFdsLivrePonto(escala); if(!m) return null;
+  const _t = d => !!(d && (d.tipo==='trabalho' || d.tipo==='corrido'));
+  const w = _t(m.dias[6]) ? m.dias[6] : m.dias[0];
+  return { entrada:w.entrada||'', saida:w.saida||'', intIni:w.intIni||'', intFim:w.intFim||'' };
+}
 
 async function carregarPayroll() {
   // Usa a competência da jornada atual (turno noturno cruza meia-noite) — o ponto
@@ -1223,7 +1239,15 @@ function _jornadaHoje(emp){
   // resolve o caso da Estela (sáb 07–11h) que o app lia como 08:00 do cadastro. #ponto-escala-custom
   const _modJ = _modeloDeEscalaPonto(escala);
   if(_modJ){
-    const md = _modeloDiaPonto(_modJ, new Date());
+    const _hoje = new Date();
+    const _dowJ = _hoje.getDay();
+    // FDS Livre custom no fim de semana → usa o horário do dia de fds (sáb OU dom). #escala-custom-fdslivre
+    if(_modeloFdsLivrePonto(escala) && (_dowJ===0 || _dowJ===6)){
+      const h = _modeloFdsHorarioPonto(escala) || {};
+      return { folga:false, entrada: h.entrada||'', saida: h.saida||'',
+               intIni: e.semRefeicao ? '' : (h.intIni||''), intFim: e.semRefeicao ? '' : (h.intFim||'') };
+    }
+    const md = _modeloDiaPonto(_modJ, _hoje);
     if(md.tipo === 'folga') return { folga:true, entrada:'', saida:'', intIni:'', intFim:'' };
     return { folga:false, entrada: md.entrada||'', saida: md.saida||'',
              intIni: e.semRefeicao ? '' : (md.intIni||''), intFim: e.semRefeicao ? '' : (md.intFim||'') };
@@ -1302,7 +1326,13 @@ function _ehDiaDeFolga(emp, dataObj){
   const escalaEfetiva = (vig && vig.escala) ? vig.escala : (emp && emp.escala);
   // Escala PERSONALIZADA (modelo "m_..."): a folga vem do template do dia. #ponto-escala-custom
   const _modF = _modeloDeEscalaPonto(escalaEfetiva);
-  if(_modF){ return _modeloDiaPonto(_modF, dataObj).tipo === 'folga'; }
+  if(_modF){
+    // FDS Livre custom: sáb E dom são dias possíveis de trabalho (não folga) — ela bate
+    // o que for o dia dela; o outro vira folga sozinho na folha. #escala-custom-fdslivre
+    const _dowF = dataObj.getDay();
+    if(_modeloFdsLivrePonto(escalaEfetiva) && (_dowF===0 || _dowF===6)) return false;
+    return _modeloDiaPonto(_modF, dataObj).tipo === 'folga';
+  }
   const escala = (escalaEfetiva || '').toString().toUpperCase();
   const ds = dataObj.getDay(); // 0=dom .. 6=sab
   if(!escala) return false;

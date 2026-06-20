@@ -23487,7 +23487,26 @@ function aplicarParametrosLegais(){
 // em State.payrolls. Em projeção de mês futuro (sem folha) → sábado trabalha,
 // domingo folga (conta 1 dia/fds, dando os 6 dias da semana).
 let _fdsLivreCtxDias = null, _fdsLivreCtxEmp = null;
-function _ehFds6x1Livre(escala){ return typeof escala==='string' && escala.startsWith('6x1LIV'); }
+function _ehFds6x1Livre(escala){ return (typeof escala==='string' && escala.startsWith('6x1LIV')) || !!_modeloFdsLivre(escala); }
+// Modelo de escala PERSONALIZADO tratado como FDS LIVRE: tem EXATAMENTE UM dia de fim
+// de semana (sáb OU dom) marcado como trabalho. Decisão do dono 2026-06-20: toda escala
+// personalizada 6x1 com trabalho no fds é "livre" — trabalha sáb OU dom, resolve pelas
+// batidas, sem ajuste manual. #escala-custom-fdslivre
+function _modeloFdsLivre(escala){
+  const m=_escalaModelo(escala);
+  if(!m || m.tipo==='ciclo' || !Array.isArray(m.dias)) return null;
+  const _t = d => !!(d && (d.tipo==='trabalho' || d.tipo==='corrido'));
+  const sabTrab=_t(m.dias[6]), domTrab=_t(m.dias[0]);
+  if(sabTrab===domTrab) return null;   // nenhum, ou os DOIS, trabalham no fds → não é "livre"
+  return m;
+}
+// Horário do dia de fim de semana trabalhado do modelo (aplicado ao dia que ela bater).
+function _modeloFdsHorario(escala){
+  const m=_modeloFdsLivre(escala); if(!m) return null;
+  const _t = d => !!(d && (d.tipo==='trabalho' || d.tipo==='corrido'));
+  const w = _t(m.dias[6]) ? m.dias[6] : m.dias[0];
+  return { entrada:w.entrada||'', saida:w.saida||'', intIni:w.intIni||'', intFim:w.intFim||'' };
+}
 // ── 5x2 FIM DE SEMANA OPCIONAL (5x2LIV) ─────────────────────────────────────
 // Seg–Sex OBRIGATÓRIO (falta se em branco). O dia de fim de semana (sáb OU dom,
 // livre) é VOLUNTÁRIO: conta as horas no dia que ela bater; fim de semana não
@@ -23875,11 +23894,17 @@ function _getExpectedDay(emp, mes, ano, dia, ignoreAdmissao){
       };
     }
   }
-  // 1b) Modelo de escala customizado (escala vigente na data)
+  // 1b) Modelo de escala customizado (escala vigente na data). EXCEÇÃO: modelo FDS Livre
+  // no DIA DE FIM DE SEMANA → passa a vez para a branch FDS Livre abaixo (resolve sáb OU
+  // dom pelas batidas). Dia útil do modelo continua aqui. #escala-custom-fdslivre
   const _mod=_escalaModelo(lot.escala);
   if(_mod){
-    const md=_modeloDiaTemplate(_mod, new Date(ano, mes-1, dia));
-    return { tipo:md.tipo||'folga', entrada:md.entrada||'', saida:md.saida||'', intIni:md.intIni||'', intFim:md.intFim||'' };
+    const _dowMod=new Date(ano, mes-1, dia).getDay();
+    const _fdsLivreMod = !!_modeloFdsLivre(lot.escala) && (_dowMod===0 || _dowMod===6);
+    if(!_fdsLivreMod){
+      const md=_modeloDiaTemplate(_mod, new Date(ano, mes-1, dia));
+      return { tipo:md.tipo||'folga', entrada:md.entrada||'', saida:md.saida||'', intIni:md.intIni||'', intFim:md.intFim||'' };
+    }
   }
   // 2) Fallback: horários contratuais da lotação vigente (assume trabalho em dia útil)
   const diaSem = new Date(ano, mes-1, dia).getDay();
@@ -23929,10 +23954,13 @@ function _getExpectedDay(emp, mes, ano, dia, ignoreAdmissao){
     const _h = _escalaHorariosDia(emp, diaSem, lot);
     if(diaSem>=1 && diaSem<=5)
       return { tipo:'trabalho', entrada:_h.entrada, saida:_h.saida, intIni:_h.intIni, intFim:_h.intFim };
+    // Fim de semana: para modelo PERSONALIZADO usa o horário do dia de fds marcado
+    // trabalho (aplicado a sáb OU dom). Escala do sistema mantém _h. #escala-custom-fdslivre
+    const _hFds = _modeloFdsHorario(lot.escala) || _h;
     const _r = _fdsLivreResolve(emp, ano, mes, dia);
     const _trab = _r.esteBatido || (!_r.algumBatido && diaSem===6);
     if(!_trab) return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
-    return { tipo:'trabalho', entrada:_h.entrada, saida:_h.saida, intIni:_h.intIni, intFim:_h.intFim };
+    return { tipo:'trabalho', entrada:_hFds.entrada, saida:_hFds.saida, intIni:_hFds.intIni, intFim:_hFds.intFim };
   }
   // 5x2 FIM DE SEMANA OPCIONAL: Seg–Sex trabalha; no fds, trabalha SÓ o dia que ela
   // BATEU (sáb OU dom). Fim de semana sem batida → FOLGA (nunca falta). Em projeção
@@ -24477,7 +24505,13 @@ function _diaEmBrancoEhFalta(emp, mes, ano, dia, isWeekend, is12x36){
     // dia do fds → o que está em branco é FOLGA (sem falta). Não trabalhou nenhum
     // → conta 1 falta, contada só no SÁBADO (domingo fica folga → nunca 2 faltas).
     const _r = _fdsLivreResolve(emp, ano, mes, dia);
-    if(!_r) deveriaTrabalhar = true;
+    if(!_r){
+      // Dia útil: modelo PERSONALIZADO segue o próprio template (pode ter folga no meio
+      // da semana); escala do sistema = trabalho seg-sex. #escala-custom-fdslivre
+      const _modL=_modeloFdsLivre(_escDia);
+      if(_modL){ const _md=_modeloDiaTemplate(_modL, new Date(ano, mes-1, dia)); deveriaTrabalhar = (_md.tipo!=='folga' && !!_md.entrada); }
+      else deveriaTrabalhar = true;
+    }
     else if(_r.algumBatido) deveriaTrabalhar = false;
     else deveriaTrabalhar = (new Date(ano, mes-1, dia).getDay()===6);
   } else if(_ehFdsOpcional(_escDia)){

@@ -954,10 +954,39 @@ function _pickPayrollDoc(docs){
   return best;
 }
 
+// Modelos de escala personalizados ("Criadas por você") — carregados uma vez p/ o
+// app do colaborador reconhecer escalas custom (folga/horário). Ponte até a Frente 2
+// (motor único compartilhado). #ponto-escala-custom
+let _escModelosPonto = [];
+async function _carregarEscalasModelosPonto(){
+  try{ const ms = await dbCol('escalasModelos').get(); _escModelosPonto = ms.docs.map(d=>({ id:d.id, ...d.data() })); }
+  catch(_){ /* sem modelos: segue com as escalas do sistema */ }
+}
+// Espelha _escalaModelo + _modeloDiaTemplate do gestor.
+function _modeloDeEscalaPonto(escala){
+  if(!escala || typeof escala!=='string' || !escala.startsWith('m_')) return null;
+  return _escModelosPonto.find(m => m.id === escala.slice(2)) || null;
+}
+function _modeloDiaPonto(modelo, dateObj){
+  if(!modelo || !Array.isArray(modelo.dias) || !modelo.dias.length) return { tipo:'folga' };
+  if(modelo.tipo==='ciclo'){
+    const N=modelo.dias.length;
+    if(!modelo.dataInicio) return { tipo:'folga' };
+    const ini=new Date(modelo.dataInicio+'T00:00:00');
+    if(isNaN(ini.getTime())) return { tipo:'folga' };
+    const a=Date.UTC(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate());
+    const b=Date.UTC(ini.getFullYear(), ini.getMonth(), ini.getDate());
+    const offset=Math.round((a-b)/86400000);
+    return modelo.dias[((offset%N)+N)%N] || { tipo:'folga' };
+  }
+  return modelo.dias[dateObj.getDay()] || { tipo:'folga' };
+}
+
 async function carregarPayroll() {
   // Usa a competência da jornada atual (turno noturno cruza meia-noite) — o ponto
   // do dia 26+ cai na competência do mês seguinte (fechamento no dia 25).
   const j = _diaJornada();
+  if(!_escModelosPonto.length) await _carregarEscalasModelosPonto();
   const comp = _competenciaDe(j.dia, j.mes, j.ano);
   const mes = comp.mes;
   const ano = comp.ano;
@@ -1190,6 +1219,15 @@ function _jornadaHoje(emp){
   }
   const fonte = vig || e;
   const escala = (vig && vig.escala) || e.escala || '5x2A';
+  // Escala PERSONALIZADA (modelo "m_..."): horário e folga vêm do template do dia —
+  // resolve o caso da Estela (sáb 07–11h) que o app lia como 08:00 do cadastro. #ponto-escala-custom
+  const _modJ = _modeloDeEscalaPonto(escala);
+  if(_modJ){
+    const md = _modeloDiaPonto(_modJ, new Date());
+    if(md.tipo === 'folga') return { folga:true, entrada:'', saida:'', intIni:'', intFim:'' };
+    return { folga:false, entrada: md.entrada||'', saida: md.saida||'',
+             intIni: e.semRefeicao ? '' : (md.intIni||''), intFim: e.semRefeicao ? '' : (md.intFim||'') };
+  }
   const diaSem = new Date().getDay();   // 0=Dom ... 6=Sáb
   let entrada = fonte.horarioEntrada || e.horarioEntrada || '';
   let saida   = fonte.horarioSaida   || e.horarioSaida   || '';
@@ -1262,6 +1300,9 @@ function _ehDiaDeFolga(emp, dataObj){
   const vig = _vigenciaEscalaHoje(emp);
   if(vig && vig.tipo === 'folga') return true;
   const escalaEfetiva = (vig && vig.escala) ? vig.escala : (emp && emp.escala);
+  // Escala PERSONALIZADA (modelo "m_..."): a folga vem do template do dia. #ponto-escala-custom
+  const _modF = _modeloDeEscalaPonto(escalaEfetiva);
+  if(_modF){ return _modeloDiaPonto(_modF, dataObj).tipo === 'folga'; }
   const escala = (escalaEfetiva || '').toString().toUpperCase();
   const ds = dataObj.getDay(); // 0=dom .. 6=sab
   if(!escala) return false;

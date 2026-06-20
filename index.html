@@ -870,6 +870,9 @@
                 <!-- Info do colaborador selecionado -->
                 <div id="payroll-emp-info" class="payroll-emp-info hidden"></div>
 
+                <!-- Dashboard do colaborador no mês (atrasos, HE, atestados, abonos, faltas) #colab-dashboard -->
+                <div id="payroll-colab-dashboard"></div>
+
                 <div class="form-row">
                   <div class="form-group">
                     <label><i class="fa-solid fa-calendar-check text-success"></i> Dias Trabalhados</label>
@@ -2625,7 +2628,13 @@
             </div>
             <div class="form-row">
               <div class="form-group"><label>Monitor de faltas — alerta após (min)</label><input type="number" id="pl-monitorFaltasMin" min="0" step="1"></div>
-              <div class="form-group"></div>
+              <div class="form-group">
+                <label>Avisar supervisor no atraso da entrada <small style="color:#999">(acima da tolerância/dia)</small></label>
+                <div style="display:flex;gap:16px;margin-top:6px">
+                  <label class="checkbox-label" style="margin:0"><input type="checkbox" id="pl-avisoAtrasoPush" style="width:auto"> <span>Push</span></label>
+                  <label class="checkbox-label" style="margin:0"><input type="checkbox" id="pl-avisoAtrasoEmail" style="width:auto"> <span>E-mail</span></label>
+                </div>
+              </div>
             </div>
             <div style="font-size:11px;font-weight:700;color:#7B1FA2;text-transform:uppercase;letter-spacing:.4px;margin:14px 0 8px"><i class="fa-solid fa-business-time"></i> Horas Extras &amp; Reflexos</div>
             <label class="checkbox-label" style="margin-bottom:8px"><input type="checkbox" id="pl-dsrHeBaseSabado" style="width:auto"> <span>DSR sobre HE: sábado conta como dia útil (divisor) <small style="color:#999">Lei 605/49</small></span></label>
@@ -7185,6 +7194,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260619c-ponto-fase2-atrasos"></script>
+  <script src="app.js?v=20260619d-dashboard-params"></script>
 </body>
 </html>

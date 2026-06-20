@@ -569,6 +569,8 @@ function renderParametrosLegais(){
   });
   const cb1=document.getElementById('pl-dsrHeBaseSabado'); if(cb1) cb1.checked=_paramLegal('dsrHeBaseSabado')!==false;
   const cb2=document.getElementById('pl-dsrHe12x36');      if(cb2) cb2.checked=_paramLegal('dsrHe12x36')===true;
+  const cbAP=document.getElementById('pl-avisoAtrasoPush');  if(cbAP) cbAP.checked=_paramLegal('avisoAtrasoPush')!==false;   // #regra-ponto-he-atraso
+  const cbAE=document.getElementById('pl-avisoAtrasoEmail'); if(cbAE) cbAE.checked=_paramLegal('avisoAtrasoEmail')===true;
 }
 async function salvarParametrosLegais(){
   const num=(id,def)=>{ const v=parseFloat(val('pl-'+id)); return isNaN(v)?def:v; };
@@ -582,12 +584,16 @@ async function salvarParametrosLegais(){
     refNaoRendidaPerc:num('refNaoRendidaPerc',PARAM_LEGAL_DEFAULTS.refNaoRendidaPerc),
     dsrHeBaseSabado:  !!document.getElementById('pl-dsrHeBaseSabado')?.checked,
     dsrHe12x36:       !!document.getElementById('pl-dsrHe12x36')?.checked,
+    avisoAtrasoPush:  !!document.getElementById('pl-avisoAtrasoPush')?.checked,
+    avisoAtrasoEmail: !!document.getElementById('pl-avisoAtrasoEmail')?.checked,
     oj394Corte:       val('pl-oj394Corte')||PARAM_LEGAL_DEFAULTS.oj394Corte,
   };
   State.empresa = State.empresa||{};
   State.empresa.parametrosLegais = pl;
   try{
     await DB.saveDoc('configuracoes','empresa',{parametrosLegais:pl},true);
+    // Espelha a escolha push/e-mail num doc que o worker drg-monitor lê no aviso de atraso. #regra-ponto-he-atraso
+    try{ await DB.saveDoc('configuracoes','avisoAtrasoCfg',{push:pl.avisoAtrasoPush, email:pl.avisoAtrasoEmail, updatedAt:new Date().toISOString()},true); }catch(_){}
     aplicarParametrosLegais();
     try{ if(val('payroll-employee')) recalculate(); }catch(_){}
     try{ Auth.log('PARAM_LEGAL_SAVE', null, JSON.stringify(pl)); }catch(_){}
@@ -12197,6 +12203,57 @@ function recalculate(){
   } else {
     if(encargosCard) encargosCard.classList.add('hidden');
   }
+  try{ renderColabDashboard(); }catch(_){}   // mini-dashboard do colaborador no mês. #colab-dashboard
+}
+
+// Dashboard compacto do colaborador (logo abaixo do nome na Folha): atrasos, horas
+// extras (aprovadas/pendentes), atestados, abonos e faltas do mês. #colab-dashboard
+function renderColabDashboard(){
+  const box=document.getElementById('payroll-colab-dashboard'); if(!box) return;
+  const empId=val('payroll-employee');
+  const emp=State.employees.find(e=>e.id===empId);
+  if(!emp){ box.innerHTML=''; return; }
+  const mes=parseInt(val('payroll-mes')||currentMes()), ano=parseInt(val('payroll-ano')||currentAno());
+  const p=(State.payrolls||[]).find(x=>x.employeeId===empId && x.mes==mes && x.ano==ano);
+
+  // Atrasos do mês
+  const atr=_atrasoTotais(empId,mes,ano);
+  // Horas extras: aprovadas (minutos pagos) + nº de dias pendentes de aprovação
+  let heAprovMin=0, hePendDias=0;
+  if(p && !emp.isentoPonto){
+    try{ heAprovMin=_apuracaoPontoTotais(emp,p).extraMin||0; }catch(_){}
+    (Array.isArray(p.pontoManualDias)?p.pontoManualDias:[]).forEach(pd=>{
+      if(!pd||!pd.dia||!pd.entrada||!pd.saida) return;
+      let detec; try{ detec=_detectHEDivergencia({dia:pd.dia,diaSem:pd.diaSem,entrada:pd.entrada,saida:pd.saida,intIni:pd.intIni,intFim:pd.intFim,heReview:pd.heReview}, _getExpectedDay(emp,mes,ano,pd.dia)); }catch(_){ detec=null; }
+      if(detec && detec.precisaRevisao){ const st=pd.heReview&&pd.heReview.status; if(st!=='aprovado' && st!=='recusado') hePendDias++; }
+    });
+  }
+  // Atestados / abonos
+  const at=_atestadoTotais(empId,mes,ano);
+  const _abs=(State.atestados||[]).filter(a=>a.employeeId===empId && a.mes==mes && a.ano==ano && a.status!=='pendente' && a.categoria==='abono');
+  const abAbonDias=_abs.filter(a=>a.abona!==false).reduce((s,a)=>s+(parseInt(a.dias)||0),0);
+  // Faltas (campos da folha já recalculados)
+  const fInj=numVal('payroll-faltas-injustificadas')||0;
+  const fJus=numVal('payroll-faltas-justificadas')||0;
+
+  const card=(cor,bg,icon,valor,label,sub,onclick)=>`
+    <div onclick="${onclick||''}" style="flex:1;min-width:120px;background:${bg};border:1px solid ${cor}33;border-left:4px solid ${cor};border-radius:10px;padding:9px 12px;${onclick?'cursor:pointer':''}">
+      <div style="font-size:11px;color:${cor};font-weight:700;text-transform:uppercase;letter-spacing:.3px"><i class="fa-solid ${icon}"></i> ${label}</div>
+      <div style="font-size:18px;font-weight:800;color:#1f2937;line-height:1.1;margin-top:2px">${valor}</div>
+      <div style="font-size:11px;color:#64748b;margin-top:1px">${sub||'&nbsp;'}</div>
+    </div>`;
+
+  box.innerHTML=`
+    <div style="margin:4px 0 14px">
+      <div style="font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px"><i class="fa-solid fa-chart-simple" style="color:#1565C0"></i> Situação do mês — ${esc(emp.nome||'')}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${card('#C2410C','#FFF7ED','fa-user-clock', (atr.minutos>0?minutesToStr(atr.minutos):'0h'), 'Atrasos', `${atr.count||0} dia(s)${atr.minutosDesc>0?' · desconta':''}`)}
+        ${card('#0E7490','#ECFEFF','fa-bolt', (heAprovMin>0?minutesToStr(heAprovMin):'0h'), 'Horas extras', hePendDias>0?`<span style="color:#E65100;font-weight:700">${hePendDias} dia(s) a aprovar</span>`:'todas aprovadas', hePendDias>0?'openHEReview()':'')}
+        ${card('#1B5E20','#E8F5E9','fa-notes-medical', `${at.dias||0} dia(s)`, 'Atestados', at.horasMin>0?(minutesToStr(at.horasMin)+' em horas'):'pagos')}
+        ${card('#1565C0','#E3F2FD','fa-calendar-check', `${abAbonDias} abon.`, 'Abonos', `${at.diasNaoAbonados||0} não abonado(s)`)}
+        ${card('#C62828','#FDECEA','fa-user-xmark', `${fInj} injust.`, 'Faltas', `${fJus} justificada(s)`)}
+      </div>
+    </div>`;
 }
 
 function renderPayrollHistory(empId){
@@ -23325,6 +23382,7 @@ const PARAM_LEGAL_DEFAULTS = {
   tolDiaMin: 10, tolBatidaMin: 5, monitorFaltasMin: 15,
   adNoturnoPerc: 20, vtCoPartPerc: 6, acumuloPerc: 20, refNaoRendidaPerc: 50,
   dsrHeBaseSabado: true, dsrHe12x36: false, oj394Corte: '2023-03-20',
+  avisoAtrasoPush: true, avisoAtrasoEmail: false,
 };
 function _paramLegal(key){
   const pl = State.empresa && State.empresa.parametrosLegais;

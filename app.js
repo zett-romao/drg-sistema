@@ -3283,10 +3283,10 @@ function _reciboOficialLinhas(emp, p){
   if(ins>0) linhas.push({cod:'0099', nome:'Adicional Insalubridade '+grauInsal+'%', ref:grauInsal+'%',       pr:ins, de:0});
   if(acu>0) linhas.push({cod:'0103', nome:'Acúmulo de Função',     ref:'—',                                  pr:acu, de:0});
   if(outProv>0) linhas.push({cod:'0150', nome:'Outros Proventos',  ref:'—',                                  pr:outProv, de:0});
-  // Refeição não rendida (intervalo intrajornada suprimido, 50%) — INDENIZATÓRIA (CLT 71 §4),
+  // Refeição não rendida (intervalo intrajornada suprimido, hora cheia + 50%) — INDENIZATÓRIA (CLT 71 §4),
   // não-tributável: soma em totalPr/líquido mas NÃO entra na base INSS/IRRF/FGTS. #ref-nao-rendida
   const _refNR = p.refNaoRendidaValor||0;
-  if(_refNR>0) linhas.push({cod:'0085', nome:'Refeição não rendida (50%)', ref:(p.refNaoRendidaMin?minutesToStr(p.refNaoRendidaMin):'—'), pr:_refNR, de:0});
+  if(_refNR>0) linhas.push({cod:'0085', nome:'Refeição não rendida (hora + 50%)', ref:(p.refNaoRendidaMin?minutesToStr(p.refNaoRendidaMin):'—'), pr:_refNR, de:0});
 
   // Descontos
   if(descFaltas>0){
@@ -4597,7 +4597,7 @@ function _repararBatidasDia(pd, exp){
 // do espelho da folha (_buildFolhaHtmlFromRecord) — manter em sincronia p/ os
 // números da Contabilidade baterem com a folha impressa. #folha-detalhada
 function _apuracaoPontoTotais(emp, p){
-  const out={trabMin:0,prevMin:0,atrasoMin:0,extraMin:0,faltaMin:0,faltaQtd:0,naoRendMin:0,naoRendAprovadoMin:0};
+  const out={trabMin:0,prevMin:0,atrasoMin:0,extraMin:0,faltaMin:0,faltaQtd:0,naoRendMin:0,naoRendAprovadoMin:0,naoRendDetectadaMin:0};
   if(!emp || !p) return out;
   if(emp.isentoPonto) return out;
   const mes=p.mes, ano=p.ano;
@@ -4626,14 +4626,17 @@ function _apuracaoPontoTotais(emp, p){
     // HE = SÓ a AUTORIZADA — mesma fonte (_heMinDia) que o pagamento usa; HE não
     // aprovada na revisão não entra na apuração. Atraso/ref.não rendida seguem pelo déficit. #he-autorizada-folha
     if(temBatida){ out.extraMin += _heMinDia({...(_bat||{}), heReview: pd.heReview}, exp, _MCa); }
-    if(!ehFolga&&temBatida){ const _ir=_calcIntervaloMin(intIni,intFim,entrada,saida); const delta=(is12x36||_usaFdsLivreResolve(emp.escala))?((minLiq+_ir)-(prevMin+contratualIntMin)):(minLiq-prevMin); if(delta<0&&Math.abs(delta)>HE_TOLERANCIA_DIA_MIN){ out.atrasoMin+=-delta; } const _nr=Math.max(0,contratualIntMin-_ir); out.naoRendMin+=(_nr>HE_TOLERANCIA_DIA_MIN?_nr:0); }   /* ref. não rendida só conta acima da tolerância 10min/dia (Súmula 366). #ref-tolerancia */
+    let _detDia=0;   // refeição não rendida COMPROVADA pela batida (início E fim batidos, duração ~0 = almoço suprimido). #ref-detectada
+    if(!ehFolga&&temBatida){ const _ir=_calcIntervaloMin(intIni,intFim,entrada,saida); const delta=(is12x36||_usaFdsLivreResolve(emp.escala))?((minLiq+_ir)-(prevMin+contratualIntMin)):(minLiq-prevMin); if(delta<0&&Math.abs(delta)>HE_TOLERANCIA_DIA_MIN){ out.atrasoMin+=-delta; } const _nr=Math.max(0,contratualIntMin-_ir); out.naoRendMin+=(_nr>HE_TOLERANCIA_DIA_MIN?_nr:0); if(intIni&&intFim&&_nr>HE_TOLERANCIA_DIA_MIN) _detDia=_nr; }   /* ref. não rendida só conta acima da tolerância 10min/dia (Súmula 366). #ref-tolerancia */
     else if(!ehFolga&&!temBatida&&temPonto&&_diaEmBrancoEhFalta(emp,cd.mes,cd.ano,d,isWknd,is12x36)){ out.faltaMin+=prevMin; out.faltaQtd++; }
     out.trabMin+=(minLiq>0?minLiq:0); out.prevMin+=prevMin;
     // Refeição não rendida SOLICITADA pelo colaborador (app) e APROVADA pelo supervisor.
     // Conta os minutos do pedido independente de folga/feriado (caso típico: trabalha
     // sozinho corrido em feriado/sáb/dom). Paga 50% indenizatório só p/ quem NÃO é
     // semRefeicao (esses já recebem por naoRendMin). #ref-nao-rendida-solicitada
-    if(pd.refExtra && pd.refExtra.status==='aprovado'){ out.naoRendAprovadoMin += (+pd.refExtra.min||0); }
+    const _aprDia=(pd.refExtra && pd.refExtra.status==='aprovado') ? (+pd.refExtra.min||0) : 0;
+    if(_aprDia>0) out.naoRendAprovadoMin += _aprDia;
+    out.naoRendDetectadaMin += Math.max(_detDia, _aprDia);   // pago a TODOS (não só semRefeicao): almoço suprimido COMPROVADO pela batida OU pedido aprovado — sem duplicar no mesmo dia. #ref-detectada
   }
   // SEM ponto lançado no registro → NÃO conta todo dia previsto como falta (isso fazia
   // a contabilidade mostrar Faltas = Horas Previstas pra quem tem 0 faltas). Usa o nº de
@@ -11830,20 +11833,21 @@ function recalculate(){
   const _multiSeg=_segs.length>1;
 
   // --- Refeição não rendida (intervalo intrajornada suprimido) ---
-  // Extra de 50% SÓ p/ quem trabalha sozinho (emp.semRefeicao). Natureza INDENIZATÓRIA
-  // (CLT art. 71 §4) → NÃO-tributável: entra só no líquido (igual provNtrib), fora da
-  // base de INSS/IRRF/FGTS. O tempo em si já é jornada normal no salário deles (semRefeicao
-  // zera o intervalo no esperado) → paga-se só os 50%. #ref-nao-rendida #folha-detalhada
+  // Paga a HORA CHEIA + acréscimo de 50% (art. 71 §4: "o período suprimido, com acréscimo
+  // de 50%"). Natureza INDENIZATÓRIA → NÃO-tributável: entra só no líquido (igual provNtrib),
+  // fora da base de INSS/IRRF/FGTS. A hora suprimida NÃO está no salário (o previsto subtrai
+  // 60min p/ todos, inclusive semRefeicao) → não há duplicidade ao pagar a hora cheia. #ref-hora-cheia #ref-nao-rendida #folha-detalhada
   // Dois caminhos de pagamento:
   //  (a) semRefeicao=true → trabalha sozinho SEMPRE → paga TODA refeição não rendida apurada.
-  //  (b) demais → paga só os dias em que o colaborador SOLICITOU no app E o supervisor
-  //      APROVOU (naoRendAprovadoMin). Caso típico: zelador que goza o almoço nos dias
+  //  (b) demais → paga o almoço suprimido COMPROVADO pela batida (início e fim batidos sem
+  //      duração) + os dias em que o colaborador SOLICITOU no app E o supervisor APROVOU
+  //      (naoRendDetectadaMin). Caso típico: zelador que goza o almoço nos dias
   //      úteis (o colega rende) mas trabalha corrido sozinho em feriado/sáb/dom. #ref-nao-rendida-solicitada
   let refNaoRendidaMin=0, refNaoRendidaValor=0;
   if(emp && !isentoPonto && salBase>0){
     const _apNR=_apuracaoPontoTotais(emp,{mes:_mesR,ano:_anoR,pontoManualDias:_pontoDiasR});
-    refNaoRendidaMin = emp.semRefeicao ? _apNR.naoRendMin : _apNR.naoRendAprovadoMin;
-    refNaoRendidaValor=+((refNaoRendidaMin/60)*valorHora*(_paramLegal('refNaoRendidaPerc')/100)).toFixed(2);
+    refNaoRendidaMin = emp.semRefeicao ? _apNR.naoRendMin : _apNR.naoRendDetectadaMin;   // não-sozinho: paga almoço suprimido COMPROVADO pela batida + pedido aprovado. #ref-detectada
+    refNaoRendidaValor=+((refNaoRendidaMin/60)*valorHora*(1+_paramLegal('refNaoRendidaPerc')/100)).toFixed(2);   // hora CHEIA + acréscimo (art. 71 §4: "o período suprimido, com acréscimo de 50%"). #ref-hora-cheia
   }
   setVal('payroll-ref-nao-rendida-min', refNaoRendidaMin||'');
   setVal('payroll-ref-nao-rendida-valor', refNaoRendidaValor>0?refNaoRendidaValor.toFixed(2):'0.00');
@@ -25234,10 +25238,10 @@ async function saveHEReview(){
         : (heHorasRev>0 && salBaseRev>0 ? +(heHorasRev*(salBaseRev/220)*(1+percRev/100)).toFixed(2) : 0);
       // Refeição não rendida (off-screen): recomputa direto dos dias revisados. #ref-nao-rendida-solicitada
       const _apNRrev = _apuracaoPontoTotais(empObj, { mes, ano, pontoManualDias:newDias });
-      const _refMinRev = empObj?.semRefeicao ? _apNRrev.naoRendMin : _apNRrev.naoRendAprovadoMin;
+      const _refMinRev = empObj?.semRefeicao ? _apNRrev.naoRendMin : _apNRrev.naoRendDetectadaMin;   // #ref-detectada
       updated.refNaoRendidaMin   = _refMinRev;
       updated.refNaoRendidaValor = (_refMinRev>0 && salBaseRev>0)
-        ? +((_refMinRev/60)*(salBaseRev/220)*(_paramLegal('refNaoRendidaPerc')/100)).toFixed(2) : 0;
+        ? +((_refMinRev/60)*(salBaseRev/220)*(1+_paramLegal('refNaoRendidaPerc')/100)).toFixed(2) : 0;   // hora CHEIA + acréscimo (art. 71 §4). #ref-hora-cheia
     }
     updated.updatedAt = new Date().toISOString();
     await DB.save('payrolls', updated);
@@ -25798,10 +25802,14 @@ function printFolhaPonto(isPreview=false){
     } else if(!ehFolga && !temBatida && _diaEmBrancoEhFalta(emp,cd.mes,cd.ano,d,isWknd,is12x36)){
       faltaMin = prevMin; totFaltaQtd++;
     }
-    // Refeição não rendida exibida por dia: quem NÃO é semRefeicao só mostra (e recebe)
-    // o pedido APROVADO pelo supervisor — alinha a coluna ao valor pago. Vale também em
-    // folga/feriado trabalhado (caso típico do zelador sozinho). #ref-nao-rendida-solicitada
-    if(!emp.semRefeicao){ naoRendMin = (pontodia.refExtra && pontodia.refExtra.status==='aprovado') ? (+pontodia.refExtra.min||0) : 0; }
+    // Refeição não rendida exibida por dia: quem NÃO é semRefeicao recebe o almoço suprimido
+    // COMPROVADO pela batida (início e fim batidos, duração ~0) OU o pedido aprovado pelo
+    // supervisor. Intervalo NÃO batido (campo vazio) = presume descanso. #ref-detectada
+    if(!emp.semRefeicao){
+      const _aprDia = (pontodia.refExtra && pontodia.refExtra.status==='aprovado') ? (+pontodia.refExtra.min||0) : 0;
+      const _detDia = (temBatida && intIni && intFim && naoRendMin>0) ? naoRendMin : 0;   // almoço suprimido COMPROVADO pela batida (início e fim batidos sem duração); vazio = presume descanso. #ref-detectada
+      naoRendMin = Math.max(_detDia, _aprDia);
+    }
     totTrab += (minLiq>0?minLiq:0); totPrev += prevMin; totAtraso += atrasoMin;
     totExtra += extraMin; totFaltaMin += faltaMin; totNaoRend += naoRendMin;
 
@@ -25830,6 +25838,11 @@ function printFolhaPonto(isPreview=false){
         const _heTxt=`${_hrSt==='recusada'?'HE recusada':'HE não autorizada'} · ${minutesToStr(_detHE.totalMin)}`;
         obsdia = obsdia ? (obsdia+' · '+_heTxt) : _heTxt;
       }
+    }
+    // Almoço suprimido COMPROVADO pela batida → anota na Obs (rastreável p/ conferência/contestação). #ref-detectada
+    if(!emp.semRefeicao && naoRendMin>0 && temBatida && intIni && intFim){
+      const _rt='Almoço suprimido — refeição não rendida ('+minutesToStr(naoRendMin)+')';
+      if(!obsdia){ obsdia=_rt; obscor='#1B5E20'; } else { obsdia=obsdia+' · '+_rt; }
     }
     const rowBg=isWknd?'background:#F8F9FA;color:#999':'';
     const _cel='text-align:center;padding:3px 5px;border:1px solid #DEE2E6';
@@ -25997,7 +26010,7 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
     ${acumulo>0?`<tr><td class="fin-label">Acúmulo de Função (+20%)</td><td class="fin-value">${fmtMoney(acumulo)}</td></tr>`:''}
     ${insalubridade>0?`<tr><td class="fin-label">Insalubridade</td><td class="fin-value">${fmtMoney(insalubridade)}</td></tr>`:''}
     ${outrosProvF>0?`<tr><td class="fin-label">Outros Proventos</td><td class="fin-value">${fmtMoney(outrosProvF)}</td></tr>`:''}
-    ${refNaoRendidaValorF>0?`<tr><td class="fin-label">Refeição não rendida (50%) <small style="color:#1B5E20">— indenizatória</small></td><td class="fin-value">${fmtMoney(refNaoRendidaValorF)}</td></tr>`:''}
+    ${refNaoRendidaValorF>0?`<tr><td class="fin-label">Refeição não rendida (hora + 50%) <small style="color:#1B5E20">— indenizatória</small></td><td class="fin-value">${fmtMoney(refNaoRendidaValorF)}</td></tr>`:''}
     ${descontoAtraso>0?`<tr><td class="fin-label">Desconto Atraso — ${minutosAtraso} min atrasados</td><td class="fin-value" style="color:#c0392b">${fmtMoney(descontoAtraso)}</td></tr>`:''}
     ${descontoSaida>0?`<tr><td class="fin-label">Desconto Saídas — ${minutosSaida} min de saída no expediente</td><td class="fin-value" style="color:#c0392b">${fmtMoney(descontoSaida)}</td></tr>`:''}
     ${adiantamento>0?`<tr><td class="fin-label">Adiantamento (${numVal('payroll-adiantamento-perc')||40}%)</td><td class="fin-value" style="color:#c0392b">${fmtMoney(adiantamento)}</td></tr>`:''}
@@ -26189,10 +26202,14 @@ function _buildFolhaHtmlFromRecord(emp, p){
     } else if(!ehFolga && !temBatida && _diaEmBrancoEhFalta(emp,cd.mes,cd.ano,d,isWknd,is12x36)){
       faltaMin = prevMin; totFaltaQtd++;
     }
-    // Refeição não rendida exibida por dia: quem NÃO é semRefeicao só mostra (e recebe)
-    // o pedido APROVADO pelo supervisor — alinha a coluna ao valor pago. Vale também em
-    // folga/feriado trabalhado (caso típico do zelador sozinho). #ref-nao-rendida-solicitada
-    if(!emp.semRefeicao){ naoRendMin = (pontodia.refExtra && pontodia.refExtra.status==='aprovado') ? (+pontodia.refExtra.min||0) : 0; }
+    // Refeição não rendida exibida por dia: quem NÃO é semRefeicao recebe o almoço suprimido
+    // COMPROVADO pela batida (início e fim batidos, duração ~0) OU o pedido aprovado pelo
+    // supervisor. Intervalo NÃO batido (campo vazio) = presume descanso. #ref-detectada
+    if(!emp.semRefeicao){
+      const _aprDia = (pontodia.refExtra && pontodia.refExtra.status==='aprovado') ? (+pontodia.refExtra.min||0) : 0;
+      const _detDia = (temBatida && intIni && intFim && naoRendMin>0) ? naoRendMin : 0;   // almoço suprimido COMPROVADO pela batida (início e fim batidos sem duração); vazio = presume descanso. #ref-detectada
+      naoRendMin = Math.max(_detDia, _aprDia);
+    }
     totTrab += (minLiq>0?minLiq:0); totPrev += prevMin; totAtraso += atrasoMin;
     totExtra += extraMin; totFaltaMin += faltaMin; totNaoRend += naoRendMin;
 
@@ -26221,6 +26238,11 @@ function _buildFolhaHtmlFromRecord(emp, p){
         const _heTxt=`${_hrSt==='recusada'?'HE recusada':'HE não autorizada'} · ${minutesToStr(_detHE.totalMin)}`;
         obsdia = obsdia ? (obsdia+' · '+_heTxt) : _heTxt;
       }
+    }
+    // Almoço suprimido COMPROVADO pela batida → anota na Obs (rastreável p/ conferência/contestação). #ref-detectada
+    if(!emp.semRefeicao && naoRendMin>0 && temBatida && intIni && intFim){
+      const _rt='Almoço suprimido — refeição não rendida ('+minutesToStr(naoRendMin)+')';
+      if(!obsdia){ obsdia=_rt; obscor='#1B5E20'; } else { obsdia=obsdia+' · '+_rt; }
     }
     const rowBg=isWknd?'background:#F8F9FA;color:#999':'';
     const _cel='text-align:center;padding:3px 5px;border:1px solid #DEE2E6';
@@ -26374,7 +26396,7 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
       ${acumulo>0?`<tr><td class="fin-label">Acúmulo de Função (+20%)</td><td class="fin-value">${fmtMoney(acumulo)}</td></tr>`:''}
       ${insalubridade>0?`<tr><td class="fin-label">Insalubridade</td><td class="fin-value">${fmtMoney(insalubridade)}</td></tr>`:''}
       ${outrosProvVal>0?`<tr><td class="fin-label">Outros Proventos</td><td class="fin-value">${fmtMoney(outrosProvVal)}</td></tr>`:''}
-      ${refNaoRendidaValorR>0?`<tr><td class="fin-label">Refeição não rendida (50%) <small style="color:#1B5E20">— indenizatória</small></td><td class="fin-value">${fmtMoney(refNaoRendidaValorR)}</td></tr>`:''}
+      ${refNaoRendidaValorR>0?`<tr><td class="fin-label">Refeição não rendida (hora + 50%) <small style="color:#1B5E20">— indenizatória</small></td><td class="fin-value">${fmtMoney(refNaoRendidaValorR)}</td></tr>`:''}
       ${_fixasProvRowsRec}
     </table>
     <div style="font-size:9px;font-weight:700;color:#c0392b;text-transform:uppercase;margin:6px 0 3px">DESCONTOS</div>

@@ -24662,7 +24662,7 @@ function calcResumoManual(){
   if(existingPayroll && Array.isArray(existingPayroll.pontoManualDias)){
     refPendentes = existingPayroll.pontoManualDias.filter(d=>d.refExtra && d.refExtra.status==='pendente').length;
     // + almoço suprimido detectado pela batida, ainda sem decisão → também é pendência a autorizar. #ref-detectada
-    refPendentes += existingPayroll.pontoManualDias.filter(d=> !(d.refExtra&&d.refExtra.status) && _almocoSuprimidoDetectadoMin(d, _getExpectedDayComp(emp,rmes,rano,d.dia), emp)>0).length;
+    refPendentes += existingPayroll.pontoManualDias.filter(d=> !(d.refExtra&&d.refExtra.status) && _almocoSuprimidoDetectadoMin(d, _getExpectedDayComp(emp,mes,ano,d.dia), emp)>0).length;
   }
   const diasEl=document.getElementById('ponto-resumo-dias');
   const faltasEl=document.getElementById('ponto-resumo-faltas');

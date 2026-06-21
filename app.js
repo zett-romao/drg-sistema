@@ -2573,6 +2573,17 @@ function renderDashboard(){
     accent:'#E65100', iconBg:'#FFF3E0', iconColor:'#E65100', valueColor:'#E65100',
     sub:`<i class="fa-solid fa-triangle-exclamation"></i> ${heRevisaoDias} dia(s) de HE${heRevisaoRef?` + <span style="color:#6A1B9A">${heRevisaoRef} refeição</span>`:''} — clique pra revisar`, subColor:'#E65100',
     onclick:"_dashGotoHEReview()", title:'Colaboradores com HE acima da tolerância CLT e/ou refeição não rendida aguardando revisão'})});
+  // Faltas registradas no mês — colaboradores com falta injustificada. Clique → lista de nomes → folha. #card-faltas
+  {
+    const _faltasL = _getFaltasList(mes, ano);
+    if(_faltasL.length>0){
+      const _totFaltaDias = _faltasL.reduce((s,x)=>s+x.qtd,0);
+      catalogo.push({key:'faltas', html:_statCard({label:'Faltas registradas', value:_faltasL.length, icon:'fa-user-xmark',
+        accent:'#c62828', iconBg:'#FFEBEE', iconColor:'#c62828', valueColor:'#c62828',
+        sub:`${_totFaltaDias} dia(s) de falta em ${MESES[mes]} — clique p/ ver os nomes`, subColor:'#c62828',
+        onclick:"openFaltasList()", title:'Colaboradores com faltas injustificadas no mês — clique para ver os nomes e abrir a folha de cada um'})});
+    }
+  }
   {
     const pendAprov=(State.solicitacoes||[]).filter(s=>s.status==='pendente');
     const md=getUserModules(Auth.currentUser);
@@ -24829,6 +24840,89 @@ function _abrirRevisaoColab(empId, payrollId, mes, ano){
     setVal('payroll-ano', ano);
     loadPayrollRecord(payrollId);
     setTimeout(openHEReview, 300);
+  }, 100);
+}
+
+// ============================================
+// FALTAS REGISTRADAS — card do dashboard + lista + ir p/ a folha
+// ============================================
+
+// Lista de colaboradores com falta injustificada no mês (mesma apuração da folha,
+// para os números baterem). Respeita o escopo de postos do supervisor. #card-faltas
+function _getFaltasList(mes, ano){
+  const list = [];
+  (State.payrolls||[]).filter(p => p.mes==mes && p.ano==ano).forEach(p => {
+    const emp = State.employees.find(e=>e.id===p.employeeId);
+    if(!emp || emp.isentoPonto) return;        // isento (CLT Art. 62) não tem ponto/falta
+    if(!_empNoEscopo(emp)) return;             // respeita o escopo de postos do supervisor
+    const ap = _apuracaoPontoTotais(emp, p);
+    if(ap.faltaQtd > 0) list.push({ emp, payroll:p, qtd: ap.faltaQtd, min: ap.faltaMin||0 });
+  });
+  list.sort((a,b) => b.qtd - a.qtd || (a.emp.nome||'').localeCompare(b.emp.nome||''));
+  return list;
+}
+
+// Abre o modal com a lista de colaboradores com faltas (clique no nome → folha de ponto)
+function openFaltasList(){
+  const mes = currentMes(), ano = currentAno();
+  const lista = _getFaltasList(mes, ano);
+  const totalDias = lista.reduce((s,l)=>s+l.qtd, 0);
+  document.getElementById('faltas-list-info').innerHTML =
+    `<strong>Período:</strong> ${MESES[mes]}/${ano} &middot; ` +
+    `<strong>${lista.length}</strong> colaborador(es) com falta &middot; ` +
+    `<strong style="color:#c62828">${totalDias}</strong> dia(s) de falta no total`;
+  const listEl = document.getElementById('faltas-list');
+  if(!lista.length){
+    listEl.innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-check" style="color:#1B5E20"></i><p>Nenhuma falta registrada neste mês.</p></div>';
+    document.getElementById('modal-faltas-list').classList.remove('hidden');
+    return;
+  }
+  let html = `<table style="width:100%;border-collapse:collapse;font-size:13px">
+    <thead style="background:#F5F7FB;position:sticky;top:0">
+      <tr>
+        <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border)">Colaborador</th>
+        <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border)">Posto</th>
+        <th style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border)">Faltas</th>
+        <th style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border)">Ação</th>
+      </tr>
+    </thead>
+    <tbody>`;
+  lista.forEach((l, idx) => {
+    const bg = idx % 2 ? '#FAFBFC' : '#fff';
+    const matr = l.emp.registro ? String(l.emp.registro).padStart(4,'0') : '—';
+    html += `<tr style="background:${bg};cursor:pointer" onclick="_abrirFolhaColab('${l.emp.id}','${l.payroll.id}',${mes},${ano})">
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF2F7">
+        <small style="color:var(--text-muted);font-weight:700">${matr}</small><br>
+        <strong style="color:var(--primary)">${l.emp.nome}</strong>
+        ${l.emp.setor?`<br><small style="color:var(--text-muted)">${l.emp.setor}</small>`:''}
+      </td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF2F7;font-size:12px">${l.emp.posto||'—'}</td>
+      <td style="padding:8px 10px;text-align:center;border-bottom:1px solid #EEF2F7">
+        <strong style="color:#c62828;font-size:16px">${l.qtd}</strong>
+        <br><small style="color:var(--text-muted)">dia(s)</small>
+      </td>
+      <td style="padding:8px 10px;text-align:center;border-bottom:1px solid #EEF2F7">
+        <button class="btn btn-primary" style="font-size:12px;padding:5px 12px;background:#c62828" onclick="event.stopPropagation();_abrirFolhaColab('${l.emp.id}','${l.payroll.id}',${mes},${ano})">
+          <i class="fa-solid fa-magnifying-glass"></i> Ver folha
+        </button>
+      </td>
+    </tr>`;
+  });
+  html += `</tbody></table>`;
+  listEl.innerHTML = html;
+  document.getElementById('modal-faltas-list').classList.remove('hidden');
+}
+
+// Fecha o modal de faltas e abre a Folha de Ponto do colaborador (para averiguação)
+function _abrirFolhaColab(empId, payrollId, mes, ano){
+  closeModal('modal-faltas-list');
+  showSection('payroll');
+  setTimeout(() => {
+    _ensurePayrollEmployeeOption(empId);
+    setVal('payroll-employee', empId);
+    setVal('payroll-mes', mes);
+    setVal('payroll-ano', ano);
+    loadPayrollRecord(payrollId);
   }, 100);
 }
 

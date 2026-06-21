@@ -6136,6 +6136,26 @@
   </div>
 </div>
 
+<div class="modal-overlay hidden" id="modal-faltas-list" onclick="closeModal('modal-faltas-list', event)">
+  <div class="modal-dialog modal-md">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-user-xmark" style="color:#c62828"></i> Faltas Registradas</h3>
+      <button class="modal-close" onclick="closeModal('modal-faltas-list')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <div id="faltas-list-info" style="background:#FFEBEE;padding:10px 14px;border-radius:6px;margin-bottom:14px;font-size:13px;color:#c62828"></div>
+      <div class="alert alert-info" style="font-size:12px;margin-bottom:12px">
+        <i class="fa-solid fa-circle-info"></i>
+        <div>Colaboradores com faltas injustificadas no mês. Clique no nome para abrir a folha de ponto e averiguar.</div>
+      </div>
+      <div id="faltas-list" style="max-height:60vh;overflow:auto"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-faltas-list')">Fechar</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== MODAL: REVISAR HE DO MÊS ===== -->
 <div class="modal-overlay hidden" id="modal-he-review" onclick="closeModal('modal-he-review', event)">
   <div class="modal-dialog modal-lg">

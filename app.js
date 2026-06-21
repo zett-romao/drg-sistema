@@ -24851,7 +24851,8 @@ function _abrirRevisaoColab(empId, payrollId, mes, ano){
 // para os números baterem). Respeita o escopo de postos do supervisor. #card-faltas
 function _getFaltasList(mes, ano){
   const list = [];
-  (State.payrolls||[]).filter(p => p.mes==mes && p.ano==ano).forEach(p => {
+  // Folha FECHADA já foi conferida/processada → some do card (não é mais pendência de averiguação). #card-faltas
+  (State.payrolls||[]).filter(p => p.mes==mes && p.ano==ano && p.status!=='fechada').forEach(p => {
     const emp = State.employees.find(e=>e.id===p.employeeId);
     if(!emp || emp.isentoPonto) return;        // isento (CLT Art. 62) não tem ponto/falta
     if(!_empNoEscopo(emp)) return;             // respeita o escopo de postos do supervisor

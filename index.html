@@ -807,7 +807,7 @@
                   <button type="button" class="btn btn-sm btn-outline" onclick="_exportarFolhasContabilidade()" title="Abrir a planilha consolidada (todas/selecionadas) desta competência — dias, valores, benefícios, descontos e líquido — pra contabilidade externa" style="color:#1a3a6b;border-color:#1a3a6b;font-size:12px;white-space:nowrap">
                     <i class="fa-solid fa-file-export"></i> Exportar p/ contabilidade
                   </button>
-                  <button type="button" id="btn-payroll-recalc-faltas" onclick="recalcularFaltasCompetencia()" title="ADMIN (master): recalcula as faltas injustificadas de TODAS as folhas desta competência pelo estado atual (dias batidos vs escala, já com o corte da data de demissão). Preserva faltas justificadas. Atualiza folha, contabilidade, holerite, recibo e Benefícios — mesmo motor." style="display:none;background:#1565C0;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:12px;font-weight:700;white-space:nowrap;cursor:pointer">
+                  <button type="button" id="btn-payroll-recalc-faltas" class="btn btn-sm" onclick="recalcularFaltasCompetencia()" title="ADMIN (master): recalcula as faltas injustificadas de TODAS as folhas desta competência pelo estado atual (dias batidos vs escala, já com o corte da data de demissão). Preserva faltas justificadas. Atualiza folha, contabilidade, holerite, recibo e Benefícios — mesmo motor." style="display:none;background:#1565C0;color:#fff;border:none;font-size:12px;white-space:nowrap">
                     <i class="fa-solid fa-wrench"></i> Recalcular faltas (master)
                   </button>
                 </div>
@@ -7228,6 +7228,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260622a-pos-demissao"></script>
+  <script src="app.js?v=20260622b-pos-demissao"></script>
 </body>
 </html>

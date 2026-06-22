@@ -4651,7 +4651,12 @@ function _apuracaoPontoTotais(emp, p){
   // a contabilidade mostrar Faltas = Horas Previstas pra quem tem 0 faltas). Usa o nº de
   // faltas injustificadas SALVO (em horas, pela jornada média prevista). #fix-falta-sem-ponto
   if(!temPonto){
-    const fInj = +(p.faltasInjustificadas||0);
+    let fInj = +(p.faltasInjustificadas||0);
+    // Não pode haver mais faltas do que dias previstos DENTRO do vínculo. Quando o
+    // período inteiro cai antes da admissão ou depois da demissão, diasPrevistosCnt=0
+    // (o _getExpectedDay já recorta esses dias) → zera o número salvo, evitando falta
+    // fantasma de mês já fora do contrato (ex.: demitido em maio com faltas em junho). #pos-demissao
+    fInj = diasPrevistosCnt>0 ? Math.min(fInj, diasPrevistosCnt) : 0;
     out.faltaQtd = fInj;
     out.faltaMin = (fInj>0 && diasPrevistosCnt>0) ? Math.round(fInj*(out.prevMin/diasPrevistosCnt)) : 0;
   }
@@ -23838,6 +23843,18 @@ function _feriadosNotaPeriodo(iniISO,fimISO){
   }catch(_){ return ''; }
 }
 
+// Dia POSTERIOR à data de demissão? Após o desligamento não há mais vínculo —
+// nenhuma jornada esperada, falta, HE, benefício ou obrigação. Simétrico ao corte
+// de pré-admissão. O DIA da demissão ainda é dia de vínculo (último dia trabalhado),
+// por isso o corte é estrito (> dem, não >=). Use em qualquer seção que gere
+// vínculo/pagamento/obrigação para um colaborador demitido. #pos-demissao
+function _diaAposDemissao(emp, ano, mes, dia){
+  if(!emp || !emp.dataDemissao) return false;
+  const _dem = new Date(String(emp.dataDemissao).substring(0,10)+'T00:00:00');
+  if(isNaN(_dem.getTime())) return false;
+  return new Date(ano, mes-1, dia) > _dem;
+}
+
 function _getExpectedDay(emp, mes, ano, dia, ignoreAdmissao){
   if(!emp) return null;
   // Antes da admissão não havia jornada esperada (não era colaborador ainda) —
@@ -23850,6 +23867,12 @@ function _getExpectedDay(emp, mes, ano, dia, ignoreAdmissao){
     if(!isNaN(_adm.getTime()) && new Date(ano, mes-1, dia) < _adm){
       return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'', preAdmissao:true };
     }
+  }
+  // Depois da demissão também não há jornada esperada — corta falta/HE/benefício
+  // fantasma de quem já foi desligado (ex.: demissão em maio aparecendo com faltas
+  // em junho). Mesmo gating do recorte de admissão. `posDemissao` distingue de FOLGA. #pos-demissao
+  if(!ignoreAdmissao && _diaAposDemissao(emp, ano, mes, dia)){
+    return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'', posDemissao:true };
   }
   // 0) Override de dia avulso (emp.overridesHorario) — prioridade máxima.
   //    O usuário disse explicitamente "este dia é diferente" — vence até a
@@ -24590,6 +24613,8 @@ function _diaEmBrancoEhFalta(emp, mes, ano, dia, isWeekend, is12x36){
     const _adm = new Date(emp.dataAdmissao+'T00:00:00');
     if(!isNaN(_adm.getTime()) && new Date(ano, mes-1, dia) < _adm) return false;
   }
+  // Depois da demissão não há falta — vínculo encerrado. #pos-demissao
+  if(_diaAposDemissao(emp, ano, mes, dia)) return false;
   const hoje = new Date();
   const hojeMid = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
   return new Date(ano, mes-1, dia) < hojeMid;
@@ -24777,9 +24802,8 @@ function openPendentesHEList(){
   const totalRef  = lista.reduce((s,l)=>s+(l.nRef||0), 0);
   document.getElementById('pendentes-he-info').innerHTML =
     `<strong>Período:</strong> ${MESES[mes]}/${ano} &middot; ` +
-    `<strong>${lista.length}</strong> colaborador(es) pendente(s) &middot; ` +
-    `<strong>${totalDias}</strong> dia(s) de HE &middot; ` +
-    `<strong>${minutesToStr(totalMin)}</strong> de divergência` +
+    `<strong>${lista.length}</strong> colaborador(es) pendente(s)` +
+    (totalDias ? ` &middot; <strong>${totalDias}</strong> dia(s) de HE &middot; <strong>${minutesToStr(totalMin)}</strong> de divergência` : '') +
     (totalRef ? ` &middot; <strong style="color:#6A1B9A">${totalRef}</strong> refeição(ões) a aprovar` : '');
   const listEl = document.getElementById('pendentes-he-list');
   if(!lista.length){
@@ -24810,12 +24834,12 @@ function openPendentesHEList(){
       </td>
       <td style="padding:8px 10px;border-bottom:1px solid #EEF2F7;font-size:12px">${l.posto}</td>
       <td style="padding:8px 10px;text-align:center;border-bottom:1px solid #EEF2F7">
-        <strong style="color:#E65100;font-size:15px">${l.nDias}</strong>
+        <strong style="color:#E65100;font-size:15px">${l.nDias?l.nDias:'<span style="color:var(--text-muted);font-weight:400">—</span>'}</strong>
         ${l.nDias?`<br><small style="color:var(--text-muted)">dia(s): ${diasLabel}</small>`:''}
         ${l.nRef?`<div style="margin-top:4px"><span style="background:#F3E5F5;color:#6A1B9A;border:1px solid #CE93D8;border-radius:10px;padding:1px 8px;font-size:11px;font-weight:700"><i class="fa-solid fa-utensils"></i> ${l.nRef} refeição</span></div>`:''}
       </td>
       <td style="padding:8px 10px;text-align:right;border-bottom:1px solid #EEF2F7">
-        <strong style="color:#E65100">${minutesToStr(l.totalMin)}</strong>
+        ${l.nDias?`<strong style="color:#E65100">${minutesToStr(l.totalMin)}</strong>`:'<span style="color:var(--text-muted)">—</span>'}
       </td>
       <td style="padding:8px 10px;text-align:center;border-bottom:1px solid #EEF2F7">
         <button class="btn btn-primary" style="font-size:12px;padding:5px 12px;background:#E65100" onclick="event.stopPropagation();_abrirRevisaoColab('${l.emp.id}','${l.payroll.id}',${mes},${ano})">

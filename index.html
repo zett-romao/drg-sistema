@@ -2459,10 +2459,18 @@
               </div>
             </div>
           </div>
+          <div id="aprovacoes-lote-bar" style="display:none;align-items:center;gap:10px;flex-wrap:wrap;background:#E8F5E9;border-top:1px solid #C8E6C9;padding:10px 14px">
+            <span style="font-weight:700;color:#1B5E20"><i class="fa-solid fa-check-double"></i> <span id="apr-lote-count">0</span> selecionado(s)</span>
+            <span style="color:#1B5E20">Total: <strong id="apr-lote-total">R$ 0,00</strong></span>
+            <span style="flex:1"></span>
+            <button class="btn btn-sm" style="background:#2e7d32;color:#fff;border:none" onclick="abrirAprovarLote()"><i class="fa-solid fa-lock"></i> Aprovar selecionados</button>
+            <button class="btn btn-sm btn-outline" style="color:#c62828;border-color:#ef9a9a" onclick="recusarLote()"><i class="fa-solid fa-ban"></i> Recusar selecionados</button>
+          </div>
           <div class="card-body" style="overflow-x:auto;padding:0">
             <table style="width:100%;border-collapse:collapse;font-size:13px">
               <thead>
                 <tr style="background:#f1f5f9;text-align:left">
+                  <th style="padding:9px 6px;text-align:center;width:34px"><input type="checkbox" id="apr-check-all" onclick="_aprToggleAll(this.checked)" title="Selecionar/limpar todos os pendentes"></th>
                   <th style="padding:9px 10px">Colaborador</th>
                   <th style="padding:9px 10px;text-align:right">Valor</th>
                   <th style="padding:9px 10px">Chave PIX</th>
@@ -6758,6 +6766,37 @@
   </div>
 </div>
 
+<!-- ===== MODAL: APROVAR EM LOTE (um 2FA para vários) ===== -->
+<div class="modal-overlay hidden" id="modal-aprovar-lote" onclick="closeModal('modal-aprovar-lote', event)">
+  <div class="modal-dialog" style="max-width:460px">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-check-double" style="color:#2e7d32"></i> Aprovar pagamentos em lote</h3>
+      <button class="modal-close" onclick="closeModal('modal-aprovar-lote')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <div id="aprovar-lote-info" style="background:#E0F2F1;border-radius:10px;padding:14px 16px;margin-bottom:16px"></div>
+      <div style="background:#FFF8E1;border:1px solid #FFE082;border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:#7C5500">
+        <i class="fa-solid fa-user-shield"></i> Ao confirmar, você autoriza a <strong>inclusão</strong> e o <strong>pagamento</strong> de todos os selecionados. Cada PIX é enviado ao banco individualmente, com trava anti-duplo-pagamento.
+      </div>
+      <div class="form-group" id="aprovar-lote-2fa">
+        <label><i class="fa-solid fa-shield-halved"></i> Código 2FA (app autenticador)</label>
+        <input type="text" id="aprovar-lote-code" inputmode="numeric" maxlength="6" placeholder="000000"
+          autocomplete="one-time-code"
+          style="font-size:22px;letter-spacing:6px;text-align:center;font-family:monospace"
+          onkeydown="if(event.key==='Enter')confirmarAprovarLote()">
+        <small style="color:#777">Um único código aprova todos os selecionados. Dispara as transferências PIX no Asaas — não tem volta.</small>
+      </div>
+      <div id="aprovar-lote-progresso" style="display:none;margin-top:8px"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="btn-aprovar-lote-cancelar" onclick="closeModal('modal-aprovar-lote')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-confirmar-aprovar-lote" onclick="confirmarAprovarLote()" style="background:#2e7d32;border-color:#2e7d32">
+        <i class="fa-solid fa-lock"></i> Aprovar e Pagar todos
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== MODAL: COMUNICAR COLABORADOR ===== -->
 <div class="modal-overlay hidden" id="modal-comunicar" onclick="closeModal('modal-comunicar', event)">
   <div class="modal-dialog">
@@ -7228,6 +7267,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260622b-pos-demissao"></script>
+  <script src="app.js?v=20260622c-aprovacao-lote"></script>
 </body>
 </html>

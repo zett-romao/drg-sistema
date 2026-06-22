@@ -17582,11 +17582,14 @@ function renderAprovacoes(){
   if(aviso) aviso.style.display = podeAprovar ? 'none' : '';
 
   if(lista.length===0){
-    tbody.innerHTML=`<tr><td colspan="8" style="padding:26px;text-align:center;color:#999">Nenhuma solicitação${filtro!=='todos'?' ('+filtro+')':''}.</td></tr>`;
+    tbody.innerHTML=`<tr><td colspan="9" style="padding:26px;text-align:center;color:#999">Nenhuma solicitação${filtro!=='todos'?' ('+filtro+')':''}.</td></tr>`;
+    _aprAtualizarLoteBar();
     return;
   }
   tbody.innerHTML=lista.map((s,idx)=>{
     const bg=idx%2?'#f9fafb':'#fff';
+    // Selecionável p/ lote: só pendente/erro e só quem pode aprovar. #lote-aprovacoes
+    const selecionavel = podeAprovar && (s.status==='pendente' || s.status==='erro');
     const dt=(s.criadoEm||'').substring(0,10).split('-').reverse().join('/');
     const sched=(s.scheduleDate||'').split('-').reverse().join('/');
     // Nome do colaborador clicavel → abre o cadastro (se o colaborador existe)
@@ -17640,6 +17643,7 @@ function renderAprovacoes(){
         : `<span style="font-size:11px;color:#c62828">${s.erro||'erro'}</span>`;
     }
     return `<tr style="background:${bg}">
+      <td style="padding:9px 6px;text-align:center">${selecionavel?`<input type="checkbox" class="apr-row-check" data-id="${s.id}" ${_aprSelecionados.has(s.id)?'checked':''} onclick="_aprToggleSel('${s.id}',this.checked)">`:''}</td>
       <td style="padding:9px 10px">${nomeCell}${s.origem==='lote'?' <span style="font-size:10px;color:#aaa">(lote)</span>':''}</td>
       <td style="padding:9px 10px;text-align:right;font-weight:700;color:#00695C">${fmtMoney(s.valor||0)}</td>
       <td style="padding:9px 10px;font-family:monospace;font-size:11px">${s.pixKey||'—'}</td>
@@ -17650,6 +17654,133 @@ function renderAprovacoes(){
       <td style="padding:9px 10px">${acoes}</td>
     </tr>`;
   }).join('');
+  _aprAtualizarLoteBar();
+}
+
+// ── Aprovação/Recusa EM LOTE (checkboxes) ──────────────────────────────────
+// Seleciona vários pendentes e aprova com UM 2FA (ou recusa com um motivo).
+// O backend valida o TOTP por chamada, mas o mesmo código vale dentro da janela
+// de tempo → um código autoriza o lote. Cada PIX mantém a trava atômica
+// anti-duplo-pagamento no worker. #lote-aprovacoes #autorizacao-master
+let _aprSelecionados = new Set();
+function _aprListaSelecionavel(){
+  if(!getUserModules(Auth.currentUser).pagamentosAprovar) return [];
+  return (State.solicitacoes||[]).filter(s=> s.status==='pendente' || s.status==='erro');
+}
+function _aprSelecionadas(){
+  return (State.solicitacoes||[]).filter(s=>_aprSelecionados.has(s.id) && (s.status==='pendente'||s.status==='erro'));
+}
+function _aprToggleSel(id, checked){
+  if(checked) _aprSelecionados.add(id); else _aprSelecionados.delete(id);
+  _aprAtualizarLoteBar();
+}
+function _aprToggleAll(checked){
+  document.querySelectorAll('.apr-row-check').forEach(cb=>{
+    cb.checked=checked;
+    const id=cb.getAttribute('data-id');
+    if(checked) _aprSelecionados.add(id); else _aprSelecionados.delete(id);
+  });
+  _aprAtualizarLoteBar();
+}
+function _aprAtualizarLoteBar(){
+  const bar=document.getElementById('aprovacoes-lote-bar'); if(!bar) return;
+  const mods=getUserModules(Auth.currentUser);
+  // mantém no set só os ids ainda selecionáveis (status mudou / sumiu)
+  const validos=new Set(_aprListaSelecionavel().map(s=>s.id));
+  Array.from(_aprSelecionados).forEach(id=>{ if(!validos.has(id)) _aprSelecionados.delete(id); });
+  const sel=_aprSelecionadas();
+  const n=sel.length, total=sel.reduce((a,s)=>a+(s.valor||0),0);
+  bar.style.display = (mods.pagamentosAprovar && n>0) ? 'flex' : 'none';
+  const cEl=document.getElementById('apr-lote-count'); if(cEl) cEl.textContent=n;
+  const tEl=document.getElementById('apr-lote-total'); if(tEl) tEl.textContent=fmtMoney(total);
+  const all=document.getElementById('apr-check-all');
+  if(all){
+    const checks=document.querySelectorAll('.apr-row-check');
+    const marc=document.querySelectorAll('.apr-row-check:checked');
+    all.checked = checks.length>0 && marc.length===checks.length;
+    all.indeterminate = marc.length>0 && marc.length<checks.length;
+  }
+}
+function abrirAprovarLote(){
+  if(!getUserModules(Auth.currentUser).pagamentosAprovar){ toast('Sem permissão para aprovar pagamentos.','error'); return; }
+  const sel=_aprSelecionadas();
+  if(!sel.length){ toast('Selecione ao menos um pagamento pendente.','warning'); return; }
+  const total=sel.reduce((a,s)=>a+(s.valor||0),0);
+  document.getElementById('aprovar-lote-info').innerHTML=
+    `<div style="font-weight:700;color:#00695C;font-size:15px">${sel.length} pagamento(s) selecionado(s)</div>
+     <div style="font-size:14px;margin-top:6px">Total: <strong>${fmtMoney(total)}</strong></div>
+     <div style="font-size:11px;color:#999;margin-top:6px">${sel.slice(0,6).map(s=>esc(s.employeeNome||'—')+' · '+fmtMoney(s.valor||0)).join('<br>')}${sel.length>6?`<br>… e mais ${sel.length-6}`:''}</div>`;
+  setVal('aprovar-lote-code','');
+  const prog=document.getElementById('aprovar-lote-progresso'); prog.style.display='none'; prog.innerHTML='';
+  const btn=document.getElementById('btn-confirmar-aprovar-lote'); btn.disabled=false; btn.style.display=''; btn.innerHTML='<i class="fa-solid fa-lock"></i> Aprovar e Pagar todos';
+  document.getElementById('modal-aprovar-lote').classList.remove('hidden');
+  setTimeout(()=>document.getElementById('aprovar-lote-code')?.focus(),150);
+}
+async function confirmarAprovarLote(){
+  const code=(val('aprovar-lote-code')||'').replace(/\D/g,'');
+  if(code.length!==6){ toast('Digite o código de 6 dígitos do app autenticador.','warning'); return; }
+  const sel=_aprSelecionadas();
+  if(!sel.length){ toast('Nada selecionado.','warning'); return; }
+  const btn=document.getElementById('btn-confirmar-aprovar-lote');
+  btn.disabled=true; btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Processando...';
+  const prog=document.getElementById('aprovar-lote-progresso'); prog.style.display='block';
+  let ok=0, fail=0; const erros=[]; let expirou=false;
+  for(let i=0;i<sel.length;i++){
+    const s=sel[i];
+    prog.innerHTML=`<div style="background:#E3F2FD;border:1px solid #90CAF9;border-radius:9px;padding:12px;font-size:13px;color:#0D47A1"><i class="fa-solid fa-spinner fa-spin"></i> Processando ${i+1}/${sel.length}: <strong>${esc(s.employeeNome||'—')}</strong> (${fmtMoney(s.valor||0)})…<br>✅ ${ok} · ❌ ${fail}</div>`;
+    try{
+      const r=await _aprovacaoReq('/aprovar-pagamento',{code,solicitacaoId:s.id});
+      if(r.ok){
+        ok++;
+        const st=State.solicitacoes.find(x=>x.id===s.id);
+        if(st){
+          st.status='pago'; st.asaasTransferId=r.asaasTransferId||st.asaasTransferId; st.asaasStatus=r.status||st.asaasStatus;
+          st.aprovadoPorNome=Auth.currentUser?.username||st.aprovadoPorNome;
+          if(st.autorizacaoSolicitada && !st.inclusaoAutorizada){
+            try{ await DB.merge('solicitacoesPagamento', st.id, { inclusaoAutorizada:true, inclusaoAutorizadaPorNome:(Auth.currentUser?.username||''), inclusaoAutorizadaEm:new Date().toISOString() }); st.inclusaoAutorizada=true; }catch(_){}
+          }
+        }
+        _aprSelecionados.delete(s.id);
+        try{ Auth.log('PAGAMENTO_APROVADO',null,`${s.employeeNome||s.id} | R$ ${(s.valor||0).toFixed(2)} | lote | ID Asaas ${r.asaasTransferId||'—'}`); }catch(_){}
+      } else {
+        fail++; erros.push(`${s.employeeNome||s.id}: ${r.erro||'falhou'}`);
+        // 2FA recusado no meio → código provavelmente expirou: para e pede novo. Os já pagos ficam.
+        if(/2fa|c[oó]digo/i.test(r.erro||'')){ expirou=true; break; }
+      }
+    }catch(e){ fail++; erros.push(`${s.employeeNome||s.id}: ${e.message||e}`); }
+  }
+  if(expirou) erros.push('⚠️ O código 2FA pode ter expirado no meio do lote. Os já pagos estão concluídos — gere um código novo e aprove os restantes.');
+  const cor = fail? (ok?'#E65100':'#c62828') : '#2e7d32';
+  const bgC = fail? (ok?'#FFF3E0':'#FCE4E4') : '#E8F5E9';
+  const brC = fail? (ok?'#FFCC80':'#EF9A9A') : '#A5D6A7';
+  prog.innerHTML=`<div style="background:${bgC};border:1px solid ${brC};border-radius:9px;padding:14px;font-size:13px;color:${cor}">
+    <strong>${ok} aprovado(s) e pago(s)${fail?` · ${fail} não concluído(s)`:''}.</strong>
+    ${erros.length?`<div style="margin-top:8px;font-size:12px">${erros.map(esc).join('<br>')}</div>`:''}</div>`;
+  btn.style.display='none';
+  const cBtn=document.getElementById('btn-aprovar-lote-cancelar'); if(cBtn) cBtn.innerHTML='Fechar';
+  if(ok) toast(`${ok} pagamento(s) aprovado(s) em lote!`,'success');
+  if(State.currentSection==='aprovacoes') renderAprovacoes();
+}
+async function recusarLote(){
+  if(!getUserModules(Auth.currentUser).pagamentosAprovar){ toast('Sem permissão para recusar pagamentos.','error'); return; }
+  const sel=_aprSelecionadas();
+  if(!sel.length){ toast('Selecione ao menos um pagamento.','warning'); return; }
+  const total=sel.reduce((a,s)=>a+(s.valor||0),0);
+  const motivo=prompt(`Recusar ${sel.length} pagamento(s) selecionado(s) — total ${fmtMoney(total)}?\n\nInforme o motivo (vale para TODOS):`);
+  if(motivo===null) return;
+  if(!motivo.trim()){ toast('O motivo da recusa é obrigatório.','warning'); return; }
+  const u=Auth.currentUser||{}; const agora=new Date().toISOString();
+  let ok=0, fail=0;
+  for(const s of sel){
+    try{
+      await DB.merge('solicitacoesPagamento', s.id, { status:'recusado', motivoRecusa:motivo.trim(), aprovadoPor:u.username||u.id||'', aprovadoPorNome:u.username||'', aprovadoEm:agora });
+      const st=State.solicitacoes.find(x=>x.id===s.id); if(st){ st.status='recusado'; st.motivoRecusa=motivo.trim(); st.aprovadoPorNome=u.username||''; }
+      _aprSelecionados.delete(s.id); ok++;
+      try{ Auth.log('PAGAMENTO_RECUSADO',null,`${s.employeeNome||s.id} | R$ ${(s.valor||0).toFixed(2)} | lote | ${motivo.trim()}`); }catch(_){}
+    }catch(e){ fail++; }
+  }
+  toast(`${ok} recusado(s)${fail?` · ${fail} falhou`:''}.`, fail?'warning':'success');
+  if(State.currentSection==='aprovacoes') renderAprovacoes();
 }
 
 let _aprovacaoAtualId=null;

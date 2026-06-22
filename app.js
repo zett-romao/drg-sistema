@@ -18061,6 +18061,11 @@ function _updateFolhaStatusBadge(){
   badge.innerHTML=fechada
     ? `<span style="background:#E8EAF6;color:#5C6BC0;padding:3px 10px;border-radius:10px;font-size:12px;font-weight:700;white-space:nowrap"><i class="fa-solid fa-lock"></i> Folha Fechada</span>`
     : (temFolha?`<span style="background:#E8F5E9;color:#2E7D32;padding:3px 10px;border-radius:10px;font-size:12px;font-weight:700;white-space:nowrap"><i class="fa-solid fa-lock-open"></i> Folha Aberta</span>`:'');
+  // Botão "Recalcular faltas (master)" — mesmo motor do botão em Benefícios.
+  // Recalcula a competência selecionada aqui; como tudo lê do mesmo motor, atualizar
+  // por aqui reflete em folha/contabilidade/holerite/recibo/Benefícios. #recalc-faltas-folha
+  const _btnRecalcF=document.getElementById('btn-payroll-recalc-faltas');
+  if(_btnRecalcF) _btnRecalcF.style.display=(Auth.currentUser?.role==='master')?'inline-flex':'none';
   // Botão "Fechar esta Folha" — visível só quando tem folha salva e está aberta
   const btnFecharInd=document.getElementById('btn-fechar-folha-individual');
   if(btnFecharInd) btnFecharInd.style.display=(temFolha&&!fechada)?'inline-flex':'none';

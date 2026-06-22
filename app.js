@@ -25698,9 +25698,16 @@ async function applyPontoManual(){
   if(empId){
     const dias=_collectPontoManualDias();
     const existing=State.payrolls.find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
+    // PERSISTE o nº de faltas recalculado do PONTO no MESMO save (motor único). Antes só ia
+    // pro campo do form (payroll-faltas-injustificadas) e ficava no registro o número VELHO
+    // (ex.: backfill antigo) até um "Salvar folha" manual — fazendo o Monitor/dashboard de
+    // "Faltas Registradas" mostrar faltas que a folha (apurada do ponto) já zerou. #falta-monitor-sync
+    const _justExist = +(existing?.faltasJustificadas||0);   // justificadas são manuais — preserva
+    const _faltasFields = { diasTrabalhados, faltasInjustificadas:faltas, faltas:faltas+_justExist };
     const record=existing
-      ? {...existing, pontoManualDias:dias, horasExtrasTotal:heHorasAplic, updatedAt:new Date().toISOString()}
+      ? {...existing, pontoManualDias:dias, horasExtrasTotal:heHorasAplic, ..._faltasFields, updatedAt:new Date().toISOString()}
       : { id:_payrollId(empId,mes,ano), employeeId:empId, mes, ano, pontoManualDias:dias, horasExtrasTotal:heHorasAplic,
+          ..._faltasFields, faltasJustificadas:0,
           updatedAt:new Date().toISOString(), createdAt:new Date().toISOString() };
     try{
       await DB.save('payrolls', record);
@@ -25725,6 +25732,8 @@ async function applyPontoManual(){
   recalculate();
   renderAtrasosFolha();
   closeModal('modal-ponto-manual');
+  // Atualiza o dashboard (card "Faltas Registradas") com o nº de faltas já sincronizado. #falta-monitor-sync
+  try{ renderDashboard(); }catch(_){}
   toast(`Aplicado: ${diasTrabalhados} dias trabalhados / ${faltas} falta(s)${totalHEmin>0?' / '+minutesToStr(totalHEmin)+' HE':''}${atrasosDoPonto.length>0?` / ${atrasosDoPonto.length} atraso(s) lançado(s) automaticamente`:''}.`);
 }
 

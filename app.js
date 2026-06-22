@@ -7746,6 +7746,10 @@ function initPayrollSection(){
   _renderBadgeStatusPeriodo(mes,ano);
   _payrollMontarDropdownCompetencias();
   if(currentId) onPayrollEmployeeChange();
+  // Revela os botões da barra (inclui "Recalcular faltas (master)") ao ABRIR a
+  // seção, mesmo sem colaborador selecionado — senão onPayrollEmployeeChange
+  // (único caller) não roda e o botão master nunca aparece. #recalc-faltas-folha
+  _updateFolhaStatusBadge();
 }
 
 // Renderiza o BADGE de status do período (vigente / histórica / futura)

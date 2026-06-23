@@ -25015,8 +25015,24 @@ function _abrirRevisaoColab(empId, payrollId, mes, ano){
 // para os números baterem). Respeita o escopo de postos do supervisor. #card-faltas
 function _getFaltasList(mes, ano){
   const list = [];
-  // Folha FECHADA já foi conferida/processada → some do card (não é mais pendência de averiguação). #card-faltas
-  (State.payrolls||[]).filter(p => p.mes==mes && p.ano==ano && p.status!=='fechada').forEach(p => {
+  // DEDUP por colaborador: pode haver folhas DUPLICADAS na mesma competência (bulk-create
+  // com genId — bug conhecido). Sem deduplicar, o Monitor apura a CÓPIA FANTASMA (vazia/
+  // parcial) e mostra faltas que a folha REAL — a mais completa, que o "Ver folha" abre —
+  // já zerou (folha mostra 0, card mostra 20). Usa a MESMA regra de "folha principal" do
+  // corrigirFolhasDuplicadas: fechada > adiant. externo > +dias batidos > mais recente. #falta-monitor-dedup
+  const _temBat   = d => !!(d && (d.entrada || d.saida));
+  const _diasBat  = p => Array.isArray(p.pontoManualDias) ? p.pontoManualDias.filter(_temBat).length : 0;
+  const _score    = p => (p.status==='fechada'?1e13:0) + (p.adiantamentoPagoExterno?1e12:0) + _diasBat(p)*1e6 + ((Date.parse(p.updatedAt||p.createdAt)||0)/1e3);
+  const _canon = {};   // employeeId → folha CANÔNICA da competência (vence a cópia fantasma)
+  (State.payrolls||[]).forEach(p => {
+    if(!p || p.mes!=mes || p.ano!=ano || !p.employeeId) return;
+    const cur = _canon[p.employeeId];
+    if(!cur || _score(p) > _score(cur)) _canon[p.employeeId] = p;
+  });
+  Object.values(_canon).forEach(p => {
+    // Folha FECHADA já foi conferida/processada → some do card (decidida na canônica, não
+    // numa cópia aberta que sobraria sem o dedup). #card-faltas
+    if(p.status==='fechada') return;
     const emp = State.employees.find(e=>e.id===p.employeeId);
     if(!emp || emp.isentoPonto) return;        // isento (CLT Art. 62) não tem ponto/falta
     if(!_empNoEscopo(emp)) return;             // respeita o escopo de postos do supervisor

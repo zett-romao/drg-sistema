@@ -20580,7 +20580,7 @@ function renderFichaEpiColab(){
   const movs=_episDoColaborador(empId);
   if(!movs.length){ wrap.innerHTML='<p style="color:#888;padding:6px 0">Nenhum EPI registrado ainda. Use <strong>"Entregar EPI"</strong>.</p>'; return; }
   wrap.innerHTML=`<table class="data-table" style="font-size:13px">
-    <thead><tr><th>Data</th><th>EPI</th><th>CA</th><th style="text-align:center">Qtd</th><th>Motivo</th><th style="text-align:center">Assinado</th><th style="text-align:right">Recibo</th></tr></thead>
+    <thead><tr><th>Data</th><th>EPI</th><th>CA</th><th style="text-align:center">Qtd</th><th>Motivo</th><th style="text-align:center">Assinado</th><th style="text-align:right">Ações</th></tr></thead>
     <tbody>${movs.map(m=>{
       const dev=m.tipo==='devolucao';
       const ass = dev ? '—' : (m.assinatura
@@ -20593,27 +20593,51 @@ function renderFichaEpiColab(){
         <td style="text-align:center;font-weight:700">${m.quantidade}</td>
         <td style="font-size:12px">${esc(_EPI_MOTIVO_LBL[m.motivo]||m.motivo||'—')}</td>
         <td style="text-align:center">${ass}</td>
-        <td style="text-align:right"><button class="btn btn-sm btn-outline" onclick="imprimirReciboEpi('${m.id}')" title="Imprimir recibo"><i class="fa-solid fa-print"></i></button></td>
+        <td style="text-align:right;white-space:nowrap">
+          <button class="btn btn-sm btn-outline" onclick="openEntregaEpi(null,null,'${m.id}')" title="Editar este registro"><i class="fa-solid fa-pen" style="color:#E65100"></i></button>
+          <button class="btn btn-sm btn-outline" onclick="excluirEntregaEpi('${m.id}')" title="Excluir (devolve ao estoque)"><i class="fa-solid fa-trash" style="color:#C62828"></i></button>
+          <button class="btn btn-sm btn-outline" onclick="imprimirReciboEpi('${m.id}')" title="Imprimir recibo"><i class="fa-solid fa-print"></i></button>
+        </td>
       </tr>`;
     }).join('')}</tbody></table>`;
 }
+// Entrega em EDIÇÃO (id do estoqueMov) — null = nova entrega. #estoque-epi-editar
+let _epiEntEditId = null;
 // Abre o modal de entrega. itemId/colabId opcionais pré-selecionam (vem da lista de
-// estoque OU da ficha do colaborador). #estoque-epi
-function openEntregaEpi(itemId, colabId){
+// estoque OU da ficha do colaborador). editMovId → abre EDITANDO a entrega existente. #estoque-epi
+function openEntregaEpi(itemId, colabId, editMovId){
+  _epiEntEditId = editMovId || null;
+  const editMov = editMovId ? (State.estoqueMov||[]).find(m=>m.id===editMovId) : null;
   const selItem=document.getElementById('epi-ent-item');
   if(selItem){
     const itens=(State.estoqueItens||[]).filter(i=>i && !i.arquivado).slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
     selItem.innerHTML='<option value="">— escolher item —</option>'+itens.map(i=>`<option value="${i.id}">${esc(i.nome)}${i.ca?' (CA '+esc(i.ca)+')':''} — saldo ${_estoqueSaldo(i.id)}</option>`).join('');
-    if(itemId) selItem.value=itemId;
+    if(editMov) selItem.value=editMov.itemId; else if(itemId) selItem.value=itemId;
   }
   const selColab=document.getElementById('epi-ent-colab');
   if(selColab){
     const emps=_filtrarEmpsPorEscopo(State.employees||[]).filter(e=>(e.status||'ativo')!=='inativo').slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
     selColab.innerHTML='<option value="">— escolher colaborador —</option>'+emps.map(e=>`<option value="${e.id}">${esc(e.nome)}${e.registro?' ('+String(e.registro).padStart(4,'0')+')':''}</option>`).join('');
-    if(colabId) selColab.value=colabId;
+    if(editMov) selColab.value=editMov.colaboradorId; else if(colabId) selColab.value=colabId;
   }
-  setVal('epi-ent-qtd','1'); setVal('epi-ent-tamanho',''); setVal('epi-ent-motivo','primeira');
-  setVal('epi-ent-data', new Date().toISOString().substring(0,10)); setVal('epi-ent-obs','');
+  if(editMov){
+    setVal('epi-ent-qtd', editMov.quantidade||1);
+    setVal('epi-ent-tamanho', editMov.tamanho||'');
+    setVal('epi-ent-motivo', editMov.motivo || (editMov.tipo==='devolucao'?'devolucao':'entrega'));
+    setVal('epi-ent-data', editMov.data || new Date().toISOString().substring(0,10));
+    setVal('epi-ent-obs', editMov.obs||'');
+  } else {
+    setVal('epi-ent-qtd','1'); setVal('epi-ent-tamanho',''); setVal('epi-ent-motivo','primeira');
+    setVal('epi-ent-data', new Date().toISOString().substring(0,10)); setVal('epi-ent-obs','');
+  }
+  // Título/botão refletem o modo (nova vs edição) e avisam se a entrega está assinada.
+  const _tit=document.getElementById('epi-ent-titulo'), _btn=document.getElementById('epi-ent-btn-salvar');
+  if(_tit) _tit.innerHTML = editMov
+    ? `<i class="fa-solid fa-pen-to-square" style="color:#E65100"></i> Editar entrega de EPI${editMov.assinatura?' <span style="font-size:12px;color:#C62828">· assinada (editar invalida a assinatura)</span>':''}`
+    : `<i class="fa-solid fa-hand-holding-hand" style="color:#1565C0"></i> Entregar EPI ao colaborador`;
+  if(_btn) _btn.innerHTML = editMov
+    ? `<i class="fa-solid fa-floppy-disk"></i> Salvar alterações`
+    : `<i class="fa-solid fa-floppy-disk"></i> Registrar`;
   _epiEntItemChange();
   document.getElementById('modal-epi-entrega').classList.remove('hidden');
 }
@@ -20636,24 +20660,62 @@ async function saveEntregaEpi(printAfter){
   if((it.tipo||'EPI')==='EPI' && !(it.ca||'').trim()){ toast('Este EPI não tem CA cadastrado. Edite o item e informe o CA antes de entregar (NR-6).','error'); return; }
   const motivo=val('epi-ent-motivo')||'primeira';
   const tipo = motivo==='devolucao' ? 'devolucao' : 'entrega';
-  const saldo=_estoqueSaldo(itemId);
-  if(tipo==='entrega' && qtd>saldo && !confirm(`A entrega (${qtd}) é maior que o saldo atual (${saldo}). O estoque ficará negativo. Continuar?`)) return;
-  const rec={ id:genId(), itemId, itemNome:it.nome, tipo, quantidade:qtd,
+  // EDIÇÃO: atualiza o MESMO registro (id preservado → estoque, que é derivado dos
+  // movimentos, se reajusta sozinho). #estoque-epi-editar
+  const editId = _epiEntEditId;
+  const prev   = editId ? (State.estoqueMov||[]).find(m=>m.id===editId) : null;
+  // Saldo disponível: ao editar uma ENTREGA, a quantidade antiga "volta" (vamos
+  // substituí-la), então some-a ao saldo atual antes de avisar sobre negativo.
+  const saldoDisp = _estoqueSaldo(itemId) + ((prev && prev.itemId===itemId && prev.tipo==='entrega') ? (+prev.quantidade||0) : 0);
+  if(tipo==='entrega' && qtd>saldoDisp && !confirm(`A entrega (${qtd}) é maior que o saldo disponível (${saldoDisp}). O estoque ficará negativo. Continuar?`)) return;
+  // Editar uma entrega JÁ ASSINADA invalida a assinatura (recibo NR-6 era sobre os
+  // dados antigos) → volta a "aguardando assinatura". Aviso forte + auditoria.
+  if(prev && prev.assinatura && !confirm(`Esta entrega JÁ FOI ASSINADA pelo colaborador.\n\nAo salvar a edição, a assinatura digital será INVALIDADA e a entrega volta para "aguardando assinatura" (o colaborador precisará assinar de novo no app).\n\nContinuar?`)) return;
+  // Base: preserva campos desconhecidos do registro antigo; sobrescreve os editáveis.
+  const rec={ ...(prev||{}), id: editId||genId(), itemId, itemNome:it.nome, tipo, quantidade:qtd,
     data:dataEnt,
     colaboradorId:colabId, colaboradorNome:emp.nome,
     ca:it.ca||'', tamanho, motivo,
-    obs:val('epi-ent-obs')||'', porNome:Auth.currentUser?.username||'', createdAt:new Date().toISOString() };
-  const btn=document.querySelector('#modal-epi-entrega .btn-primary'); setBtnLoading(btn,true,'');
+    obs:val('epi-ent-obs')||'',
+    porNome: prev?.porNome || Auth.currentUser?.username || '',
+    createdAt: prev?.createdAt || new Date().toISOString() };
+  if(editId){
+    rec.editadoEm = new Date().toISOString();
+    rec.editadoPorNome = Auth.currentUser?.username || '';
+    if(prev && prev.assinatura){ delete rec.assinatura; rec.assinaturaInvalidadaEm = new Date().toISOString(); }
+  }
+  const btn=document.getElementById('epi-ent-btn-salvar'); setBtnLoading(btn,true,'');
   try{
     await DB.save('estoqueMov', rec);
     closeModal('modal-epi-entrega');
-    toast(`EPI ${tipo==='devolucao'?'devolvido':'entregue'} a ${emp.nome}.`);
-    Auth.log('EPI_ENTREGUE', null, `${it.nome} → ${emp.nome}`);
+    toast(editId ? `Entrega de EPI atualizada.` : `EPI ${tipo==='devolucao'?'devolvido':'entregue'} a ${emp.nome}.`);
+    Auth.log(editId?'EPI_ENTREGA_EDITADA':'EPI_ENTREGUE', null, `${it.nome} → ${emp.nome}${editId&&prev&&prev.assinatura?' [assinatura invalidada]':''}`);
+    _epiEntEditId = null;
     if(val('emp-id')===colabId) renderFichaEpiColab();
     if(State.currentSection==='estoque') renderEstoque();
     if(printAfter) setTimeout(()=>imprimirReciboEpi(rec.id), 250);
   }catch(e){ toast('Erro ao registrar entrega.','error'); }
   finally{ setBtnLoading(btn,false,'<i class="fa-solid fa-floppy-disk"></i> Registrar'); }
+}
+// Excluir uma entrega/devolução de EPI da ficha do colaborador. O estoque (derivado
+// dos movimentos) se reajusta sozinho ao remover o registro. Aviso forte se a entrega
+// estava assinada (remove o recibo NR-6). Tudo registrado no log. #estoque-epi-editar
+async function excluirEntregaEpi(movId){
+  const m=(State.estoqueMov||[]).find(x=>x.id===movId);
+  if(!m){ toast('Registro não encontrado.','error'); return; }
+  const emp=(State.employees||[]).find(e=>e.id===m.colaboradorId)||{};
+  const dev = m.tipo==='devolucao';
+  let msg = `Excluir a ${dev?'devolução':'entrega'} de "${m.itemNome||'item'}"${m.tamanho?' ('+m.tamanho+')':''} × ${m.quantidade} de ${m.colaboradorNome||emp.nome||'colaborador'}?\n\n`
+    + (dev ? 'O item sai do estoque novamente (a devolução deixa de contar).' : 'A quantidade VOLTA ao estoque automaticamente.');
+  if(m.assinatura) msg += `\n\n⚠️ ATENÇÃO: esta entrega JÁ FOI ASSINADA pelo colaborador (recibo NR-6 com hash). Excluir REMOVE esse recibo assinado. A ação fica registrada no log de auditoria.`;
+  if(!confirm(msg)) return;
+  try{
+    await DB.remove('estoqueMov', movId);
+    Auth.log('EPI_ENTREGA_EXCLUIDA', null, `${m.itemNome||'item'} × ${m.quantidade} de ${m.colaboradorNome||emp.nome||'—'}${m.assinatura?' [estava assinada]':''}`);
+    toast('Registro excluído. Estoque reajustado.');
+    if(val('emp-id')===m.colaboradorId) renderFichaEpiColab();
+    if(State.currentSection==='estoque') renderEstoque();
+  }catch(e){ toast('Erro ao excluir o registro.','error'); }
 }
 // Recibo de entrega de EPI — documento legal (NR-6 / art. 158 CLT). Fase 3 acrescenta
 // a assinatura digital + hash (vinda do app do colaborador). #estoque-epi

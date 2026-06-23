@@ -5842,7 +5842,7 @@
 <div class="modal-overlay hidden" id="modal-epi-entrega" onclick="closeModal('modal-epi-entrega', event)">
   <div class="modal-dialog modal-md">
     <div class="modal-header">
-      <h3><i class="fa-solid fa-hand-holding-hand" style="color:#1565C0"></i> Entregar EPI ao colaborador</h3>
+      <h3 id="epi-ent-titulo"><i class="fa-solid fa-hand-holding-hand" style="color:#1565C0"></i> Entregar EPI ao colaborador</h3>
       <button class="modal-close" onclick="closeModal('modal-epi-entrega')"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <div class="modal-body">
@@ -5871,7 +5871,7 @@
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal('modal-epi-entrega')">Cancelar</button>
       <button class="btn btn-outline" onclick="saveEntregaEpi(true)"><i class="fa-solid fa-print"></i> Registrar e imprimir</button>
-      <button class="btn btn-primary" onclick="saveEntregaEpi(false)"><i class="fa-solid fa-floppy-disk"></i> Registrar</button>
+      <button class="btn btn-primary" id="epi-ent-btn-salvar" onclick="saveEntregaEpi(false)"><i class="fa-solid fa-floppy-disk"></i> Registrar</button>
     </div>
   </div>
 </div>
@@ -7267,6 +7267,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260623a-falta-monitor-dedup"></script>
+  <script src="app.js?v=20260623b-epi-editar-excluir"></script>
 </body>
 </html>

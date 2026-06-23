@@ -540,7 +540,7 @@ try{ window.__APP_BOOTED = true; }catch(_){}
 // ─── VERSÃO DO APP DO COLABORADOR ─────────────────────────────────────────────
 // Bumpe SEMPRE em conjunto com o CACHE do ponto-sw.js e o ?v= do firebase-config.
 // Formato: AA.MM.DD + letra (a, b, c...) — alinhado com o nome do cache.
-const PONTO_VERSION = '26.06.14b';
+const PONTO_VERSION = '26.06.23a';
 // Exibe a versão no rodapé (script roda após o DOM, então o elemento já existe)
 (function _setVersionTag(){
   const t = document.getElementById('app-version-tag');
@@ -549,6 +549,15 @@ const PONTO_VERSION = '26.06.14b';
 
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
 const _fs     = firebase.firestore();
+// ── MODO OFFLINE (#ponto-offline): cache local em IndexedDB. Permite LER a folha e
+// BATER o ponto SEM internet — a batida grava no próprio aparelho e sincroniza
+// sozinha quando a rede volta. PRECISA ser chamado ANTES de qualquer uso do
+// Firestore (por isso fica logo após criar _fs). Se falhar (várias abas abertas =
+// failed-precondition, ou navegador sem suporte = unimplemented), o app segue
+// funcionando ONLINE normalmente — não trava nada.
+_fs.enablePersistence({ synchronizeTabs: true }).catch(err => {
+  console.warn('Persistência offline indisponível (segue online):', err && err.code);
+});
 // Tenant-aware: se a URL tiver ?tenant=X, todas as coleções ficam em tenants/X/
 const _tenantId = new URLSearchParams(window.location.search).get('tenant')
                   || localStorage.getItem('drg_tenant')
@@ -604,7 +613,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=33').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=34').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -625,7 +634,7 @@ function mostrarBannerNovaVersao(){
 }
 function aplicarNovaVersao(){
   // Limpa caches de sessão para evitar dados travados e recarrega
-  try{ sessionStorage.removeItem('drg_ponto_emp'); }catch(_){}
+  try{ localStorage.removeItem('drg_ponto_emp'); }catch(_){}
   window.location.reload();
 }
 
@@ -702,7 +711,7 @@ async function doLogin() {
     // Inclui horários e info de escala — necessario pra TRAVA de disciplina
     // de horario (5min tolerancia) e deteccao de dia de folga funcionarem.
     currentEmp = data.emp;
-    sessionStorage.setItem('drg_ponto_emp', JSON.stringify({
+    localStorage.setItem('drg_ponto_emp', JSON.stringify({
       id:          data.emp.id,
       nome:        data.emp.nome,
       registro:    data.emp.registro,
@@ -752,28 +761,29 @@ document.getElementById('login-pin').addEventListener('keydown', e => {
 
 // Restaura sessão ao abrir o app
 window.addEventListener('load', async () => {
-  const saved = sessionStorage.getItem('drg_ponto_emp');
+  const saved = localStorage.getItem('drg_ponto_emp');
   if (saved) {
     try {
       const parsed = JSON.parse(saved);
       // Sessão de versão antiga (sem horários/escala) → força re-login pra
       // pegar o payload completo do Worker e a TRAVA de horário funcionar.
       if (!parsed || (parsed._v||0) < 2) {
-        sessionStorage.removeItem('drg_ponto_emp');
+        localStorage.removeItem('drg_ponto_emp');
         currentEmp = null;
         return;
       }
       currentEmp = parsed;
       const fbUser = await _authReady;
-      // Se a sessão Firebase morreu mas a sessionStorage continua, força re-login
-      // (sem auth nenhuma, as queries ao Firestore vão falhar).
+      // Se a sessão Firebase morreu mas o localStorage continua, força re-login
+      // (sem auth nenhuma, as queries ao Firestore vão falhar). Offline a sessão
+      // Firebase é restaurada do IndexedDB, então fbUser vem preenchido. #ponto-offline
       if (!fbUser) {
-        sessionStorage.removeItem('drg_ponto_emp');
+        localStorage.removeItem('drg_ponto_emp');
         currentEmp = null;
         return;
       }
       carregarHome();
-    } catch (e) { sessionStorage.removeItem('drg_ponto_emp'); }
+    } catch (e) { localStorage.removeItem('drg_ponto_emp'); }
   }
 });
 
@@ -1761,13 +1771,27 @@ async function baterPonto() {
       createdAt: currentPayroll?.createdAt || new Date().toISOString(),
     };
 
-    await dbCol('payrolls').doc(id).set(record, { merge: true });
+    // OFFLINE-AWARE (#ponto-offline): a gravação aplica NA HORA no cache local.
+    // ONLINE → esperamos a confirmação do servidor (pra pegar erro real e travar a
+    // batida só se falhar de verdade). OFFLINE → NÃO esperamos (senão o botão ficava
+    // preso em "Salvando..."): a batida já está no aparelho e sincroniza sozinha
+    // quando a internet voltar.
+    const _gravacao = dbCol('payrolls').doc(id).set(record, { merge: true });
+    const _online = navigator.onLine;
+    if (_online) {
+      await _gravacao;                 // online: confirma no servidor
+    } else {
+      _gravacao.catch(() => {});       // offline: já gravou local; evita "unhandled rejection"
+    }
     // Atualiza cache local mesclando com o que já tínhamos (preserva campos do gestor em memória)
     currentPayroll = { ...(currentPayroll || {}), ...record };
 
     const nomes = { entrada:'Entrada', intIni:'Início do intervalo', intFim:'Fim do intervalo', saida:'Saída' };
     const geoMsg = geo ? ` · 📍 ${geo.acc}m de precisão` : ' · 📍 sem localização';
-    toast(`✅ ${nomes[prox]} registrada às ${hora}${geoMsg}`, 'success');
+    toast(_online
+      ? `✅ ${nomes[prox]} registrada às ${hora}${geoMsg}`
+      : `✅ ${nomes[prox]} registrada às ${hora} · 📴 offline — vai sincronizar quando a internet voltar`,
+      'success');
     renderHoje();
     renderBotao();
 
@@ -1778,9 +1802,11 @@ async function baterPonto() {
         const _esp = _horarioEsperado('entrada');
         if(_esp){
           const _atraso = (now.getHours()*60 + now.getMinutes()) - timeToMin(_esp);
-          if(_atraso > TOLERANCIA_DIA_MIN){
+          // Só avisa se houver internet AGORA (offline o fetch falharia; o atraso
+          // continua apurado na folha quando a batida sincroniza). #ponto-offline
+          if(_atraso > TOLERANCIA_DIA_MIN && _online){
             fetch(NOTIFICAR_ATRASO_URL, { method:'POST', headers:{'Content-Type':'application/json'},
-              body: JSON.stringify({ posto: currentEmp.posto||'', nome: currentEmp.nome||'', registro: currentEmp.registro||'', minutos: _atraso }) });
+              body: JSON.stringify({ posto: currentEmp.posto||'', nome: currentEmp.nome||'', registro: currentEmp.registro||'', minutos: _atraso }) }).catch(()=>{});
           }
         }
       }catch(_){}
@@ -2253,7 +2279,7 @@ function mostrarTela(nome) {
 
 // ─── LOGOUT ───────────────────────────────────────────────────────────────────
 function doLogout() {
-  sessionStorage.removeItem('drg_ponto_emp');
+  localStorage.removeItem('drg_ponto_emp');
   // Permite que o popup de novas mensagens reapareca na proxima sessao
   sessionStorage.removeItem('drg_popup_msg_shown');
   currentEmp     = null;

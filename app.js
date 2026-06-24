@@ -12618,6 +12618,12 @@ function openPayrollForEmployee(empId, ctx){
   setTimeout(() => {
     if(ctx && ctx.mes) setVal('payroll-mes', String(ctx.mes));
     if(ctx && ctx.ano) setVal('payroll-ano', String(ctx.ano));
+    // REGRA DURA: clicar no nome (Monitor de Faltas, cards, drill-downs) SEMPRE abre a
+    // folha DAQUELA pessoa. Garante a opção do colaborador-alvo no select ANTES de
+    // selecionar (alinha filtro de posto, inclui demitido/afastado, injeta se faltar).
+    // Sem isso, setVal falhava em silêncio quando a pessoa estava fora do dropdown
+    // filtrado (ex.: 12x36 de outro posto) e abria a folha de OUTRO colaborador. #monitor-abre-folha-certa
+    try { _ensurePayrollEmployeeOption(empId); } catch(e){ console.warn('openPayrollForEmployee', e); }
     setVal('payroll-employee', empId);
     onPayrollEmployeeChange();
     if(ctx && ctx.fieldKey){

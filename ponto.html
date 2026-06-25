@@ -540,7 +540,7 @@ try{ window.__APP_BOOTED = true; }catch(_){}
 // ─── VERSÃO DO APP DO COLABORADOR ─────────────────────────────────────────────
 // Bumpe SEMPRE em conjunto com o CACHE do ponto-sw.js e o ?v= do firebase-config.
 // Formato: AA.MM.DD + letra (a, b, c...) — alinhado com o nome do cache.
-const PONTO_VERSION = '26.06.23a';
+const PONTO_VERSION = '26.06.25a';
 // Exibe a versão no rodapé (script roda após o DOM, então o elemento já existe)
 (function _setVersionTag(){
   const t = document.getElementById('app-version-tag');
@@ -613,7 +613,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=34').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=35').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -720,7 +720,7 @@ async function doLogin() {
       posto:       data.emp.posto,
       foto:        data.emp.foto || '',
       semRefeicao: !!data.emp.semRefeicao,
-      _v: 2,  // versao da sessao — bump quando adicionar campos novos pra forcar relogin
+      _v: 3,  // versao da sessao — bump quando adicionar campos novos pra forcar relogin
       // Horarios + escala (TRAVA)
       escala:                  data.emp.escala || '',
       horarioEntrada:          data.emp.horarioEntrada || '',
@@ -730,6 +730,9 @@ async function doLogin() {
       turnoNoturno:            !!data.emp.turnoNoturno,
       overridesHorario:        data.emp.overridesHorario || [],
       historicoEscalas:        data.emp.historicoEscalas || [],
+      // Períodos de mudança (troca de turno/escala) — usados na paridade do 12x36,
+      // MESMA regra do gestor (motor único). Vem do Worker /ponto-login. #troca-turno-12x36
+      historicoLotacao:        data.emp.historicoLotacao || [],
       ciclo12x36Inicio:        data.emp.ciclo12x36Inicio || '',
       alternadaPrimeiraFolga:  data.emp.alternadaPrimeiraFolga || '',
       dataAdmissao:            data.emp.dataAdmissao || ''
@@ -765,9 +768,9 @@ window.addEventListener('load', async () => {
   if (saved) {
     try {
       const parsed = JSON.parse(saved);
-      // Sessão de versão antiga (sem horários/escala) → força re-login pra
-      // pegar o payload completo do Worker e a TRAVA de horário funcionar.
-      if (!parsed || (parsed._v||0) < 2) {
+      // Sessão de versão antiga (sem horários/escala, ou sem historicoLotacao) →
+      // força re-login pra pegar o payload completo do Worker e a TRAVA funcionar.
+      if (!parsed || (parsed._v||0) < 3) {
         localStorage.removeItem('drg_ponto_emp');
         currentEmp = null;
         return;
@@ -1369,14 +1372,43 @@ function _ehDiaDeFolga(emp, dataObj){
     return false;
   }
   if(escala==='12X36'){
-    // 12x36: 1 dia trabalha, 1 dia folga. Inicio do ciclo no cadastro.
-    const inicio = emp.ciclo12x36Inicio ? new Date(emp.ciclo12x36Inicio + 'T00:00:00') : null;
-    if(!inicio || isNaN(inicio.getTime())) return false;
-    const dias = Math.floor((dataObj.getTime() - inicio.getTime())/86400000);
-    if(dias < 0) return false;
-    return (dias % 2) === 1; // dia 0 trabalha, dia 1 folga, etc.
+    // 12x36: paridade trabalha/folga — MESMA regra do gestor (_ciclo12x36EhTrabalho),
+    // honrando os Períodos de mudança (troca de turno/escala reancora no 1º dia). #troca-turno-12x36
+    const t = _ehTrabalho12x36Ponto(emp, dataObj);
+    if(t === true)  return false;  // dia de trabalho → não é folga
+    if(t === false) return true;   // dia de folga
+    return false;                  // sem âncora definida → não bloqueia (gestor decide)
   }
   return false;
+}
+
+// ESPELHA o _ciclo12x36EhTrabalho do gestor (motor único [[drg_kronos_motor_unico_regras]]):
+// a paridade do 12x36 ancora no PERÍODO DE MUDANÇA vigente — quando a troca de turno/escala
+// foi comunicada sem informar o ciclo, reancora no 1º dia do período (1º dia = trabalho, sem
+// HE fantasma na virada). O período INICIAL (admissão, idx0) mantém a âncora do cadastro.
+// true=trabalho · false=folga · null=sem referência. #troca-turno-12x36
+function _ehTrabalho12x36Ponto(emp, dataObj){
+  if(!emp) return null;
+  const pad = n => String(n).padStart(2,'0');
+  const ymd = `${dataObj.getFullYear()}-${pad(dataObj.getMonth()+1)}-${pad(dataObj.getDate())}`;
+  let segIni = null, segAnchor = null, segEhMudanca = false;
+  const hist = (emp.historicoLotacao||[]).filter(h => h && h.dataInicio)
+    .sort((a,b) => a.dataInicio.localeCompare(b.dataInicio));
+  if(hist.length){
+    let vig = null, idx = -1;
+    for(let i=0;i<hist.length;i++){ if(hist[i].dataInicio <= ymd){ vig=hist[i]; idx=i; } else break; }
+    if(vig){ segIni = vig.dataInicio; segAnchor = vig.ciclo12x36Inicio || null; segEhMudanca = idx > 0; }
+  }
+  const ini = segAnchor
+    || (segEhMudanca ? segIni : null)
+    || emp.ciclo12x36Inicio
+    || segIni
+    || emp.dataAdmissao;
+  if(!ini) return null;
+  const dAnchor = new Date(ini + 'T00:00:00');
+  if(isNaN(dAnchor.getTime())) return null;
+  const diff = Math.round((dataObj.getTime() - dAnchor.getTime())/86400000);
+  return ((((diff % 2) + 2) % 2) === 0);
 }
 
 // Analisa se a batida pode ser feita. Retorna um objeto:

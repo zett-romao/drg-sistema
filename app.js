@@ -23815,20 +23815,30 @@ function _ciclo12x36EhTrabalho(emp, ano, mes, dia){
   if(!emp) return null;
   const ymd = `${ano}-${String(mes).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
   // Segmento de lotação vigente na data (transferências) → início do trecho atual.
-  let segIni = null, segAnchor = null;
+  let segIni = null, segAnchor = null, segEhMudanca = false;
   const hist = (emp.historicoLotacao||[]).filter(h=>h && h.dataInicio)
     .sort((a,b)=>a.dataInicio.localeCompare(b.dataInicio));
   if(hist.length){
-    let vig=null;
-    for(const h of hist){ if(h.dataInicio<=ymd) vig=h; else break; }
-    if(vig){ segIni = vig.dataInicio; segAnchor = vig.ciclo12x36Inicio || null; }
+    let vig=null, idx=-1;
+    for(let i=0;i<hist.length;i++){ if(hist[i].dataInicio<=ymd){ vig=hist[i]; idx=i; } else break; }
+    if(vig){
+      segIni = vig.dataInicio;
+      segAnchor = vig.ciclo12x36Inicio || null;
+      // idx>0 = período de MUDANÇA (não o inicial/admissão). #troca-turno-12x36
+      segEhMudanca = idx > 0;
+    }
   }
-  // Âncora de paridade (PRIORIDADE — decisão usuário 2026-06-01):
-  //  1) transferência com ciclo próprio no trecho vigente (alteração de contrato);
-  //  2) DATA INFORMADA no cadastro (`ciclo12x36Inicio`) — sobrepõe as demais;
-  //  3) na ausência dela → 1º dia batido no ponto (auto);
-  //  4) fallback: início do segmento / admissão.
+  // Âncora de paridade (decisão usuário 2026-06-23 — TROCA DE TURNO/ESCALA):
+  //  1) trecho vigente com ciclo PRÓPRIO informado (sobrepõe tudo);
+  //  2) PERÍODO DE MUDANÇA sem ciclo informado → ancora no 1º dia do período (a troca
+  //     comunicada fecha o período anterior e o 1º dia do novo é TRABALHO normal, sem
+  //     HE fantasma na virada — mesmo que o intervalo seja < 36h). O período INICIAL
+  //     (admissão, idx 0) NÃO entra aqui: mantém a âncora do cadastro pra não embaralhar
+  //     os dias antigos. #troca-turno-12x36
+  //  3) DATA INFORMADA no cadastro (`ciclo12x36Inicio`);
+  //  4) 1º dia batido no ponto (auto); 5) fallback: início do segmento / admissão.
   const ini = segAnchor
+    || (segEhMudanca ? segIni : null)
     || emp.ciclo12x36Inicio
     || _primeiroDiaTrabalho12x36(emp, segIni)
     || segIni

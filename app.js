@@ -4610,7 +4610,7 @@ function _repararBatidasDia(pd, exp){
 // do espelho da folha (_buildFolhaHtmlFromRecord) — manter em sincronia p/ os
 // números da Contabilidade baterem com a folha impressa. #folha-detalhada
 function _apuracaoPontoTotais(emp, p){
-  const out={trabMin:0,prevMin:0,atrasoMin:0,extraMin:0,faltaMin:0,faltaQtd:0,naoRendMin:0,naoRendAprovadoMin:0};
+  const out={trabMin:0,prevMin:0,atrasoMin:0,extraMin:0,faltaMin:0,faltaQtd:0,naoRendMin:0,naoRendAprovadoMin:0,diasAbaixoMeio:0};
   if(!emp || !p) return out;
   if(emp.isentoPonto) return out;
   const mes=p.mes, ano=p.ano;
@@ -4642,6 +4642,9 @@ function _apuracaoPontoTotais(emp, p){
     if(!ehFolga&&temBatida){ const _ir=_calcIntervaloMin(intIni,intFim,entrada,saida); const delta=(is12x36||_usaFdsLivreResolve(emp.escala))?((minLiq+_ir)-(prevMin+contratualIntMin)):(minLiq-prevMin); if(delta<0&&Math.abs(delta)>HE_TOLERANCIA_DIA_MIN){ out.atrasoMin+=-delta; } const _nr=Math.max(0,contratualIntMin-_ir); out.naoRendMin+=(_nr>HE_TOLERANCIA_DIA_MIN?_nr:0); }   /* ref. não rendida só conta acima da tolerância 10min/dia (Súmula 366). #ref-tolerancia */
     else if(!ehFolga&&!temBatida&&temPonto&&_diaEmBrancoEhFalta(emp,cd.mes,cd.ano,d,isWknd,is12x36)){ out.faltaMin+=prevMin; out.faltaQtd++; }
     out.trabMin+=(minLiq>0?minLiq:0); out.prevMin+=prevMin;
+    // Dia TRABALHADO (com batida) em que se cumpriu menos de 50% da jornada prevista —
+    // base da regra rígida da Boa Permanência (decisão do dono 2026-06-26). #bp-rigida
+    if(!ehFolga && temBatida && prevMin>0 && (minLiq>0?minLiq:0) < prevMin*0.5) out.diasAbaixoMeio++;
     // Refeição não rendida APROVADA pelo supervisor (pedido do app OU almoço suprimido
     // detectado pela batida e autorizado na revisão). NÃO paga sozinha — sempre passa pela
     // aprovação. semRefeicao (trabalha sozinho) recebe por naoRendMin (auto). #ref-nao-rendida-solicitada #ref-detectada
@@ -10686,8 +10689,8 @@ function _calcBeneficiosColab(emp, dataInicioISO, dataFimISO, escopo){
     const _d = new Date(dataInicioISO + 'T12:00:00');
     const _comp = _competenciaDe(_d);
     const payMes = (State.payrolls||[]).find(p=>p.employeeId===empE.id && p.mes==_comp.mes && p.ano==_comp.ano);
-    // Atestado de acompanhante no mês derruba o BP também neste caminho. #bp-acompanhante
-    if(payMes && payMes.status==='fechada' && (payMes.bonificacao||0) > 0 && !_temAtestadoAcompanhante(empE.id, _comp.mes, _comp.ano)){
+    // Folha fechada + bonificação salva + assiduidade rígida (faltas/atestado/mês completo/<50%). #bp-rigida
+    if(payMes && payMes.status==='fechada' && (payMes.bonificacao||0) > 0 && _boaPermanenciaElegivel(empE, _comp.mes, _comp.ano).ok){
       out.bonusVr = payMes.bonificacao;
       out.vrValor += out.bonusVr;
     }
@@ -10843,14 +10846,15 @@ function _calcBeneficiosColabPrevisto(emp, mUso, aUso, mPag, aPag){
   } else {
     vaCheio = 0;
   }
-  // Boa Permanência — desacoplada do VR (linha/coluna/botão próprios).
-  //   - Lê o valor da folha do mês de pagamento (se já fechada e bonificação>0),
-  //     OU da CCT (`State.cct.bonificacao`) como referência prospectiva.
-  //   - Elegibilidade: folha fechada + faltas=0 (qualquer tipo), OU isento,
-  //     OU flag `bonificacaoSemprePagar` no cadastro (override do master).
-  //   - Quando NÃO elegível, devolve bpValor=0 + bpMotivo p/ a lista "perdeu".
+  // Boa Permanência — desacoplada do VR (linha/coluna/botão próprios). REGRA RÍGIDA
+  // (2026-06-26): só PAGA quem tem (A) folha FECHADA + (B) zero faltas/atestado/abono
+  // + (C) mês completo + (D) nenhum dia <50% da jornada — ver _boaPermanenciaElegivel.
+  // Isento e flag `bonificacaoSemprePagar` (override do master) pagam por fora da regra.
+  //   - Folha NÃO fechada mas elegível → PENDENTE (não paga ainda, espera o fechamento).
+  //   - Quando NÃO elegível, devolve bpValor=0 + bpMotivo p/ a lista "perdeu". #bp-rigida
   const bpFromCct = (State.cct && State.cct.bonificacao) || 0;
   const sempreP   = !!empE.bonificacaoSemprePagar;
+  const _fechada  = !!(payAtual && payAtual.status==='fechada');
   let bpValor = 0, bpMotivo = '', bpElegivel = false, bpPendente = false, bpPerdidaPorFalta = false;
   if(isentoBPonto || sempreP){
     bpValor = (payAtual && payAtual.bonificacao) || bpFromCct;
@@ -10858,16 +10862,18 @@ function _calcBeneficiosColabPrevisto(emp, mUso, aUso, mPag, aPag){
     if(!bpValor) bpMotivo = 'CCT sem valor de Boa Permanência configurado';
   } else {
     const _bp = _boaPermanenciaElegivel(empE, mPag, aPag);
-    if(_bp.ok){
+    if(_bp.ok && _fechada){
       bpValor = (payAtual && payAtual.bonificacao) || bpFromCct;
       bpElegivel = bpValor > 0;
       if(!bpValor) bpMotivo = 'CCT sem valor de Boa Permanência configurado';
+    } else if(_bp.ok && !_fechada){
+      // (A) Assíduo, mas folha ainda não fechada → pendente até o fechamento. #bp-rigida
+      bpPendente = true;
+      bpMotivo   = 'folha do mês ainda não fechada';
     } else {
-      bpPendente = !!_bp.pendente;
+      bpPendente = false;
       bpMotivo   = _bp.motivo || 'Não elegível';
-      // Perdeu DE VERDADE (por falta) só quando não está pendente. Distingue de
-      // "elegível mas sem valor de CCT" (que NÃO é perda). #audit-benef-9
-      bpPerdidaPorFalta = !bpPendente;
+      bpPerdidaPorFalta = true;
     }
   }
   const vtValor = Math.max(0, vtCheio - descVT);
@@ -10995,7 +11001,6 @@ function onAtestadoCategoriaChange(){
   const _show=(id,on)=>{ const e=document.getElementById(id); if(e) e.style.display=on?'':'none'; };
   _show('atest-abona-wrap', ehAbono);
   _show('atest-cid-wrap', !ehAbono);   // CID só faz sentido p/ atestado médico
-  _show('atest-acompanhante-wrap', !ehAbono);   // "de acompanhante" só p/ atestado médico (derruba BP) #bp-acompanhante
   const banner=document.getElementById('atest-banner');
   const txt=document.getElementById('atest-banner-txt');
   const obsLbl=document.getElementById('atest-obs-label');
@@ -11037,7 +11042,6 @@ function openAtestadoModal(id){
   setVal('atest-id', a?a.id:'');
   setVal('atest-categoria', a?.categoria || 'medico');
   setVal('atest-abona', (a && a.abona===false) ? 'nao' : 'sim');
-  { const _ac=document.getElementById('atest-acompanhante'); if(_ac) _ac.checked = !!(a && a.acompanhante); }
   setVal('atest-tipo', a?.tipo||'dia');
   setVal('atest-cid', a?.cid||'');
   setVal('atest-inicio', a?.dataInicio||'');
@@ -11097,9 +11101,6 @@ async function saveAtestado(){
     const doc={
       id:id||genId(), employeeId:empId, mes:m, ano:an,
       categoria, abona,
-      // "de acompanhante" (de filho/parente) → derruba a Boa Permanência. Só p/ atestado
-      // médico (no abono não faz sentido). Atestado próprio = false → mantém BP. #bp-acompanhante
-      acompanhante: !ehAbono && !!(document.getElementById('atest-acompanhante')?.checked),
       tipo, dataInicio:inicio, dataFim:tipo==='horas'?inicio:fim,
       dias, horas, cid:ehAbono?'':(val('atest-cid')||''), observacao:val('atest-obs')||'',
       arquivoUrl, arquivoNome,
@@ -11772,46 +11773,57 @@ function _dsrSemanasComFalta(emp, mes, ano, pontoDias, faltasInjustCount){
 // pra ela ser computada e persistida antes de a folha virar 'fechada'.
 let _fechandoFolha = false;
 
-// Comissão de Boa Permanência (decisão do usuário 2026-05-28): só é APURADA
-// quando a folha do mês está FECHADA (ou no ato de fechar). Se houver falta
-// (justificada OU injustificada) no mês → perde. Antes do fechamento fica
-// PENDENTE (não aparece). `totalFaltasLive` = faltas do form (no fechamento);
-// se null, lê do registro salvo. Retorna {ok, motivo, pendente?}.
-// "Atestado de acompanhante" derruba a Boa Permanência (decisão do dono 2026-06-26):
-// faltar/sair p/ acompanhar filho/parente quebra a assiduidade do prêmio — diferente do
-// atestado médico PRÓPRIO, que MANTÉM o BP. O abono salarial NÃO muda (atestado continua
-// pagando/abonando o dia); muda só o critério do prêmio. Atraso e abono NÃO derrubam. #bp-acompanhante
-function _atestadoEhAcompanhante(a){
-  if(!a) return false;
-  if(typeof a.acompanhante === 'boolean') return a.acompanhante;   // campo explícito (checkbox) vence
-  // Legado sem o campo → heurística conservadora no texto: só a palavra "acompanhante".
-  // NÃO casa "acompanhamento"/"comparecimento" (podem ser do PRÓPRIO colaborador) p/ não
-  // negar BP indevidamente — esses casos pegam o checkbox no próximo lançamento. #bp-acompanhante
-  return /acompanhante/i.test(a.observacao || '');
+// Comissão de Boa Permanência — REGRA RÍGIDA (decisão do dono 2026-06-26, TRAVADA).
+// Recebe APENAS quem cumpre TODAS as condições de assiduidade abaixo:
+//   (B) ZERO faltas de qualquer tipo no mês — injustificada, justificada E qualquer dia
+//       inteiro coberto por ATESTADO ou ABONO (atestado, INCLUSIVE o próprio, derruba).
+//   (C) MÊS COMPLETO — admitido até o início do período e não desligado antes do fim
+//       (admissão OU demissão no meio do período = sem mês completo = não recebe).
+//   (D) NENHUM dia trabalhado com menos de 50% da jornada diária cumprida.
+// A condição (A) "folha FECHADA" é exigida no PAGAMENTO (tela Benefícios / caminho 'mes'),
+// NÃO aqui — senão a folha aberta não conseguiria preencher o valor do bônus antes de fechar.
+// `totalFaltasLive` = faltas do form (no fechamento ao vivo); se null, lê do registro salvo.
+// `bonificacaoSemprePagar` (override do master) e isento são tratados pelos chamadores.
+// Retorna {ok, motivo}. #bp-rigida
+function _mesCompletoNaCompetencia(emp, mes, ano){
+  const dias=_compDias(mes,ano); if(!dias.length) return true;
+  const f=dias[0], l=dias[dias.length-1];
+  const ini=new Date(f.ano, f.mes-1, f.dia);
+  const fim=new Date(l.ano, l.mes-1, l.dia);
+  const adm = emp.dataAdmissao ? new Date(((emp.dataAdmissao+'').substring(0,10))+'T00:00:00') : null;
+  if(adm && !isNaN(adm.getTime()) && adm > ini) return false;   // admitido DEPOIS do início do período
+  const dem = emp.dataDemissao ? new Date(((emp.dataDemissao+'').substring(0,10))+'T00:00:00') : null;
+  if(dem && !isNaN(dem.getTime()) && dem < fim) return false;   // desligado ANTES do fim do período
+  return true;
 }
-function _temAtestadoAcompanhante(empId, mes, ano){
-  return (State.atestados||[]).some(a =>
-    a.employeeId===empId && a.mes==mes && a.ano==ano &&
-    a.status!=='pendente' && (a.categoria||'medico')==='medico' &&
-    _atestadoEhAcompanhante(a));
+// Algum dia inteiro de ausência coberto por atestado/abono no mês? (atestado de DIA, próprio
+// ou não, e abono — derrubam o BP). Atestado de HORAS não conta aqui; jornada parcial é
+// tratada pela regra dos 50% (_apuracaoPontoTotais.diasAbaixoMeio). #bp-rigida
+function _temAusenciaDeDiaNoMes(empId, mes, ano){
+  const t=_atestadoTotais(empId, mes, ano);
+  return ((t.dias||0) + (t.diasNaoAbonados||0)) > 0;
 }
 
 function _boaPermanenciaElegivel(emp, mes, ano, totalFaltasLive){
   if(!emp) return {ok:false, motivo:''};
-  // Atestado de acompanhante no mês → perde o prêmio (independe de faltas). #bp-acompanhante
-  if(_temAtestadoAcompanhante(emp.id, mes, ano)) return {ok:false, motivo:'atestado de acompanhante no mês — benefício perdido'};
+  // (C) Mês completo — admissão/demissão no meio do período → não recebe. #bp-rigida
+  if(!_mesCompletoNaCompetencia(emp, mes, ano))
+    return {ok:false, motivo:'sem mês completo (admissão/desligamento no período)'};
   const pay = (State.payrolls||[]).find(p=>p.employeeId===emp.id && p.mes==mes && p.ano==ano);
+  // (B) Falta de qualquer tipo (injust. + just.) → perde o prêmio inteiro (tudo-ou-nada).
   let faltas = totalFaltasLive;
   if(faltas == null){
     faltas = ('faltasInjustificadas' in (pay||{}))
       ? ((pay.faltasInjustificadas||0)+(pay.faltasJustificadas||0))
       : ((pay && pay.faltas) || 0);
   }
-  // BP APARECE por padrão (boa permanência presumida) e SOME só quando há ≥1 falta
-  // — qualquer falta em qualquer transferência do mês perde o BP inteiro (não é
-  // proporcional). Decisão do usuário 2026-05-31: não espera o fechamento pra exibir
-  // (antes ficava 'N/C pendente' até fechar). #bp-aparece
   if(faltas > 0) return {ok:false, motivo:'faltas no mês — benefício perdido'};
+  // (B) Dia inteiro coberto por atestado/abono também derruba — inclusive atestado próprio. #bp-rigida
+  if(_temAusenciaDeDiaNoMes(emp.id, mes, ano))
+    return {ok:false, motivo:'atestado/abono no mês — benefício perdido'};
+  // (D) Algum dia trabalhado com menos de 50% da jornada cumprida → perde. #bp-rigida
+  if(pay && ((_apuracaoPontoTotais(emp, pay).diasAbaixoMeio)||0) > 0)
+    return {ok:false, motivo:'dia com menos de 50% da jornada — benefício perdido'};
   return {ok:true, motivo:''};
 }
 
@@ -11956,11 +11968,11 @@ function recalculate(){
   setVal('payroll-vr-total',(numVal('payroll-vr-dia')*vrMult).toFixed(2));
 
   // --- Comissão de Boa Permanência ---
-  // Regra REAL (decisões do usuário 2026-05): devida se NÃO houve falta (just. ou
-  // injust.) no PRÓPRIO mês da competência; qualquer falta → perde (tudo-ou-nada).
-  // Atestado de ACOMPANHANTE no mês também derruba (decisão 2026-06-26) — ver
-  // _boaPermanenciaElegivel/#bp-acompanhante. A flag "bonificacaoSemprePagar" no
-  // cadastro força o pagamento. (Comentário antigo citava "mês anterior".) #fix-comentario-bp
+  // Regra RÍGIDA (decisão do dono 2026-06-26): devida só a quem teve mês SEM qualquer
+  // falta (just./injust./atestado/abono), MÊS COMPLETO (sem admissão/demissão no meio)
+  // e NENHUM dia trabalhado abaixo de 50% da jornada — ver _boaPermanenciaElegivel/#bp-rigida.
+  // (O "folha fechada" é exigido no pagamento, não aqui — o valor é preenchido antes de
+  // fechar.) A flag "bonificacaoSemprePagar" no cadastro força o pagamento. #bp-rigida
   const bonusCard=document.getElementById('bonus-card');
   const bonusInput=document.getElementById('payroll-bonus');
   const bonusAlert=document.getElementById('bonus-alert');

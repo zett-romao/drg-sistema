@@ -10686,7 +10686,8 @@ function _calcBeneficiosColab(emp, dataInicioISO, dataFimISO, escopo){
     const _d = new Date(dataInicioISO + 'T12:00:00');
     const _comp = _competenciaDe(_d);
     const payMes = (State.payrolls||[]).find(p=>p.employeeId===empE.id && p.mes==_comp.mes && p.ano==_comp.ano);
-    if(payMes && payMes.status==='fechada' && (payMes.bonificacao||0) > 0){
+    // Atestado de acompanhante no mês derruba o BP também neste caminho. #bp-acompanhante
+    if(payMes && payMes.status==='fechada' && (payMes.bonificacao||0) > 0 && !_temAtestadoAcompanhante(empE.id, _comp.mes, _comp.ano)){
       out.bonusVr = payMes.bonificacao;
       out.vrValor += out.bonusVr;
     }
@@ -10994,6 +10995,7 @@ function onAtestadoCategoriaChange(){
   const _show=(id,on)=>{ const e=document.getElementById(id); if(e) e.style.display=on?'':'none'; };
   _show('atest-abona-wrap', ehAbono);
   _show('atest-cid-wrap', !ehAbono);   // CID só faz sentido p/ atestado médico
+  _show('atest-acompanhante-wrap', !ehAbono);   // "de acompanhante" só p/ atestado médico (derruba BP) #bp-acompanhante
   const banner=document.getElementById('atest-banner');
   const txt=document.getElementById('atest-banner-txt');
   const obsLbl=document.getElementById('atest-obs-label');
@@ -11035,6 +11037,7 @@ function openAtestadoModal(id){
   setVal('atest-id', a?a.id:'');
   setVal('atest-categoria', a?.categoria || 'medico');
   setVal('atest-abona', (a && a.abona===false) ? 'nao' : 'sim');
+  { const _ac=document.getElementById('atest-acompanhante'); if(_ac) _ac.checked = !!(a && a.acompanhante); }
   setVal('atest-tipo', a?.tipo||'dia');
   setVal('atest-cid', a?.cid||'');
   setVal('atest-inicio', a?.dataInicio||'');
@@ -11094,6 +11097,9 @@ async function saveAtestado(){
     const doc={
       id:id||genId(), employeeId:empId, mes:m, ano:an,
       categoria, abona,
+      // "de acompanhante" (de filho/parente) → derruba a Boa Permanência. Só p/ atestado
+      // médico (no abono não faz sentido). Atestado próprio = false → mantém BP. #bp-acompanhante
+      acompanhante: !ehAbono && !!(document.getElementById('atest-acompanhante')?.checked),
       tipo, dataInicio:inicio, dataFim:tipo==='horas'?inicio:fim,
       dias, horas, cid:ehAbono?'':(val('atest-cid')||''), observacao:val('atest-obs')||'',
       arquivoUrl, arquivoNome,
@@ -11771,8 +11777,29 @@ let _fechandoFolha = false;
 // (justificada OU injustificada) no mês → perde. Antes do fechamento fica
 // PENDENTE (não aparece). `totalFaltasLive` = faltas do form (no fechamento);
 // se null, lê do registro salvo. Retorna {ok, motivo, pendente?}.
+// "Atestado de acompanhante" derruba a Boa Permanência (decisão do dono 2026-06-26):
+// faltar/sair p/ acompanhar filho/parente quebra a assiduidade do prêmio — diferente do
+// atestado médico PRÓPRIO, que MANTÉM o BP. O abono salarial NÃO muda (atestado continua
+// pagando/abonando o dia); muda só o critério do prêmio. Atraso e abono NÃO derrubam. #bp-acompanhante
+function _atestadoEhAcompanhante(a){
+  if(!a) return false;
+  if(typeof a.acompanhante === 'boolean') return a.acompanhante;   // campo explícito (checkbox) vence
+  // Legado sem o campo → heurística conservadora no texto: só a palavra "acompanhante".
+  // NÃO casa "acompanhamento"/"comparecimento" (podem ser do PRÓPRIO colaborador) p/ não
+  // negar BP indevidamente — esses casos pegam o checkbox no próximo lançamento. #bp-acompanhante
+  return /acompanhante/i.test(a.observacao || '');
+}
+function _temAtestadoAcompanhante(empId, mes, ano){
+  return (State.atestados||[]).some(a =>
+    a.employeeId===empId && a.mes==mes && a.ano==ano &&
+    a.status!=='pendente' && (a.categoria||'medico')==='medico' &&
+    _atestadoEhAcompanhante(a));
+}
+
 function _boaPermanenciaElegivel(emp, mes, ano, totalFaltasLive){
   if(!emp) return {ok:false, motivo:''};
+  // Atestado de acompanhante no mês → perde o prêmio (independe de faltas). #bp-acompanhante
+  if(_temAtestadoAcompanhante(emp.id, mes, ano)) return {ok:false, motivo:'atestado de acompanhante no mês — benefício perdido'};
   const pay = (State.payrolls||[]).find(p=>p.employeeId===emp.id && p.mes==mes && p.ano==ano);
   let faltas = totalFaltasLive;
   if(faltas == null){
@@ -11931,8 +11958,9 @@ function recalculate(){
   // --- Comissão de Boa Permanência ---
   // Regra REAL (decisões do usuário 2026-05): devida se NÃO houve falta (just. ou
   // injust.) no PRÓPRIO mês da competência; qualquer falta → perde (tudo-ou-nada).
-  // A flag "bonificacaoSemprePagar" no cadastro força o pagamento. (Comentário antigo
-  // citava "mês anterior" — divergia da implementação real.) #fix-comentario-bp
+  // Atestado de ACOMPANHANTE no mês também derruba (decisão 2026-06-26) — ver
+  // _boaPermanenciaElegivel/#bp-acompanhante. A flag "bonificacaoSemprePagar" no
+  // cadastro força o pagamento. (Comentário antigo citava "mês anterior".) #fix-comentario-bp
   const bonusCard=document.getElementById('bonus-card');
   const bonusInput=document.getElementById('payroll-bonus');
   const bonusAlert=document.getElementById('bonus-alert');

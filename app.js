@@ -22428,13 +22428,14 @@ function _renderAutzUI(){
       const isPend = st==='pendente';   // só pendente ATIVO (dentro dos 15 min) tem ação. #autz-expira
       const supUrl = 'supervisor.html?autz=' + encodeURIComponent(p.id);
       const _nome  = (p.employeeNome||'—').replace(/</g,'&lt;');
-      // PENDENTE → o nome abre o app de Supervisor JÁ FOCADO nesta solicitação (aprovar/recusar).
-      // Resolvido → abre o cadastro do colaborador (consulta/edição). #autz-deeplink
-      const nomeLink = isPend
-        ? `<a href="${supUrl}" target="_blank" rel="noopener" style="color:#E65100;text-decoration:none;border-bottom:1px dotted #E65100" title="Abrir o app de Supervisor para APROVAR ou RECUSAR esta solicitação">${_nome} <i class="fa-solid fa-up-right-from-square" style="font-size:10px"></i></a>`
-        : (empCad
-            ? `<a href="javascript:void(0)" onclick="openEmployeeModal('${p.employeeId}')" style="color:var(--primary);text-decoration:none;border-bottom:1px dotted var(--primary)" title="Abrir cadastro do colaborador">${_nome}</a>`
-            : _nome);
+      // REGRA DURA (travada): clicar no nome SEMPRE abre a FOLHA DE PONTO daquela pessoa, na
+      // competência da batida, via openPayrollForEmployee (_ensurePayrollEmployeeOption garante
+      // a pessoa CERTA mesmo fora do filtro de posto). A ação de aprovar/recusar pendente fica
+      // no botão dedicado abaixo (acaoBox). #autz-deeplink #clicar-nome-abre-folha
+      const _folhaCtx = (p.mesComp && p.anoComp) ? `{mes:${p.mesComp},ano:${p.anoComp}}` : '{}';
+      const nomeLink = empCad
+        ? `<a href="javascript:void(0)" onclick="openPayrollForEmployee('${p.employeeId}', ${_folhaCtx})" style="color:var(--primary);text-decoration:none;border-bottom:1px dotted var(--primary)" title="Abrir a folha de ponto deste colaborador">${_nome}</a>`
+        : _nome;
       const acaoBox = isPend
         ? `<div style="margin-top:9px"><a href="${supUrl}" target="_blank" rel="noopener" style="display:inline-block;background:#16a34a;color:#fff;padding:7px 14px;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none" title="Abrir o app de Supervisor para decidir esta solicitação"><i class="fa-solid fa-gavel"></i> Aprovar / Recusar</a></div>`
         : '';

@@ -24810,6 +24810,15 @@ function _diaEmBrancoEhFalta(emp, mes, ano, dia, isWeekend, is12x36){
   const _lotDia = _lotacaoEm(emp, _ymdOv);
   const _escDia = (_lotDia && _lotDia.escala) || emp.escala || '5x2A';
   const _is12x36Dia = escalaFamilia(_escDia)==='12x36';
+  // FERIADO em modo FOLGA, em escala que respeita feriado (5x2/6x1/custom semanal) → NUNCA
+  // é falta — espelha o _getExpectedDay (que devolve folga no feriado). Sem isto, o feriado
+  // em branco (ex.: Corpus Christi numa quinta) era contado como falta no ponto manual /
+  // recálculo / Monitor, inflava faltasInjustificadas e derrubava o BP — divergindo da
+  // prévia. 12x36/ciclo (plantão) NÃO entram aqui (trabalham no feriado). #feriado-nao-falta
+  if(_escalaRespeitaFeriado(_escDia)){
+    const _ferDia=_ehFeriado(ano,mes,dia);
+    if(_ferDia && _ferDia.folga) return false;
+  }
   if(_ehFds6x1Livre(_escDia)){
     // 6x1 FDS LIVRE: Seg–Sex = trabalho. No fds, regra do par: trabalhou ALGUM
     // dia do fds → o que está em branco é FOLGA (sem falta). Não trabalhou nenhum

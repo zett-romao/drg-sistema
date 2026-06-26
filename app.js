@@ -14263,19 +14263,15 @@ async function recalcularFaltasCompetencia(mesArg, anoArg){
   }
   if(!confirm(`Recalcular FALTAS INJUSTIFICADAS de ${afetadas.length} folha(s) da competência ${MESES[mes]}/${ano} (${_compLabel(mes,ano)})?\n\n• Recalcula com base no estado ATUAL da folha (dias batidos vs escala).\n• Preserva 'faltasJustificadas' (lançadas manualmente).\n• Roda mesmo em folhas FECHADAS.\n• Útil quando o backfill inflou as faltas (12x36 sem âncora, escala antiga errada etc.).\n\nDepois disso, quem tiver 0 falta volta a receber Boa Permanência.\n\nContinuar?`)) return;
   let nAlteradas=0, nMantidas=0, nReduziu=0;
-  const compDias=_compDias(mes,ano);
   for(const p of afetadas){
     const emp=State.employees.find(e=>e.id===p.employeeId);
     if(!emp) continue;
-    const dias = Array.isArray(p.pontoManualDias)? p.pontoManualDias : [];
-    const fam=escalaFamilia(emp.escala||'5x2A'); const is12=fam==='12x36';
-    let novasFaltas=0;
-    for(const cd of compDias){
-      const has=dias.find(x=>x.dia===cd.dia);
-      if(has && has.entrada && has.saida) continue;  // dia batido → não conta
-      const isWk=cd.diaSem===0||cd.diaSem===6;
-      if(_diaEmBrancoEhFalta(emp,cd.mes,cd.ano,cd.dia,isWk,is12)) novasFaltas++;
-    }
+    // MESMO motor da prévia/espelho: _apuracaoPontoTotais aplica _repararBatidasDia.
+    // Antes este recálculo contava falta com check CRU (entrada&&saida) e DISCORDAVA da
+    // folha impressa — dia com 2ª batida presa no slot de intervalo (sábado curto / FDS
+    // livre) virava falta fantasma e inflava o nº salvo, deixando a pessoa "perdendo" BP
+    // mesmo sem falta real (caso Carla jun/2026). Motor único. #recalc-motor-unico
+    const novasFaltas = _apuracaoPontoTotais(emp, p).faltaQtd || 0;
     const antigas = p.faltasInjustificadas||0;
     if(novasFaltas === antigas){ nMantidas++; continue; }
     if(novasFaltas < antigas) nReduziu++;

@@ -917,13 +917,13 @@
                 <div class="benefit-card ocorr-card" id="atestados-card" style="border-left:3px solid #00897B">
                   <div class="benefit-label">
                     <i class="fa-solid fa-notes-medical" style="color:#00897B"></i>
-                    <span>Atestados / Abonos</span>
-                    <span class="benefit-platform">justifica e paga (ou abona) dias/horas</span>
+                    <span>Atestados / Abonos / Cobertura</span>
+                    <span class="benefit-platform">justifica, paga (ou abona) ou registra cobertura por colega</span>
                   </div>
                   <div id="atestados-resumo" style="font-size:12px;color:#00695C;margin-bottom:6px"></div>
                   <div id="atestados-lista"></div>
                   <button type="button" class="btn btn-outline" onclick="openAtestadoModal()" style="margin-top:8px;font-size:12px;color:#00897B;border-color:#00897B">
-                    <i class="fa-solid fa-plus"></i> Adicionar atestado / abono
+                    <i class="fa-solid fa-plus"></i> Adicionar atestado / abono / cobertura
                   </button>
                 </div>
 
@@ -5286,7 +5286,7 @@
 <div class="modal-overlay hidden" id="modal-atestado" onclick="closeModal('modal-atestado', event)">
   <div class="modal-dialog modal-md">
     <div class="modal-header">
-      <h3><i class="fa-solid fa-notes-medical" style="color:#00897B"></i> Atestado — <span id="atest-emp-nome"></span></h3>
+      <h3><i class="fa-solid fa-notes-medical" id="atest-titulo-ic" style="color:#00897B"></i> <span id="atest-titulo-txt">Atestado</span> — <span id="atest-emp-nome"></span></h3>
       <button class="modal-close" onclick="closeModal('modal-atestado')"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <div class="modal-body">
@@ -5348,14 +5348,14 @@
         <input type="text" id="atest-obs" placeholder="Ex.: consulta médica, repouso...">
       </div>
       <div class="form-group" id="atest-arquivo-wrap">
-        <label>Documento do atestado <span style="font-size:11px;color:#888" id="atest-arquivo-hint">(foto ou PDF)</span></label>
+        <label>Documento <span style="font-size:11px;color:#888" id="atest-arquivo-hint">(foto ou PDF)</span></label>
         <input type="file" id="atest-arquivo" accept=".pdf,image/jpeg,image/png,image/webp">
       </div>
       <div id="atest-arquivo-atual" style="font-size:12px;margin-top:4px;color:#00695C"></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal('modal-atestado')">Cancelar</button>
-      <button class="btn btn-primary" onclick="saveAtestado()"><i class="fa-solid fa-floppy-disk"></i> Salvar Atestado</button>
+      <button class="btn btn-primary" onclick="saveAtestado()"><i class="fa-solid fa-floppy-disk"></i> Salvar lançamento</button>
     </div>
   </div>
 </div>
@@ -7298,6 +7298,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260627h-cobertura-colega"></script>
+  <script src="app.js?v=20260627i-cobertura-nomenclatura"></script>
 </body>
 </html>

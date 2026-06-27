@@ -11188,12 +11188,17 @@ function onAtestadoCategoriaChange(){
     if(banner){ banner.style.background='#E0F2F1'; banner.style.color='#00695C'; }
     if(txt) txt.innerHTML='O atestado médico justifica e <strong>paga</strong> os dias/horas — abatidos das faltas/atrasos, sem desconto no salário. ⚠️ Conta como ausência → <strong>derruba a Boa Permanência</strong> do mês.';
   }
+  // Título do modal segue a categoria (nem todo lançamento é "atestado"). #cobertura-colega
+  const _titTxt=document.getElementById('atest-titulo-txt');
+  const _titIc =document.getElementById('atest-titulo-ic');
+  if(_titTxt) _titTxt.textContent = ehCobertura ? 'Cobertura por colega' : (ehAbono ? 'Abono / Justificativa' : 'Atestado médico');
+  if(_titIc){ _titIc.className = 'fa-solid '+(ehCobertura?'fa-people-arrows':(ehAbono?'fa-calendar-check':'fa-notes-medical')); _titIc.style.color = ehCobertura?'#1565C0':(ehAbono?'#2E7D32':'#00897B'); }
 }
 function _atestRecalc(){
   const info=document.getElementById('atest-dias-info'); if(!info) return;
   if(val('atest-tipo')==='horas'){ info.textContent=''; return; }
   const d=_diasEntreInclusivo(val('atest-inicio'), val('atest-fim')||val('atest-inicio'));
-  info.textContent = d>0 ? `${d} dia(s) de atestado` : '';
+  info.textContent = d>0 ? `${d} dia(s)` : '';
 }
 
 function openAtestadoModal(id){
@@ -11287,7 +11292,7 @@ async function saveAtestado(){
   } catch(e){
     toast('Erro ao salvar atestado: '+(e?.message||e),'error');
   } finally {
-    setBtnLoading(btn,false,'<i class="fa-solid fa-floppy-disk"></i> Salvar Atestado');
+    setBtnLoading(btn,false,'<i class="fa-solid fa-floppy-disk"></i> Salvar lançamento');
   }
 }
 

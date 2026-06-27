@@ -1580,6 +1580,17 @@ async function doLogin(event){
     await firebase.auth().signInWithCustomToken(r.customToken);
     await _aplicarTenantDoToken();   // MT-2: tenant autoritativo do token, antes de carregar dados. #multitenant
     const user=r.user;
+    // Trava de HORÁRIO DE ACESSO — bloqueia o login fora da janela permitida (Master nunca). #acesso-horario
+    if(user.role!=='master'){
+      let _reg=null;
+      try{ const _acc=(await DB.getDoc('configuracoes','acessoUsuarios'))||{}; _reg=_acc[user.username]||null; }catch(_){}
+      if(_reg && _reg.restrito && !_acessoPermitidoAgora(_reg)){
+        try{ Auth.log('LOGIN_BLOQUEADO_HORARIO', username, _acessoRegraLabel(_reg)); }catch(_){}
+        await firebase.auth().signOut().catch(()=>{});
+        errorMsg.textContent='Acesso permitido apenas '+_acessoRegraLabel(_reg)+'. Fora desse horário o sistema fica bloqueado.';
+        errorEl.classList.remove('hidden'); return;
+      }
+    }
     Auth.currentUser=user;
     Auth.saveSession(user);
     Auth.log('LOGIN_SUCCESS',username,`Perfil: ${roleLabel(user.role)} · servidor`);
@@ -1843,6 +1854,16 @@ function roleLabel(role){
 function applyUserSession(user){
   const _tbName=document.getElementById('topbar-user-name');
   if(_tbName) _tbName.textContent=user.username||'';
+  // Trava de HORÁRIO DE ACESSO: fixa a regra da sessão e, se já estiver FORA da janela
+  // (ex.: reload da página fora do horário), encerra a sessão. Master nunca é bloqueado.
+  // Vale p/ login novo E restauração de sessão (ambos passam por aqui). #acesso-horario
+  _acessoRegraSessao = (user.role==='master') ? null : ((State.acessoUsuarios||{})[user.username]||null);
+  if(_acessoRegraSessao && _acessoRegraSessao.restrito && !_acessoPermitidoAgora(_acessoRegraSessao)){
+    try{ Auth.log('ACESSO_BLOQUEADO_HORARIO', user.username, _acessoRegraLabel(_acessoRegraSessao)); }catch(_){}
+    alert('Acesso permitido apenas '+_acessoRegraLabel(_acessoRegraSessao)+'. Fora desse horário o sistema fica bloqueado.');
+    doLogout(); return;
+  }
+  _iniciarTimerAcesso();
   loadUserFoto();
   try{ _renderSomBtn(); }catch(_){}   // reflete o estado salvo do som de avisos. #som-avisos
   const mods=getUserModules(user);
@@ -1968,6 +1989,7 @@ function openUserModal(id=null){
     _renderUsrPostosCheckboxes(Array.isArray(u.postosResponsavel)?u.postosResponsavel:[]);
     setVal('usr-max-dispositivos', String(u.maxDispositivos||1));
     _renderJanelaGrid(u.janelaNotif);
+    _renderAcessoGrid((State.acessoUsuarios||{})[u.username]);   // trava de horário de acesso. #acesso-horario
     editNote.style.display='';
     _refreshUsrDeviceRow();
   } else {
@@ -1976,6 +1998,7 @@ function openUserModal(id=null){
     setVal('usr-role','operador'); setVal('usr-active','true');
     setVal('usr-max-dispositivos','1');
     _renderJanelaGrid(null);
+    _renderAcessoGrid(null);   // trava de horário de acesso. #acesso-horario
     editNote.style.display='none';
     _refreshUsrDeviceRow();
   }
@@ -2029,9 +2052,12 @@ async function resetarDispositivoUsuario(id){
 // Mostra o bloco de "Postos sob responsabilidade" só quando o perfil não é Master.
 function _toggleUsrPostosGroup(){
   const role=val('usr-role');
+  const isMaster = role==='master';
   const grp=document.getElementById('usr-postos-group');
-  if(!grp) return;
-  grp.style.display = (role==='master') ? 'none' : '';
+  if(grp) grp.style.display = isMaster ? 'none' : '';
+  // Master NUNCA tem trava de horário de acesso (p/ não se trancar de fora). #acesso-horario
+  const acc=document.getElementById('usr-acesso-group');
+  if(acc) acc.style.display = isMaster ? 'none' : '';
 }
 
 // Popula a grade de checkboxes de postos. `selecionados` é um array de razaoSocial.
@@ -2074,6 +2100,80 @@ function _janelaNormalize(j){
   return { ativa:!!j.ativa, dias, excecoes:{ folga:!!ex.folga, foraJanela:!!ex.foraJanela, falta:!!ex.falta } };
 }
 // Renderiza a grade dos 7 dias dentro do modal de usuário.
+// ============================================================
+// TRAVA DE HORÁRIO DE ACESSO ao sistema (por usuário; Master NUNCA é bloqueado)
+// ============================================================
+// Regra por usuário: { restrito, dias:[0..6] (0=Dom), inicio:"HH:MM", fim:"HH:MM" }.
+// JANELA ÚNICA p/ todos os dias marcados (decisão do dono 2026-06-26). Guardada no
+// Firestore em configuracoes/acessoUsuarios (FORA do Worker), chaveada por username.
+// Avaliada no LOGIN (doLogin), na restauração de sessão (applyUserSession) e por um
+// timer de 60s que DESLOGA quem sai da janela. Controle do lado cliente (usa o relógio
+// LOCAL do navegador) — app sem back-end próprio. #acesso-horario
+const _ACESSO_DIAS_LABEL=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+let _acessoRegraSessao=null, _acessoTimer=null;
+function _acessoRegraDefault(){ return { restrito:false, dias:[1,2,3,4,5], inicio:'07:00', fim:'18:00' }; }
+function _acessoPermitidoAgora(regra, d){
+  d = d || new Date();
+  if(!regra || !regra.restrito) return true;                 // sem restrição = acessa sempre
+  const dias = Array.isArray(regra.dias) ? regra.dias : [];
+  const wd = d.getDay(), now = d.getHours()*60 + d.getMinutes();
+  const hm = s => { const p=String(s||'').split(':'); return (+p[0]||0)*60+(+p[1]||0); };
+  const ini = hm(regra.inicio), fim = hm(regra.fim);
+  if(dias.includes(wd)){
+    if(fim>ini){ if(now>=ini && now<fim) return true; }
+    else if(fim<ini){ if(now>=ini) return true; }            // vira meia-noite: ini→24:00 conta hoje
+    else return true;                                        // ini==fim → dia inteiro liberado
+  }
+  if(fim<ini){ const prev=(wd+6)%7; if(dias.includes(prev) && now<fim) return true; }   // rabo da madrugada do dia anterior
+  return false;
+}
+function _acessoRegraLabel(regra){
+  if(!regra || !regra.restrito) return 'sem restrição';
+  const ds=(regra.dias||[]).slice().sort((a,b)=>a-b).map(i=>_ACESSO_DIAS_LABEL[i]).join(', ')||'(nenhum dia)';
+  return `${ds} das ${regra.inicio||'--:--'} às ${regra.fim||'--:--'}`;
+}
+function _renderAcessoGrid(regra){
+  const r = regra || _acessoRegraDefault();
+  const chk=document.getElementById('usr-acesso-restrito'); if(chk) chk.checked=!!r.restrito;
+  const box=document.getElementById('usr-acesso-dias');
+  if(box){
+    const sel=new Set(Array.isArray(r.dias)?r.dias:[]);
+    box.innerHTML=_ACESSO_DIAS_LABEL.map((lbl,i)=>`
+      <label class="checkbox-label" style="font-size:13px;display:flex;align-items:center;gap:5px;padding:4px 8px;cursor:pointer;border:1px solid var(--border);border-radius:6px">
+        <input type="checkbox" class="usr-acesso-dia" data-dia="${i}" ${sel.has(i)?'checked':''}> <span>${lbl}</span>
+      </label>`).join('');
+  }
+  setVal('usr-acesso-inicio', r.inicio||'07:00');
+  setVal('usr-acesso-fim', r.fim||'18:00');
+  _toggleAcessoConfig();
+}
+function _toggleAcessoConfig(){
+  const on=!!document.getElementById('usr-acesso-restrito')?.checked;
+  const box=document.getElementById('usr-acesso-config'); if(box) box.style.display=on?'':'none';
+}
+function _collectAcessoRegra(){
+  return {
+    restrito: !!document.getElementById('usr-acesso-restrito')?.checked,
+    dias: Array.from(document.querySelectorAll('.usr-acesso-dia:checked')).map(c=>+c.dataset.dia),
+    inicio: val('usr-acesso-inicio')||'07:00',
+    fim: val('usr-acesso-fim')||'18:00'
+  };
+}
+// Timer de sessão: desloga quem está logado quando a janela de acesso termina. Master ileso.
+function _iniciarTimerAcesso(){
+  if(_acessoTimer) return;
+  _acessoTimer=setInterval(()=>{
+    const u=Auth.currentUser;
+    if(!u || u.role==='master' || !_acessoRegraSessao || !_acessoRegraSessao.restrito) return;
+    if(!_acessoPermitidoAgora(_acessoRegraSessao)){
+      clearInterval(_acessoTimer); _acessoTimer=null;
+      try{ Auth.log('LOGOUT_FORA_HORARIO', u.username, _acessoRegraLabel(_acessoRegraSessao)); }catch(_){}
+      alert('Seu horário de acesso ao sistema terminou ('+_acessoRegraLabel(_acessoRegraSessao)+'). O sistema será encerrado.');
+      doLogout();
+    }
+  }, 60*1000);
+}
+
 function _renderJanelaGrid(j){
   const box=document.getElementById('usr-janela-grid'); if(!box) return;
   const jn=_janelaNormalize(j);
@@ -2188,6 +2288,17 @@ async function saveUser(){
       novaSenha: password||undefined,
     });
     if(!r || r.ok!==true){ toast((r&&r.erro)||'Não foi possível salvar o usuário.','error'); return; }
+    // Trava de HORÁRIO DE ACESSO — guardada no Firestore (fora do Worker), chaveada por
+    // username. Master nunca tem regra (removida se existir). Read-modify-write p/ não
+    // sobrescrever as regras dos outros usuários. #acesso-horario
+    try{
+      const _acc=(await DB.getDoc('configuracoes','acessoUsuarios'))||{};
+      const _reg=_collectAcessoRegra();
+      if(role==='master' || !_reg.restrito) delete _acc[username];
+      else _acc[username]=_reg;
+      State.acessoUsuarios=_acc;
+      await DB.saveDoc('configuracoes','acessoUsuarios',_acc,false);
+    }catch(e){ console.warn('salvar trava de horário de acesso', e); }
     Auth.log(id?'USER_UPDATED':'USER_CREATED',Auth.currentUser.username,`${id?'Editado':'Criado'}: ${username}`);
     toast(`Usuário "${username}" ${id?'atualizado':'criado'}.`);
     closeModal('modal-user');
@@ -29655,6 +29766,8 @@ async function _carregarDadosPosLogin(){
     State.perfis = perfisDocs;
     try{ State.feriadosConfig = (await DB.getDoc('configuracoes','feriados')) || {trabalha:[],extras:[]}; }  // #feriados
     catch(_){ State.feriadosConfig = {trabalha:[],extras:[]}; }
+    try{ State.acessoUsuarios = (await DB.getDoc('configuracoes','acessoUsuarios')) || {}; }   // trava de horário de acesso. #acesso-horario
+    catch(_){ State.acessoUsuarios = {}; }
   } catch(e){
     console.error('Erro ao carregar dados:', e);
     const msg = e && e.message ? e.message : String(e);

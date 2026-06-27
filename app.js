@@ -654,17 +654,23 @@ function renderFeriadosConfig(){
     sel.innerHTML=opts;
   }
   const ano=parseInt(sel.value)||anoAtual;
+  // Popula os selects de UF (estadual/municipal) uma vez. #feriados-escopo
+  ['feriado-est-uf','feriado-mun-uf'].forEach(id=>{ const s=document.getElementById(id); if(s && !s.options.length) s.innerHTML=_ufOptionsHTML(); });
   const lista=_feriadosDoAno(ano);
   const diaSemNome=['dom','seg','ter','qua','qui','sex','sáb'];
   body.innerHTML = lista.map(f=>{
     const [yy,mm,dd]=f.ymd.split('-');
     const ds=diaSemNome[new Date(+yy,+mm-1,+dd).getDay()];
     const folga=f.folga;
+    const escTag = f.oficial ? ''
+      : f.escopo==='estadual'  ? ` <span style="font-size:10px;color:#1565C0;font-weight:600">(estadual ${esc(f.uf||'?')})</span>`
+      : f.escopo==='municipal' ? ` <span style="font-size:10px;color:#6A1B9A;font-weight:600">(municipal ${esc(f.cidade||'?')}${f.uf?'/'+esc(f.uf):''})</span>`
+      : ` <span style="font-size:10px;color:#6A1B9A">(extra)</span>`;
     return `<div style="display:flex;align-items:center;gap:10px;padding:6px 4px;border-bottom:1px solid #f0f0f0;font-size:13px">
       <span style="min-width:96px;font-weight:600">${dd}/${mm} <span style="color:#999;font-weight:400">${ds}</span></span>
-      <span style="flex:1">${f.nome}${f.oficial?'':' <span style="font-size:10px;color:#6A1B9A">(extra)</span>'}</span>
+      <span style="flex:1">${esc(f.nome)}${escTag}</span>
       <button class="btn btn-sm" onclick="toggleFeriadoFolga('${f.ymd}')" style="font-size:11px;padding:3px 10px;background:${folga?'#E8F5E9':'#FFF3E0'};color:${folga?'#2E7D32':'#E65100'};border:1px solid ${folga?'#A5D6A7':'#FFCC80'}">${folga?'🏖️ Folga':'💼 Trabalha'}</button>
-      ${f.oficial?'':`<button class="btn btn-sm btn-outline" onclick="removerFeriadoExtra('${f.ymd}')" title="Remover" style="font-size:11px;padding:3px 8px;color:#c62828;border-color:#ef9a9a"><i class="fa-solid fa-trash"></i></button>`}
+      ${f.oficial?'':`<button class="btn btn-sm btn-outline" onclick="removerFeriadoExtra('${f._id||f.ymd}')" title="Remover" style="font-size:11px;padding:3px 8px;color:#c62828;border-color:#ef9a9a"><i class="fa-solid fa-trash"></i></button>`}
     </div>`;
   }).join('') || '<div style="color:#999;font-size:13px;padding:8px">Nenhum feriado neste ano.</div>';
 }
@@ -681,24 +687,44 @@ function toggleFeriadoFolga(ymd){
   _salvarFeriadosConfig(); renderFeriadosConfig();
   toast(i>=0?'Feriado: equipe FOLGA (sem VT/VR p/ 5x2 e 6x1).':'Feriado: equipe TRABALHA (VT/VR normal).','success');
 }
-function adicionarFeriadoExtra(){
-  const data=val('feriado-novo-data'), nome=(val('feriado-novo-nome')||'').trim();
-  if(!data){ toast('Escolha a data do feriado.','warning'); return; }
+const _UFS_BR=['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
+function _ufOptionsHTML(){ return '<option value="">UF</option>'+_UFS_BR.map(u=>`<option value="${u}">${u}</option>`).join(''); }
+// Feriado ESTADUAL: vale só p/ postos cujo estado (UF) bate. #feriados-escopo
+function adicionarFeriadoEstadual(){
+  const data=val('feriado-est-data'), nome=(val('feriado-est-nome')||'').trim(), uf=(val('feriado-est-uf')||'').toUpperCase();
+  if(!data){ toast('Escolha a data do feriado estadual.','warning'); return; }
   if(!nome){ toast('Informe o nome do feriado.','warning'); return; }
+  if(!uf){ toast('Escolha o estado (UF).','warning'); return; }
   const cfg=State.feriadosConfig=State.feriadosConfig||{trabalha:[],extras:[]};
   cfg.extras=cfg.extras||[];
-  if(cfg.extras.some(e=>e.ymd===data)){ toast('Já existe um feriado nessa data.','warning'); return; }
-  cfg.extras.push({ymd:data,nome});
-  setVal('feriado-novo-data',''); setVal('feriado-novo-nome','');
-  // pula o ano selecionado pro ano da data nova, se diferente
+  if(cfg.extras.some(e=>e.ymd===data && e.escopo==='estadual' && (e.uf||'').toUpperCase()===uf)){ toast(`Já existe um feriado estadual (${uf}) nessa data.`,'warning'); return; }
+  cfg.extras.push({ id:genId(), ymd:data, nome, escopo:'estadual', uf });
+  setVal('feriado-est-data',''); setVal('feriado-est-nome',''); setVal('feriado-est-uf','');
   const sel=document.getElementById('feriados-ano'); if(sel && data.slice(0,4)!==sel.value){ sel.value=data.slice(0,4); }
   _salvarFeriadosConfig(); renderFeriadosConfig();
-  toast('Feriado adicionado.','success');
+  toast(`Feriado estadual (${uf}) adicionado.`,'success');
 }
-function removerFeriadoExtra(ymd){
+// Feriado MUNICIPAL: vale só p/ postos cuja cidade (+UF) bate. #feriados-escopo
+function adicionarFeriadoMunicipal(){
+  const data=val('feriado-mun-data'), nome=(val('feriado-mun-nome')||'').trim(), cidade=(val('feriado-mun-cidade')||'').trim(), uf=(val('feriado-mun-uf')||'').toUpperCase();
+  if(!data){ toast('Escolha a data do feriado municipal.','warning'); return; }
+  if(!nome){ toast('Informe o nome do feriado.','warning'); return; }
+  if(!cidade){ toast('Informe a cidade.','warning'); return; }
+  if(!uf){ toast('Escolha o estado (UF) da cidade.','warning'); return; }
   const cfg=State.feriadosConfig=State.feriadosConfig||{trabalha:[],extras:[]};
-  cfg.extras=(cfg.extras||[]).filter(e=>e.ymd!==ymd);
-  cfg.trabalha=(cfg.trabalha||[]).filter(d=>d!==ymd);
+  cfg.extras=cfg.extras||[];
+  if(cfg.extras.some(e=>e.ymd===data && e.escopo==='municipal' && _normCidade(e.cidade)===_normCidade(cidade) && (e.uf||'').toUpperCase()===uf)){ toast(`Já existe um feriado municipal (${cidade}/${uf}) nessa data.`,'warning'); return; }
+  cfg.extras.push({ id:genId(), ymd:data, nome, escopo:'municipal', uf, cidade });
+  setVal('feriado-mun-data',''); setVal('feriado-mun-nome',''); setVal('feriado-mun-cidade',''); setVal('feriado-mun-uf','');
+  const sel=document.getElementById('feriados-ano'); if(sel && data.slice(0,4)!==sel.value){ sel.value=data.slice(0,4); }
+  _salvarFeriadosConfig(); renderFeriadosConfig();
+  toast(`Feriado municipal (${cidade}/${uf}) adicionado.`,'success');
+}
+// Remove por id (extras novos) ou por ymd (legado sem id).
+function removerFeriadoExtra(key){
+  const cfg=State.feriadosConfig=State.feriadosConfig||{trabalha:[],extras:[]};
+  cfg.extras=(cfg.extras||[]).filter(e=> e.id ? e.id!==key : e.ymd!==key);
+  cfg.trabalha=(cfg.trabalha||[]).filter(d=>d!==key);   // legado: key pode ser o ymd
   _salvarFeriadosConfig(); renderFeriadosConfig();
   toast('Feriado removido.','success');
 }
@@ -10040,7 +10066,7 @@ function openBeneficioDetalhe(empId, _ignEscopo, _ignIni, _ignFim){
     `<strong>Escala:</strong> ${escalaLabel(emp.escala||'5x2A')}${emp.turnoNoturno?' (Noturno)':''}<br>` +
     `<strong>Dias — VT:</strong> ${b.diasVt} &nbsp;|&nbsp; <strong>VR (jornada &gt; 6h):</strong> <span style="color:#E65100">${b.diasVr}</span>` +
     `${b.semanas>0?` &nbsp;|&nbsp; <strong>Semanas:</strong> ${b.semanas}`:''}` +
-    `${_escalaRespeitaFeriado(emp.escala)?_feriadosNotaPeriodo(dataIni,dataFim):''}<br>` +
+    `${_escalaRespeitaFeriado(emp.escala)?_feriadosNotaPeriodo(dataIni,dataFim,_locFeriadoEmp(emp)):''}<br>` +
     `<strong style="color:#00695C"><i class="fa-brands fa-pix"></i> Chave PIX:</strong> <span style="font-family:monospace">${pixDet}</span>` +
     usoInfo;
   const tbody = document.getElementById('benef-det-tbody');
@@ -11856,13 +11882,13 @@ function _diasUteisMes(mes, ano){
 // competência — base do DSR sobre verba variável (HE), Lei 605/49 + Súmula 172 TST.
 // Decisão do dono 2026-06-03: divisor inclui o SÁBADO. Feriado em dia útil conta como
 // descanso; domingo já é descanso (sem dupla contagem). #dsr-he
-function _diasUteisEDescansos(mes, ano){
+function _diasUteisEDescansos(mes, ano, loc){
   const sabUtil = _paramLegal('dsrHeBaseSabado')!==false;   // sábado entra no divisor? (param legal)
   let uteis = 0, descansos = 0;
   for(const cd of _compDias(mes, ano)){
     const ehDomingo = cd.diaSem===0;
     const ehSabado  = cd.diaSem===6;
-    const ehFeriado = !!_ehFeriado(cd.ano, cd.mes, cd.dia);
+    const ehFeriado = !!_ehFeriado(cd.ano, cd.mes, cd.dia, loc);
     if(ehDomingo || ehFeriado || (ehSabado && !sabUtil)) descansos++;
     else uteis++;
   }
@@ -12412,7 +12438,7 @@ function recalculate(){
     if(!isentoPonto && salBase>0 && (!_is12x36DSR || _dsrIncl12x36)){
       const _heBaseDSR = heValEnc + heCorridoValor;   // HE PAGA no mês (folha)
       if(_heBaseDSR>0){
-        const _ud=_diasUteisEDescansos(_mesR, _anoR);
+        const _ud=_diasUteisEDescansos(_mesR, _anoR, _locFeriadoEmp(emp));
         if(_ud.uteis>0 && _ud.descansos>0) dsrSobreHE = +(_heBaseDSR/_ud.uteis*_ud.descansos).toFixed(2);
       }
     }
@@ -24133,23 +24159,44 @@ function _feriadosNacionais(ano){
   _feriadosNacCache[ano]=lista;
   return lista;
 }
-// Lista completa do ano (nacionais + extras manuais da config), c/ flag folga. Pra UI.
+// Lista completa do ano (nacionais + extras manuais da config), c/ flag folga + escopo. Pra UI.
 function _feriadosDoAno(ano){
   const cfg=State.feriadosConfig||{};
   const trabalha=cfg.trabalha||[];
-  const out=_feriadosNacionais(ano).map(f=>({...f,oficial:true,folga:!trabalha.includes(f.ymd)}));
-  (cfg.extras||[]).forEach(e=>{ if(e.ymd && e.ymd.startsWith(ano+'-')) out.push({ymd:e.ymd,nome:e.nome||'Feriado',oficial:false,folga:!trabalha.includes(e.ymd)}); });
+  const out=_feriadosNacionais(ano).map(f=>({...f,oficial:true,folga:!trabalha.includes(f.ymd),escopo:'nacional'}));
+  (cfg.extras||[]).forEach(e=>{ if(e.ymd && e.ymd.startsWith(ano+'-')) out.push({ymd:e.ymd,nome:e.nome||'Feriado',oficial:false,folga:!trabalha.includes(e.ymd),escopo:e.escopo||'nacional',uf:e.uf||'',cidade:e.cidade||'',_id:e.id||''}); });
   return out.sort((a,b)=>a.ymd.localeCompare(b.ymd));
 }
-// É feriado? → {nome,folga,oficial} ou null. folga=padrão; vira false se a data está em cfg.trabalha.
-function _ehFeriado(ano,mes,dia){
+// ── Feriado estadual/municipal: aplica conforme a LOCALIZAÇÃO DO POSTO (decisão do dono
+//    2026-06-27). Extra sem escopo (legado) = nacional (vale p/ todos). #feriados-escopo ──
+function _normCidade(s){ return String(s||'').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,''); }
+// Localização (UF + cidade) do POSTO do colaborador.
+function _locFeriadoEmp(emp){
+  if(!emp) return {uf:'',cidade:''};
+  const p=(State.postos||[]).find(x=>x.razaoSocial===emp.posto);
+  return { uf:((p&&p.estado)||'').toUpperCase(), cidade:(p&&p.cidade)||'' };
+}
+// Um extra (estadual/municipal/nacional) vale p/ esta localização?
+function _feriadoExtraAplica(ex, loc){
+  const esc=ex&&ex.escopo;
+  if(!esc || esc==='nacional') return true;                  // legado/sem escopo = vale p/ todos
+  if(!loc) return false;                                     // sem localização não dá p/ aplicar estadual/municipal
+  const uf=(loc.uf||'').toUpperCase();
+  if(esc==='estadual')  return !!uf && uf===String(ex.uf||'').toUpperCase();
+  if(esc==='municipal') return !!loc.cidade && _normCidade(loc.cidade)===_normCidade(ex.cidade) && (!ex.uf || uf===String(ex.uf||'').toUpperCase());
+  return false;
+}
+// É feriado p/ ESTA localização? → {nome,folga,oficial,escopo} ou null. folga=padrão; vira
+// false se a data está em cfg.trabalha. `loc`={uf,cidade} do posto (omitido = só nacionais). #feriados-escopo
+function _ehFeriado(ano,mes,dia,loc){
   const ymd=`${ano}-${_zpF(mes)}-${_zpF(dia)}`;
   const cfg=State.feriadosConfig||{};
+  const trabalha=cfg.trabalha||[];
   const nac=_feriadosNacionais(ano).find(f=>f.ymd===ymd);
-  let nome=nac?nac.nome:null, oficial=!!nac;
-  if(!nome){ const ex=(cfg.extras||[]).find(e=>e.ymd===ymd); if(ex){ nome=ex.nome||'Feriado'; oficial=false; } }
-  if(!nome) return null;
-  return { nome, folga:!((cfg.trabalha||[]).includes(ymd)), oficial };
+  if(nac) return { nome:nac.nome, folga:!trabalha.includes(ymd), oficial:true, escopo:'nacional' };
+  const ex=(cfg.extras||[]).find(e=>e.ymd===ymd && _feriadoExtraAplica(e, loc));
+  if(ex) return { nome:ex.nome||'Feriado', folga:!trabalha.includes(ymd), oficial:false, escopo:ex.escopo||'nacional' };
+  return null;
 }
 // Respeitam feriado (folgam): 5x2, 6x1 e modelos customizados SEMANAIS (dia-a-dia, tipo
 // trabalho diurno). IGNORAM (trabalham no feriado): 12x36 e modelos de CICLO (plantão).
@@ -24171,7 +24218,7 @@ function _feriadosTrabalhadosNaFolha(emp, mes, ano, pontoDias){
   pontoDias.forEach(d=>{
     if(!d || !d.entrada || !d.saida) return;
     const cd=comp.find(c=>c.dia===d.dia); if(!cd) return;
-    const fer=_ehFeriado(cd.ano,cd.mes,cd.dia);
+    const fer=_ehFeriado(cd.ano,cd.mes,cd.dia,_locFeriadoEmp(emp));   // escopo por posto. #feriados-escopo
     if(!fer || !fer.folga) return;              // só feriado em modo folga (trabalha já paga normal)
     out.push({ dia:d.dia, nome:fer.nome, vr:_liqMin(d)>360, aprovado:!!d.feriadoBenefOk });
   });
@@ -24210,14 +24257,14 @@ async function aprovarFeriadoBenef(empId, mes, ano, dia, aprovar){
   }catch(e){ toast('Erro ao aprovar: '+(e.message||e),'error'); }
 }
 // Nota HTML dos feriados-folga num período [ini,fim] ISO (p/ visibilidade no modal de benefícios). #feriados
-function _feriadosNotaPeriodo(iniISO,fimISO){
+function _feriadosNotaPeriodo(iniISO,fimISO,loc){
   try{
     const ini=new Date(String(iniISO).substring(0,10)+'T12:00:00');
     const fim=new Date(String(fimISO).substring(0,10)+'T12:00:00');
     if(isNaN(ini.getTime())||isNaN(fim.getTime())) return '';
     const achados=[]; const cur=new Date(ini);
     while(cur<=fim){
-      const f=_ehFeriado(cur.getFullYear(),cur.getMonth()+1,cur.getDate());
+      const f=_ehFeriado(cur.getFullYear(),cur.getMonth()+1,cur.getDate(),loc);
       if(f && f.folga) achados.push(`${_zpF(cur.getDate())}/${_zpF(cur.getMonth()+1)} ${f.nome}`);
       cur.setDate(cur.getDate()+1);
     }
@@ -24280,7 +24327,7 @@ function _getExpectedDay(emp, mes, ano, dia, ignoreAdmissao){
   //     modelos custom ignoram. Override avulso (acima) vence o feriado. Se o feriado
   //     estiver marcado "trabalha" na config (_fer.folga=false), segue o fluxo normal. #feriados
   if(_escalaRespeitaFeriado(lot.escala)){
-    const _fer=_ehFeriado(ano,mes,dia);
+    const _fer=_ehFeriado(ano,mes,dia,_locFeriadoEmp(emp));   // escopo por posto (estadual/municipal). #feriados-escopo
     if(_fer && _fer.folga) return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'', feriado:_fer.nome };
   }
   // 1) Tenta escala salva. As escalas são gravadas keyed pela COMPETÊNCIA (26→25),
@@ -24945,7 +24992,7 @@ function _diaEmBrancoEhFalta(emp, mes, ano, dia, isWeekend, is12x36){
   // recálculo / Monitor, inflava faltasInjustificadas e derrubava o BP — divergindo da
   // prévia. 12x36/ciclo (plantão) NÃO entram aqui (trabalham no feriado). #feriado-nao-falta
   if(_escalaRespeitaFeriado(_escDia)){
-    const _ferDia=_ehFeriado(ano,mes,dia);
+    const _ferDia=_ehFeriado(ano,mes,dia,_locFeriadoEmp(emp));   // escopo por posto. #feriados-escopo
     if(_ferDia && _ferDia.folga) return false;
   }
   if(_ehFds6x1Livre(_escDia)){

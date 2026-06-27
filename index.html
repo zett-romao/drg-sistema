@@ -2688,18 +2688,27 @@
             <h3><i class="fa-solid fa-calendar-day" style="color:#6A1B9A"></i> Feriados Nacionais</h3>
           </div>
           <div class="card-body">
-            <p style="font-size:12px;color:#666;margin-bottom:10px">Calculados automaticamente para qualquer ano. Em <strong>5x2 e 6x1</strong>, no feriado o colaborador <strong>folga e não recebe VT/VR</strong>. <strong>12x36 ignora</strong> (trabalha normal). Marque <em>"Trabalha"</em> se a equipe vai trabalhar nesse feriado. Pode adicionar municipais/estaduais.</p>
+            <p style="font-size:12px;color:#666;margin-bottom:10px">Calculados automaticamente para qualquer ano. Em <strong>5x2 e 6x1</strong>, no feriado o colaborador <strong>folga e não recebe VT/VR</strong>. <strong>12x36 ignora</strong> (trabalha normal). Marque <em>"Trabalha"</em> se a equipe vai trabalhar nesse feriado. Feriados <strong>estaduais e municipais</strong> só valem para os postos da <strong>UF/cidade informada no cadastro do posto</strong>.</p>
             <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
               <label style="font-size:13px;font-weight:600">Ano:</label>
               <select id="feriados-ano" onchange="renderFeriadosConfig()" style="padding:5px 8px;border:1px solid var(--border);border-radius:5px"></select>
             </div>
             <div id="feriados-config-body"></div>
             <div style="margin-top:12px;padding-top:10px;border-top:1px dashed var(--border)">
-              <div style="font-size:12px;font-weight:600;margin-bottom:6px">Adicionar feriado (municipal/estadual):</div>
+              <div style="font-size:12px;font-weight:700;color:#1565C0;margin-bottom:6px"><i class="fa-solid fa-map"></i> Adicionar feriado ESTADUAL <span style="font-weight:400;color:#888">(vale só para os postos da UF)</span>:</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+                <input type="date" id="feriado-est-data" style="padding:5px 8px;border:1px solid var(--border);border-radius:5px">
+                <input type="text" id="feriado-est-nome" placeholder="Nome do feriado" style="flex:1;min-width:150px;padding:5px 8px;border:1px solid var(--border);border-radius:5px">
+                <select id="feriado-est-uf" style="padding:5px 8px;border:1px solid var(--border);border-radius:5px"></select>
+                <button class="btn btn-outline btn-sm" onclick="adicionarFeriadoEstadual()"><i class="fa-solid fa-plus"></i> Adicionar</button>
+              </div>
+              <div style="font-size:12px;font-weight:700;color:#6A1B9A;margin-bottom:6px"><i class="fa-solid fa-location-dot"></i> Adicionar feriado MUNICIPAL <span style="font-weight:400;color:#888">(vale só para os postos da cidade)</span>:</div>
               <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-                <input type="date" id="feriado-novo-data" style="padding:5px 8px;border:1px solid var(--border);border-radius:5px">
-                <input type="text" id="feriado-novo-nome" placeholder="Nome do feriado" style="flex:1;min-width:160px;padding:5px 8px;border:1px solid var(--border);border-radius:5px">
-                <button class="btn btn-outline btn-sm" onclick="adicionarFeriadoExtra()"><i class="fa-solid fa-plus"></i> Adicionar</button>
+                <input type="date" id="feriado-mun-data" style="padding:5px 8px;border:1px solid var(--border);border-radius:5px">
+                <input type="text" id="feriado-mun-nome" placeholder="Nome do feriado" style="flex:1;min-width:140px;padding:5px 8px;border:1px solid var(--border);border-radius:5px">
+                <input type="text" id="feriado-mun-cidade" placeholder="Cidade" style="min-width:130px;padding:5px 8px;border:1px solid var(--border);border-radius:5px">
+                <select id="feriado-mun-uf" style="padding:5px 8px;border:1px solid var(--border);border-radius:5px"></select>
+                <button class="btn btn-outline btn-sm" onclick="adicionarFeriadoMunicipal()"><i class="fa-solid fa-plus"></i> Adicionar</button>
               </div>
             </div>
           </div>
@@ -7280,6 +7289,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260627a-acesso-grade-dia"></script>
+  <script src="app.js?v=20260627b-feriados-escopo"></script>
 </body>
 </html>

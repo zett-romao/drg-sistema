@@ -5263,6 +5263,14 @@
           <thead><tr><th>Dia</th><th>Situação</th><th>Entrada</th><th>Início interv.</th><th>Fim interv.</th><th>Saída</th></tr></thead>
           <tbody id="esc-mod-dias"></tbody>
         </table>
+        <div id="esc-mod-fds-livre-wrap" style="margin-top:8px;padding:8px 10px;border:1px solid #90CAF9;background:#E3F2FD;border-radius:8px">
+          <label class="checkbox-label" style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px;margin:0">
+            <input type="checkbox" id="esc-mod-fds-livre" style="width:auto;margin-top:2px">
+            <span>⇄ <strong>Fim de semana livre</strong> (trabalha <strong>sábado OU domingo</strong>, sem ordem fixa)
+              <span style="display:block;font-size:11px;color:#1565C0">O sistema resolve pelo dia que a pessoa bater. Não gera falta se ela trabalhou um dos dois. Preencha o horário do fim de semana em <strong>sábado e/ou domingo</strong> (basta um).</span>
+            </span>
+          </label>
+        </div>
         <div style="font-size:11px;color:var(--text-muted);margin-top:6px"><i class="fa-solid fa-circle-info"></i> Em dias de folga os horários são ignorados. "Hora corrida" = trabalho sem intervalo. No ciclo, a <strong>data-âncora</strong> é uma data em que o "Dia 1" do ciclo aconteceu.</div>
       </div>
     </div>
@@ -7289,6 +7297,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260627c-feriado-lotacao-confirm-fix"></script>
+  <script src="app.js?v=20260627d-fds-livre-toggle"></script>
 </body>
 </html>

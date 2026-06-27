@@ -23912,16 +23912,21 @@ function _ehFds6x1Livre(escala){ return (typeof escala==='string' && escala.star
 function _modeloFdsLivre(escala){
   const m=_escalaModelo(escala);
   if(!m || m.tipo==='ciclo' || !Array.isArray(m.dias)) return null;
+  if(m.fdsLivre) return m;              // FLAG EXPLÍCITA do usuário (vence a detecção). #escala-custom-fdslivre
   const _t = d => !!(d && (d.tipo==='trabalho' || d.tipo==='corrido'));
   const sabTrab=_t(m.dias[6]), domTrab=_t(m.dias[0]);
-  if(sabTrab===domTrab) return null;   // nenhum, ou os DOIS, trabalham no fds → não é "livre"
+  if(sabTrab===domTrab) return null;   // (retrocompat) nenhum, ou os DOIS, trabalham → não é "livre"
   return m;
 }
 // Horário do dia de fim de semana trabalhado do modelo (aplicado ao dia que ela bater).
+// Prefere o sábado; se só o domingo tiver horário, usa o domingo. #escala-custom-fdslivre
 function _modeloFdsHorario(escala){
   const m=_modeloFdsLivre(escala); if(!m) return null;
   const _t = d => !!(d && (d.tipo==='trabalho' || d.tipo==='corrido'));
-  const w = _t(m.dias[6]) ? m.dias[6] : m.dias[0];
+  const sab=m.dias[6]||{}, dom=m.dias[0]||{};
+  const w = (_t(sab) && sab.entrada) ? sab
+          : (_t(dom) && dom.entrada) ? dom
+          : sab.entrada ? sab : (dom.entrada ? dom : sab);
   return { entrada:w.entrada||'', saida:w.saida||'', intIni:w.intIni||'', intFim:w.intFim||'' };
 }
 // ── 5x2 FIM DE SEMANA OPCIONAL (5x2LIV) ─────────────────────────────────────
@@ -28564,6 +28569,7 @@ function _escModDefSemanal(){
 function onEscModTipoChange(){
   const ciclo=val('esc-mod-tipo')==='ciclo';
   document.querySelectorAll('.esc-mod-ciclo-cfg').forEach(el=>el.style.display=ciclo?'':'none');
+  const flw=document.getElementById('esc-mod-fds-livre-wrap'); if(flw) flw.style.display=ciclo?'none':'';   // FDS livre só p/ semanal
   if(ciclo) _escModRegenCiclo(true);
   else _renderEscalaModeloDias('semanal', _escModDefSemanal());
 }
@@ -28589,6 +28595,8 @@ function novoEscalaModelo(){
   setVal('esc-mod-ciclo-inicio','');
   document.querySelectorAll('.esc-mod-ciclo-cfg').forEach(el=>el.style.display='none');
   _renderEscalaModeloDias('semanal', _escModDefSemanal());
+  { const fl=document.getElementById('esc-mod-fds-livre'); if(fl) fl.checked=false;
+    const flw=document.getElementById('esc-mod-fds-livre-wrap'); if(flw) flw.style.display=''; }
   document.getElementById('esc-mod-form-titulo').textContent='Novo modelo de escala';
   _escModMostrarForm();
 }
@@ -28603,6 +28611,9 @@ function editEscalaModelo(id){
   setVal('esc-mod-ciclo-inicio',m.dataInicio||'');
   document.querySelectorAll('.esc-mod-ciclo-cfg').forEach(el=>el.style.display=tipo==='ciclo'?'':'none');
   _renderEscalaModeloDias(tipo, m.dias||[]);
+  // Reflete o estado REAL: flag explícita OU detecção automática (1 dia de fds marcado). #escala-custom-fdslivre
+  { const fl=document.getElementById('esc-mod-fds-livre'); if(fl) fl.checked=(!!m.fdsLivre || !!_modeloFdsLivre('m_'+m.id));
+    const flw=document.getElementById('esc-mod-fds-livre-wrap'); if(flw) flw.style.display=(tipo==='ciclo')?'none':''; }
   document.getElementById('esc-mod-form-titulo').textContent='Editar modelo de escala';
   _escModMostrarForm();
 }
@@ -28620,10 +28631,16 @@ async function saveEscalaModelo(){
     dataInicio=val('esc-mod-ciclo-inicio');
     if(!dataInicio){ toast('Informe a data de início do ciclo (a âncora do plantão).','error'); return; }
   }
+  // FDS LIVRE (só semanal): trabalha sáb OU dom (livre). Precisa de horário num dos dois. #escala-custom-fdslivre
+  const fdsLivre = tipo==='semanal' && !!document.getElementById('esc-mod-fds-livre')?.checked;
+  if(fdsLivre){
+    const _t=d=>!!(d && (d.tipo==='trabalho'||d.tipo==='corrido') && d.entrada);
+    if(!_t(dias[6]) && !_t(dias[0])){ toast('Fim de semana livre: marque "Trabalho" e o horário em Sábado e/ou Domingo (basta um).','error'); return; }
+  }
   const id=val('esc-mod-id');
   const existente=id?(State.escalasModelos||[]).find(x=>x.id===id):null;
   const doc={
-    id:id||genId(), nome, tipo, dias, dataInicio,
+    id:id||genId(), nome, tipo, dias, dataInicio, fdsLivre,
     createdAt:existente?.createdAt||new Date().toISOString(),
     updatedAt:new Date().toISOString()
   };

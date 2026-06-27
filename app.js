@@ -11382,17 +11382,26 @@ function _saidaMinutos(saida, emp){
   if(!saida) return 0;
   const ini=timeToMinutes(saida.horarioSaida);
   if(ini===null) return parseInt(saida.minutos)||0; // retrocompat: saídas antigas só tinham `minutos`
-  let fim = saida.horarioRetorno
-    ? timeToMinutes(saida.horarioRetorno)
-    : timeToMinutes(emp && emp.horarioSaida);
+  // Jornada esperada DO DIA da saída (respeita sábado curto / escala / período de mudança).
+  // Antes usava SEMPRE o horário do CADASTRO (saída 17:00 + almoço 12–13) → inflava a "saída
+  // regular" no sábado curto (08–12 sem almoço): saiu 10h dava 6h em vez de 2h. #saida-dia-horario
+  let exp=null;
+  if(emp && saida.dia && saida.mes && saida.ano){
+    try{ exp=_getExpectedDay(emp, saida.mes, saida.ano, saida.dia); }catch(_){}
+  }
+  const trabDia = !!(exp && exp.tipo!=='folga' && exp.entrada);
+  const fimStr = saida.horarioRetorno ? saida.horarioRetorno
+               : ((trabDia && exp.saida) ? exp.saida : (emp && emp.horarioSaida));
+  let fim = timeToMinutes(fimStr);
   if(fim===null) return 0;
   if(fim<ini) fim+=24*60;
   let mins=fim-ini;
-  if(emp && emp.horarioRefIni && emp.horarioRefFim){
-    const rI=timeToMinutes(emp.horarioRefIni), rF=timeToMinutes(emp.horarioRefFim);
-    if(rI!==null && rF!==null && rF>rI){
-      mins-=Math.max(0, Math.min(fim,rF)-Math.max(ini,rI));
-    }
+  // Desconta o ALMOÇO DO DIA (sábado curto não tem). Sem jornada do dia, usa o do cadastro.
+  const rIniStr = trabDia ? exp.intIni : (emp && emp.horarioRefIni);
+  const rFimStr = trabDia ? exp.intFim : (emp && emp.horarioRefFim);
+  const rI=timeToMinutes(rIniStr), rF=timeToMinutes(rFimStr);
+  if(rI!==null && rF!==null && rF>rI){
+    mins-=Math.max(0, Math.min(fim,rF)-Math.max(ini,rI));
   }
   return Math.max(0, mins);
 }
@@ -11415,11 +11424,15 @@ function _saidaRecalcInfo(){
   const emp=State.employees.find(e=>e.id===val('saida-emp-id'));
   const hs=val('saida-hora-saida'), hr=val('saida-hora-retorno');
   if(!hs){ info.textContent=''; return; }
-  const m=_saidaMinutos({horarioSaida:hs, horarioRetorno:hr}, emp);
+  const _d=parseInt(val('saida-dia'))||0, _m=parseInt(val('saida-mes'))||currentMes(), _a=parseInt(val('saida-ano'))||currentAno();
+  const m=_saidaMinutos({horarioSaida:hs, horarioRetorno:hr, dia:_d, mes:_m, ano:_a}, emp);
+  // Saída regular DO DIA (sábado curto = 12:00, não 17:00 do cadastro). #saida-dia-horario
+  let _fimDia=(emp&&emp.horarioSaida)||'—';
+  if(_d){ try{ const _e=_getExpectedDay(emp,_m,_a,_d); if(_e && _e.tipo!=='folga' && _e.saida) _fimDia=_e.saida; }catch(_){} }
   if(m>0){
     info.innerHTML = hr
       ? `<i class="fa-solid fa-clock"></i> Ausência de <strong>${minutesToStr(m)}</strong>.`
-      : `<i class="fa-solid fa-clock"></i> Sem retorno — contado até a saída regular (${(emp&&emp.horarioSaida)||'—'}): <strong>${minutesToStr(m)}</strong>.`;
+      : `<i class="fa-solid fa-clock"></i> Sem retorno — contado até a saída regular (${_fimDia}): <strong>${minutesToStr(m)}</strong>.`;
   } else {
     info.innerHTML = `<span style="color:#c62828"><i class="fa-solid fa-triangle-exclamation"></i> Não dá pra calcular os minutos — confira os horários${emp&&!emp.horarioSaida?' e o horário contratual do colaborador':''}.</span>`;
   }
@@ -11499,7 +11512,8 @@ async function saveSaida(){
   if(!horarioRetorno && !(emp&&emp.horarioSaida)){
     toast('Sem horário de retorno e o colaborador não tem horário contratual cadastrado — informe o retorno.','error'); return;
   }
-  const minutos=_saidaMinutos({horarioSaida,horarioRetorno}, emp);
+  const _sMes=parseInt(val('saida-mes'))||currentMes(), _sAno=parseInt(val('saida-ano'))||currentAno();
+  const minutos=_saidaMinutos({horarioSaida,horarioRetorno,dia,mes:_sMes,ano:_sAno}, emp);
   if(minutos<=0){ toast('Os horários informados não geram tempo de ausência — confira.','error'); return; }
   const editId=val('saida-id');
   const id=editId||genId();

@@ -24170,11 +24170,15 @@ function _feriadosDoAno(ano){
 // ── Feriado estadual/municipal: aplica conforme a LOCALIZAÇÃO DO POSTO (decisão do dono
 //    2026-06-27). Extra sem escopo (legado) = nacional (vale p/ todos). #feriados-escopo ──
 function _normCidade(s){ return String(s||'').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,''); }
-// Localização (UF + cidade) do POSTO do colaborador.
-function _locFeriadoEmp(emp){
-  if(!emp) return {uf:'',cidade:''};
-  const p=(State.postos||[]).find(x=>x.razaoSocial===emp.posto);
+// Localização (UF + cidade) de um POSTO (por razão social).
+function _locFeriadoPosto(postoNome){
+  const p=(State.postos||[]).find(x=>x.razaoSocial===postoNome);
   return { uf:((p&&p.estado)||'').toUpperCase(), cidade:(p&&p.cidade)||'' };
+}
+// Localização p/ feriado: usa o POSTO DA LOTAÇÃO DO DIA quando informado (lotação-aware —
+// transferência entre cidades respeita o posto de cada dia), senão o posto ATUAL do colab.
+function _locFeriadoEmp(emp, postoNome){
+  return _locFeriadoPosto(postoNome || (emp&&emp.posto) || '');
 }
 // Um extra (estadual/municipal/nacional) vale p/ esta localização?
 function _feriadoExtraAplica(ex, loc){
@@ -24327,7 +24331,7 @@ function _getExpectedDay(emp, mes, ano, dia, ignoreAdmissao){
   //     modelos custom ignoram. Override avulso (acima) vence o feriado. Se o feriado
   //     estiver marcado "trabalha" na config (_fer.folga=false), segue o fluxo normal. #feriados
   if(_escalaRespeitaFeriado(lot.escala)){
-    const _fer=_ehFeriado(ano,mes,dia,_locFeriadoEmp(emp));   // escopo por posto (estadual/municipal). #feriados-escopo
+    const _fer=_ehFeriado(ano,mes,dia,_locFeriadoEmp(emp, lot&&lot.posto));   // escopo pelo posto da LOTAÇÃO do dia. #feriados-escopo
     if(_fer && _fer.folga) return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'', feriado:_fer.nome };
   }
   // 1) Tenta escala salva. As escalas são gravadas keyed pela COMPETÊNCIA (26→25),
@@ -24992,7 +24996,7 @@ function _diaEmBrancoEhFalta(emp, mes, ano, dia, isWeekend, is12x36){
   // recálculo / Monitor, inflava faltasInjustificadas e derrubava o BP — divergindo da
   // prévia. 12x36/ciclo (plantão) NÃO entram aqui (trabalham no feriado). #feriado-nao-falta
   if(_escalaRespeitaFeriado(_escDia)){
-    const _ferDia=_ehFeriado(ano,mes,dia,_locFeriadoEmp(emp));   // escopo por posto. #feriados-escopo
+    const _ferDia=_ehFeriado(ano,mes,dia,_locFeriadoEmp(emp, _lotDia&&_lotDia.posto));   // escopo pelo posto da LOTAÇÃO do dia. #feriados-escopo
     if(_ferDia && _ferDia.folga) return false;
   }
   if(_ehFds6x1Livre(_escDia)){
@@ -28475,12 +28479,16 @@ function renderEscalaModelosList(){
   const pode=_podeCriarEscalas();
   c.innerHTML=arr.map(m=>{
     const trab=(m.dias||[]).filter(d=>d.tipo==='trabalho'||d.tipo==='corrido').length;
+    // Selo "FDS Livre": modelo com EXATAMENTE um dia de fim de semana marcado = trabalha
+    // sáb OU dom (livre, resolve pela batida). #escala-custom-fdslivre
+    const fdsLivre=!!_modeloFdsLivre('m_'+m.id);
+    const selo=fdsLivre?` <span style="font-size:10px;font-weight:600;color:#1565C0;background:#E3F2FD;border:1px solid #90CAF9;border-radius:6px;padding:1px 6px" title="Trabalha sábado OU domingo, sem ordem fixa — resolve pelo dia batido; não falta se trabalhou um deles">⇄ FDS Livre</span>`:'';
     const acoes=pode?`
       <button class="btn-icon" onclick="editEscalaModelo('${m.id}')" title="Editar"><i class="fa-solid fa-pen" style="color:#1565C0"></i></button>
       <button class="btn-icon" onclick="confirmDeleteEscalaModelo('${m.id}')" title="Excluir"><i class="fa-solid fa-trash" style="color:#C62828"></i></button>`:'';
     return `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px">
       <i class="fa-solid fa-calendar-days" style="color:var(--primary)"></i>
-      <span style="flex:1"><strong>${m.nome||'—'}</strong> <span style="font-size:11px;color:var(--text-muted)">— ${trab} dia(s) de trabalho por semana</span></span>
+      <span style="flex:1"><strong>${esc(m.nome||'—')}</strong>${selo} <span style="font-size:11px;color:var(--text-muted)">— ${trab} dia(s) de trabalho por semana</span></span>
       ${acoes}
     </div>`;
   }).join('');

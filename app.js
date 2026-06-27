@@ -24302,7 +24302,44 @@ function _diaAposDemissao(emp, ano, mes, dia){
   return new Date(ano, mes-1, dia) > _dem;
 }
 
+// PERÍODO DE MUDANÇA ativo numa data (historicoEscalas) — override temporário de
+// escala/horário por um intervalo [de, ate]. Espelha a parte de período do antigo
+// escalaVigenteEm (que nunca era chamado). #periodo-aplica
+function _periodoEscalaEm(emp, ymd){
+  if(!emp || !ymd) return null;
+  const periodos=(emp.historicoEscalas||[]).slice().sort((a,b)=>(b.de||'').localeCompare(a.de||''));
+  for(const p of periodos){ const ini=p.de||'', fim=p.ate||'9999-12-31'; if(ini && ini<=ymd && ymd<=fim) return p; }
+  return null;
+}
+function _overrideAvulsoEm(emp, ymd){
+  return (emp && (emp.overridesHorario||[]).find(o => o && o.data === ymd)) || null;
+}
+// _getExpectedDay COM "Período de mudança" aplicado. Prioridade: DIA AVULSO (override) →
+// PERÍODO → cadastro. O dia avulso é mais específico (já tratado no base, vence). O período:
+// se troca a ESCALA, recomputa o trabalho/folga com ela; se traz HORÁRIO, redefine o horário
+// do dia de trabalho (4 campos; vazio = sem aquele marco, ex.: sem almoço). Quem não tem
+// período passa DIRETO pelo base — zero mudança de comportamento. Vale no motor único
+// (Monitor de Faltas, folha, projeções). #periodo-aplica
 function _getExpectedDay(emp, mes, ano, dia, ignoreAdmissao){
+  if(!emp) return _getExpectedDayBase(emp, mes, ano, dia, ignoreAdmissao);
+  const _ymdP = `${ano}-${String(mes).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
+  if(_overrideAvulsoEm(emp, _ymdP)) return _getExpectedDayBase(emp, mes, ano, dia, ignoreAdmissao);  // avulso vence o período
+  const per = _periodoEscalaEm(emp, _ymdP);
+  if(!per) return _getExpectedDayBase(emp, mes, ano, dia, ignoreAdmissao);
+  const base = per.escala
+    ? _getExpectedDayBase({ ...emp, escala: per.escala }, mes, ano, dia, ignoreAdmissao)
+    : _getExpectedDayBase(emp, mes, ano, dia, ignoreAdmissao);
+  if(base && base.tipo!=='folga' && per.horarioEntrada){
+    base.entrada = per.horarioEntrada;
+    base.saida   = per.horarioSaida || base.saida;
+    base.intIni  = per.horarioRefIni || '';
+    base.intFim  = per.horarioRefFim || '';
+    base.periodoMudanca = true;
+  }
+  return base;
+}
+
+function _getExpectedDayBase(emp, mes, ano, dia, ignoreAdmissao){
   if(!emp) return null;
   // Antes da admissão não havia jornada esperada (não era colaborador ainda) —
   // evita falta/HE fantasma em quem foi admitido no meio do período. Marca
@@ -25001,7 +25038,8 @@ function _diaEmBrancoEhFalta(emp, mes, ano, dia, isWeekend, is12x36){
   // senão a apuração de falta (emp.escala) e a projeção (lot.escala) discordam num
   // 6x1/12x36 com transferência. #audit-hoje-5
   const _lotDia = _lotacaoEm(emp, _ymdOv);
-  const _escDia = (_lotDia && _lotDia.escala) || emp.escala || '5x2A';
+  const _perDia = _periodoEscalaEm(emp, _ymdOv);   // período de mudança vence a lotação na escala. #periodo-aplica
+  const _escDia = (_perDia && _perDia.escala) || (_lotDia && _lotDia.escala) || emp.escala || '5x2A';
   const _is12x36Dia = escalaFamilia(_escDia)==='12x36';
   // FERIADO em modo FOLGA, em escala que respeita feriado (5x2/6x1/custom semanal) → NUNCA
   // é falta — espelha o _getExpectedDay (que devolve folga no feriado). Sem isto, o feriado

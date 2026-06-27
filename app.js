@@ -22233,6 +22233,28 @@ async function _monitorAbonar(empId){
     renderMonitorFaltas();
   }catch(e){ toast('Erro ao abonar: '+(e.message||e),'error'); }
 }
+// COBERTURA por colega: posto coberto → paga o dia, sem falta, MANTÉM a Boa Permanência
+// (categoria 'cobertura' — não conta como ausência). #cobertura-colega
+async function _monitorCobertura(empId){
+  if(!_mfPodeAgir()){ toast('Sem permissão.','error'); return; }
+  const emp=State.employees.find(e=>e.id===empId); if(!emp) return;
+  const quem=(prompt(`Cobertura por colega — ${emp.nome}\n\nO posto foi coberto: paga o dia, NÃO conta como falta e MANTÉM a Boa Permanência.\n\nQuem cobriu o posto hoje? (ou o motivo)`, '')||'').trim();
+  if(!quem){ toast('Cobertura cancelada — informe quem cobriu.','warning'); return; }
+  const ymd=_mfYmdHoje();
+  const comp=_competenciaDe(new Date());
+  const doc={ id:genId(), employeeId:empId, mes:comp.mes, ano:comp.ano, tipo:'dia',
+    categoria:'cobertura', abona:true,
+    dataInicio:ymd, dataFim:ymd, dias:1, horas:0, cid:'', observacao:'Cobertura por colega: '+quem,
+    arquivoUrl:'', arquivoNome:'', origem:'cobertura-monitor', status:'aprovado',
+    createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() };
+  try{
+    await DB.save('atestados', doc);
+    await _mfSalvarResolv(empId,'abonada');   // sai do Monitor (dia tratado)
+    Auth.log && Auth.log('FALTA_COBERTURA', null, `${emp.nome} — ${ymd} (cobriu: ${quem})`);
+    toast(`${emp.nome}: cobertura registrada — dia pago, sem falta, mantém a Boa Permanência.`,'success');
+    renderMonitorFaltas();
+  }catch(e){ toast('Erro ao registrar cobertura: '+(e.message||e),'error'); }
+}
 async function _monitorInformar(empId){
   if(!_mfPodeAgir()){ toast('Sem permissão.','error'); return; }
   const emp=State.employees.find(e=>e.id===empId); if(!emp) return;
@@ -22313,7 +22335,8 @@ async function renderMonitorFaltas(){
       const _respFer = !!f.respFeriado;
       const escCell = `<td style="padding:10px 8px;text-align:center;font-size:12px"><span style="background:${_respFer?'#FFEBEE':'#EEF2F7'};color:${_respFer?'#C62828':'#475569'};border-radius:8px;padding:2px 8px;font-weight:700">${esc(f.escala||f.escalaFam||'—')}</span>${_respFer?'<div style="font-size:9px;color:#C62828;margin-top:2px">deveria folgar no feriado</div>':''}</td>`;
       const acoes = `<div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end">
-          <button class="btn btn-sm" onclick="_monitorAbonar('${f.id}')" title="Justifica o dia — não desconta na folha" style="font-size:11px;padding:4px 9px;background:#E8F5E9;color:#2E7D32;border:1px solid #A5D6A7"><i class="fa-solid fa-circle-check"></i> Abonar</button>
+          <button class="btn btn-sm" onclick="_monitorAbonar('${f.id}')" title="Justifica o dia — não desconta na folha (mas derruba a Boa Permanência)" style="font-size:11px;padding:4px 9px;background:#E8F5E9;color:#2E7D32;border:1px solid #A5D6A7"><i class="fa-solid fa-circle-check"></i> Abonar</button>
+          <button class="btn btn-sm" onclick="_monitorCobertura('${f.id}')" title="Posto coberto por colega — paga o dia, sem falta, MANTÉM a Boa Permanência" style="font-size:11px;padding:4px 9px;background:#E3F2FD;color:#1565C0;border:1px solid #90CAF9"><i class="fa-solid fa-people-arrows"></i> Cobertura</button>
           <button class="btn btn-sm" onclick="_monitorInformar('${f.id}')" title="Falta injustificada (já é descontada na folha)" style="font-size:11px;padding:4px 9px;background:#FDECEA;color:#C62828;border:1px solid #EF9A9A"><i class="fa-solid fa-user-xmark"></i> Informar falta</button>
           <button class="btn btn-sm" onclick="_monitorAguardar('${f.id}')" title="Continuar monitorando" style="font-size:11px;padding:4px 9px;background:#FFF8E1;color:#E65100;border:1px solid #FFE082"><i class="fa-solid fa-hourglass-half"></i> Aguardar</button>
         </div>`;
@@ -22358,7 +22381,7 @@ async function renderMonitorFaltas(){
     ${corpo}
     ${atrasosBloco}
     <div style="margin-top:18px;padding:10px 14px;border-radius:8px;background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;font-size:13px">
-      <i class="fa-solid fa-circle-info"></i> <strong>Abonar</strong> = justifica o dia (cria abono de 1 dia, a folha não desconta). <strong>Informar falta</strong> = injustificada (o dia sem batida já é descontado na folha). <strong>Aguardar</strong> = continua monitorando. A lista atualiza ao abrir e a cada 5 min.
+      <i class="fa-solid fa-circle-info"></i> <strong>Abonar</strong> = justifica o dia (não desconta, mas <em>derruba a Boa Permanência</em>). <strong>Cobertura</strong> = posto coberto por colega (paga o dia, sem falta, <em>mantém a Boa Permanência</em>). <strong>Informar falta</strong> = injustificada (o dia sem batida já é descontado na folha). <strong>Aguardar</strong> = continua monitorando. A lista atualiza ao abrir e a cada 5 min.
     </div>`;
 }
 

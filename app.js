@@ -1584,7 +1584,7 @@ async function doLogin(event){
     if(user.role!=='master'){
       let _reg=null;
       try{ const _acc=(await DB.getDoc('configuracoes','acessoUsuarios'))||{}; _reg=_acc[user.username]||null; }catch(_){}
-      if(_reg && _reg.restrito && !_acessoPermitidoAgora(_reg)){
+      if(_reg && !_acessoPermitidoAgora(_reg)){
         try{ Auth.log('LOGIN_BLOQUEADO_HORARIO', username, _acessoRegraLabel(_reg)); }catch(_){}
         await firebase.auth().signOut().catch(()=>{});
         errorMsg.textContent='Acesso permitido apenas '+_acessoRegraLabel(_reg)+'. Fora desse horário o sistema fica bloqueado.';
@@ -1857,8 +1857,9 @@ function applyUserSession(user){
   // Trava de HORÁRIO DE ACESSO: fixa a regra da sessão e, se já estiver FORA da janela
   // (ex.: reload da página fora do horário), encerra a sessão. Master nunca é bloqueado.
   // Vale p/ login novo E restauração de sessão (ambos passam por aqui). #acesso-horario
-  _acessoRegraSessao = (user.role==='master') ? null : ((State.acessoUsuarios||{})[user.username]||null);
-  if(_acessoRegraSessao && _acessoRegraSessao.restrito && !_acessoPermitidoAgora(_acessoRegraSessao)){
+  const _ar = (user.role==='master') ? null : _acessoNormalize((State.acessoUsuarios||{})[user.username]);
+  _acessoRegraSessao = (_ar && _ar.ativa) ? _ar : null;
+  if(_acessoRegraSessao && !_acessoPermitidoAgora(_acessoRegraSessao)){
     try{ Auth.log('ACESSO_BLOQUEADO_HORARIO', user.username, _acessoRegraLabel(_acessoRegraSessao)); }catch(_){}
     alert('Acesso permitido apenas '+_acessoRegraLabel(_acessoRegraSessao)+'. Fora desse horário o sistema fica bloqueado.');
     doLogout(); return;
@@ -2103,68 +2104,84 @@ function _janelaNormalize(j){
 // ============================================================
 // TRAVA DE HORÁRIO DE ACESSO ao sistema (por usuário; Master NUNCA é bloqueado)
 // ============================================================
-// Regra por usuário: { restrito, dias:[0..6] (0=Dom), inicio:"HH:MM", fim:"HH:MM" }.
-// JANELA ÚNICA p/ todos os dias marcados (decisão do dono 2026-06-26). Guardada no
-// Firestore em configuracoes/acessoUsuarios (FORA do Worker), chaveada por username.
-// Avaliada no LOGIN (doLogin), na restauração de sessão (applyUserSession) e por um
-// timer de 60s que DESLOGA quem sai da janela. Controle do lado cliente (usa o relógio
-// LOCAL do navegador) — app sem back-end próprio. #acesso-horario
-const _ACESSO_DIAS_LABEL=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+// MESMO PADRÃO da Janela de notificações (decisão do dono 2026-06-27): grade por dia,
+// cada dia com seu próprio horário (on/ini/fim) — { ativa, dias:[{on,ini,fim}×7] }.
+// Reusa _inJanela (avalia a janela do dia + virada de meia-noite). Guardada no Firestore
+// em configuracoes/acessoUsuarios (FORA do Worker), chaveada por username. Avaliada no
+// LOGIN (doLogin), na restauração de sessão (applyUserSession) e por um timer de 60s que
+// DESLOGA quem sai da janela. Lado cliente (relógio LOCAL) — app sem back-end. #acesso-horario
 let _acessoRegraSessao=null, _acessoTimer=null;
-function _acessoRegraDefault(){ return { restrito:false, dias:[1,2,3,4,5], inicio:'07:00', fim:'18:00' }; }
-function _acessoPermitidoAgora(regra, d){
-  d = d || new Date();
-  if(!regra || !regra.restrito) return true;                 // sem restrição = acessa sempre
-  const dias = Array.isArray(regra.dias) ? regra.dias : [];
-  const wd = d.getDay(), now = d.getHours()*60 + d.getMinutes();
-  const hm = s => { const p=String(s||'').split(':'); return (+p[0]||0)*60+(+p[1]||0); };
-  const ini = hm(regra.inicio), fim = hm(regra.fim);
-  if(dias.includes(wd)){
-    if(fim>ini){ if(now>=ini && now<fim) return true; }
-    else if(fim<ini){ if(now>=ini) return true; }            // vira meia-noite: ini→24:00 conta hoje
-    else return true;                                        // ini==fim → dia inteiro liberado
+function _acessoDefault(){
+  return { ativa:false, dias: Array.from({length:7}, ()=>({ on:false, ini:'08:00', fim:'18:00' })) };
+}
+// Coage qualquer formato salvo p/ {ativa, dias:[{on,ini,fim}]}. Converte também o formato
+// ANTIGO de janela única ({restrito, dias:[0..6], inicio, fim}) p/ a grade por dia. #acesso-horario
+function _acessoNormalize(j){
+  const def=_acessoDefault();
+  if(!j || typeof j!=='object') return def;
+  const hm=(s,d)=>{ const m=/^(\d{1,2}):(\d{2})$/.exec(String(s||'')); if(!m) return d; return String(Math.min(23,+m[1])).padStart(2,'0')+':'+String(Math.min(59,+m[2])).padStart(2,'0'); };
+  // Formato antigo (janela única): dias é lista de números + tem inicio/fim/restrito.
+  if(Array.isArray(j.dias) && (j.dias.length===0 || typeof j.dias[0]==='number')){
+    const set=new Set(j.dias), ini=hm(j.inicio,'08:00'), fim=hm(j.fim,'18:00');
+    return { ativa:!!j.restrito, dias: Array.from({length:7},(_,i)=>({ on:set.has(i), ini, fim })) };
   }
-  if(fim<ini){ const prev=(wd+6)%7; if(dias.includes(prev) && now<fim) return true; }   // rabo da madrugada do dia anterior
-  return false;
+  const dias=[]; for(let i=0;i<7;i++){ const s=(Array.isArray(j.dias)&&j.dias[i])||{}; dias.push({ on:!!s.on, ini:hm(s.ini,'08:00'), fim:hm(s.fim,'18:00') }); }
+  return { ativa:!!j.ativa, dias };
+}
+function _acessoPermitidoAgora(regra, d){
+  const j=_acessoNormalize(regra);
+  if(!j.ativa) return true;                  // sem restrição = acessa sempre
+  return _inJanela(j, d||new Date());        // MESMA avaliação por dia da janela de notificações
 }
 function _acessoRegraLabel(regra){
-  if(!regra || !regra.restrito) return 'sem restrição';
-  const ds=(regra.dias||[]).slice().sort((a,b)=>a-b).map(i=>_ACESSO_DIAS_LABEL[i]).join(', ')||'(nenhum dia)';
-  return `${ds} das ${regra.inicio||'--:--'} às ${regra.fim||'--:--'}`;
+  const j=_acessoNormalize(regra);
+  if(!j.ativa) return 'sem restrição';
+  const parts=j.dias.map((x,i)=> x.on ? `${_JANELA_DIAS_LABEL[i]} ${x.ini}-${x.fim}` : null).filter(Boolean);
+  return parts.length ? parts.join(' · ') : '(nenhum dia liberado)';
 }
 function _renderAcessoGrid(regra){
-  const r = regra || _acessoRegraDefault();
-  const chk=document.getElementById('usr-acesso-restrito'); if(chk) chk.checked=!!r.restrito;
+  const j=_acessoNormalize(regra);
+  const chk=document.getElementById('usr-acesso-restrito'); if(chk) chk.checked=j.ativa;
   const box=document.getElementById('usr-acesso-dias');
   if(box){
-    const sel=new Set(Array.isArray(r.dias)?r.dias:[]);
-    box.innerHTML=_ACESSO_DIAS_LABEL.map((lbl,i)=>`
-      <label class="checkbox-label" style="font-size:13px;display:flex;align-items:center;gap:5px;padding:4px 8px;cursor:pointer;border:1px solid var(--border);border-radius:6px">
-        <input type="checkbox" class="usr-acesso-dia" data-dia="${i}" ${sel.has(i)?'checked':''}> <span>${lbl}</span>
-      </label>`).join('');
+    const dim=on=>on?'':'opacity:.4';
+    box.innerHTML = j.dias.map((d,i)=>`
+      <div class="usr-acesso-row" style="display:flex;align-items:center;gap:8px;padding:3px 0">
+        <label style="display:flex;align-items:center;gap:6px;min-width:78px;cursor:pointer;font-size:13px">
+          <input type="checkbox" class="usr-acesso-dia-on" data-dia="${i}" onchange="_acessoDiaToggle(this)" ${d.on?'checked':''}> <span>${_JANELA_DIAS_LABEL[i]}</span>
+        </label>
+        <input type="time" class="usr-acesso-dia-ini" data-dia="${i}" value="${d.ini}" ${d.on?'':'disabled'} style="padding:4px 6px;border:1px solid var(--border);border-radius:6px;font-size:13px;${dim(d.on)}">
+        <span class="usr-acesso-arrow" style="color:var(--text-muted);${dim(d.on)}">→</span>
+        <input type="time" class="usr-acesso-dia-fim" data-dia="${i}" value="${d.fim}" ${d.on?'':'disabled'} style="padding:4px 6px;border:1px solid var(--border);border-radius:6px;font-size:13px;${dim(d.on)}">
+        <span class="usr-acesso-naoacessa" style="font-size:11px;color:#c62828;font-weight:600;${d.on?'display:none':''}">não acessa</span>
+      </div>`).join('');
   }
-  setVal('usr-acesso-inicio', r.inicio||'07:00');
-  setVal('usr-acesso-fim', r.fim||'18:00');
   _toggleAcessoConfig();
+}
+function _acessoDiaToggle(cb){
+  const on=cb.checked, row=cb.closest('.usr-acesso-row'); if(!row) return;
+  row.querySelectorAll('input[type=time]').forEach(inp=>{ inp.disabled=!on; inp.style.opacity=on?'':'.4'; });
+  const arrow=row.querySelector('.usr-acesso-arrow'); if(arrow) arrow.style.opacity=on?'':'.4';
+  const nr=row.querySelector('.usr-acesso-naoacessa'); if(nr) nr.style.display=on?'none':'';
 }
 function _toggleAcessoConfig(){
   const on=!!document.getElementById('usr-acesso-restrito')?.checked;
   const box=document.getElementById('usr-acesso-config'); if(box) box.style.display=on?'':'none';
 }
 function _collectAcessoRegra(){
-  return {
-    restrito: !!document.getElementById('usr-acesso-restrito')?.checked,
-    dias: Array.from(document.querySelectorAll('.usr-acesso-dia:checked')).map(c=>+c.dataset.dia),
-    inicio: val('usr-acesso-inicio')||'07:00',
-    fim: val('usr-acesso-fim')||'18:00'
-  };
+  const j=_acessoDefault();
+  j.ativa=!!document.getElementById('usr-acesso-restrito')?.checked;
+  document.querySelectorAll('.usr-acesso-dia-on').forEach(c=>{ const i=+c.dataset.dia; if(j.dias[i]) j.dias[i].on=c.checked; });
+  document.querySelectorAll('.usr-acesso-dia-ini').forEach(c=>{ const i=+c.dataset.dia; if(j.dias[i]&&c.value) j.dias[i].ini=c.value; });
+  document.querySelectorAll('.usr-acesso-dia-fim').forEach(c=>{ const i=+c.dataset.dia; if(j.dias[i]&&c.value) j.dias[i].fim=c.value; });
+  return _acessoNormalize(j);
 }
 // Timer de sessão: desloga quem está logado quando a janela de acesso termina. Master ileso.
 function _iniciarTimerAcesso(){
   if(_acessoTimer) return;
   _acessoTimer=setInterval(()=>{
     const u=Auth.currentUser;
-    if(!u || u.role==='master' || !_acessoRegraSessao || !_acessoRegraSessao.restrito) return;
+    if(!u || u.role==='master' || !_acessoRegraSessao) return;
     if(!_acessoPermitidoAgora(_acessoRegraSessao)){
       clearInterval(_acessoTimer); _acessoTimer=null;
       try{ Auth.log('LOGOUT_FORA_HORARIO', u.username, _acessoRegraLabel(_acessoRegraSessao)); }catch(_){}
@@ -2294,7 +2311,7 @@ async function saveUser(){
     try{
       const _acc=(await DB.getDoc('configuracoes','acessoUsuarios'))||{};
       const _reg=_collectAcessoRegra();
-      if(role==='master' || !_reg.restrito) delete _acc[username];
+      if(role==='master' || !_reg.ativa) delete _acc[username];
       else _acc[username]=_reg;
       State.acessoUsuarios=_acc;
       await DB.saveDoc('configuracoes','acessoUsuarios',_acc,false);

@@ -4376,16 +4376,8 @@
           <input type="checkbox" id="usr-acesso-restrito" onchange="_toggleAcessoConfig()">
           <span>Restringir acesso por horário <em style="color:var(--text-muted);font-style:normal">(desmarcado = acessa a qualquer hora)</em></span>
         </label>
-        <div id="usr-acesso-config" style="display:none;padding:10px;border:1px solid var(--border);border-radius:6px;margin-top:4px">
-          <div style="font-size:12px;font-weight:600;color:#555;margin-bottom:6px">Dias permitidos:</div>
-          <div id="usr-acesso-dias" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <span style="font-size:13px;color:#555">Horário:</span>
-            <input type="time" id="usr-acesso-inicio" value="07:00" style="padding:5px 6px;border:1px solid var(--border);border-radius:6px;font-size:13px">
-            <span style="color:var(--text-muted)">→</span>
-            <input type="time" id="usr-acesso-fim" value="18:00" style="padding:5px 6px;border:1px solid var(--border);border-radius:6px;font-size:13px">
-            <span style="font-size:11px;color:var(--text-muted)">(vale para todos os dias marcados)</span>
-          </div>
+        <div id="usr-acesso-config" style="display:none;padding:8px;border:1px solid var(--border);border-radius:6px;margin-top:4px">
+          <div id="usr-acesso-dias"></div>
         </div>
       </div>
       <div class="form-group" id="usr-pass-group">
@@ -7288,6 +7280,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260626f-acesso-horario"></script>
+  <script src="app.js?v=20260627a-acesso-grade-dia"></script>
 </body>
 </html>

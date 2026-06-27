@@ -7891,12 +7891,16 @@ function initPayrollSection(){
   _populatePayrollEmployees();
   const mesEl=document.getElementById('payroll-mes');
   const anoEl=document.getElementById('payroll-ano');
-  // Default = COMPETÊNCIA VIGENTE (período em curso, 26→25). Antes usava
-  // currentMes() (mês de calendário) — confuso pq folha fecha dia 25.
-  // Só aplica o default se os campos estão vazios (preserva navegação).
+  // Default = COMPETÊNCIA VIGENTE (período em curso, 26→25). Ao ABRIR a seção SEMPRE
+  // volta pra vigente + TRAVA a navegação (pedido do dono 2026-06-27) — antes mantinha a
+  // competência da navegação anterior (ex.: reabria em Junho FECHADA). Os drill-downs
+  // (openPayrollForEmployee / _pagAbrirRevisao) setam a competência DEPOIS do showSection,
+  // então continuam abrindo na competência certa. #folha-abre-vigente
   const vig = competenciaVigente();
-  if(!mesEl.value) mesEl.value = vig.mes;
-  if(!anoEl.value) anoEl.value = vig.ano;
+  mesEl.value = vig.mes;
+  anoEl.value = vig.ano;
+  const _chkPass = document.getElementById('chk-consultar-passadas');
+  if(_chkPass){ _chkPass.checked = false; _togglePeriodoNavegacao(false); }
   const mes=parseInt(mesEl.value), ano=parseInt(anoEl.value);
   _autoFillPeriodoDates(mes,ano);
   _updatePainelFechamento(mes,ano);
@@ -12812,6 +12816,13 @@ function openPayrollForEmployee(empId, ctx){
   setTimeout(() => {
     if(ctx && ctx.mes) setVal('payroll-mes', String(ctx.mes));
     if(ctx && ctx.ano) setVal('payroll-ano', String(ctx.ano));
+    // A seção abre TRAVADA na vigente (#folha-abre-vigente). Se o drill-down aponta uma
+    // competência diferente, destrava a navegação p/ exibir/permitir esse período.
+    const _vgD=competenciaVigente();
+    if(ctx && ((ctx.mes && +ctx.mes!==_vgD.mes) || (ctx.ano && +ctx.ano!==_vgD.ano))){
+      const _cP=document.getElementById('chk-consultar-passadas');
+      if(_cP && !_cP.checked){ _cP.checked=true; _togglePeriodoNavegacao(true); }
+    }
     // REGRA DURA: clicar no nome (Monitor de Faltas, cards, drill-downs) SEMPRE abre a
     // folha DAQUELA pessoa. Garante a opção do colaborador-alvo no select ANTES de
     // selecionar (alinha filtro de posto, inclui demitido/afastado, injeta se faltar).

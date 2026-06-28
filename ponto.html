@@ -613,7 +613,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=39').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=40').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -1521,7 +1521,10 @@ function analisarHorario(prox, now){
   // #regra-ponto-he-atraso
   const diff = atualMin - timeToMin(esp);   // + = depois do previsto
   const ehHoraExtra = (prox === 'entrada') ? (diff < 0) : (diff > 0);
-  if(ehHoraExtra && Math.abs(diff) > TOLERANCIA_MIN){
+  // HE só conta acima da tolerância DIÁRIA de 10min (Súmula 366 TST) — resíduo ≤10min/dia
+  // NÃO é extra. Antes olhava só os 5min/batida → +6min virava HE indevida (mesma regra do
+  // gestor: _detectHEDivergencia precisaRevisao = totalMin > 10). #tolerancia-he
+  if(ehHoraExtra && Math.abs(diff) > TOLERANCIA_MIN && _somatoriaDivergenciaDia(prox, atualMin) > TOLERANCIA_DIA_MIN){
     return { tipo:'horaExtra', esperado:esp, diff,
       msg:`Você está fazendo HORA EXTRA (${Math.abs(diff)} min ${prox==='entrada'?'antes da entrada prevista':'após a saída prevista'}). A hora extra precisa da aprovação do supervisor: você bate agora, justifica, e ela fica PENDENTE — só entra na folha quando o supervisor liberar.` };
   }

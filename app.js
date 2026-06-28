@@ -2509,8 +2509,16 @@ function _lgpdEventosSensiveis(dias){
   return (Auth.accessLog||[]).filter(e=>_lgpdDiasDesde(e.timestamp)<=dias)
     .map(e=>{ const c=classifica(e.type,e.details); return c?{...e,...c}:null; }).filter(Boolean);
 }
+function _lgpdAttr(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+async function salvarLgpdConfig(){
+  if(Auth.currentUser?.role!=='master') return;
+  const cfg={ nome:val('lgpd-dpo-nome').trim(), oab:val('lgpd-dpo-oab').trim(), email:(val('lgpd-dpo-email')||'').trim(), telefone:val('lgpd-dpo-tel').trim() };
+  try{ await DB.saveDoc('configuracoes','lgpdConfig',cfg,false); State.lgpdConfig=cfg; Auth.log('LGPD_DPO_SALVO',Auth.currentUser.username,`Encarregado: ${cfg.nome||'—'}${cfg.oab?' ('+cfg.oab+')':''}`); toast('Encarregado (DPO) salvo.'); }
+  catch(e){ toast('Erro ao salvar o responsável.','error'); }
+}
 function renderLGPD(){
   const el=document.getElementById('lgpd-content'); if(!el) return;
+  const _cfg=State.lgpdConfig||{};
   const checks=_lgpdChecks();
   const nRisco=checks.filter(c=>c.nivel==='risco').length;
   const nAviso=checks.filter(c=>c.nivel==='aviso').length;
@@ -2532,11 +2540,26 @@ function renderLGPD(){
   el.innerHTML=`
   <div class="card"><div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
     <h3><i class="fa-solid fa-user-shield"></i> Conformidade LGPD</h3>
-    <button class="btn btn-outline" style="border-color:#2E7D32;color:#2E7D32" onclick="renderLGPD()"><i class="fa-solid fa-rotate"></i> Atualizar</button>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn btn-primary" onclick="gerarRelatorioLGPD()"><i class="fa-solid fa-file-lines"></i> Gerar relatório</button>
+      <button class="btn btn-outline" style="border-color:#2E7D32;color:#2E7D32" onclick="renderLGPD()"><i class="fa-solid fa-rotate"></i> Atualizar</button>
+    </div>
   </div>
   <div class="card-body">
     <div style="background:#FFF8E1;border:1px solid #FFE082;border-radius:8px;padding:10px 14px;font-size:12px;color:#795548;margin-bottom:14px">
       <i class="fa-solid fa-circle-info"></i> Ferramenta de apoio que aponta possíveis riscos de proteção de dados. <strong>Não substitui a orientação de um advogado/DPO.</strong>
+    </div>
+    <div style="border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:16px;background:#F8FAFF">
+      <div style="font-weight:700;font-size:14px;margin-bottom:8px"><i class="fa-solid fa-user-tie" style="color:var(--primary)"></i> Encarregado pelo Tratamento de Dados (DPO) / Advogado responsável</div>
+      <div class="form-row">
+        <div class="form-group"><label>Nome</label><input id="lgpd-dpo-nome" value="${_lgpdAttr(_cfg.nome)}" placeholder="Nome completo"></div>
+        <div class="form-group"><label>OAB</label><input id="lgpd-dpo-oab" value="${_lgpdAttr(_cfg.oab)}" placeholder="OAB/UF nº"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>E-mail</label><input id="lgpd-dpo-email" value="${_lgpdAttr(_cfg.email)}" placeholder="email@..."></div>
+        <div class="form-group"><label>Telefone</label><input id="lgpd-dpo-tel" value="${_lgpdAttr(_cfg.telefone)}" placeholder="(00) 00000-0000"></div>
+      </div>
+      <button class="btn btn-primary" onclick="salvarLgpdConfig()"><i class="fa-solid fa-floppy-disk"></i> Salvar responsável</button>
     </div>
     <div style="display:flex;align-items:center;gap:12px;background:#fff;border:1px solid var(--border);border-left:5px solid ${sg.cor};border-radius:8px;padding:12px 16px;margin-bottom:16px">
       <i class="fa-solid ${sg.ic}" style="font-size:26px;color:${sg.cor}"></i>
@@ -2553,6 +2576,39 @@ function renderLGPD(){
       <th style="padding:6px 8px;border:1px solid var(--border);text-align:left;font-size:11px">Detalhe</th>
     </tr></thead><tbody>${evtRows}</tbody></table></div>` : '<div class="empty-state small"><i class="fa-solid fa-circle-check"></i><p>Nenhum evento sensível nos últimos 90 dias.</p></div>'}
   </div></div>`;
+}
+
+function gerarRelatorioLGPD(){
+  const checks=_lgpdChecks();
+  const eventos=_lgpdEventosSensiveis(90);
+  const cfg=State.lgpdConfig||{};
+  const nRisco=checks.filter(c=>c.nivel==='risco').length, nAviso=checks.filter(c=>c.nivel==='aviso').length, nOk=checks.filter(c=>c.nivel==='ok').length;
+  const nivelLabel={ok:'OK',aviso:'ATENÇÃO',risco:'RISCO',info:'INFO'};
+  const nivelCor={ok:'#2E7D32',aviso:'#E65100',risco:'#c62828',info:'#1565C0'};
+  const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const checkRows=checks.map(c=>`<tr><td style="white-space:nowrap;color:${nivelCor[c.nivel]};font-weight:bold">${nivelLabel[c.nivel]}</td><td><strong>${esc(c.titulo)}</strong><br><span style="font-size:10px;color:#555">${esc(c.detalhe)}</span>${c.corrigir?`<br><span style="font-size:10px;color:#777">Corrigir: ${esc(c.corrigir)}</span>`:''}</td></tr>`).join('');
+  const evtRows=eventos.slice(0,400).map(e=>`<tr><td style="white-space:nowrap">${fmtDateTime(e.timestamp)}</td><td>${esc(e.cat)}</td><td>${esc(e.username||'—')}</td><td style="font-size:10px">${esc(e.details||'—')}</td></tr>`).join('');
+  const dpo=(cfg.nome||cfg.oab||cfg.email||cfg.telefone)
+    ? `<p style="margin:2px 0"><strong>${esc(cfg.nome||'—')}</strong>${cfg.oab?` — OAB ${esc(cfg.oab)}`:''}</p><p style="margin:2px 0;font-size:11px;color:#555">${esc(cfg.email||'')}${cfg.email&&cfg.telefone?' · ':''}${esc(cfg.telefone||'')}</p>`
+    : '<p style="color:#c62828;margin:2px 0">Encarregado (DPO) não informado.</p>';
+  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Relatório LGPD</title>
+<style>body{font-family:Arial,sans-serif;padding:20px;color:#212529;font-size:12px}h1{color:#1a3a6b;font-size:18px;margin:0 0 4px}h2{color:#1a3a6b;font-size:14px;border-bottom:2px solid #1a3a6b;padding-bottom:3px;margin:18px 0 8px}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #ccc;padding:5px 7px;text-align:left;vertical-align:top}th{background:#1a3a6b;color:#fff}.box{border:1px solid #ccc;border-radius:6px;padding:10px 12px;margin:8px 0}@media print{body{padding:6px}}</style>
+</head><body>
+<h1>${esc(_e('nomeEmpresa')||'Empresa')} — Relatório de Conformidade LGPD</h1>
+<p style="color:#666;font-size:11px">Gerado em ${new Date().toLocaleString('pt-BR')} por ${esc(Auth.currentUser?.username||'—')}</p>
+<div class="box"><strong>Encarregado pelo Tratamento de Dados (DPO) / Advogado responsável</strong>${dpo}</div>
+<div class="box"><strong>Resumo:</strong> ${checks.length} verificações — <span style="color:#2E7D32">${nOk} OK</span>, <span style="color:#E65100">${nAviso} atenção</span>, <span style="color:#c62828">${nRisco} risco</span>. Eventos sensíveis (90 dias): ${eventos.length}.</div>
+<h2>Verificações de conformidade</h2>
+<table><thead><tr><th style="width:80px">Nível</th><th>Item</th></tr></thead><tbody>${checkRows}</tbody></table>
+<h2>Eventos sensíveis — últimos 90 dias (${eventos.length})</h2>
+${eventos.length?`<table><thead><tr><th style="width:120px">Data/Hora</th><th>Categoria</th><th>Usuário</th><th>Detalhe</th></tr></thead><tbody>${evtRows}</tbody></table>`:'<p>Nenhum evento sensível no período.</p>'}
+<p style="margin-top:18px;font-size:10px;color:#888">Documento gerado pelo DRG-Kronos como ferramenta de apoio à conformidade. Não constitui parecer jurídico; recomenda-se a validação pelo Encarregado/DPO.</p>
+</body></html>`;
+  const win=window.open('','_blank','width=900,height=700');
+  if(!win){ toast('Permita pop-ups para gerar o relatório','error'); return; }
+  win.document.write(html + '<scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt>');
+  win.document.close();
+  try{ Auth.log('LGPD_RELATORIO',Auth.currentUser.username,`${checks.length} verificações · ${eventos.length} eventos`); }catch(_){}
 }
 
 function renderUsersTable(){
@@ -30413,6 +30469,8 @@ async function _carregarDadosPosLogin(){
     catch(_){ State.escalaConsulta = {}; }
     try{ State.permissoesUsuarios = (await DB.getDoc('configuracoes','permissoesUsuarios')) || {}; }   // permissões por usuário (substitui perfis). #perm-por-usuario
     catch(_){ State.permissoesUsuarios = {}; }
+    try{ State.lgpdConfig = (await DB.getDoc('configuracoes','lgpdConfig')) || {}; }   // encarregado/DPO. #lgpd
+    catch(_){ State.lgpdConfig = {}; }
   } catch(e){
     console.error('Erro ao carregar dados:', e);
     const msg = e && e.message ? e.message : String(e);

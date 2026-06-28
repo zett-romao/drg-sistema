@@ -6362,6 +6362,12 @@ function renderBirthdays(){
   }).join('');
 }
 
+// Clicar num alerta do dashboard leva à ÁREA que o originou (cadastro do colaborador na
+// aba certa, ou a seção). #alertas-clicaveis
+function _alertaAbrirEmp(empId, tab){
+  showSection('employees');
+  setTimeout(()=>{ try{ openEmployeeModal(empId); if(tab) setTimeout(()=>{ try{ switchTab(tab); }catch(_){} }, 300); }catch(_){} }, 60);
+}
 function renderAlerts(){
   const el=document.getElementById('dashboard-alerts'); if(!el) return;
   const hoje=new Date(); hoje.setHours(0,0,0,0);
@@ -6375,7 +6381,7 @@ function renderAlerts(){
       if(diff<=30){
         const cor=diff<0?'var(--danger)':diff<=7?'#E65100':'#F57F17';
         const txt=diff<0?`Vencido há ${Math.abs(diff)} dias`:diff===0?'Vence hoje':`Vence em ${diff} dias`;
-        alerts.push(`<div class="alert-item"><div class="alert-icon" style="color:${cor}"><i class="fa-solid fa-stethoscope"></i></div><div><div class="alert-nome">${e.nome}</div><div class="alert-sub">Exame médico — ${txt} (${formatDateBr(e.exameVencimento)})</div></div></div>`);
+        alerts.push(`<div class="alert-item" onclick="_alertaAbrirEmp('${e.id}','tab-contrato')" style="cursor:pointer"><div class="alert-icon" style="color:${cor}"><i class="fa-solid fa-stethoscope"></i></div><div><div class="alert-nome">${e.nome}</div><div class="alert-sub">Exame médico — ${txt} (${formatDateBr(e.exameVencimento)})</div></div></div>`);
       }
     }
     // Contrato de experiência — decisão chegando (até 10 dias) ou vencida
@@ -6386,21 +6392,21 @@ function renderAlerts(){
         const cor=venc?'var(--danger)':'#E65100';
         const oque=te.gate===1?'1º período (renovar ou reprovar)':'efetivação (efetivar ou reprovar)';
         const quando=venc?`vencida há ${Math.abs(te.diasParaGate)} dia(s)`:te.diasParaGate===0?'decidir hoje':`decidir em ${te.diasParaGate} dia(s)`;
-        alerts.push(`<div class="alert-item"><div class="alert-icon" style="color:${cor}"><i class="fa-solid fa-hourglass-half"></i></div><div><div class="alert-nome">${e.nome}</div><div class="alert-sub">Experiência — decisão da ${oque}: <strong>${quando}</strong> · <a href="javascript:void(0)" onclick="openEmployeeModal('${e.id}')" style="color:var(--primary);font-weight:600">abrir cadastro</a></div></div></div>`);
+        alerts.push(`<div class="alert-item" onclick="_alertaAbrirEmp('${e.id}','tab-contrato')" style="cursor:pointer"><div class="alert-icon" style="color:${cor}"><i class="fa-solid fa-hourglass-half"></i></div><div><div class="alert-nome">${e.nome}</div><div class="alert-sub">Experiência — decisão da ${oque}: <strong>${quando}</strong></div></div></div>`);
       }
     }
     // Renovação automática do 1º período por decurso — informe ao gestor
     if(e.expDecisao1PorDecurso && e.expDecisao1Data){
       const dd=Math.round((hoje-new Date(e.expDecisao1Data+'T00:00:00'))/86400000);
       if(dd>=0 && dd<=30){
-        alerts.push(`<div class="alert-item"><div class="alert-icon" style="color:#F57C00"><i class="fa-solid fa-clock"></i></div><div><div class="alert-nome">${e.nome}</div><div class="alert-sub" style="color:#E65100;font-weight:600">Renovado automaticamente p/ 2º período (${formatDateBr(e.expDecisao1Data)}) — sem decisão registrada</div></div></div>`);
+        alerts.push(`<div class="alert-item" onclick="_alertaAbrirEmp('${e.id}','tab-contrato')" style="cursor:pointer"><div class="alert-icon" style="color:#F57C00"><i class="fa-solid fa-clock"></i></div><div><div class="alert-nome">${e.nome}</div><div class="alert-sub" style="color:#E65100;font-weight:600">Renovado automaticamente p/ 2º período (${formatDateBr(e.expDecisao1Data)}) — sem decisão registrada</div></div></div>`);
       }
     }
     // Efetivado automaticamente por decurso de prazo — confira
     if(e.efetivadoPorDecurso && e.efetivadoEm){
       const dd=Math.round((hoje-new Date(e.efetivadoEm+'T00:00:00'))/86400000);
       if(dd>=0 && dd<=30){
-        alerts.push(`<div class="alert-item"><div class="alert-icon" style="color:var(--danger)"><i class="fa-solid fa-triangle-exclamation"></i></div><div><div class="alert-nome">${e.nome}</div><div class="alert-sub" style="color:#B71C1C;font-weight:600">Efetivado automaticamente por decurso de prazo (${formatDateBr(e.efetivadoEm)}) — confira o cadastro</div></div></div>`);
+        alerts.push(`<div class="alert-item" onclick="_alertaAbrirEmp('${e.id}','tab-contrato')" style="cursor:pointer"><div class="alert-icon" style="color:var(--danger)"><i class="fa-solid fa-triangle-exclamation"></i></div><div><div class="alert-nome">${e.nome}</div><div class="alert-sub" style="color:#B71C1C;font-weight:600">Efetivado automaticamente por decurso de prazo (${formatDateBr(e.efetivadoEm)}) — confira o cadastro</div></div></div>`);
       }
     }
     // Férias: verificar programadas futuras e pendentes
@@ -6425,14 +6431,14 @@ function renderAlerts(){
         const f=emAndamento[0];
         const fimDate=new Date(f.fim+'T00:00:00');
         const diasRestantes=Math.round((fimDate-hoje)/(1000*60*60*24));
-        alerts.push(`<div class="alert-item"><div class="alert-icon" style="color:#2E7D32"><i class="fa-solid fa-umbrella-beach"></i></div><div><div class="alert-nome">${e.nome}</div><div class="alert-sub" style="color:#2E7D32;font-weight:600">🏖️ Em férias agora — retorna em ${diasRestantes} dia(s) (${formatDateBr(f.fim)})</div></div></div>`);
+        alerts.push(`<div class="alert-item" onclick="_alertaAbrirEmp('${e.id}','tab-ferias')" style="cursor:pointer"><div class="alert-icon" style="color:#2E7D32"><i class="fa-solid fa-umbrella-beach"></i></div><div><div class="alert-nome">${e.nome}</div><div class="alert-sub" style="color:#2E7D32;font-weight:600">🏖️ Em férias agora — retorna em ${diasRestantes} dia(s) (${formatDateBr(f.fim)})</div></div></div>`);
       } else if(futuras.length>0){
         const prox=futuras[0];
         const iniDate=new Date(prox.inicio+'T00:00:00');
         const diasParaIniciar=Math.round((iniDate-hoje)/(1000*60*60*24));
         const cor=diasParaIniciar<=7?'#E65100':diasParaIniciar<=30?'#F57F17':'#5C6BC0';
         const txtInicio=diasParaIniciar===0?'Começa hoje':`Começa em ${diasParaIniciar} dia(s)`;
-        alerts.push(`<div class="alert-item"><div class="alert-icon" style="color:${cor}"><i class="fa-solid fa-umbrella-beach"></i></div><div><div class="alert-nome">${e.nome}</div><div class="alert-sub"><strong>${txtInicio}</strong> (${formatDateBr(prox.inicio)}) → término ${formatDateBr(prox.fim)} · ${prox.dias} dias</div></div></div>`);
+        alerts.push(`<div class="alert-item" onclick="_alertaAbrirEmp('${e.id}','tab-ferias')" style="cursor:pointer"><div class="alert-icon" style="color:${cor}"><i class="fa-solid fa-umbrella-beach"></i></div><div><div class="alert-nome">${e.nome}</div><div class="alert-sub"><strong>${txtInicio}</strong> (${formatDateBr(prox.inicio)}) → término ${formatDateBr(prox.fim)} · ${prox.dias} dias</div></div></div>`);
       } else if(mesesAdmitido>=11){
         // Sem férias programadas — verificar se já venceu o prazo
         const feriasPassadas=ferias.filter(f=>new Date(f.fim+'T00:00:00')<hoje).sort((a,b)=>b.fim.localeCompare(a.fim));
@@ -6442,7 +6448,7 @@ function renderAlerts(){
           const urgente=mesesSemFerias>=12;
           const cor=urgente?'var(--danger)':'#E65100';
           const txt=urgente?`⚠️ Férias VENCIDAS — ${mesesSemFerias} meses`:`Férias a vencer — ${mesesSemFerias} meses — programe agora`;
-          alerts.push(`<div class="alert-item"><div class="alert-icon" style="color:${cor}"><i class="fa-solid fa-umbrella-beach"></i></div><div><div class="alert-nome">${e.nome}</div><div class="alert-sub" style="color:${cor};font-weight:${urgente?'700':'400'}">${txt}</div></div><button class="btn-icon btn-primary-icon" onclick="showSection('employees');openEmployeeModal('${e.id}');setTimeout(()=>switchTab('tab-ferias'),300)" title="Programar férias"><i class="fa-solid fa-calendar-plus"></i></button></div></div>`);
+          alerts.push(`<div class="alert-item" onclick="_alertaAbrirEmp('${e.id}','tab-ferias')" style="cursor:pointer"><div class="alert-icon" style="color:${cor}"><i class="fa-solid fa-umbrella-beach"></i></div><div><div class="alert-nome">${e.nome}</div><div class="alert-sub" style="color:${cor};font-weight:${urgente?'700':'400'}">${txt}</div></div><button class="btn-icon btn-primary-icon" onclick="event.stopPropagation();_alertaAbrirEmp('${e.id}','tab-ferias')" title="Programar férias"><i class="fa-solid fa-calendar-plus"></i></button></div></div>`);
         }
       }
     }
@@ -6460,20 +6466,20 @@ function renderAlerts(){
       const labelParc=idx===1?'1ª Parcela':'2ª Parcela';
       if(dataPago){
         // Pago — alerta verde informativo
-        alerts.push(`<div class="alert-item"><div class="alert-icon" style="color:#2E7D32"><i class="fa-solid fa-circle-check"></i></div><div><div class="alert-nome">PLR — ${labelParc}</div><div class="alert-sub" style="color:#2E7D32;font-weight:600">✅ Paga em ${formatDateBr(dataPago)} — ${fmtMoney(valor)}</div></div></div>`);
+        alerts.push(`<div class="alert-item" onclick="openCctModal()" style="cursor:pointer"><div class="alert-icon" style="color:#2E7D32"><i class="fa-solid fa-circle-check"></i></div><div><div class="alert-nome">PLR — ${labelParc}</div><div class="alert-sub" style="color:#2E7D32;font-weight:600">✅ Paga em ${formatDateBr(dataPago)} — ${fmtMoney(valor)}</div></div></div>`);
       } else if(diff<0){
         // Vencida e não paga — vermelho
-        alerts.push(`<div class="alert-item"><div class="alert-icon" style="color:var(--danger)"><i class="fa-solid fa-triangle-exclamation"></i></div><div><div class="alert-nome">PLR — ${labelParc}</div><div class="alert-sub" style="color:var(--danger);font-weight:700">⚠️ VENCIDA há ${Math.abs(diff)} dia(s) — ${fmtMoney(valor)} (limite ${formatDateBr(dataLimite)})</div></div><button class="btn-icon btn-success-icon" onclick="markPlrPaid(${idx})" title="Marcar como paga"><i class="fa-solid fa-check"></i></button></div>`);
+        alerts.push(`<div class="alert-item" onclick="openCctModal()" style="cursor:pointer"><div class="alert-icon" style="color:var(--danger)"><i class="fa-solid fa-triangle-exclamation"></i></div><div><div class="alert-nome">PLR — ${labelParc}</div><div class="alert-sub" style="color:var(--danger);font-weight:700">⚠️ VENCIDA há ${Math.abs(diff)} dia(s) — ${fmtMoney(valor)} (limite ${formatDateBr(dataLimite)})</div></div><button class="btn-icon btn-success-icon" onclick="event.stopPropagation();markPlrPaid(${idx})" title="Marcar como paga"><i class="fa-solid fa-check"></i></button></div>`);
       } else if(diff<=plrAvisoDias){
         // Próxima do vencimento — amarelo
         const cor=diff<=7?'#E65100':'#F57F17';
         const txt=diff===0?'Vence HOJE':`Vence em ${diff} dia(s)`;
-        alerts.push(`<div class="alert-item"><div class="alert-icon" style="color:${cor}"><i class="fa-solid fa-gift"></i></div><div><div class="alert-nome">PLR — ${labelParc}</div><div class="alert-sub" style="color:${cor};font-weight:600">${txt} — ${fmtMoney(valor)} (limite ${formatDateBr(dataLimite)})</div></div><button class="btn-icon btn-success-icon" onclick="markPlrPaid(${idx})" title="Marcar como paga"><i class="fa-solid fa-check"></i></button></div>`);
+        alerts.push(`<div class="alert-item" onclick="openCctModal()" style="cursor:pointer"><div class="alert-icon" style="color:${cor}"><i class="fa-solid fa-gift"></i></div><div><div class="alert-nome">PLR — ${labelParc}</div><div class="alert-sub" style="color:${cor};font-weight:600">${txt} — ${fmtMoney(valor)} (limite ${formatDateBr(dataLimite)})</div></div><button class="btn-icon btn-success-icon" onclick="event.stopPropagation();markPlrPaid(${idx})" title="Marcar como paga"><i class="fa-solid fa-check"></i></button></div>`);
       }
     });
     // Aviso geral: PLR não configurada (parcela 1 sem data ou valor)
     if(!State.cct.plrP1DataLimite && !State.cct.plrP1Valor && !State.cct.plrP2DataLimite){
-      alerts.push(`<div class="alert-item"><div class="alert-icon" style="color:#5C6BC0"><i class="fa-solid fa-circle-info"></i></div><div><div class="alert-nome">PLR não configurado</div><div class="alert-sub">Acesse o menu de CCT para definir parcelas e datas do PLR.</div></div><button class="btn-icon" onclick="openCctModal()" title="Configurar"><i class="fa-solid fa-arrow-right"></i></button></div>`);
+      alerts.push(`<div class="alert-item" onclick="openCctModal()" style="cursor:pointer"><div class="alert-icon" style="color:#5C6BC0"><i class="fa-solid fa-circle-info"></i></div><div><div class="alert-nome">PLR não configurado</div><div class="alert-sub">Acesse o menu de CCT para definir parcelas e datas do PLR.</div></div><button class="btn-icon" onclick="event.stopPropagation();openCctModal()" title="Configurar"><i class="fa-solid fa-arrow-right"></i></button></div>`);
     }
   }
 
@@ -6492,7 +6498,7 @@ function renderAlerts(){
         ?`⚠️ ${_fmtHoras(exp.horas)} EXPIRARAM há ${Math.abs(dias)} dia(s) — pague como horas extras`
         :dias===0?`${_fmtHoras(exp.horas)} expiram HOJE — compense ou pague`
         :`${_fmtHoras(exp.horas)} expiram em ${dias} dia(s) (${formatDateBr(exp.validade)})`;
-      alerts.push(`<div class="alert-item"><div class="alert-icon" style="color:${cor}"><i class="fa-solid fa-piggy-bank"></i></div><div><div class="alert-nome">${e.nome}</div><div class="alert-sub" style="color:${cor};font-weight:${expirado?'700':'600'}">Banco de horas — ${txt}</div></div><button class="btn-icon" onclick="openBancoHoras('${e.id}')" title="Abrir banco de horas"><i class="fa-solid fa-arrow-right"></i></button></div>`);
+      alerts.push(`<div class="alert-item" onclick="openBancoHoras('${e.id}')" style="cursor:pointer"><div class="alert-icon" style="color:${cor}"><i class="fa-solid fa-piggy-bank"></i></div><div><div class="alert-nome">${e.nome}</div><div class="alert-sub" style="color:${cor};font-weight:${expirado?'700':'600'}">Banco de horas — ${txt}</div></div><button class="btn-icon" onclick="event.stopPropagation();openBancoHoras('${e.id}')" title="Abrir banco de horas"><i class="fa-solid fa-arrow-right"></i></button></div>`);
     });
   }
 
@@ -6510,7 +6516,7 @@ function renderAlerts(){
       ?`⚠️ Prazo de pagamento VENCIDO há ${Math.abs(dias)} dia(s) — risco de multa do art. 477`
       :dias===0?'Prazo de pagamento das verbas vence HOJE'
       :`Prazo de pagamento das verbas em ${dias} dia(s)`;
-    alerts.push(`<div class="alert-item"><div class="alert-icon" style="color:${cor}"><i class="fa-solid fa-file-circle-xmark"></i></div><div><div class="alert-nome">${emp.nome||'Rescisão'}</div><div class="alert-sub" style="color:${cor};font-weight:${dias<0?'700':'600'}">Rescisão — ${txt}</div></div><button class="btn-icon" onclick="openRescisaoModal('${r.id}')" title="Abrir rescisão"><i class="fa-solid fa-arrow-right"></i></button></div>`);
+    alerts.push(`<div class="alert-item" onclick="openRescisaoModal('${r.id}')" style="cursor:pointer"><div class="alert-icon" style="color:${cor}"><i class="fa-solid fa-file-circle-xmark"></i></div><div><div class="alert-nome">${emp.nome||'Rescisão'}</div><div class="alert-sub" style="color:${cor};font-weight:${dias<0?'700':'600'}">Rescisão — ${txt}</div></div><button class="btn-icon" onclick="event.stopPropagation();openRescisaoModal('${r.id}')" title="Abrir rescisão"><i class="fa-solid fa-arrow-right"></i></button></div>`);
   });
 
   // Contratos: reajuste nos próximos 30 dias
@@ -6527,7 +6533,7 @@ function renderAlerts(){
         if(diff<=30){
           const cor=diff<=7?'#C62828':'#E65100';
           const txt=diff===0?'Reajuste HOJE':diff<0?`Reajuste há ${Math.abs(diff)} dias`:`Reajuste em ${diff} dias`;
-          alerts.push(`<div class="alert-item"><div class="alert-icon" style="color:${cor}"><i class="fa-solid fa-file-signature"></i></div><div><div class="alert-nome">${c.postoNome||'Contrato'}</div><div class="alert-sub">Reajuste contratual — ${txt} (${formatDateBr(c.dataReajuste)})</div></div><button class="btn-icon" onclick="showSection('contratos')" title="Ver contratos" style="margin-left:auto"><i class="fa-solid fa-arrow-right"></i></button></div>`);
+          alerts.push(`<div class="alert-item" onclick="showSection('contratos')" style="cursor:pointer"><div class="alert-icon" style="color:${cor}"><i class="fa-solid fa-file-signature"></i></div><div><div class="alert-nome">${c.postoNome||'Contrato'}</div><div class="alert-sub">Reajuste contratual — ${txt} (${formatDateBr(c.dataReajuste)})</div></div><button class="btn-icon" onclick="event.stopPropagation();showSection('contratos')" title="Ver contratos" style="margin-left:auto"><i class="fa-solid fa-arrow-right"></i></button></div>`);
         }
       }
     });

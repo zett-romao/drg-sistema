@@ -2480,30 +2480,31 @@ function _lgpdChecks(){
   const log=(Auth.accessLog||[]);
   const sensiveis=['employees','contabilidade','pagamentos'];
   const ociosos=users.filter(u=>u.active!==false && u.role!=='master' && _lgpdDiasDesde(u.lastLogin)>90);
-  out.push(ociosos.length? {nivel:'risco',titulo:'Contas ativas sem acesso há +90 dias',detalhe:`${ociosos.length} conta(s): ${ociosos.map(u=>u.username).join(', ')}. Conta ociosa = porta aberta para dado pessoal.`,corrigir:'Inative ou remova quem não usa mais (Usuários & Acessos).'} : {nivel:'ok',titulo:'Sem contas ativas ociosas',detalhe:'Todas as contas ativas tiveram acesso nos últimos 90 dias.'});
+  out.push(ociosos.length? {nivel:'risco',titulo:'Contas ativas sem acesso há +90 dias',detalhe:`${ociosos.length} conta(s): ${ociosos.map(u=>u.username).join(', ')}. Conta ociosa = porta aberta para dado pessoal.`,corrigir:'Inative ou remova quem não usa mais (Usuários & Acessos).',nav:'users'} : {nivel:'ok',titulo:'Sem contas ativas ociosas',detalhe:'Todas as contas ativas tiveram acesso nos últimos 90 dias.',nav:'users'});
   const masters=users.filter(u=>u.role==='master'&&u.active!==false);
-  out.push(masters.length>2? {nivel:'aviso',titulo:'Muitos administradores Master',detalhe:`${masters.length} contas Master (acesso TOTAL a todos os dados): ${masters.map(u=>u.username).join(', ')}. A LGPD pede minimizar quem vê tudo.`,corrigir:'Dê permissões específicas por usuário em vez de Master.'} : {nivel:'ok',titulo:'Quantidade de Master adequada',detalhe:`${masters.length} administrador(es) Master.`});
+  out.push(masters.length>2? {nivel:'aviso',titulo:'Muitos administradores Master',detalhe:`${masters.length} contas Master (acesso TOTAL a todos os dados): ${masters.map(u=>u.username).join(', ')}. A LGPD pede minimizar quem vê tudo.`,corrigir:'Dê permissões específicas por usuário em vez de Master.',nav:'users'} : {nivel:'ok',titulo:'Quantidade de Master adequada',detalhe:`${masters.length} administrador(es) Master.`,nav:'users'});
   const semTrava=users.filter(u=>{ if(u.role==='master'||u.active===false) return false; const m=getUserModules(u); return sensiveis.some(k=>m[k]) && !_acessoNormalize(acesso[u.username]).ativa; });
-  out.push(semTrava.length? {nivel:'aviso',titulo:'Acesso a dados sensíveis sem trava de horário',detalhe:`${semTrava.length} usuário(s) veem cadastro/salário sem restrição de horário: ${semTrava.map(u=>u.username).join(', ')}.`,corrigir:'Ative a trava de horário de acesso no cadastro desses usuários.'} : {nivel:'ok',titulo:'Dados sensíveis com controle de horário',detalhe:'Quem vê dado sensível tem trava de horário (ou é Master).'});
+  out.push(semTrava.length? {nivel:'aviso',titulo:'Acesso a dados sensíveis sem trava de horário',detalhe:`${semTrava.length} usuário(s) veem cadastro/salário sem restrição de horário: ${semTrava.map(u=>u.username).join(', ')}.`,corrigir:'Ative a trava de horário de acesso no cadastro desses usuários.',nav:'users'} : {nivel:'ok',titulo:'Dados sensíveis com controle de horário',detalhe:'Quem vê dado sensível tem trava de horário (ou é Master).',nav:'users'});
   const demAntigos=emps.filter(e=>(e.status==='demitido'||e.status==='inativo') && e.dataDemissao && _lgpdDiasDesde(e.dataDemissao+'T00:00:00')>365*5);
-  out.push(demAntigos.length? {nivel:'aviso',titulo:'Ex-colaboradores retidos há +5 anos',detalhe:`${demAntigos.length} demitido(s) há mais de 5 anos com cadastro completo. Reveja a retenção (atenção: obrigações trabalhistas/fiscais podem exigir a guarda — confirme com o contador).`,corrigir:'Anonimize/elimine o que não tem mais finalidade ou base legal.'} : {nivel:'ok',titulo:'Retenção de ex-colaboradores ok',detalhe:'Nenhum demitido com +5 anos pendente de revisão.'});
+  out.push(demAntigos.length? {nivel:'aviso',titulo:'Ex-colaboradores retidos há +5 anos',detalhe:`${demAntigos.length} demitido(s) há mais de 5 anos com cadastro completo. Reveja a retenção (atenção: obrigações trabalhistas/fiscais podem exigir a guarda — confirme com o contador).`,corrigir:'Anonimize/elimine o que não tem mais finalidade ou base legal.',nav:'employees'} : {nivel:'ok',titulo:'Retenção de ex-colaboradores ok',detalhe:'Nenhum demitido com +5 anos pendente de revisão.',nav:'employees'});
   const veSaude=users.filter(u=>u.active!==false && (u.role==='master'||getUserModules(u).employees));
-  out.push({nivel:'info',titulo:'Acesso a dados de saúde (atestados)',detalhe:`${veSaude.length} usuário(s) podem ver atestados médicos (dado sensível especial): ${veSaude.map(u=>u.username).join(', ')}. Garanta que só quem precisa tenha esse acesso.`,corrigir:'Reveja quem acessa o cadastro do colaborador.'});
+  out.push({nivel:'info',titulo:'Acesso a dados de saúde (atestados)',detalhe:`${veSaude.length} usuário(s) podem ver atestados médicos (dado sensível especial): ${veSaude.map(u=>u.username).join(', ')}. Garanta que só quem precisa tenha esse acesso.`,corrigir:'Reveja quem acessa o cadastro do colaborador.',nav:'users'});
   const semEmail=users.filter(u=>u.active!==false && u.role!=='master' && !u.email);
-  out.push(semEmail.length? {nivel:'risco',titulo:'Usuários sem e-mail de login seguro',detalhe:`${semEmail.length}: ${semEmail.map(u=>u.username).join(', ')}.`,corrigir:'Cadastre e-mail (login seguro) para todos.'} : {nivel:'ok',titulo:'Login seguro configurado',detalhe:'Todos os usuários têm e-mail de login.'});
+  out.push(semEmail.length? {nivel:'risco',titulo:'Usuários sem e-mail de login seguro',detalhe:`${semEmail.length}: ${semEmail.map(u=>u.username).join(', ')}.`,corrigir:'Cadastre e-mail (login seguro) para todos.',nav:'users'} : {nivel:'ok',titulo:'Login seguro configurado',detalhe:'Todos os usuários têm e-mail de login.',nav:'users'});
   const logRec=log.filter(e=>_lgpdDiasDesde(e.timestamp)<=30).length;
-  out.push(logRec>0? {nivel:'ok',titulo:'Trilha de auditoria ativa',detalhe:`${logRec} evento(s) registrados nos últimos 30 dias — quem fez o quê está preservado.`} : {nivel:'aviso',titulo:'Pouca atividade no log',detalhe:'Sem registros recentes — confirme que a trilha de auditoria está sendo preservada.'});
+  out.push(logRec>0? {nivel:'ok',titulo:'Trilha de auditoria ativa',detalhe:`${logRec} evento(s) registrados nos últimos 30 dias — quem fez o quê está preservado.`,nav:'users'} : {nivel:'aviso',titulo:'Pouca atividade no log',detalhe:'Sem registros recentes — confirme que a trilha de auditoria está sendo preservada.',nav:'users'});
   return out;
 }
 function _lgpdEventosSensiveis(dias){
-  dias=dias||90;
+  dias=dias||186;
   const classifica=(t,det)=>{
     t=String(t||''); det=String(det||'');
-    if(/DELET|EXCLU|LIMP|REMOV|ANULAD|DESFEITO/i.test(t)) return {cat:'Exclusão / anulação de dados',cor:'#c62828',ic:'fa-trash'};
-    if(/EXPORT|CSV|BACKUP/i.test(t)) return {cat:'Exportação de dados',cor:'#E65100',ic:'fa-file-export'};
-    if(/USER_CREATED|USER_UPDATED|PERFIL/i.test(t) || /permiss|trava de hor/i.test(det)) return {cat:'Mudança de acesso / permissão',cor:'#6A1B9A',ic:'fa-user-shield'};
-    if(/RECIBO_ENVIADO|HOLERITE|FOLHA.*ENVI|ENVIAD/i.test(t)) return {cat:'Envio de dado pessoal',cor:'#1565C0',ic:'fa-paper-plane'};
-    if(/BLOQUEAD|FORA_HORARIO|NEGAD/i.test(t)) return {cat:'Acesso bloqueado / negado',cor:'#00838F',ic:'fa-ban'};
+    if(/EMPLOYEE|COLABORAD/i.test(t)) return {cat:/DELET|EXCLU|REMOV/i.test(t)?'Exclusão / anulação de dados':'Alteração de dado de colaborador',cor:'#c62828',ic:'fa-user-pen',nav:'employees'};
+    if(/DELET|EXCLU|LIMP|REMOV|ANULAD|DESFEITO/i.test(t)) return {cat:'Exclusão / anulação de dados',cor:'#c62828',ic:'fa-trash',nav:'users'};
+    if(/EXPORT|CSV|BACKUP/i.test(t)) return {cat:'Exportação de dados',cor:'#E65100',ic:'fa-file-export',nav:'users'};
+    if(/USER_CREATED|USER_UPDATED|PERFIL|LGPD/i.test(t) || /permiss|trava de hor/i.test(det)) return {cat:'Mudança de acesso / permissão',cor:'#6A1B9A',ic:'fa-user-shield',nav:'users'};
+    if(/RECIBO_ENVIADO|HOLERITE|FOLHA.*ENVI|ENVIAD/i.test(t)) return {cat:'Envio de dado pessoal',cor:'#1565C0',ic:'fa-paper-plane',nav:'recibos'};
+    if(/BLOQUEAD|FORA_HORARIO|NEGAD/i.test(t)) return {cat:'Acesso bloqueado / negado',cor:'#00838F',ic:'fa-ban',nav:'users'};
     return null;
   };
   return (Auth.accessLog||[]).filter(e=>_lgpdDiasDesde(e.timestamp)<=dias)
@@ -2525,15 +2526,15 @@ function renderLGPD(){
   const corNivel={ok:'#2E7D32',aviso:'#E65100',risco:'#c62828',info:'#1565C0'};
   const icNivel={ok:'fa-circle-check',aviso:'fa-triangle-exclamation',risco:'fa-circle-exclamation',info:'fa-circle-info'};
   const sg = nRisco? {txt:`${nRisco} risco(s)${nAviso?` e ${nAviso} aviso(s)`:''} a tratar`,cor:'#c62828',ic:'fa-circle-exclamation'} : nAviso? {txt:`${nAviso} aviso(s) a revisar`,cor:'#E65100',ic:'fa-triangle-exclamation'} : {txt:'Nenhum risco encontrado nas verificações',cor:'#2E7D32',ic:'fa-circle-check'};
-  const cardCheck=c=>`<div style="border:1px solid var(--border);border-left:4px solid ${corNivel[c.nivel]};border-radius:8px;padding:12px 14px;margin-bottom:8px;background:#fff">
-    <div style="display:flex;align-items:center;gap:8px;font-weight:700;color:${corNivel[c.nivel]};font-size:14px"><i class="fa-solid ${icNivel[c.nivel]}"></i> ${c.titulo}</div>
+  const cardCheck=c=>`<div ${c.nav?`onclick="showSection('${c.nav}')" style="cursor:pointer;`:'style="'}border:1px solid var(--border);border-left:4px solid ${corNivel[c.nivel]};border-radius:8px;padding:12px 14px;margin-bottom:8px;background:#fff" title="${c.nav?'Clique para abrir a tela e revisar/corrigir':''}">
+    <div style="display:flex;align-items:center;gap:8px;font-weight:700;color:${corNivel[c.nivel]};font-size:14px"><i class="fa-solid ${icNivel[c.nivel]}"></i> ${c.titulo}${c.nav?' <i class="fa-solid fa-arrow-right" style="font-size:11px;color:var(--text-muted);margin-left:auto"></i>':''}</div>
     <div style="font-size:13px;color:#444;margin-top:4px;line-height:1.5">${c.detalhe}</div>
     ${c.corrigir?`<div style="font-size:12px;color:var(--text-muted);margin-top:5px"><i class="fa-solid fa-screwdriver-wrench"></i> <strong>Como corrigir:</strong> ${c.corrigir}</div>`:''}
   </div>`;
-  const eventos=_lgpdEventosSensiveis(90);
-  const evtRows=eventos.slice(0,150).map(e=>`<tr>
+  const eventos=_lgpdEventosSensiveis(186);
+  const evtRows=eventos.slice(0,150).map(e=>`<tr ${e.nav?`onclick="showSection('${e.nav}')" style="cursor:pointer"`:''} title="${e.nav?'Clique para abrir a tela de origem':''}">
     <td style="padding:6px 8px;border:1px solid var(--border);white-space:nowrap;font-size:11px">${fmtDateTime(e.timestamp)}</td>
-    <td style="padding:6px 8px;border:1px solid var(--border);font-size:11px;color:${e.cor};font-weight:600;white-space:nowrap"><i class="fa-solid ${e.ic}"></i> ${e.cat}</td>
+    <td style="padding:6px 8px;border:1px solid var(--border);font-size:11px;color:${e.cor};font-weight:600;white-space:nowrap"><i class="fa-solid ${e.ic}"></i> ${e.cat}${e.nav?' <i class="fa-solid fa-arrow-right" style="font-size:9px;opacity:.6"></i>':''}</td>
     <td style="padding:6px 8px;border:1px solid var(--border);font-size:11px">${e.username||'—'}</td>
     <td style="padding:6px 8px;border:1px solid var(--border);font-size:11px">${e.details||'—'}</td>
   </tr>`).join('');
@@ -2567,20 +2568,20 @@ function renderLGPD(){
     </div>
     <h4 style="margin:0 0 8px;font-size:14px"><i class="fa-solid fa-list-check"></i> Verificações</h4>
     ${checks.map(cardCheck).join('')}
-    <h4 style="margin:18px 0 6px;font-size:14px"><i class="fa-solid fa-shield-halved"></i> Vigia de eventos sensíveis — últimos 90 dias (${eventos.length})</h4>
+    <h4 style="margin:18px 0 6px;font-size:14px"><i class="fa-solid fa-shield-halved"></i> Vigia de eventos sensíveis — últimos 6 meses (${eventos.length})</h4>
     <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Operações que tocam dado pessoal: exclusões, exportações, mudanças de acesso, envios e acessos bloqueados.</div>
     ${eventos.length? `<div style="overflow:auto;max-height:50vh"><table style="width:100%;border-collapse:collapse;min-width:640px"><thead><tr style="background:#F5F7FB">
       <th style="padding:6px 8px;border:1px solid var(--border);text-align:left;font-size:11px">Data/Hora</th>
       <th style="padding:6px 8px;border:1px solid var(--border);text-align:left;font-size:11px">Categoria</th>
       <th style="padding:6px 8px;border:1px solid var(--border);text-align:left;font-size:11px">Usuário</th>
       <th style="padding:6px 8px;border:1px solid var(--border);text-align:left;font-size:11px">Detalhe</th>
-    </tr></thead><tbody>${evtRows}</tbody></table></div>` : '<div class="empty-state small"><i class="fa-solid fa-circle-check"></i><p>Nenhum evento sensível nos últimos 90 dias.</p></div>'}
+    </tr></thead><tbody>${evtRows}</tbody></table></div>` : '<div class="empty-state small"><i class="fa-solid fa-circle-check"></i><p>Nenhum evento sensível nos últimos 6 meses.</p></div>'}
   </div></div>`;
 }
 
 function gerarRelatorioLGPD(){
   const checks=_lgpdChecks();
-  const eventos=_lgpdEventosSensiveis(90);
+  const eventos=_lgpdEventosSensiveis(186);
   const cfg=State.lgpdConfig||{};
   const nRisco=checks.filter(c=>c.nivel==='risco').length, nAviso=checks.filter(c=>c.nivel==='aviso').length, nOk=checks.filter(c=>c.nivel==='ok').length;
   const nivelLabel={ok:'OK',aviso:'ATENÇÃO',risco:'RISCO',info:'INFO'};
@@ -2600,7 +2601,7 @@ function gerarRelatorioLGPD(){
 <div class="box"><strong>Resumo:</strong> ${checks.length} verificações — <span style="color:#2E7D32">${nOk} OK</span>, <span style="color:#E65100">${nAviso} atenção</span>, <span style="color:#c62828">${nRisco} risco</span>. Eventos sensíveis (90 dias): ${eventos.length}.</div>
 <h2>Verificações de conformidade</h2>
 <table><thead><tr><th style="width:80px">Nível</th><th>Item</th></tr></thead><tbody>${checkRows}</tbody></table>
-<h2>Eventos sensíveis — últimos 90 dias (${eventos.length})</h2>
+<h2>Eventos sensíveis — últimos 6 meses (${eventos.length})</h2>
 ${eventos.length?`<table><thead><tr><th style="width:120px">Data/Hora</th><th>Categoria</th><th>Usuário</th><th>Detalhe</th></tr></thead><tbody>${evtRows}</tbody></table>`:'<p>Nenhum evento sensível no período.</p>'}
 <p style="margin-top:18px;font-size:10px;color:#888">Documento gerado pelo DRG-Kronos como ferramenta de apoio à conformidade. Não constitui parecer jurídico; recomenda-se a validação pelo Encarregado/DPO.</p>
 </body></html>`;
@@ -30452,8 +30453,11 @@ async function _carregarDadosPosLogin(){
     const [employees, payrolls, logs, cctDocs, perfisDocs] = await Promise.all([
       DB.getAll('employees'),
       DB.getAll('payrolls'),
-      DB.col('accessLog').orderBy('timestamp','desc').limit(200).get()
-        .then(s=>s.docs.map(d=>d.data())),
+      DB.col('accessLog')
+        .where('timestamp','>=', new Date(Date.now()-186*86400000).toISOString())   // retenção ~6 meses. #lgpd
+        .orderBy('timestamp','desc').limit(5000).get()
+        .then(s=>s.docs.map(d=>d.data()))
+        .catch(()=>DB.col('accessLog').orderBy('timestamp','desc').limit(2000).get().then(s=>s.docs.map(d=>d.data()))),
       DB.col('cct').get().then(s=>s.docs.map(d=>d.data())),
       DB.getAll('perfis')
     ]);

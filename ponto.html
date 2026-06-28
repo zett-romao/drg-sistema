@@ -613,7 +613,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=37').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=38').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -1129,7 +1129,7 @@ async function solicitarRefExtra(){
     await dbCol('payrolls').doc(id).set(record, { merge:true });
     currentPayroll = { ...(currentPayroll || {}), ...record };
     toast('✅ Pedido enviado ao supervisor.','success');
-    renderRefExtra();
+    renderRefExtra(); renderBotao();   // pula o intervalo → próximo botão vira Saída. #batida-automatica
   }catch(e){ console.error(e); toast('Erro ao enviar. Tente de novo.','error'); }
 }
 async function cancelarRefExtra(){
@@ -1147,7 +1147,7 @@ async function cancelarRefExtra(){
     await dbCol('payrolls').doc(id).set(record, { merge:true });
     currentPayroll = { ...(currentPayroll || {}), ...record };
     toast('Pedido cancelado.','');
-    renderRefExtra();
+    renderRefExtra(); renderBotao();   // volta a exigir o intervalo. #batida-automatica
   }catch(e){ console.error(e); toast('Erro ao cancelar.','error'); }
 }
 
@@ -1293,9 +1293,17 @@ function _escala12x36Hoje(emp){
   const escala = ((vig && vig.escala) || e.escala || '').toString().toLowerCase();
   return escala.indexOf('12x36') === 0;
 }
+// Já marcou "Trabalhei sem intervalo hoje" (refeição não rendida)? Então HOJE não há
+// intervalo → o app pede só entrada + saída (2 batidas). #batida-automatica
+function _refExtraHojeSolicitado(){
+  const j = _diaJornada();
+  const day = (currentPayroll && currentPayroll.pontoManualDias || []).find(d => d.dia === j.dia);
+  return !!(day && day.refExtra && (day.refExtra.status==='pendente' || day.refExtra.status==='aprovado'));
+}
 function _temRefeicaoHojeFn(emp){
   const e = emp || currentEmp || {};
   if(e.semRefeicao) return false;
+  if(_refExtraHojeSolicitado()) return false;   // marcou "trabalhei sem intervalo" → 2 batidas
   const j = _jornadaHoje(e);
   if(j.folga) return false;
   if(j.intIni) return true;

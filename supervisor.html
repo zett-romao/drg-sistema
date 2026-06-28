@@ -325,6 +325,58 @@ function _getDeviceId(){
   return window.__drgDevMem;
 }
 
+// ── TRAVA DE HORÁRIO DE ACESSO (por usuário; Master nunca). Espelha o gestor (app.js):
+//    lê configuracoes/acessoUsuarios (chaveado por username) e bloqueia fora da janela.
+//    Vale neste app de supervisor também — a trava é do USUÁRIO, não só do painel. #acesso-horario
+const _ACESSO_DIAS_SUP=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+let _acessoRegraSup=null, _acessoTimerSup=null;
+function _acessoNormalizeSup(j){
+  const def={ativa:false,dias:Array.from({length:7},()=>({on:false,ini:'08:00',fim:'18:00'}))};
+  if(!j||typeof j!=='object') return def;
+  const hm=(s,d)=>{const m=/^(\d{1,2}):(\d{2})$/.exec(String(s||''));if(!m)return d;return String(Math.min(23,+m[1])).padStart(2,'0')+':'+String(Math.min(59,+m[2])).padStart(2,'0');};
+  if(Array.isArray(j.dias)&&(j.dias.length===0||typeof j.dias[0]==='number')){
+    const set=new Set(j.dias),ini=hm(j.inicio,'08:00'),fim=hm(j.fim,'18:00');
+    return {ativa:!!j.restrito,dias:Array.from({length:7},(_,i)=>({on:set.has(i),ini,fim}))};
+  }
+  const dias=[];for(let i=0;i<7;i++){const s=(Array.isArray(j.dias)&&j.dias[i])||{};dias.push({on:!!s.on,ini:hm(s.ini,'08:00'),fim:hm(s.fim,'18:00')});}
+  return {ativa:!!j.ativa,dias};
+}
+function _inJanelaSup(j,d){
+  const wd=d.getDay(),now=d.getHours()*60+d.getMinutes();
+  const hm=s=>{const p=String(s||'').split(':');return (+p[0]||0)*60+(+p[1]||0);};
+  const dias=(j&&j.dias)||[],hoje=dias[wd];
+  if(hoje&&hoje.on){const ini=hm(hoje.ini),fim=hm(hoje.fim);if(fim>ini){if(now>=ini&&now<fim)return true;}else if(fim<ini){if(now>=ini)return true;}else return true;}
+  const prev=dias[(wd+6)%7];
+  if(prev&&prev.on){const ini=hm(prev.ini),fim=hm(prev.fim);if(fim<ini&&now<fim)return true;}
+  return false;
+}
+function _acessoPermitidoAgoraSup(regra,d){const j=_acessoNormalizeSup(regra);if(!j.ativa)return true;return _inJanelaSup(j,d||new Date());}
+function _acessoRegraLabelSup(regra){const j=_acessoNormalizeSup(regra);if(!j.ativa)return 'sem restrição';const parts=j.dias.map((x,i)=>x.on?`${_ACESSO_DIAS_SUP[i]} ${x.ini}-${x.fim}`:null).filter(Boolean);return parts.length?parts.join(' · '):'(nenhum dia liberado)';}
+async function _checarAcessoHorarioSup(){
+  if(!currentUser || currentUser.role==='master'){ _acessoRegraSup=null; return true; }
+  let reg=null;
+  try{ const snap=await dbCol('configuracoes').doc('acessoUsuarios').get(); const acc=(snap.exists?snap.data():{})||{}; reg=acc[currentUser.username]||null; }catch(_){}
+  _acessoRegraSup = _acessoNormalizeSup(reg).ativa ? reg : null;
+  return _acessoPermitidoAgoraSup(reg);
+}
+function _encerrarSessaoSup(){
+  if(_acessoTimerSup){ clearInterval(_acessoTimerSup); _acessoTimerSup=null; }
+  if(pedidosUnsub){ try{ pedidosUnsub(); }catch(_){} pedidosUnsub=null; }
+  sessionStorage.removeItem('drg_sup_user');
+  firebase.auth().signOut().catch(()=>{});
+  setTimeout(()=>location.reload(),100);
+}
+function _iniciarTimerAcessoSup(){
+  if(_acessoTimerSup) return;
+  _acessoTimerSup=setInterval(()=>{
+    if(!currentUser || currentUser.role==='master' || !_acessoRegraSup) return;
+    if(!_acessoPermitidoAgoraSup(_acessoRegraSup)){
+      alert('Seu horário de acesso ao sistema terminou ('+_acessoRegraLabelSup(_acessoRegraSup)+'). O app será encerrado.');
+      _encerrarSessaoSup();
+    }
+  }, 60*1000);
+}
+
 async function doLogin(){
   const user = (document.getElementById('login-user').value||'').trim();
   const pass = document.getElementById('login-pass').value||'';
@@ -354,6 +406,13 @@ async function doLogin(){
     // porque as Rules exigem usuario autenticado para acessar a colecao).
     await firebase.auth().signInWithCustomToken(data.customToken);
     currentUser = data.user;
+    // Trava de HORÁRIO DE ACESSO (por usuário; Master nunca) — bloqueia o login fora da janela. #acesso-horario
+    if(!(await _checarAcessoHorarioSup())){
+      try{ await firebase.auth().signOut(); }catch(_){}
+      errEl.textContent = 'Acesso permitido apenas '+_acessoRegraLabelSup(_acessoRegraSup)+'. Fora desse horário o app fica bloqueado.';
+      errEl.style.display='block';
+      return;
+    }
     // Resolve a permissao: master tem sempre; perfis (role 'p_<id>') tem que
     // ler o doc perfis/<id> e olhar modules.autorizarPonto.
     let podeAutorizar = (currentUser.role === 'master');
@@ -403,6 +462,7 @@ async function doLogin(){
     _refreshPushSubIfActive();
     await carregarEmployees();
     iniciarListenerPedidos();
+    _iniciarTimerAcessoSup();   // desloga ao fim da janela. #acesso-horario
   }catch(e){
     console.error('login', e);
     errEl.textContent = 'Erro: ' + (e.message||'desconhecido');
@@ -853,11 +913,19 @@ window.addEventListener('load', async () => {
       if(saved){
         try{
           currentUser = JSON.parse(saved);
+          // Trava de HORÁRIO DE ACESSO no reload (encerra se já estiver fora da janela). #acesso-horario
+          if(!(await _checarAcessoHorarioSup())){
+            alert('Acesso permitido apenas '+_acessoRegraLabelSup(_acessoRegraSup)+'. Fora desse horário o app fica bloqueado.');
+            sessionStorage.removeItem('drg_sup_user');
+            try{ await firebase.auth().signOut(); }catch(_){}
+            return;
+          }
           document.getElementById('login-screen').style.display='none';
           document.getElementById('app').style.display='flex';
           renderTopbar();
           await carregarEmployees();
           iniciarListenerPedidos();
+          _iniciarTimerAcessoSup();   // desloga ao fim da janela. #acesso-horario
           return;
         }catch(_){}
       }
@@ -874,7 +942,7 @@ setInterval(() => {
 if('serviceWorker' in navigator){
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('supervisor-sw.js?v=6').then(reg => {
+    navigator.serviceWorker.register('supervisor-sw.js?v=7').then(reg => {
       const checar = () => { try{ reg.update(); }catch(_){} };
       document.addEventListener('visibilitychange', () => {
         if(document.visibilityState === 'visible') checar();

@@ -1362,6 +1362,7 @@ function showSection(name){
   if(name==='estoque'        && !mods.estoque) return;
   if(name==='documentos'     && !mods.employees) return;
   if(name==='configuracoes'  && Auth.currentUser?.role!=='master') return;
+  if(name==='lgpd'           && Auth.currentUser?.role!=='master') return;
   // Empilha seção atual antes de trocar (exceto se estiver voltando ou já está na mesma seção)
   if(!_navigatingBack && State.currentSection && State.currentSection!==name){
     State.sectionHistory.push(State.currentSection);
@@ -1380,12 +1381,13 @@ function showSection(name){
   applyNavGroupsState(name);
   const titles={dashboard:'Dashboard',employees:'Colaboradores',payroll:'Folha de Ponto',escalas:'Escalas',
                 pagamentos:'Pagamentos',beneficios:'Benefícios',recibos:'Recibos Enviados',adiantamentos:'Adiantamentos',aprovacoes:'Aprovações de Pagamentos',decimoterceiro:'13º Salário',ferias:'Férias',rescisao:'Rescisões',
-                contabilidade:'Contabilidade',banco:'Banco de Dados',users:'Usuários & Acessos',postos:'Postos de Trabalho',rubricas:'Rubricas',contratos:'Contratos',comunicacao:'Comunicação',autorizacoes:'Autorizações de Ponto',monitorfaltas:'Monitor de Faltas',estoque:'Estoque / EPIs',documentos:'Documentos do Colaborador',configuracoes:'Configurações'};
+                contabilidade:'Contabilidade',banco:'Banco de Dados',users:'Usuários & Acessos',postos:'Postos de Trabalho',rubricas:'Rubricas',contratos:'Contratos',comunicacao:'Comunicação',autorizacoes:'Autorizações de Ponto',monitorfaltas:'Monitor de Faltas',estoque:'Estoque / EPIs',documentos:'Documentos do Colaborador',configuracoes:'Configurações',lgpd:'Conformidade LGPD'};
   document.getElementById('topbar-title').textContent=titles[name]||name;
   State.currentSection=name;
   if(name==='employees') setEmployeeFilter('ativo');   // abre sempre em ATIVOS (atalhos do dashboard sobrescrevem depois)
   if(name==='payroll')   { initPayrollSection(); renderPayrollStats(); }
   if(name==='escalas')   renderEscalas();
+  if(name==='lgpd')      renderLGPD();
   if(name==='dashboard') renderDashboard();
   if(name==='pagamentos')      {
     _applyModoBanners(State.empresa?.modoContabilidade||'ambas');
@@ -1950,6 +1952,8 @@ function applyUserSession(user){
   if(estoqueLi) estoqueLi.classList.toggle('hidden', !mods.estoque);
   const cfgLi=document.getElementById('nav-configuracoes-li');
   if(cfgLi) cfgLi.classList.toggle('hidden', user.role!=='master');
+  const lgpdLi=document.getElementById('nav-lgpd-li');
+  if(lgpdLi) lgpdLi.classList.toggle('hidden', user.role!=='master');   // #lgpd
   showSection('dashboard');
   updateDbInfo();
 }
@@ -2464,6 +2468,91 @@ async function saveUser(){
   } finally {
     setBtnLoading(btn,false,'<i class="fa-solid fa-floppy-disk"></i> Salvar');
   }
+}
+
+// ================= MONITOR DE LGPD (#lgpd) — ferramenta TÉCNICA de apoio; NÃO é parecer jurídico =================
+function _lgpdDiasDesde(ts){ if(!ts) return Infinity; try{ return Math.floor((Date.now()-new Date(ts).getTime())/86400000); }catch(_){ return Infinity; } }
+function _lgpdChecks(){
+  const out=[];
+  const users=(Auth.users||[]).filter(Boolean);
+  const emps=(State.employees||[]).filter(Boolean);
+  const acesso=State.acessoUsuarios||{};
+  const log=(Auth.accessLog||[]);
+  const sensiveis=['employees','contabilidade','pagamentos'];
+  const ociosos=users.filter(u=>u.active!==false && u.role!=='master' && _lgpdDiasDesde(u.lastLogin)>90);
+  out.push(ociosos.length? {nivel:'risco',titulo:'Contas ativas sem acesso há +90 dias',detalhe:`${ociosos.length} conta(s): ${ociosos.map(u=>u.username).join(', ')}. Conta ociosa = porta aberta para dado pessoal.`,corrigir:'Inative ou remova quem não usa mais (Usuários & Acessos).'} : {nivel:'ok',titulo:'Sem contas ativas ociosas',detalhe:'Todas as contas ativas tiveram acesso nos últimos 90 dias.'});
+  const masters=users.filter(u=>u.role==='master'&&u.active!==false);
+  out.push(masters.length>2? {nivel:'aviso',titulo:'Muitos administradores Master',detalhe:`${masters.length} contas Master (acesso TOTAL a todos os dados): ${masters.map(u=>u.username).join(', ')}. A LGPD pede minimizar quem vê tudo.`,corrigir:'Dê permissões específicas por usuário em vez de Master.'} : {nivel:'ok',titulo:'Quantidade de Master adequada',detalhe:`${masters.length} administrador(es) Master.`});
+  const semTrava=users.filter(u=>{ if(u.role==='master'||u.active===false) return false; const m=getUserModules(u); return sensiveis.some(k=>m[k]) && !_acessoNormalize(acesso[u.username]).ativa; });
+  out.push(semTrava.length? {nivel:'aviso',titulo:'Acesso a dados sensíveis sem trava de horário',detalhe:`${semTrava.length} usuário(s) veem cadastro/salário sem restrição de horário: ${semTrava.map(u=>u.username).join(', ')}.`,corrigir:'Ative a trava de horário de acesso no cadastro desses usuários.'} : {nivel:'ok',titulo:'Dados sensíveis com controle de horário',detalhe:'Quem vê dado sensível tem trava de horário (ou é Master).'});
+  const demAntigos=emps.filter(e=>(e.status==='demitido'||e.status==='inativo') && e.dataDemissao && _lgpdDiasDesde(e.dataDemissao+'T00:00:00')>365*5);
+  out.push(demAntigos.length? {nivel:'aviso',titulo:'Ex-colaboradores retidos há +5 anos',detalhe:`${demAntigos.length} demitido(s) há mais de 5 anos com cadastro completo. Reveja a retenção (atenção: obrigações trabalhistas/fiscais podem exigir a guarda — confirme com o contador).`,corrigir:'Anonimize/elimine o que não tem mais finalidade ou base legal.'} : {nivel:'ok',titulo:'Retenção de ex-colaboradores ok',detalhe:'Nenhum demitido com +5 anos pendente de revisão.'});
+  const veSaude=users.filter(u=>u.active!==false && (u.role==='master'||getUserModules(u).employees));
+  out.push({nivel:'info',titulo:'Acesso a dados de saúde (atestados)',detalhe:`${veSaude.length} usuário(s) podem ver atestados médicos (dado sensível especial): ${veSaude.map(u=>u.username).join(', ')}. Garanta que só quem precisa tenha esse acesso.`,corrigir:'Reveja quem acessa o cadastro do colaborador.'});
+  const semEmail=users.filter(u=>u.active!==false && u.role!=='master' && !u.email);
+  out.push(semEmail.length? {nivel:'risco',titulo:'Usuários sem e-mail de login seguro',detalhe:`${semEmail.length}: ${semEmail.map(u=>u.username).join(', ')}.`,corrigir:'Cadastre e-mail (login seguro) para todos.'} : {nivel:'ok',titulo:'Login seguro configurado',detalhe:'Todos os usuários têm e-mail de login.'});
+  const logRec=log.filter(e=>_lgpdDiasDesde(e.timestamp)<=30).length;
+  out.push(logRec>0? {nivel:'ok',titulo:'Trilha de auditoria ativa',detalhe:`${logRec} evento(s) registrados nos últimos 30 dias — quem fez o quê está preservado.`} : {nivel:'aviso',titulo:'Pouca atividade no log',detalhe:'Sem registros recentes — confirme que a trilha de auditoria está sendo preservada.'});
+  return out;
+}
+function _lgpdEventosSensiveis(dias){
+  dias=dias||90;
+  const classifica=(t,det)=>{
+    t=String(t||''); det=String(det||'');
+    if(/DELET|EXCLU|LIMP|REMOV|ANULAD|DESFEITO/i.test(t)) return {cat:'Exclusão / anulação de dados',cor:'#c62828',ic:'fa-trash'};
+    if(/EXPORT|CSV|BACKUP/i.test(t)) return {cat:'Exportação de dados',cor:'#E65100',ic:'fa-file-export'};
+    if(/USER_CREATED|USER_UPDATED|PERFIL/i.test(t) || /permiss|trava de hor/i.test(det)) return {cat:'Mudança de acesso / permissão',cor:'#6A1B9A',ic:'fa-user-shield'};
+    if(/RECIBO_ENVIADO|HOLERITE|FOLHA.*ENVI|ENVIAD/i.test(t)) return {cat:'Envio de dado pessoal',cor:'#1565C0',ic:'fa-paper-plane'};
+    if(/BLOQUEAD|FORA_HORARIO|NEGAD/i.test(t)) return {cat:'Acesso bloqueado / negado',cor:'#00838F',ic:'fa-ban'};
+    return null;
+  };
+  return (Auth.accessLog||[]).filter(e=>_lgpdDiasDesde(e.timestamp)<=dias)
+    .map(e=>{ const c=classifica(e.type,e.details); return c?{...e,...c}:null; }).filter(Boolean);
+}
+function renderLGPD(){
+  const el=document.getElementById('lgpd-content'); if(!el) return;
+  const checks=_lgpdChecks();
+  const nRisco=checks.filter(c=>c.nivel==='risco').length;
+  const nAviso=checks.filter(c=>c.nivel==='aviso').length;
+  const corNivel={ok:'#2E7D32',aviso:'#E65100',risco:'#c62828',info:'#1565C0'};
+  const icNivel={ok:'fa-circle-check',aviso:'fa-triangle-exclamation',risco:'fa-circle-exclamation',info:'fa-circle-info'};
+  const sg = nRisco? {txt:`${nRisco} risco(s)${nAviso?` e ${nAviso} aviso(s)`:''} a tratar`,cor:'#c62828',ic:'fa-circle-exclamation'} : nAviso? {txt:`${nAviso} aviso(s) a revisar`,cor:'#E65100',ic:'fa-triangle-exclamation'} : {txt:'Nenhum risco encontrado nas verificações',cor:'#2E7D32',ic:'fa-circle-check'};
+  const cardCheck=c=>`<div style="border:1px solid var(--border);border-left:4px solid ${corNivel[c.nivel]};border-radius:8px;padding:12px 14px;margin-bottom:8px;background:#fff">
+    <div style="display:flex;align-items:center;gap:8px;font-weight:700;color:${corNivel[c.nivel]};font-size:14px"><i class="fa-solid ${icNivel[c.nivel]}"></i> ${c.titulo}</div>
+    <div style="font-size:13px;color:#444;margin-top:4px;line-height:1.5">${c.detalhe}</div>
+    ${c.corrigir?`<div style="font-size:12px;color:var(--text-muted);margin-top:5px"><i class="fa-solid fa-screwdriver-wrench"></i> <strong>Como corrigir:</strong> ${c.corrigir}</div>`:''}
+  </div>`;
+  const eventos=_lgpdEventosSensiveis(90);
+  const evtRows=eventos.slice(0,150).map(e=>`<tr>
+    <td style="padding:6px 8px;border:1px solid var(--border);white-space:nowrap;font-size:11px">${fmtDateTime(e.timestamp)}</td>
+    <td style="padding:6px 8px;border:1px solid var(--border);font-size:11px;color:${e.cor};font-weight:600;white-space:nowrap"><i class="fa-solid ${e.ic}"></i> ${e.cat}</td>
+    <td style="padding:6px 8px;border:1px solid var(--border);font-size:11px">${e.username||'—'}</td>
+    <td style="padding:6px 8px;border:1px solid var(--border);font-size:11px">${e.details||'—'}</td>
+  </tr>`).join('');
+  el.innerHTML=`
+  <div class="card"><div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+    <h3><i class="fa-solid fa-user-shield"></i> Conformidade LGPD</h3>
+    <button class="btn btn-outline" style="border-color:#2E7D32;color:#2E7D32" onclick="renderLGPD()"><i class="fa-solid fa-rotate"></i> Atualizar</button>
+  </div>
+  <div class="card-body">
+    <div style="background:#FFF8E1;border:1px solid #FFE082;border-radius:8px;padding:10px 14px;font-size:12px;color:#795548;margin-bottom:14px">
+      <i class="fa-solid fa-circle-info"></i> Ferramenta de apoio que aponta possíveis riscos de proteção de dados. <strong>Não substitui a orientação de um advogado/DPO.</strong>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;background:#fff;border:1px solid var(--border);border-left:5px solid ${sg.cor};border-radius:8px;padding:12px 16px;margin-bottom:16px">
+      <i class="fa-solid ${sg.ic}" style="font-size:26px;color:${sg.cor}"></i>
+      <div><div style="font-weight:700;color:${sg.cor};font-size:15px">${sg.txt}</div><div style="font-size:12px;color:var(--text-muted)">${checks.length} verificações automáticas nos seus próprios dados.</div></div>
+    </div>
+    <h4 style="margin:0 0 8px;font-size:14px"><i class="fa-solid fa-list-check"></i> Verificações</h4>
+    ${checks.map(cardCheck).join('')}
+    <h4 style="margin:18px 0 6px;font-size:14px"><i class="fa-solid fa-shield-halved"></i> Vigia de eventos sensíveis — últimos 90 dias (${eventos.length})</h4>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Operações que tocam dado pessoal: exclusões, exportações, mudanças de acesso, envios e acessos bloqueados.</div>
+    ${eventos.length? `<div style="overflow:auto;max-height:50vh"><table style="width:100%;border-collapse:collapse;min-width:640px"><thead><tr style="background:#F5F7FB">
+      <th style="padding:6px 8px;border:1px solid var(--border);text-align:left;font-size:11px">Data/Hora</th>
+      <th style="padding:6px 8px;border:1px solid var(--border);text-align:left;font-size:11px">Categoria</th>
+      <th style="padding:6px 8px;border:1px solid var(--border);text-align:left;font-size:11px">Usuário</th>
+      <th style="padding:6px 8px;border:1px solid var(--border);text-align:left;font-size:11px">Detalhe</th>
+    </tr></thead><tbody>${evtRows}</tbody></table></div>` : '<div class="empty-state small"><i class="fa-solid fa-circle-check"></i><p>Nenhum evento sensível nos últimos 90 dias.</p></div>'}
+  </div></div>`;
 }
 
 function renderUsersTable(){

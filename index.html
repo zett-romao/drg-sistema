@@ -1635,15 +1635,19 @@
         </div>
 
         <div class="card">
-          <div class="card-header">
+          <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
             <h3><i class="fa-solid fa-users-gear"></i> Usuários do Sistema</h3>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <button class="btn btn-outline" onclick="migrarPerfisParaUsuarios()" title="Copiar as permissões atuais (dos perfis) para dentro de cada usuário"><i class="fa-solid fa-people-arrows"></i> Migrar perfis → usuários</button>
+              <button class="btn btn-outline" onclick="_togglePerfisCard()" title="Mostrar/ocultar a tela de perfis (recurso avançado/opcional)"><i class="fa-solid fa-id-badge"></i> Perfis (avançado)</button>
+            </div>
           </div>
           <div class="card-body p0">
             <table class="data-table" id="users-table">
               <thead>
                 <tr>
                   <th>Usuário</th>
-                  <th>Perfil</th>
+                  <th>Acesso</th>
                   <th>Último acesso</th>
                   <th>Status</th>
                   <th>Ações</th>
@@ -1654,10 +1658,10 @@
           </div>
         </div>
 
-        <!-- Perfis Customizáveis -->
-        <div class="card">
+        <!-- Perfis Customizáveis (OPCIONAL/oculto — agora as permissões são por usuário; #perm-por-usuario) -->
+        <div class="card" id="perfis-card" style="display:none">
           <div class="card-header">
-            <h3><i class="fa-solid fa-id-badge"></i> Perfis de Acesso</h3>
+            <h3><i class="fa-solid fa-id-badge"></i> Perfis de Acesso <span style="font-size:11px;font-weight:600;color:var(--text-muted)">(opcional — as permissões agora são por usuário)</span></h3>
             <button class="btn btn-primary" onclick="openPerfilModal()">
               <i class="fa-solid fa-plus"></i> Novo Perfil
             </button>
@@ -4338,9 +4342,9 @@
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label>Perfil <span class="required">*</span></label>
+          <label>Tipo de acesso <span class="required">*</span></label>
           <select id="usr-role">
-            <option value="operador">Operador — só Folha de Ponto e Relatórios</option>
+            <option value="operador">Usuário — permissões personalizadas</option>
             <option value="master">Master — Acesso Total</option>
           </select>
         </div>
@@ -4351,6 +4355,16 @@
             <option value="false">Inativo</option>
           </select>
         </div>
+      </div>
+      <div class="form-group" id="usr-permissoes-group">
+        <label>Permissões deste usuário</label>
+        <div class="form-group" style="margin-bottom:8px">
+          <label style="font-size:12px;color:var(--text-muted)">Copiar permissões de outro usuário (atalho)</label>
+          <select id="usr-copiar-perms" onchange="_usrCopiarPermissoes(this.value)">
+            <option value="">— começar do zero / não copiar —</option>
+          </select>
+        </div>
+        <div class="perfil-modulos-grid" id="usr-permissoes"></div>
       </div>
       <div class="form-group" id="usr-postos-group" style="display:none">
         <label><i class="fa-solid fa-building" style="color:var(--primary)"></i> Postos sob responsabilidade</label>
@@ -7325,6 +7339,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260628i-escala-edit-feriado-acesso"></script>
+  <script src="app.js?v=20260628j-permissoes-por-usuario"></script>
 </body>
 </html>

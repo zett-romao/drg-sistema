@@ -1987,6 +1987,61 @@ async function changePassword(){
 // ============================================
 // GERENCIAMENTO DE USUÁRIOS
 // ============================================
+// === Permissões POR USUÁRIO (substituem os perfis; perfis viram opcional/oculto). #perm-por-usuario ===
+function _renderUsrPermissoes(modules, perm){
+  modules=modules||{}; perm=perm||{};
+  const box=document.getElementById('usr-permissoes'); if(!box) return;
+  box.innerHTML = Object.keys(MODULOS_LABELS).map(mod=>{
+    const checked = modules[mod] ? 'checked' : '';
+    if(CRUD_MODULES.includes(mod)){
+      const edChecked = (modules[mod] && perm[mod]!=='view') ? 'checked' : '';
+      return `<div class="checkbox-label perm-card"><label class="perm-mod"><input type="checkbox" name="usrmod" value="${mod}" ${checked}> <span>${MODULOS_LABELS[mod]}</span></label><label class="perm-edit"><input type="checkbox" data-usredit="${mod}" ${edChecked}> Editar</label></div>`;
+    }
+    return `<label class="checkbox-label"><input type="checkbox" name="usrmod" value="${mod}" ${checked}> <span>${MODULOS_LABELS[mod]}</span></label>`;
+  }).join('');
+}
+function _collectUsrPermissoes(){
+  const modules={dashboard:true}, modulesPerm={};
+  Object.keys(MODULOS_LABELS).forEach(mod=>{
+    const chk=document.querySelector(`#usr-permissoes input[name="usrmod"][value="${mod}"]`);
+    modules[mod]=chk?chk.checked:false;
+    const ed=document.querySelector(`#usr-permissoes input[data-usredit="${mod}"]`);
+    if(ed && modules[mod]) modulesPerm[mod]= ed.checked ? 'edit' : 'view';
+  });
+  return {modules, modulesPerm};
+}
+function _fillUsrCopiarSelect(excludeId){
+  const sel=document.getElementById('usr-copiar-perms'); if(!sel) return;
+  const opts=['<option value="">— começar do zero / não copiar —</option>'];
+  (Auth.users||[]).filter(u=>u && u.id!==excludeId && u.role!=='master')
+    .sort((a,b)=>(a.username||'').localeCompare(b.username||''))
+    .forEach(u=>opts.push(`<option value="${u.id}">${u.username}</option>`));
+  sel.innerHTML=opts.join(''); sel.value='';
+}
+function _usrCopiarPermissoes(userId){
+  if(!userId) return;
+  const u=(Auth.users||[]).find(x=>x.id===userId); if(!u) return;
+  _renderUsrPermissoes(getUserModules(u), getUserPerms(u));
+}
+// Migração 1-clique: copia a permissão EFETIVA atual (via perfil) p/ dentro de cada usuário.
+async function migrarPerfisParaUsuarios(){
+  if(Auth.currentUser?.role!=='master') return;
+  if(!confirm('Copiar as permissões atuais de cada usuário (vindas dos perfis) para DENTRO de cada usuário?\n\nNinguém perde nem ganha acesso — só passa a ser controlado por usuário. Quem já tem lista própria não é alterado.')) return;
+  try{
+    const map=(await DB.getDoc('configuracoes','permissoesUsuarios'))||{};
+    let n=0;
+    (Auth.users||[]).forEach(u=>{
+      if(!u || u.role==='master' || map[u.username]) return;
+      map[u.username]={ modules:getUserModules(u), modulesPerm:getUserPerms(u) };
+      n++;
+    });
+    await DB.saveDoc('configuracoes','permissoesUsuarios',map,false);
+    State.permissoesUsuarios=map;
+    toast(`${n} usuário(s) migrado(s) para permissões próprias.`);
+    if(State.currentSection==='users') renderUsersTable();
+  }catch(e){ toast('Erro na migração.','error'); }
+}
+
 function openUserModal(id=null){
   if(Auth.currentUser?.role!=='master') return;
   // Atualizar opções de perfil com perfis customizados
@@ -2011,9 +2066,10 @@ function openUserModal(id=null){
     titleEl.innerHTML='<i class="fa-solid fa-user-pen"></i> Editar Usuário';
     setVal('usr-id',u.id); setVal('usr-username',u.username);
     setVal('usr-email',u.email||'');
-    setVal('usr-role',u.role||'operador'); setVal('usr-active',String(u.active));
+    setVal('usr-role', u.role==='master'?'master':'operador'); setVal('usr-active',String(u.active));
     setVal('usr-password',''); setVal('usr-password-confirm','');
     _renderUsrPostosCheckboxes(Array.isArray(u.postosResponsavel)?u.postosResponsavel:[]);
+    _renderUsrPermissoes(getUserModules(u), getUserPerms(u)); _fillUsrCopiarSelect(u.id);   // #perm-por-usuario
     setVal('usr-max-dispositivos', String(u.maxDispositivos||1));
     _renderJanelaGrid(u.janelaNotif);
     _renderAcessoGrid((State.acessoUsuarios||{})[u.username]);   // trava de horário de acesso. #acesso-horario
@@ -2023,6 +2079,7 @@ function openUserModal(id=null){
     titleEl.innerHTML='<i class="fa-solid fa-user-plus"></i> Novo Usuário';
     ['usr-id','usr-username','usr-email','usr-password','usr-password-confirm'].forEach(i=>setVal(i,''));
     setVal('usr-role','operador'); setVal('usr-active','true');
+    _renderUsrPermissoes({}, {}); _fillUsrCopiarSelect(null);   // #perm-por-usuario
     setVal('usr-max-dispositivos','1');
     _renderJanelaGrid(null);
     _renderAcessoGrid(null);   // trava de horário de acesso. #acesso-horario
@@ -2085,6 +2142,9 @@ function _toggleUsrPostosGroup(){
   // Master NUNCA tem trava de horário de acesso (p/ não se trancar de fora). #acesso-horario
   const acc=document.getElementById('usr-acesso-group');
   if(acc) acc.style.display = isMaster ? 'none' : '';
+  // Master = acesso total → some a lista de permissões por usuário. #perm-por-usuario
+  const perm=document.getElementById('usr-permissoes-group');
+  if(perm) perm.style.display = isMaster ? 'none' : '';
 }
 
 // Popula a grade de checkboxes de postos. `selecionados` é um array de razaoSocial.
@@ -2348,6 +2408,15 @@ async function saveUser(){
       State.acessoUsuarios=_acc;
       await DB.saveDoc('configuracoes','acessoUsuarios',_acc,false);
     }catch(e){ console.warn('salvar trava de horário de acesso', e); }
+    // PERMISSÕES POR USUÁRIO — Firestore (fora do Worker), por username; read-modify-write
+    // p/ não sobrescrever os outros. Master = acesso total (remove a lista). #perm-por-usuario
+    try{
+      const _pm=(await DB.getDoc('configuracoes','permissoesUsuarios'))||{};
+      if(role==='master') delete _pm[username];
+      else _pm[username]=_collectUsrPermissoes();
+      State.permissoesUsuarios=_pm;
+      await DB.saveDoc('configuracoes','permissoesUsuarios',_pm,false);
+    }catch(e){ console.warn('salvar permissões do usuário', e); }
     Auth.log(id?'USER_UPDATED':'USER_CREATED',Auth.currentUser.username,`${id?'Editado':'Criado'}: ${username}`);
     toast(`Usuário "${username}" ${id?'atualizado':'criado'}.`);
     closeModal('modal-user');
@@ -2363,7 +2432,9 @@ async function saveUser(){
 function renderUsersTable(){
   const tbody=document.getElementById('users-tbody'); if(!tbody) return;
   tbody.innerHTML=Auth.users.map(u=>{
-    const roleCls=u.role==='master'?'badge-master':u.role&&u.role.startsWith('p_')?'badge-gestor':'badge-operador';
+    const _temPerm=!!(State.permissoesUsuarios||{})[u.username];
+    const roleCls=u.role==='master'?'badge-master':(_temPerm||u.role&&u.role.startsWith('p_'))?'badge-gestor':'badge-operador';
+    const acessoLbl=u.role==='master'?'Master':(_temPerm?'Personalizado':roleLabel(u.role));
     const isMaster=Auth.currentUser?.role==='master';
     const logToggle=u.role!=='master'&&isMaster?`<button class="btn-icon ${u.showLog?'btn-primary-icon':'btn-outline'}" onclick="toggleShowLog('${u.id}')" title="${u.showLog?'Revogar acesso ao log':'Dar acesso ao log'}"><i class="fa-solid fa-list-check"></i></button>`:'';
     return `<tr>
@@ -2372,7 +2443,7 @@ function renderUsersTable(){
         <strong>${u.username}</strong>
         ${u.id==='master-default'?'<span class="badge badge-muted" style="font-size:10px">padrão</span>':''}
       </div></td>
-      <td><span class="badge ${roleCls}">${roleLabel(u.role)}</span></td>
+      <td><span class="badge ${roleCls}">${acessoLbl}</span></td>
       <td>${fmtDateTime(u.lastLogin)}</td>
       <td><span class="badge ${u.active?'badge-success':'badge-danger'}">${u.active?'Ativo':'Inativo'}</span></td>
       <td><div class="actions-cell">
@@ -29789,6 +29860,7 @@ const MODULOS_LABELS={
   escalas:         'Escalas',
   criarEscalas:    'Criar/Editar Modelos de Escala',
   aprovaHE:        'Aprovar Horas Extras',
+  aprovaHESupervisor: 'Aprovar HE no app de Supervisor',
   reports:         'Relatórios',
   pagamentos:      'Pagamentos',
   pagamentosLancar:  'Lançar Pagamentos (solicitar)',
@@ -29814,7 +29886,14 @@ const MODULOS_LABELS={
 // Retorna os módulos permitidos para o usuário
 function getUserModules(user){
   if(!user) return {};
-  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,escalas:true,criarEscalas:true,aprovaHE:true,reports:true,pagamentos:true,pagamentosLancar:true,pagamentosAprovar:true,decimoterceiro:true,ferias:true,rescisao:true,contabilidade:true,postos:true,contratos:true,users:true,log:true,comunicacao:true,comunicacoesApagar:true,disciplinaApagar:true,autorizarPonto:true,monitorarFaltas:true,revisarContrato:true,gerirFolgasEscala:true,estoque:true};
+  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,escalas:true,criarEscalas:true,aprovaHE:true,aprovaHESupervisor:true,reports:true,pagamentos:true,pagamentosLancar:true,pagamentosAprovar:true,decimoterceiro:true,ferias:true,rescisao:true,contabilidade:true,postos:true,contratos:true,users:true,log:true,comunicacao:true,comunicacoesApagar:true,disciplinaApagar:true,autorizarPonto:true,monitorarFaltas:true,revisarContrato:true,gerirFolgasEscala:true,estoque:true};
+  // PERMISSÕES POR USUÁRIO (fonte principal; substitui perfis). Vive em
+  // configuracoes/permissoesUsuarios por username. Fallback p/ perfil/role se o
+  // usuário ainda NÃO tem lista própria — assim ninguém perde acesso. #perm-por-usuario
+  const _pu=(State.permissoesUsuarios||{})[user.username];
+  if(_pu && _pu.modules && typeof _pu.modules==='object'){
+    return {dashboard:true, ..._pu.modules, log:!!(_pu.modules.log||user.showLog)};
+  }
   if(user.role==='operador') return {dashboard:true,employees:false,payroll:true,escalas:true,criarEscalas:false,aprovaHE:false,reports:true,pagamentos:true,pagamentosLancar:false,pagamentosAprovar:false,decimoterceiro:true,ferias:true,rescisao:false,contabilidade:true,postos:false,contratos:false,users:false,log:!!user.showLog};
   if(user.role&&user.role.startsWith('p_')){
     const perfilId=user.role.replace('p_','');
@@ -29834,10 +29913,11 @@ const CRUD_MODULES=['employees','payroll','escalas','pagamentos','decimoterceiro
 function getUserPerms(user){
   const perms={};
   if(!user) return perms;
-  if(user.role==='master'||user.role==='operador'){
-    CRUD_MODULES.forEach(m=>perms[m]='edit');
-    return perms;
-  }
+  if(user.role==='master'){ CRUD_MODULES.forEach(m=>perms[m]='edit'); return perms; }
+  // Nível por USUÁRIO (fonte principal); fallback p/ perfil/role. #perm-por-usuario
+  const _pu=(State.permissoesUsuarios||{})[user.username];
+  if(_pu && _pu.modulesPerm){ CRUD_MODULES.forEach(m=>{ perms[m]=(_pu.modulesPerm[m]==='view')?'view':'edit'; }); return perms; }
+  if(user.role==='operador'){ CRUD_MODULES.forEach(m=>perms[m]='edit'); return perms; }
   if(user.role&&user.role.startsWith('p_')){
     const perfil=(State.perfis||[]).find(p=>p.id===user.role.replace('p_',''));
     const mp=(perfil&&perfil.modulesPerm)||{};
@@ -29977,7 +30057,22 @@ async function savePerfil(){
   finally { setBtnLoading(btn,false,'<i class="fa-solid fa-floppy-disk"></i> Salvar Perfil'); }
 }
 
+// Card de Perfis fica OCULTO por padrão (permissões agora são por usuário). Pode ser
+// reativado pelo botão "Perfis (avançado)" — preferência guardada no aparelho. #perm-por-usuario
+function _aplicarVisibilidadePerfis(){
+  const card=document.getElementById('perfis-card'); if(!card) return;
+  const mostrar = localStorage.getItem('drg_mostrarPerfis')==='1';
+  card.style.display = mostrar ? '' : 'none';
+}
+function _togglePerfisCard(){
+  const mostrar = localStorage.getItem('drg_mostrarPerfis')==='1';
+  localStorage.setItem('drg_mostrarPerfis', mostrar ? '0' : '1');
+  _aplicarVisibilidadePerfis();
+  if(!mostrar){ renderPerfisTable(); toast('Perfis exibidos (recurso opcional).'); }
+  else toast('Perfis ocultados.');
+}
 function renderPerfisTable(){
+  _aplicarVisibilidadePerfis();
   const tbody=document.getElementById('perfis-tbody'); if(!tbody) return;
   const systemPerfis=[
     {nome:'Master',desc:'Acesso total ao sistema',tipo:'Sistema'},
@@ -30190,6 +30285,8 @@ async function _carregarDadosPosLogin(){
     catch(_){ State.acessoUsuarios = {}; }
     try{ State.escalaConsulta = (await DB.getDoc('configuracoes','escalaConsulta')) || {}; }   // ajuste manual da escala realizada (consulta). #escala-realizada
     catch(_){ State.escalaConsulta = {}; }
+    try{ State.permissoesUsuarios = (await DB.getDoc('configuracoes','permissoesUsuarios')) || {}; }   // permissões por usuário (substitui perfis). #perm-por-usuario
+    catch(_){ State.permissoesUsuarios = {}; }
   } catch(e){
     console.error('Erro ao carregar dados:', e);
     const msg = e && e.message ? e.message : String(e);

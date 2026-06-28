@@ -431,30 +431,42 @@ async function doLogin(){
     // ler o doc perfis/<id> e olhar modules.autorizarPonto.
     let podeAutorizar = (currentUser.role === 'master');
     let perfilDiag = null; // info para diagnostico caso bloqueie
+    let modsEfetivos = (currentUser.role === 'master') ? {autorizarPonto:true, aprovaHESupervisor:true} : null;
     if(!podeAutorizar){
       try{
-        const role = currentUser.role || '';
-        if(role.startsWith('p_')){
-          const perfilId = role.replace('p_','');
-          const psnap = await dbCol('perfis').doc(perfilId).get();
-          if(psnap.exists){
-            const perfil = psnap.data();
-            perfilDiag = { id: perfilId, nome: perfil.nome || perfilId, modules: perfil.modules||{} };
-            podeAutorizar = !!(perfil.modules && perfil.modules.autorizarPonto);
-          } else {
-            perfilDiag = { id: perfilId, erro: 'Perfil nao encontrado no banco' };
-          }
-        } else {
-          // role legacy direto (ex: 'operador') — fallback no objeto user
-          const mods = currentUser.modules || (currentUser.perfil && currentUser.perfil.modules) || {};
-          podeAutorizar = !!mods.autorizarPonto;
-          perfilDiag = { id: role, nome: role, modules: mods };
+        // 1) PERMISSOES POR USUARIO (fonte principal; substitui perfis). #perm-por-usuario
+        const pusnap = await dbCol('configuracoes').doc('permissoesUsuarios').get();
+        const pmap = (pusnap.exists ? pusnap.data() : {}) || {};
+        if(pmap[currentUser.username] && pmap[currentUser.username].modules){
+          modsEfetivos = pmap[currentUser.username].modules;
+          perfilDiag = { id: 'usuario', nome: currentUser.username, modules: modsEfetivos };
         }
+        // 2) Fallback: perfil (role p_) ou modules no objeto user
+        if(!modsEfetivos){
+          const role = currentUser.role || '';
+          if(role.startsWith('p_')){
+            const perfilId = role.replace('p_','');
+            const psnap = await dbCol('perfis').doc(perfilId).get();
+            if(psnap.exists){
+              const perfil = psnap.data();
+              modsEfetivos = perfil.modules || {};
+              perfilDiag = { id: perfilId, nome: perfil.nome || perfilId, modules: modsEfetivos };
+            } else {
+              perfilDiag = { id: perfilId, erro: 'Perfil nao encontrado no banco' };
+            }
+          } else {
+            modsEfetivos = currentUser.modules || (currentUser.perfil && currentUser.perfil.modules) || {};
+            perfilDiag = { id: role, nome: role, modules: modsEfetivos };
+          }
+        }
+        modsEfetivos = modsEfetivos || {};
+        podeAutorizar = !!modsEfetivos.autorizarPonto;
       }catch(perr){
-        console.error('lookup perfil', perr);
+        console.error('lookup permissoes', perr);
         perfilDiag = { erro: perr.message };
       }
     }
+    currentUser._mods = modsEfetivos || {};   // permissões efetivas p/ o app (autorizar ponto / aprovar HE)
     if(!podeAutorizar){
       console.error('Sem permissao autorizarPonto. Diagnostico:', { user: currentUser, perfil: perfilDiag });
       try{ await firebase.auth().signOut(); }catch(_){}
@@ -956,7 +968,7 @@ setInterval(() => {
 if('serviceWorker' in navigator){
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('supervisor-sw.js?v=8').then(reg => {
+    navigator.serviceWorker.register('supervisor-sw.js?v=9').then(reg => {
       const checar = () => { try{ reg.update(); }catch(_){} };
       document.addEventListener('visibilitychange', () => {
         if(document.visibilityState === 'visible') checar();

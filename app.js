@@ -23773,29 +23773,79 @@ async function applyCctToAll(){
     else semSal++;
   });
   const detalhe = `${porFuncao} pela função · ${porBase} pelo salário-base · ${semSal} sem ajuste de salário`;
-  document.getElementById('confirm-message').innerHTML=`Aplicar CCT a <strong>${ativos.length} colaborador(es)</strong> ativo(s)?<br><br>Salários: <em>${detalhe}</em>.<br>VT, VR e VA serão atualizados em todos.`;
-  const btn=document.getElementById('confirm-ok-btn');
-  btn.innerHTML='<i class="fa-solid fa-users-gear"></i> Aplicar';
-  btn.onclick=async()=>{
-    setBtnLoading(btn,true,'');
-    try {
-      const tasks=ativos.map(emp=>{
-        const updated={...emp, updatedAt:new Date().toISOString()};
-        const m=_busca(emp.cargo);
-        if(m && m.salario>0) updated.salarioBase = Number(m.salario);
-        else if(cct.salarioBase) updated.salarioBase = cct.salarioBase;
-        if(cct.vtDiario)    updated.valorDiarioVt=cct.vtDiario;
-        if(cct.vrDiario)    updated.valorDiarioVr=cct.vrDiario;
-        if(cct.vaMensal)    updated.valorMensalVa=cct.vaMensal;
-        return DB.save('employees',updated);
-      });
-      await Promise.all(tasks);
-      closeModal('modal-confirm');
-      toast(`CCT aplicada a ${ativos.length} colaborador(es)! (${detalhe})`);
-    } catch(e){ toast('Erro ao aplicar CCT.','error'); }
-    finally { setBtnLoading(btn,false,'<i class="fa-solid fa-trash"></i> Excluir'); }
-  };
-  document.getElementById('modal-confirm').classList.remove('hidden');
+  // PLANO de alteração (atual → novo) por colaborador. Nada é gravado aqui: só monta a
+  // CONFERÊNCIA. A aplicação só ocorre em confirmApplyCct(), após o dono conferir. #cct-preview
+  const plan = ativos.map(emp=>{
+    const m=_busca(emp.cargo);
+    let salNovo=null;
+    if(m && m.salario>0) salNovo=Number(m.salario);
+    else if(cct.salarioBase) salNovo=cct.salarioBase;
+    return {
+      id: emp.id, nome: emp.nome||'—', cargo: emp.cargo||'—',
+      fonte: (m && m.salario>0) ? 'função' : (cct.salarioBase ? 'base' : '—'),
+      salAtual:+(emp.salarioBase||0), salNovo,
+      vtAtual:+(emp.valorDiarioVt||0), vtNovo: cct.vtDiario||null,
+      vrAtual:+(emp.valorDiarioVr||0), vrNovo: cct.vrDiario||null,
+      vaAtual:+(emp.valorMensalVa||0), vaNovo: cct.vaMensal||null
+    };
+  });
+  _cctPreviewPlan = { plan, detalhe };
+  _renderCctPreview(plan, detalhe);
+  document.getElementById('modal-cct-preview').classList.remove('hidden');
+}
+
+// Conferência da CCT — tabela atual → novo por colaborador (#cct-preview).
+let _cctPreviewPlan = null;
+function _renderCctPreview(plan, detalhe){
+  const _muda=(at,nv)=> nv!=null && Number(nv)!==Number(at);
+  const cell=(at,nv)=> _muda(at,nv)
+    ? `<span style="color:#90A4AE;text-decoration:line-through">${fmtMoney(at)}</span> <span style="color:#2E7D32">&rarr;</span> <strong style="color:#2E7D32">${fmtMoney(nv)}</strong>`
+    : `<span style="color:#90A4AE">${fmtMoney(at)}</span>`;
+  const nMuda = plan.filter(r=>_muda(r.salAtual,r.salNovo)||_muda(r.vtAtual,r.vtNovo)||_muda(r.vrAtual,r.vrNovo)||_muda(r.vaAtual,r.vaNovo)).length;
+  const rows = plan.map(r=>`<tr>
+    <td style="padding:6px 8px;border:1px solid var(--border)"><div style="font-weight:600">${r.nome}</div><div style="font-size:11px;color:var(--text-muted)">${r.cargo}</div></td>
+    <td style="padding:6px 8px;border:1px solid var(--border);text-align:right;white-space:nowrap">${cell(r.salAtual,r.salNovo)}</td>
+    <td style="padding:6px 8px;border:1px solid var(--border);text-align:right;white-space:nowrap">${cell(r.vtAtual,r.vtNovo)}</td>
+    <td style="padding:6px 8px;border:1px solid var(--border);text-align:right;white-space:nowrap">${cell(r.vrAtual,r.vrNovo)}</td>
+    <td style="padding:6px 8px;border:1px solid var(--border);text-align:right;white-space:nowrap">${cell(r.vaAtual,r.vaNovo)}</td>
+  </tr>`).join('');
+  document.getElementById('cct-preview-content').innerHTML = `
+    <div style="margin:8px 0 12px;font-size:13px"><strong>${plan.length}</strong> colaborador(es) · <strong style="color:#2E7D32">${nMuda}</strong> com mudança · <em style="color:var(--text-muted)">${detalhe}</em></div>
+    <div style="overflow:auto;max-height:52vh">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:640px">
+        <thead><tr style="background:#F5F7FB">
+          <th style="padding:6px 8px;border:1px solid var(--border);text-align:left">Colaborador</th>
+          <th style="padding:6px 8px;border:1px solid var(--border);text-align:right">Salário Base</th>
+          <th style="padding:6px 8px;border:1px solid var(--border);text-align:right">VT/dia</th>
+          <th style="padding:6px 8px;border:1px solid var(--border);text-align:right">VR/dia</th>
+          <th style="padding:6px 8px;border:1px solid var(--border);text-align:right">VA mensal</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+async function confirmApplyCct(){
+  if(!_cctPreviewPlan || !_cctPreviewPlan.plan){ closeModal('modal-cct-preview'); return; }
+  const btn=document.getElementById('cct-preview-confirm-btn');
+  setBtnLoading(btn,true,'');
+  try {
+    const tasks=_cctPreviewPlan.plan.map(r=>{
+      const emp=State.employees.find(e=>e.id===r.id);
+      if(!emp) return null;
+      const updated={...emp, updatedAt:new Date().toISOString()};
+      if(r.salNovo!=null) updated.salarioBase=Number(r.salNovo);
+      if(r.vtNovo!=null)  updated.valorDiarioVt=Number(r.vtNovo);
+      if(r.vrNovo!=null)  updated.valorDiarioVr=Number(r.vrNovo);
+      if(r.vaNovo!=null)  updated.valorMensalVa=Number(r.vaNovo);
+      return DB.save('employees',updated);
+    }).filter(Boolean);
+    await Promise.all(tasks);
+    closeModal('modal-cct-preview');
+    toast(`CCT aplicada a ${tasks.length} colaborador(es)! (${_cctPreviewPlan.detalhe})`);
+    _cctPreviewPlan=null;
+  } catch(e){ toast('Erro ao aplicar CCT.','error'); }
+  finally { setBtnLoading(btn,false,'<i class="fa-solid fa-check"></i> Confirmar e aplicar'); }
 }
 
 // ============================================
@@ -28903,7 +28953,7 @@ function _renderEscalasCards(){
   }).sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
 
   const _bannerInfo = `<div style="background:#E1F5FE;border:1px solid #B3E5FC;border-left:4px solid #0277BD;border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:13px;color:#01579B;line-height:1.5">
-    <i class="fa-solid fa-circle-info"></i> <strong>Tela informativa.</strong> A escala mostrada é a <strong>efetiva do contrato</strong> (cadastro + transferências, cruzada com o ponto). Para <strong>mudar a escala</strong> de alguém use <strong>Ajustar escala</strong> (ou Transferência no cadastro). Para uma <strong>exceção de um dia</strong> (troca de plantão, folga remanejada) use o <strong>override de dia avulso</strong> na Folha de Ponto. A edição dia-a-dia aqui foi descontinuada.
+    <i class="fa-solid fa-circle-info"></i> <strong>Tela informativa.</strong> Em competência <strong>aberta</strong>, mostra a escala <strong>efetiva do contrato</strong> (cadastro + transferências). Quando a competência está <strong>fechada</strong>, a tela se atualiza sozinha e passa a mostrar a escala <strong>realizada</strong> — montada pelas <strong>batidas reais do ponto</strong> (dia previsto sem batida aparece como <strong>"s/ registro"</strong>). É apenas para o supervisor consultar — <strong>não orienta nenhuma outra tela do sistema</strong>. Para <strong>mudar a escala</strong> use <strong>Ajustar escala</strong> (ou Transferência no cadastro); exceção de um dia, use o <strong>override de dia avulso</strong> na Folha de Ponto.
   </div>`;
   const container = document.getElementById('escalas-container');
   if(!container) return;
@@ -28914,16 +28964,58 @@ function _renderEscalasCards(){
   container.innerHTML = _bannerInfo + filtered.map(emp => _renderEscalaCard(emp, mes, ano)).join('');
 }
 
+// Escala REALIZADA (consulta): quando a competência está FECHADA, esta tela informativa
+// se atualiza sozinha pelas BATIDAS reais do ponto. NÃO orienta nenhuma outra tela/seção
+// (não toca State.escalas/motor/apuração — leitura pura). Dia sem batida que era trabalho
+// → "s/ registro" (pedido do dono 2026-06-28). #escala-realizada
+function _realizedEscalaDias(emp, mes, ano, payroll){
+  const diasPonto = Array.isArray(payroll?.pontoManualDias) ? payroll.pontoManualDias : [];
+  const dias = [];
+  for(const cd of _compDias(mes, ano)){
+    const ds = cd.diaSem;
+    const ymd = `${cd.ano}-${String(cd.mes).padStart(2,'0')}-${String(cd.dia).padStart(2,'0')}`;
+    const pd = diasPonto.find(x=>x.dia===cd.dia) || {};
+    const exp = _getExpectedDay(emp, cd.mes, cd.ano, cd.dia);
+    const _bat = _repararBatidasDia(pd, exp);
+    const temBatida = !!(_bat.entrada && _bat.saida);
+    const expFolga = !exp || exp.tipo==='folga' || !exp.entrada;
+    let tipo = 'folga';
+    let h = {entrada:'',intIni:'',intFim:'',saida:''};
+    if(temBatida){
+      tipo = 'trabalho';
+      h = {entrada:_bat.entrada||'', intIni:_bat.intIni||'', intFim:_bat.intFim||'', saida:_bat.saida||''};
+    } else if(_emFeriasNoDia(emp, ymd)){
+      tipo = 'ferias';
+    } else {
+      const atst = _atestadoDoDia(emp.id, ymd);
+      if(atst){ tipo = atst.categoria==='cobertura' ? 'cobertura' : (atst.categoria==='abono' ? 'abono' : 'atestado'); }
+      else if(expFolga){ tipo = 'folga'; }
+      else { tipo = 'semreg'; }   // previsto trabalho, sem batida → "s/ registro"
+    }
+    dias.push({ dia:cd.dia, diaSem:ds, tipo, ...h });
+  }
+  return dias;
+}
+
 function _renderEscalaCard(emp, mes, ano){
-  const saved = (State.escalas||[]).find(e => e.employeeId===emp.id && e.mes==mes && e.ano==ano);
+  // Competência FECHADA → a tela se atualiza sozinha pelas batidas (realizada). #escala-realizada
+  const payroll = (State.payrolls||[]).find(p => p.employeeId===emp.id && p.mes==mes && p.ano==ano);
+  const isFechada = payroll?.status === 'fechada';
   let dias;
   let isProjetada = false;
-  if(saved?.dias?.length){
-    dias = saved.dias;
+  let isRealizada = false;
+  if(isFechada){
+    dias = _realizedEscalaDias(emp, mes, ano, payroll);
+    isRealizada = true;
   } else {
-    const prevDias = _getPrevMonthDias(emp.id, mes, ano);
-    dias = _projectEscala(emp, mes, ano, prevDias);
-    isProjetada = true;
+    const saved = (State.escalas||[]).find(e => e.employeeId===emp.id && e.mes==mes && e.ano==ano);
+    if(saved?.dias?.length){
+      dias = saved.dias;
+    } else {
+      const prevDias = _getPrevMonthDias(emp.id, mes, ano);
+      dias = _projectEscala(emp, mes, ano, prevDias);
+      isProjetada = true;
+    }
   }
   const fam = escalaFamilia(emp.escala || '5x2A');
   const posto = (emp.posto || '—');
@@ -28934,7 +29026,9 @@ function _renderEscalaCard(emp, mes, ano){
   const semRefBadge = emp.semRefeicao
     ? '<span style="background:#FFEBEE;color:#C62828;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px" title="Trabalha sozinho — sem horário de refeição"><i class="fa-solid fa-ban"></i> Sem refeição</span>'
     : '';
-  const projBadge = isProjetada
+  const projBadge = isRealizada
+    ? '<span style="background:#E8F5E9;color:#2E7D32;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px" title="Competência fechada — escala atualizada pelas batidas reais do ponto (apenas consulta; não orienta outras telas)"><i class="fa-solid fa-clipboard-check"></i> Realizada (do ponto)</span>'
+    : isProjetada
     ? '<span style="background:#E1F5FE;color:#0277BD;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px" title="Escala efetiva derivada do contrato (cadastro + transferências)"><i class="fa-solid fa-file-contract"></i> Do contrato</span>'
     : '<span style="background:#ECEFF1;color:#546E7A;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px" title="Escala que foi salva manualmente nesta competência (histórico)"><i class="fa-solid fa-clock-rotate-left"></i> Salva (histórico)</span>';
   const rowsHtml = dias.map(d => _renderEscalaRow(d, fam, mes, ano)).join('');
@@ -28975,6 +29069,12 @@ function _escalaTipoBadge(tipo, perc){
     return `<span style="color:#7B1FA2;font-weight:600;font-size:11px"><i class="fa-solid fa-person-running"></i> Corrido${pct}</span>`;
   }
   if(tipo === 'folga')    return '<span style="color:#E65100;font-weight:600;font-size:11px"><i class="fa-solid fa-umbrella-beach"></i> Folga</span>';
+  // Status da escala REALIZADA (competência fechada, derivado das batidas). #escala-realizada
+  if(tipo === 'semreg')   return '<span style="color:#90A4AE;font-weight:600;font-size:11px"><i class="fa-regular fa-circle-question"></i> s/ registro</span>';
+  if(tipo === 'ferias')   return '<span style="color:#00838F;font-weight:600;font-size:11px"><i class="fa-solid fa-plane-departure"></i> Férias</span>';
+  if(tipo === 'cobertura')return '<span style="color:#5E35B1;font-weight:600;font-size:11px"><i class="fa-solid fa-people-arrows"></i> Cobertura</span>';
+  if(tipo === 'abono')    return '<span style="color:#1565C0;font-weight:600;font-size:11px"><i class="fa-solid fa-clipboard-check"></i> Abono</span>';
+  if(tipo === 'atestado') return '<span style="color:#C62828;font-weight:600;font-size:11px"><i class="fa-solid fa-notes-medical"></i> Atestado</span>';
   return                          '<span style="color:#1B5E20;font-weight:600;font-size:11px"><i class="fa-solid fa-briefcase"></i> Trabalho</span>';
 }
 
@@ -29058,8 +29158,8 @@ function _renderEscalaRow(d, fam, compMes, compAno){
     if(d.diaSem===0)      bg = '#FFEBEE';
     else if(d.diaSem===6) bg = '#FFF9C4';
   }
-  const isFolga = d.tipo==='folga';
-  const op = isFolga ? 'opacity:.5' : (d.tipo==='corrido' ? 'opacity:.7' : '');
+  const semHorario = d.tipo!=='trabalho' && d.tipo!=='corrido';   // folga/semreg/atestado/abono/cobertura/ferias
+  const op = semHorario ? 'opacity:.5' : (d.tipo==='corrido' ? 'opacity:.7' : '');
   let labelDia = String(d.dia).padStart(2,'0');
   if(compMes != null && compAno != null){
     const r = _compRealDate(compMes, compAno, d.dia);
@@ -29070,10 +29170,10 @@ function _renderEscalaRow(d, fam, compMes, compAno){
     <td style="padding:4px 6px;text-align:center;border:1px solid var(--border);font-weight:700;font-size:11px">${labelDia}</td>
     <td style="padding:4px 6px;text-align:center;border:1px solid var(--border);font-size:11px">${sem}</td>
     <td style="padding:4px 6px;text-align:center;border:1px solid var(--border)">${_escalaTipoBadge(d.tipo, d.hePercDia)}</td>
-    ${cel(isFolga?'':d.entrada)}
-    ${cel(isFolga?'':d.intIni)}
-    ${cel(isFolga?'':d.intFim)}
-    ${cel(isFolga?'':d.saida)}
+    ${cel(semHorario?'':d.entrada)}
+    ${cel(semHorario?'':d.intIni)}
+    ${cel(semHorario?'':d.intFim)}
+    ${cel(semHorario?'':d.saida)}
   </tr>`;
 }
 

@@ -4917,6 +4917,29 @@
   </div>
 </div>
 
+<!-- ===== MODAL: CONFERÊNCIA DA CCT (antes de aplicar) ===== -->
+<div class="modal-overlay hidden" id="modal-cct-preview" onclick="closeModal('modal-cct-preview', event)">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-list-check"></i> Conferir alterações da CCT</h3>
+      <button class="modal-close" onclick="closeModal('modal-cct-preview')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="info-banner" style="background:#FFF3E0;color:#E65100">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        Confira os valores abaixo. <strong>Nada é alterado</strong> até clicar em <strong>Confirmar e aplicar</strong>. Em <span style="color:#2E7D32;font-weight:700">verde</span> = valor novo; <span style="text-decoration:line-through;color:#90A4AE">riscado</span> = valor atual.
+      </div>
+      <div id="cct-preview-content"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-cct-preview')">Cancelar</button>
+      <button class="btn btn-success" id="cct-preview-confirm-btn" onclick="confirmApplyCct()">
+        <i class="fa-solid fa-check"></i> Confirmar e aplicar
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== MODAL: PARÂMETROS LEGAIS ===== -->
 <div class="modal-overlay hidden" id="modal-parametros-legais" onclick="closeModal('modal-parametros-legais', event)">
   <div class="modal-dialog modal-lg">
@@ -7298,6 +7321,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260628g-alertas-clicaveis"></script>
+  <script src="app.js?v=20260628h-escala-realizada-cct-preview"></script>
 </body>
 </html>

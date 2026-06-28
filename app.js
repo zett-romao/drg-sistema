@@ -2369,6 +2369,32 @@ async function loadUsersFromWorker(){
   return false;
 }
 
+// Descreve, em texto claro, O QUE mudou ao salvar um usuário — p/ o Log de Acessos
+// ficar específico (auditoria/LGPD). Recebe o snapshot ANTES das gravações. #log-detalhado
+function _descreverEdicaoUsuario(oldUser, oldMods, oldAcessoAtiva, novo){
+  if(!oldUser){
+    const n = novo.modules ? Object.keys(novo.modules).filter(k=>novo.modules[k] && k!=='dashboard').length : 0;
+    return `Criado: ${novo.username} — ${novo.role==='master'?'tipo Master (acesso total)':`tipo Usuário, ${n} permissão(ões)`}${novo.active?'':', INATIVO'}`;
+  }
+  const p=[];
+  if((oldUser.active!==false)!==!!novo.active) p.push(`status ${oldUser.active!==false?'Ativo':'Inativo'}→${novo.active?'Ativo':'Inativo'}`);
+  const om=oldUser.role==='master', nm=novo.role==='master';
+  if(om!==nm) p.push(`tipo ${om?'Master':'Usuário'}→${nm?'Master':'Usuário'}`);
+  const oP=Array.isArray(oldUser.postosResponsavel)?oldUser.postosResponsavel.length:0;
+  const nP=Array.isArray(novo.postosResponsavel)?novo.postosResponsavel.length:0;
+  if(oP!==nP) p.push(`postos sob responsabilidade ${oP}→${nP}`);
+  if((oldUser.maxDispositivos||1)!==(novo.maxDispositivos||1)) p.push(`máx. dispositivos ${oldUser.maxDispositivos||1}→${novo.maxDispositivos||1}`);
+  if(!nm && novo.modules){
+    const lib=[], rev=[];
+    Object.keys(MODULOS_LABELS).forEach(k=>{ const a=!!(oldMods||{})[k], b=!!novo.modules[k]; if(b&&!a) lib.push(MODULOS_LABELS[k]); if(a&&!b) rev.push(MODULOS_LABELS[k]); });
+    if(lib.length) p.push(`liberou permissões: ${lib.join(', ')}`);
+    if(rev.length) p.push(`revogou permissões: ${rev.join(', ')}`);
+  }
+  if(!!oldAcessoAtiva!==!!novo.acessoAtiva) p.push(`trava de horário de acesso ${novo.acessoAtiva?'ATIVADA':'desativada'}`);
+  if(novo.senhaTrocada) p.push('senha redefinida');
+  return `Editado: ${novo.username}${p.length?' — '+p.join('; '):' (sem mudanças relevantes)'}`;
+}
+
 async function saveUser(){
   if(Auth.currentUser?.role!=='master') return;
   const id=val('usr-id'), username=val('usr-username').toLowerCase().replace(/\s+/g,'.'),
@@ -2391,6 +2417,11 @@ async function saveUser(){
   const janelaNotif = _collectJanelaNotif();
   const btn=document.querySelector('#modal-user .btn-primary');
   setBtnLoading(btn,true,'');
+  // Snapshot ANTES das gravações, p/ descrever o que mudou no Log. #log-detalhado
+  const _oldUser = id ? Auth.users.find(u=>u.id===id) : null;
+  const _oldMods = _oldUser ? getUserModules(_oldUser) : {};
+  const _oldAcessoAtiva = _oldUser ? !!_acessoNormalize((State.acessoUsuarios||{})[_oldUser.username]).ativa : false;
+  const _novoPerm = role==='master' ? null : _collectUsrPermissoes();
   try {
     const r=await _aprovacaoReq('/usuarios/salvar',{
       user:{ id:id||undefined, username, email, role, active, postosResponsavel, maxDispositivos, janelaNotif },
@@ -2413,11 +2444,17 @@ async function saveUser(){
     try{
       const _pm=(await DB.getDoc('configuracoes','permissoesUsuarios'))||{};
       if(role==='master') delete _pm[username];
-      else _pm[username]=_collectUsrPermissoes();
+      else _pm[username]=_novoPerm;
       State.permissoesUsuarios=_pm;
       await DB.saveDoc('configuracoes','permissoesUsuarios',_pm,false);
     }catch(e){ console.warn('salvar permissões do usuário', e); }
-    Auth.log(id?'USER_UPDATED':'USER_CREATED',Auth.currentUser.username,`${id?'Editado':'Criado'}: ${username}`);
+    const _detLog=_descreverEdicaoUsuario(_oldUser, _oldMods, _oldAcessoAtiva, {
+      username, role, active, postosResponsavel, maxDispositivos,
+      modules:_novoPerm?_novoPerm.modules:null,
+      acessoAtiva: role!=='master' && !!_collectAcessoRegra().ativa,
+      senhaTrocada: !!password
+    });
+    Auth.log(id?'USER_UPDATED':'USER_CREATED',Auth.currentUser.username,_detLog);
     toast(`Usuário "${username}" ${id?'atualizado':'criado'}.`);
     closeModal('modal-user');
     await loadUsersFromWorker();

@@ -22486,6 +22486,39 @@ function _setAutzBadge(n){
   } else if(b){ b.style.display='none'; }
 }
 
+// Resolve EM LOTE os pedidos de ponto PENDENTES (legados da regra antiga): registra a
+// batida na folha (não se perde) e fecha o pedido. A batida agora é AUTOMÁTICA, então
+// esses pedidos não existem mais — mas os antigos ficam presos (não expiram). HE só p/ HE
+// real (>10min/dia, fica pendente na revisão da folha); resíduo ≤10min não vira HE. #batida-automatica
+async function _autzRegistrarEResolver(p){
+  const empId=p.employeeId, mes=p.mesComp, ano=p.anoComp, dia=p.diaBatida, tp=p.tipoBatida;
+  if(empId && mes && ano && dia && tp && p.horarioReal){
+    const pay=(State.payrolls||[]).find(x=>x.employeeId===empId && x.mes==mes && x.ano==ano);
+    const base = pay ? {...pay} : { id:(Date.now().toString(36)+Math.random().toString(36).slice(2,8)), employeeId:empId, mes, ano, createdAt:new Date().toISOString() };
+    const dias = Array.isArray(base.pontoManualDias) ? base.pontoManualDias.map(d=>({...d})) : [];
+    let entry = dias.find(d=>d.dia===dia);
+    if(!entry){ entry={ dia, diaSem:(p.diaSem!=null?p.diaSem:new Date(ano,mes-1,dia).getDay()), entrada:'',saida:'',intIni:'',intFim:'' }; dias.push(entry); }
+    if(!entry[tp]){ entry[tp]=p.horarioReal; entry[tp+'_origem']='app'; entry[tp+'_foraHorario']=true; }   // não sobrescreve batida existente
+    base.pontoManualDias=dias; base.updatedAt=new Date().toISOString();
+    await DB.save('payrolls', _sanitizeForFirestore(base));
+    const ix=(State.payrolls||[]).findIndex(r=>r.id===base.id); if(ix>=0) State.payrolls[ix]=base; else (State.payrolls=State.payrolls||[]).push(base);
+  }
+  await DB.col('autorizacoesPonto').doc(p.id).update({ status:'cancelada', resolvidoBatidaAutomatica:true, resolvidoEm:new Date().toISOString() });
+}
+async function _autzResolverPendentes(){
+  if(Auth.currentUser?.role!=='master' && !getUserModules(Auth.currentUser).autorizarPonto){ toast('Sem permissão.','error'); return; }
+  let snap; try{ snap = await DB.col('autorizacoesPonto').where('status','==','pendente').get(); }
+  catch(e){ toast('Erro ao ler pedidos: '+(e.message||e),'error'); return; }
+  const pend = snap.docs.map(d=>({ id:d.id, ...d.data() }));
+  if(!pend.length){ toast('Nenhum pedido pendente.','info'); return; }
+  if(!confirm(`Registrar na folha e RESOLVER ${pend.length} pedido(s) de ponto pendente(s)?\n\n• A batida entra na folha (não se perde).\n• Resíduo ≤10min/dia NÃO vira HE (Súmula 366).\n• HE real fica pendente na revisão da folha.\n\nSão pedidos LEGADOS — a batida agora é automática.`)) return;
+  let ok=0, err=0;
+  for(const p of pend){ try{ await _autzRegistrarEResolver(p); ok++; }catch(e){ console.error('resolver pendente', p.id, e); err++; } }
+  try{ Auth.log('AUTZ_RESOLVIDOS', null, `${ok} pedido(s) resolvido(s) (batida automática)`); }catch(_){}
+  toast(`${ok} pedido(s) resolvido(s)${err?` · ${err} com erro`:''}.`, err?'warning':'success');
+  atualizarAutorizacoesSection();
+}
+
 async function renderAutorizacoesSection(){
   const box = document.getElementById('autorizacoes-content');
   if(!box) return;
@@ -22567,6 +22600,7 @@ function _renderAutzUI(){
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-outline" onclick="atualizarAutorizacoesSection()" title="Recarregar do banco"><i class="fa-solid fa-rotate"></i> Atualizar</button>
+        ${(Auth.currentUser?.role==='master' || getUserModules(Auth.currentUser).autorizarPonto) ? `<button class="btn btn-outline" onclick="_autzResolverPendentes()" title="Registra na folha as batidas dos pedidos PENDENTES (legados) e fecha os pedidos. Resíduo ≤10min não vira HE; HE real fica pendente na revisão da folha. Batida agora é automática." style="border-color:#16a34a;color:#16a34a"><i class="fa-solid fa-broom"></i> Resolver pendentes</button>` : ''}
         <button class="btn btn-outline" onclick="_autzImprimir()" title="Imprimir / salvar PDF do filtro atual"><i class="fa-solid fa-file-pdf"></i> Gerar PDF</button>
       </div>
     </div>`;

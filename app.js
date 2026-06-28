@@ -1362,7 +1362,7 @@ function showSection(name){
   if(name==='estoque'        && !mods.estoque) return;
   if(name==='documentos'     && !mods.employees) return;
   if(name==='configuracoes'  && Auth.currentUser?.role!=='master') return;
-  if(name==='lgpd'           && Auth.currentUser?.role!=='master') return;
+  if(name==='lgpd'           && !mods.lgpd && Auth.currentUser?.role!=='master') return;
   // Empilha seção atual antes de trocar (exceto se estiver voltando ou já está na mesma seção)
   if(!_navigatingBack && State.currentSection && State.currentSection!==name){
     State.sectionHistory.push(State.currentSection);
@@ -1953,7 +1953,7 @@ function applyUserSession(user){
   const cfgLi=document.getElementById('nav-configuracoes-li');
   if(cfgLi) cfgLi.classList.toggle('hidden', user.role!=='master');
   const lgpdLi=document.getElementById('nav-lgpd-li');
-  if(lgpdLi) lgpdLi.classList.toggle('hidden', user.role!=='master');   // #lgpd
+  if(lgpdLi) lgpdLi.classList.toggle('hidden', !mods.lgpd && user.role!=='master');   // #lgpd
   showSection('dashboard');
   updateDbInfo();
 }
@@ -2511,7 +2511,7 @@ function _lgpdEventosSensiveis(dias){
 }
 function _lgpdAttr(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
 async function salvarLgpdConfig(){
-  if(Auth.currentUser?.role!=='master') return;
+  if(!getUserModules(Auth.currentUser).lgpd && Auth.currentUser?.role!=='master') return;
   const cfg={ nome:val('lgpd-dpo-nome').trim(), oab:val('lgpd-dpo-oab').trim(), email:(val('lgpd-dpo-email')||'').trim(), telefone:val('lgpd-dpo-tel').trim() };
   try{ await DB.saveDoc('configuracoes','lgpdConfig',cfg,false); State.lgpdConfig=cfg; Auth.log('LGPD_DPO_SALVO',Auth.currentUser.username,`Encarregado: ${cfg.nome||'—'}${cfg.oab?' ('+cfg.oab+')':''}`); toast('Encarregado (DPO) salvo.'); }
   catch(e){ toast('Erro ao salvar o responsável.','error'); }
@@ -30062,13 +30062,14 @@ const MODULOS_LABELS={
   autorizarPonto:     'Autorizar Batidas Fora do Horário (Supervisor)',
   monitorarFaltas:    'Monitorar Faltas (quem não bateu entrada)',
   gerirFolgasEscala:  'Folgas / Dia avulso / Troca e mudança de escala',
-  estoque:            'Estoque / EPIs'
+  estoque:            'Estoque / EPIs',
+  lgpd:               'Conformidade LGPD (verificar/corrigir)'
 };
 
 // Retorna os módulos permitidos para o usuário
 function getUserModules(user){
   if(!user) return {};
-  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,escalas:true,criarEscalas:true,aprovaHE:true,aprovaHESupervisor:true,reports:true,pagamentos:true,pagamentosLancar:true,pagamentosAprovar:true,decimoterceiro:true,ferias:true,rescisao:true,contabilidade:true,postos:true,contratos:true,users:true,log:true,comunicacao:true,comunicacoesApagar:true,disciplinaApagar:true,autorizarPonto:true,monitorarFaltas:true,revisarContrato:true,gerirFolgasEscala:true,estoque:true};
+  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,escalas:true,criarEscalas:true,aprovaHE:true,aprovaHESupervisor:true,reports:true,pagamentos:true,pagamentosLancar:true,pagamentosAprovar:true,decimoterceiro:true,ferias:true,rescisao:true,contabilidade:true,postos:true,contratos:true,users:true,log:true,comunicacao:true,comunicacoesApagar:true,disciplinaApagar:true,autorizarPonto:true,monitorarFaltas:true,revisarContrato:true,gerirFolgasEscala:true,estoque:true,lgpd:true};
   // PERMISSÕES POR USUÁRIO (fonte principal; substitui perfis). Vive em
   // configuracoes/permissoesUsuarios por username. Fallback p/ perfil/role se o
   // usuário ainda NÃO tem lista própria — assim ninguém perde acesso. #perm-por-usuario

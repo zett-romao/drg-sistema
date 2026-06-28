@@ -2517,6 +2517,41 @@ async function salvarLgpdConfig(){
   try{ await DB.saveDoc('configuracoes','lgpdConfig',cfg,false); State.lgpdConfig=cfg; Auth.log('LGPD_DPO_SALVO',Auth.currentUser.username,`Encarregado: ${cfg.nome||'—'}${cfg.oab?' ('+cfg.oab+')':''}`); toast('Encarregado (DPO) salvo.'); }
   catch(e){ toast('Erro ao salvar o responsável.','error'); }
 }
+// Política de Privacidade e Proteção de Dados (LGPD) — template preenchido com a empresa
+// e o Encarregado/DPO. Conteúdo jurídico-base; revisar com advogado. #lgpd
+function _lgpdPoliticaHtml(){
+  const emp=_e('nomeEmpresa')||'a Empresa';
+  const cfg=State.lgpdConfig||{};
+  const dpo=(cfg.nome||cfg.email||cfg.telefone||cfg.oab)
+    ? `${cfg.nome||'—'}${cfg.oab?` (OAB ${cfg.oab})`:''}${cfg.email?` · ${cfg.email}`:''}${cfg.telefone?` · ${cfg.telefone}`:''}`
+    : '<em>(defina o Encarregado/DPO no campo acima)</em>';
+  const S=(t,c)=>`<h4 style="margin:14px 0 4px;color:#1a3a6b;font-size:14px">${t}</h4><div style="font-size:13px;line-height:1.6;color:#333">${c}</div>`;
+  return `
+  <p style="font-size:13px;line-height:1.6;color:#333"><strong>${emp}</strong>, na qualidade de <strong>Controladora</strong> de dados, está comprometida com a proteção da privacidade e dos dados pessoais que trata, em conformidade com a <strong>Lei nº 13.709/2018 (LGPD)</strong>. Esta Política explica quais dados coletamos, por que, como os protegemos e quais são os direitos dos titulares.</p>
+  ${S('1. Encarregado pelo Tratamento de Dados (DPO)',`Contato para assuntos de proteção de dados: <strong>${dpo}</strong>.`)}
+  ${S('2. Dados pessoais que tratamos',`<ul style="margin:4px 0 0 18px"><li><strong>De colaboradores:</strong> nome, CPF, RG, CTPS, PIS, data de nascimento, endereço, telefone, e-mail, dados bancários/PIX, foto, cargo, jornada, registros de ponto, salário e verbas, dependentes e <strong>dados de saúde</strong> (atestados/afastamentos — dado pessoal sensível).</li><li><strong>Imagens e áudio (CFTV):</strong> nas <strong>portarias e áreas comuns</strong> dos condomínios em que atuamos, captamos <strong>imagem e, quando sinalizado, áudio</strong> por câmeras de segurança, que podem registrar colaboradores, moradores, visitantes e prestadores.</li></ul>`)}
+  ${S('3. Finalidades e bases legais',`<ul style="margin:4px 0 0 18px"><li><strong>Gestão de pessoal e folha</strong> (admissão, ponto, pagamento, benefícios, obrigações acessórias): execução do contrato de trabalho e <strong>cumprimento de obrigação legal/regulatória</strong> (CLT, eSocial, fiscais).</li><li><strong>Dados de saúde (atestados):</strong> cumprimento de obrigação legal trabalhista e proteção da vida.</li><li><strong>Imagem e áudio (CFTV):</strong> <strong>segurança patrimonial e das pessoas</strong>, com base no <strong>legítimo interesse</strong>, limitado ao estritamente necessário, com aviso/sinalização nos locais monitorados.</li></ul>`)}
+  ${S('4. Câmeras e áudio em portarias e áreas comuns',`O monitoramento por CFTV tem <strong>finalidade exclusiva de segurança</strong>. Os ambientes monitorados são <strong>sinalizados</strong>. As imagens/áudios <strong>não</strong> são usados para finalidade diversa (ex.: avaliar produtividade), salvo apuração de incidente de segurança ou exigência legal. Áreas de expectativa de privacidade (banheiros, vestiários) <strong>não</strong> são monitoradas. As gravações são guardadas por período limitado e necessário (em regra, até <strong>30 dias</strong>, salvo necessidade de apuração) e o acesso é restrito a pessoas autorizadas.`)}
+  ${S('5. Compartilhamento',`Compartilhamos dados apenas quando necessário: com o <strong>contador/contabilidade</strong>, <strong>órgãos públicos</strong> (eSocial, Receita, Justiça do Trabalho, INSS), <strong>instituições financeiras</strong> (pagamento) e <strong>condomínios contratantes</strong> no limite da prestação do serviço. Não vendemos dados pessoais.`)}
+  ${S('6. Retenção e eliminação',`Mantemos os dados pelo tempo necessário às finalidades e às obrigações legais (ex.: documentos trabalhistas/previdenciários pelos prazos legais). Os <strong>registros de acesso ao sistema</strong> são mantidos por <strong>6 meses</strong>. As <strong>imagens de CFTV</strong>, em regra, por até <strong>30 dias</strong>. Findo o prazo e a finalidade, os dados são eliminados ou anonimizados.`)}
+  ${S('7. Direitos do titular',`Nos termos do art. 18 da LGPD, o titular pode solicitar: confirmação e acesso aos dados; correção; anonimização, bloqueio ou eliminação; portabilidade; informação sobre compartilhamentos; e revogação de consentimento. Os pedidos devem ser dirigidos ao Encarregado (item 1).`)}
+  ${S('8. Segurança',`Adotamos medidas técnicas e administrativas: <strong>controle de acesso por usuário</strong> (cada pessoa só acessa o necessário), restrição de horário de acesso, <strong>trilha de auditoria</strong> de operações sensíveis, autenticação e segregação de dados por organização.`)}
+  ${S('9. Atualizações',`Esta Política pode ser atualizada. A versão vigente fica disponível no sistema. Última geração: ${new Date().toLocaleDateString('pt-BR')}.`)}
+  <p style="font-size:11px;color:#888;margin-top:14px;border-top:1px solid #eee;padding-top:8px">Documento-base gerado pelo DRG-Kronos como apoio à conformidade. Recomenda-se a revisão por advogado/DPO antes da publicação.</p>`;
+}
+function _lgpdTogglePolitica(){
+  const box=document.getElementById('lgpd-politica'); const ch=document.getElementById('lgpd-pol-chevron');
+  if(!box) return; const aberto=box.style.display!=='none';
+  box.style.display=aberto?'none':''; if(ch) ch.className='fa-solid '+(aberto?'fa-chevron-down':'fa-chevron-up');
+}
+function _lgpdImprimirPolitica(){
+  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Política de Privacidade</title>
+<style>body{font-family:Arial,sans-serif;padding:24px;color:#212529;max-width:820px;margin:0 auto}h1{color:#1a3a6b;font-size:20px}h4{color:#1a3a6b}@media print{body{padding:8px}}</style></head><body>
+<h1>${_e('nomeEmpresa')||'Empresa'} — Política de Privacidade e Proteção de Dados (LGPD)</h1>${_lgpdPoliticaHtml()}</body></html>`;
+  const w=window.open('','_blank','width=900,height=700');
+  if(!w){ toast('Permita pop-ups para imprimir','error'); return; }
+  w.document.write(html+'<scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt>'); w.document.close();
+}
 function renderLGPD(){
   const el=document.getElementById('lgpd-content'); if(!el) return;
   const _cfg=State.lgpdConfig||{};
@@ -2561,6 +2596,13 @@ function renderLGPD(){
         <div class="form-group"><label>Telefone</label><input id="lgpd-dpo-tel" value="${_lgpdAttr(_cfg.telefone)}" placeholder="(00) 00000-0000"></div>
       </div>
       <button class="btn btn-primary" onclick="salvarLgpdConfig()"><i class="fa-solid fa-floppy-disk"></i> Salvar responsável</button>
+    </div>
+    <div style="border:1px solid var(--border);border-radius:8px;margin-bottom:16px;overflow:hidden">
+      <div onclick="_lgpdTogglePolitica()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px;padding:12px 14px;background:#F8FAFF" title="Clique para revelar a Política de Privacidade">
+        <div style="font-weight:700;font-size:14px;color:var(--primary)"><i class="fa-solid fa-file-shield"></i> Política de Privacidade e Proteção de Dados</div>
+        <div style="display:flex;align-items:center;gap:10px"><button class="btn btn-outline" onclick="event.stopPropagation();_lgpdImprimirPolitica()" title="Imprimir / salvar PDF"><i class="fa-solid fa-print"></i> Imprimir</button><i id="lgpd-pol-chevron" class="fa-solid fa-chevron-down" style="color:var(--text-muted)"></i></div>
+      </div>
+      <div id="lgpd-politica" style="display:none;padding:14px 16px;border-top:1px solid var(--border)">${_lgpdPoliticaHtml()}</div>
     </div>
     <div style="display:flex;align-items:center;gap:12px;background:#fff;border:1px solid var(--border);border-left:5px solid ${sg.cor};border-radius:8px;padding:12px 16px;margin-bottom:16px">
       <i class="fa-solid ${sg.ic}" style="font-size:26px;color:${sg.cor}"></i>

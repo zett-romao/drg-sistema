@@ -330,16 +330,30 @@ function _getDeviceId(){
 //    Vale neste app de supervisor também — a trava é do USUÁRIO, não só do painel. #acesso-horario
 const _ACESSO_DIAS_SUP=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 let _acessoRegraSup=null, _acessoTimerSup=null;
+// Feriados NACIONAIS (mesma lista do gestor _feriadosNacionais: fixos + Sexta Santa).
+// Usado só pela trava de acesso por horário (feriado bloqueia, salvo "feriadoLibera"). #acesso-feriado
+function _calcPascoaSup(ano){const a=ano%19,b=Math.floor(ano/100),c=ano%100,d=Math.floor(b/4),e=b%4,f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4,l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451);return {mes:Math.floor((h+l-7*m+114)/31),dia:((h+l-7*m+114)%31)+1};}
+let _ferNacSupCache={};
+function _ehFeriadoNacSup(d){
+  const y=d.getFullYear(), z=n=>String(n).padStart(2,'0');
+  if(!_ferNacSupCache[y]){
+    const set=new Set([[1,1],[4,21],[5,1],[9,7],[10,12],[11,2],[11,15],[11,20],[12,25]].map(([m,dd])=>`${y}-${z(m)}-${z(dd)}`));
+    const p=_calcPascoaSup(y); const sx=new Date(y,p.mes-1,p.dia); sx.setDate(sx.getDate()-2);
+    set.add(`${sx.getFullYear()}-${z(sx.getMonth()+1)}-${z(sx.getDate())}`);
+    _ferNacSupCache[y]=set;
+  }
+  return _ferNacSupCache[y].has(`${y}-${z(d.getMonth()+1)}-${z(d.getDate())}`);
+}
 function _acessoNormalizeSup(j){
-  const def={ativa:false,dias:Array.from({length:7},()=>({on:false,ini:'08:00',fim:'18:00'}))};
+  const def={ativa:false,feriadoLibera:false,dias:Array.from({length:7},()=>({on:false,ini:'08:00',fim:'18:00'}))};
   if(!j||typeof j!=='object') return def;
   const hm=(s,d)=>{const m=/^(\d{1,2}):(\d{2})$/.exec(String(s||''));if(!m)return d;return String(Math.min(23,+m[1])).padStart(2,'0')+':'+String(Math.min(59,+m[2])).padStart(2,'0');};
   if(Array.isArray(j.dias)&&(j.dias.length===0||typeof j.dias[0]==='number')){
     const set=new Set(j.dias),ini=hm(j.inicio,'08:00'),fim=hm(j.fim,'18:00');
-    return {ativa:!!j.restrito,dias:Array.from({length:7},(_,i)=>({on:set.has(i),ini,fim}))};
+    return {ativa:!!j.restrito,feriadoLibera:!!j.feriadoLibera,dias:Array.from({length:7},(_,i)=>({on:set.has(i),ini,fim}))};
   }
   const dias=[];for(let i=0;i<7;i++){const s=(Array.isArray(j.dias)&&j.dias[i])||{};dias.push({on:!!s.on,ini:hm(s.ini,'08:00'),fim:hm(s.fim,'18:00')});}
-  return {ativa:!!j.ativa,dias};
+  return {ativa:!!j.ativa,feriadoLibera:!!j.feriadoLibera,dias};
 }
 function _inJanelaSup(j,d){
   const wd=d.getDay(),now=d.getHours()*60+d.getMinutes();
@@ -350,7 +364,7 @@ function _inJanelaSup(j,d){
   if(prev&&prev.on){const ini=hm(prev.ini),fim=hm(prev.fim);if(fim<ini&&now<fim)return true;}
   return false;
 }
-function _acessoPermitidoAgoraSup(regra,d){const j=_acessoNormalizeSup(regra);if(!j.ativa)return true;return _inJanelaSup(j,d||new Date());}
+function _acessoPermitidoAgoraSup(regra,d){const j=_acessoNormalizeSup(regra);if(!j.ativa)return true;const dt=d||new Date();if(_ehFeriadoNacSup(dt))return !!j.feriadoLibera;return _inJanelaSup(j,dt);}
 function _acessoRegraLabelSup(regra){const j=_acessoNormalizeSup(regra);if(!j.ativa)return 'sem restrição';const parts=j.dias.map((x,i)=>x.on?`${_ACESSO_DIAS_SUP[i]} ${x.ini}-${x.fim}`:null).filter(Boolean);return parts.length?parts.join(' · '):'(nenhum dia liberado)';}
 async function _checarAcessoHorarioSup(){
   if(!currentUser || currentUser.role==='master'){ _acessoRegraSup=null; return true; }
@@ -942,7 +956,7 @@ setInterval(() => {
 if('serviceWorker' in navigator){
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('supervisor-sw.js?v=7').then(reg => {
+    navigator.serviceWorker.register('supervisor-sw.js?v=8').then(reg => {
       const checar = () => { try{ reg.update(); }catch(_){} };
       document.addEventListener('visibilitychange', () => {
         if(document.visibilityState === 'visible') checar();

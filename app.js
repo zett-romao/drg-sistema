@@ -2138,7 +2138,7 @@ function _janelaNormalize(j){
 // DESLOGA quem sai da janela. Lado cliente (relógio LOCAL) — app sem back-end. #acesso-horario
 let _acessoRegraSessao=null, _acessoTimer=null;
 function _acessoDefault(){
-  return { ativa:false, dias: Array.from({length:7}, ()=>({ on:false, ini:'08:00', fim:'18:00' })) };
+  return { ativa:false, feriadoLibera:false, dias: Array.from({length:7}, ()=>({ on:false, ini:'08:00', fim:'18:00' })) };
 }
 // Coage qualquer formato salvo p/ {ativa, dias:[{on,ini,fim}]}. Converte também o formato
 // ANTIGO de janela única ({restrito, dias:[0..6], inicio, fim}) p/ a grade por dia. #acesso-horario
@@ -2149,15 +2149,19 @@ function _acessoNormalize(j){
   // Formato antigo (janela única): dias é lista de números + tem inicio/fim/restrito.
   if(Array.isArray(j.dias) && (j.dias.length===0 || typeof j.dias[0]==='number')){
     const set=new Set(j.dias), ini=hm(j.inicio,'08:00'), fim=hm(j.fim,'18:00');
-    return { ativa:!!j.restrito, dias: Array.from({length:7},(_,i)=>({ on:set.has(i), ini, fim })) };
+    return { ativa:!!j.restrito, feriadoLibera:!!j.feriadoLibera, dias: Array.from({length:7},(_,i)=>({ on:set.has(i), ini, fim })) };
   }
   const dias=[]; for(let i=0;i<7;i++){ const s=(Array.isArray(j.dias)&&j.dias[i])||{}; dias.push({ on:!!s.on, ini:hm(s.ini,'08:00'), fim:hm(s.fim,'18:00') }); }
-  return { ativa:!!j.ativa, dias };
+  return { ativa:!!j.ativa, feriadoLibera:!!j.feriadoLibera, dias };
 }
 function _acessoPermitidoAgora(regra, d){
   const j=_acessoNormalize(regra);
   if(!j.ativa) return true;                  // sem restrição = acessa sempre
-  return _inJanela(j, d||new Date());        // MESMA avaliação por dia da janela de notificações
+  const dt=d||new Date();
+  // Feriado é "contabilizado": por padrão BLOQUEIA o acesso o dia todo; o checkbox
+  // "Liberar acesso em feriados" libera (ex.: escalado p/ HE no feriado). #acesso-feriado
+  if(_ehFeriado(dt.getFullYear(), dt.getMonth()+1, dt.getDate())) return !!j.feriadoLibera;
+  return _inJanela(j, dt);                    // MESMA avaliação por dia da janela de notificações
 }
 function _acessoRegraLabel(regra){
   const j=_acessoNormalize(regra);
@@ -2168,6 +2172,7 @@ function _acessoRegraLabel(regra){
 function _renderAcessoGrid(regra){
   const j=_acessoNormalize(regra);
   const chk=document.getElementById('usr-acesso-restrito'); if(chk) chk.checked=j.ativa;
+  const chkFer=document.getElementById('usr-acesso-feriado-libera'); if(chkFer) chkFer.checked=j.feriadoLibera;
   const box=document.getElementById('usr-acesso-dias');
   if(box){
     const dim=on=>on?'':'opacity:.4';
@@ -2197,6 +2202,7 @@ function _toggleAcessoConfig(){
 function _collectAcessoRegra(){
   const j=_acessoDefault();
   j.ativa=!!document.getElementById('usr-acesso-restrito')?.checked;
+  j.feriadoLibera=!!document.getElementById('usr-acesso-feriado-libera')?.checked;
   document.querySelectorAll('.usr-acesso-dia-on').forEach(c=>{ const i=+c.dataset.dia; if(j.dias[i]) j.dias[i].on=c.checked; });
   document.querySelectorAll('.usr-acesso-dia-ini').forEach(c=>{ const i=+c.dataset.dia; if(j.dias[i]&&c.value) j.dias[i].ini=c.value; });
   document.querySelectorAll('.usr-acesso-dia-fim').forEach(c=>{ const i=+c.dataset.dia; if(j.dias[i]&&c.value) j.dias[i].fim=c.value; });
@@ -22392,7 +22398,7 @@ async function renderMonitorFaltas(){
         ${_pushAtivoNesteAparelho()
           ? `<span style="align-self:center;font-size:12px;color:#16a34a;font-weight:600"><i class="fa-solid fa-bell"></i> Notificações ativas neste aparelho</span>`
           : `<button class="btn btn-outline" onclick="_ativarNotificacoesFaltas()" title="Receber aviso no celular mesmo com o app fechado (robô 24h)"><i class="fa-solid fa-bell"></i> Ativar notificações</button>`}
-        <button class="btn btn-secondary" onclick="atualizarMonitorFaltas()"><i class="fa-solid fa-rotate"></i> Atualizar</button>
+        <button class="btn btn-outline" style="border-color:#2E7D32;color:#2E7D32" onclick="atualizarMonitorFaltas()"><i class="fa-solid fa-rotate"></i> Atualizar</button>
       </div>
     </div>
     <div style="margin:14px 0;padding:10px 14px;border-radius:8px;background:${lista.length?'#fef2f2':'#f0fdf4'};border:1px solid ${lista.length?'#fecaca':'#bbf7d0'};font-weight:600;color:${lista.length?'#b91c1c':'#15803d'}">
@@ -28997,26 +29003,81 @@ function _realizedEscalaDias(emp, mes, ano, payroll){
   return dias;
 }
 
-function _renderEscalaCard(emp, mes, ano){
-  // Competência FECHADA → a tela se atualiza sozinha pelas batidas (realizada). #escala-realizada
+// Override MANUAL de consulta (escala realizada editada à mão). Vive em configuracoes/
+// escalaConsulta (chave empId|mes|ano), lido SÓ por esta tela. NÃO toca ponto/folha/motor.
+let _escalaEditing=null;   // chave do card em edição
+function _escalaConsultaOverride(empId, mes, ano){
+  const v = (State.escalaConsulta||{})[`${empId}|${mes}|${ano}`];
+  return Array.isArray(v) && v.length ? v : null;
+}
+// Fonte única das linhas da escala (tela E exportação): fechada → realizada das batidas
+// (ou ajuste manual de consulta); aberta → salva/projeção do contrato. #escala-realizada
+function _escalaDiasFor(emp, mes, ano){
   const payroll = (State.payrolls||[]).find(p => p.employeeId===emp.id && p.mes==mes && p.ano==ano);
-  const isFechada = payroll?.status === 'fechada';
-  let dias;
-  let isProjetada = false;
-  let isRealizada = false;
-  if(isFechada){
-    dias = _realizedEscalaDias(emp, mes, ano, payroll);
-    isRealizada = true;
-  } else {
-    const saved = (State.escalas||[]).find(e => e.employeeId===emp.id && e.mes==mes && e.ano==ano);
-    if(saved?.dias?.length){
-      dias = saved.dias;
-    } else {
-      const prevDias = _getPrevMonthDias(emp.id, mes, ano);
-      dias = _projectEscala(emp, mes, ano, prevDias);
-      isProjetada = true;
-    }
+  if(payroll?.status === 'fechada'){
+    const ov = _escalaConsultaOverride(emp.id, mes, ano);
+    if(ov) return { dias: ov, fonte:'ajustada' };
+    return { dias: _realizedEscalaDias(emp, mes, ano, payroll), fonte:'realizada' };
   }
+  const saved = (State.escalas||[]).find(e => e.employeeId===emp.id && e.mes==mes && e.ano==ano);
+  if(saved?.dias?.length) return { dias: saved.dias, fonte:'salva' };
+  const prevDias = _getPrevMonthDias(emp.id, mes, ano);
+  return { dias: _projectEscala(emp, mes, ano, prevDias), fonte:'projetada' };
+}
+// Linha EDITÁVEL do modo de ajuste de consulta.
+function _renderEscalaRowEdit(d, mes, ano){
+  const sem=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][d.diaSem];
+  let labelDia=String(d.dia).padStart(2,'0');
+  if(mes!=null&&ano!=null){ const r=_compRealDate(mes,ano,d.dia); labelDia=`${String(r.dia).padStart(2,'0')}/${String(r.mes).padStart(2,'0')}`; }
+  const opts=[['trabalho','Trabalho'],['folga','Folga'],['semreg','s/ registro'],['atestado','Atestado'],['abono','Abono'],['cobertura','Cobertura'],['ferias','Férias']]
+    .map(([v,l])=>`<option value="${v}" ${d.tipo===v?'selected':''}>${l}</option>`).join('');
+  const ti=(cls,val)=>`<input type="time" class="esc-ed-${cls}" value="${val||''}" style="padding:3px 5px;border:1px solid var(--border);border-radius:5px;font-size:11px;width:96px">`;
+  return `<tr data-dia="${d.dia}" style="background:#FFFDE7">
+    <td style="padding:4px 6px;text-align:center;border:1px solid var(--border);font-weight:700;font-size:11px">${labelDia}</td>
+    <td style="padding:4px 6px;text-align:center;border:1px solid var(--border);font-size:11px">${sem}</td>
+    <td style="padding:4px 6px;text-align:center;border:1px solid var(--border)"><select class="esc-ed-tipo" style="padding:3px 5px;border:1px solid var(--border);border-radius:5px;font-size:11px">${opts}</select></td>
+    <td style="padding:4px 6px;text-align:center;border:1px solid var(--border)">${ti('entrada',d.entrada)}</td>
+    <td style="padding:4px 6px;text-align:center;border:1px solid var(--border)">${ti('intini',d.intIni)}</td>
+    <td style="padding:4px 6px;text-align:center;border:1px solid var(--border)">${ti('intfim',d.intFim)}</td>
+    <td style="padding:4px 6px;text-align:center;border:1px solid var(--border)">${ti('saida',d.saida)}</td>
+  </tr>`;
+}
+function _escalaCollectEditDias(card){
+  const mes=parseInt(card.dataset.mes), ano=parseInt(card.dataset.ano);
+  const out=[];
+  card.querySelectorAll('tbody tr[data-dia]').forEach(row=>{
+    const dia=parseInt(row.dataset.dia);
+    const r=_compRealDate(mes,ano,dia); const ds=new Date(r.ano,r.mes-1,r.dia).getDay();
+    const tipo=row.querySelector('.esc-ed-tipo')?.value||'folga';
+    const g=cls=>row.querySelector('.esc-ed-'+cls)?.value||'';
+    out.push({dia,diaSem:ds,tipo,entrada:g('entrada'),intIni:g('intini'),intFim:g('intfim'),saida:g('saida')});
+  });
+  return out;
+}
+function _escalaEditMode(empId,mes,ano){ _escalaEditing=`${empId}|${mes}|${ano}`; _renderEscalasCards(); }
+function _escalaCancelEdit(){ _escalaEditing=null; _renderEscalasCards(); }
+async function _escalaSalvarAjuste(empId,mes,ano){
+  const card=document.querySelector(`.escala-card[data-emp-id="${empId}"]`); if(!card) return;
+  const dias=_escalaCollectEditDias(card);
+  State.escalaConsulta=State.escalaConsulta||{};
+  State.escalaConsulta[`${empId}|${mes}|${ano}`]=dias;
+  _escalaEditing=null;
+  try{ await DB.saveDoc('configuracoes','escalaConsulta',State.escalaConsulta,false); toast('Ajuste de consulta salvo — não altera ponto, folha nem nenhuma outra tela.'); }
+  catch(e){ toast('Erro ao salvar o ajuste.','error'); }
+  _renderEscalasCards();
+}
+async function _escalaRecompor(empId,mes,ano){
+  State.escalaConsulta=State.escalaConsulta||{};
+  delete State.escalaConsulta[`${empId}|${mes}|${ano}`];
+  _escalaEditing=null;
+  try{ await DB.saveDoc('configuracoes','escalaConsulta',State.escalaConsulta,false); toast('Escala recomposta pelas batidas do ponto.'); }
+  catch(e){ toast('Erro ao recompor.','error'); }
+  _renderEscalasCards();
+}
+
+function _renderEscalaCard(emp, mes, ano){
+  const { dias, fonte } = _escalaDiasFor(emp, mes, ano);   // #escala-realizada
+  const editing = _escalaEditing===`${emp.id}|${mes}|${ano}`;
   const fam = escalaFamilia(emp.escala || '5x2A');
   const posto = (emp.posto || '—');
   const setor = emp.setor || '—';
@@ -29026,23 +29087,34 @@ function _renderEscalaCard(emp, mes, ano){
   const semRefBadge = emp.semRefeicao
     ? '<span style="background:#FFEBEE;color:#C62828;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px" title="Trabalha sozinho — sem horário de refeição"><i class="fa-solid fa-ban"></i> Sem refeição</span>'
     : '';
-  const projBadge = isRealizada
+  const projBadge = editing
+    ? '<span style="background:#FFF8E1;color:#E65100;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px"><i class="fa-solid fa-pen"></i> Editando consulta…</span>'
+    : fonte==='realizada'
     ? '<span style="background:#E8F5E9;color:#2E7D32;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px" title="Competência fechada — escala atualizada pelas batidas reais do ponto (apenas consulta; não orienta outras telas)"><i class="fa-solid fa-clipboard-check"></i> Realizada (do ponto)</span>'
-    : isProjetada
+    : fonte==='ajustada'
+    ? '<span style="background:#EDE7F6;color:#5E35B1;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px" title="Escala realizada ajustada manualmente para consulta (não altera nada no sistema)"><i class="fa-solid fa-user-pen"></i> Ajustada (consulta)</span>'
+    : fonte==='projetada'
     ? '<span style="background:#E1F5FE;color:#0277BD;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px" title="Escala efetiva derivada do contrato (cadastro + transferências)"><i class="fa-solid fa-file-contract"></i> Do contrato</span>'
     : '<span style="background:#ECEFF1;color:#546E7A;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px" title="Escala que foi salva manualmente nesta competência (histórico)"><i class="fa-solid fa-clock-rotate-left"></i> Salva (histórico)</span>';
-  const rowsHtml = dias.map(d => _renderEscalaRow(d, fam, mes, ano)).join('');
-  return `<div class="card escala-card" data-emp-id="${emp.id}" data-fam="${fam}" style="margin-bottom:16px">
+  const rowsHtml = editing
+    ? dias.map(d => _renderEscalaRowEdit(d, mes, ano)).join('')
+    : dias.map(d => _renderEscalaRow(d, fam, mes, ano)).join('');
+  const btns = editing
+    ? `<button class="btn btn-success" onclick="_escalaSalvarAjuste('${emp.id}',${mes},${ano})"><i class="fa-solid fa-floppy-disk"></i> Salvar ajustes</button>
+       <button class="btn btn-outline" onclick="_escalaCancelEdit()">Cancelar</button>`
+    : `<button class="btn btn-secondary" onclick="openAjustarEscala('${emp.id}')" title="Trocar a escala contratual do colaborador (5x2, 6x1, 12x36...)"><i class="fa-solid fa-gear" style="color:var(--primary)"></i> Ajustar escala</button>
+       ${(fonte==='realizada'||fonte==='ajustada') ? `<button class="btn btn-secondary" onclick="_escalaEditMode('${emp.id}',${mes},${ano})" title="Ajustar manualmente esta escala de consulta — não altera nada no sistema"><i class="fa-solid fa-pen" style="color:var(--primary)"></i> Editar consulta</button>` : ''}
+       ${fonte==='ajustada' ? `<button class="btn btn-secondary" onclick="_escalaRecompor('${emp.id}',${mes},${ano})" title="Descartar os ajustes e refazer pelas batidas do ponto"><i class="fa-solid fa-rotate-left" style="color:#E65100"></i> Recompor do ponto</button>` : ''}`;
+  return `<div class="card escala-card" data-emp-id="${emp.id}" data-fam="${fam}" data-mes="${mes}" data-ano="${ano}" style="margin-bottom:16px">
     <div class="card-body" style="padding:14px 18px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
         <div>
           <div style="font-size:15px;font-weight:700;color:var(--primary)">${emp.nome}${noturnoBadge}${semRefBadge}${projBadge}</div>
           <div style="font-size:12px;color:var(--text-muted);margin-top:2px"><i class="fa-solid fa-building"></i> ${posto} &middot; <i class="fa-solid fa-sitemap"></i> ${setor} &middot; <strong>${escalaLabel(emp.escala||'5x2A')}</strong></div>
         </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <button class="btn btn-secondary" onclick="openAjustarEscala('${emp.id}')" title="Trocar a escala contratual do colaborador (5x2, 6x1, 12x36...)"><i class="fa-solid fa-gear" style="color:var(--primary)"></i> Ajustar escala</button>
-        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">${btns}</div>
       </div>
+      ${editing ? '<div style="font-size:11px;color:#E65100;margin-bottom:8px;background:#FFF8E1;border:1px solid #FFE082;border-radius:6px;padding:6px 10px"><i class="fa-solid fa-circle-info"></i> Ajuste apenas de <strong>consulta</strong> — não altera ponto, folha, apuração nem nenhuma outra tela do sistema.</div>' : ''}
       <div style="overflow-x:auto">
         <table class="escala-table" style="width:100%;border-collapse:collapse;font-size:12px;min-width:680px">
           <thead>
@@ -29648,7 +29720,8 @@ function exportEscalas(format){
     const emp = State.employees.find(e=>e.id===empId);
     if(!emp) return;
     const posto = (emp.posto || '—');
-    const dias = _collectEscalaDias(empId);
+    const dias = _escalaDiasFor(emp, mes, ano).dias;   // mesma fonte da tela (realizada/ajustada/contrato). #escala-realizada
+    const _statusLabel = {trabalho:'Trabalho',corrido:'Corrido',folga:'Folga',semreg:'s/ registro',atestado:'Atestado',abono:'Abono',cobertura:'Cobertura',ferias:'Férias'};
     const fam = escalaFamilia(emp.escala||'5x2A');
     bodyHtml += `<h2 style="color:#1a3a6b;font-size:14px;margin:14px 0 4px;page-break-after:avoid">${emp.nome}</h2>
       <p style="font-size:11px;color:#444;margin:0 0 6px"><strong>Posto:</strong> ${posto} &nbsp;|&nbsp; <strong>Setor:</strong> ${emp.setor||'—'} &nbsp;|&nbsp; <strong>Escala:</strong> ${escalaLabel(emp.escala||'5x2A')}${emp.turnoNoturno?' (Noturno)':''}</p>
@@ -29662,10 +29735,11 @@ function exportEscalas(format){
       if(fam==='12x36') bg = d.tipo==='trabalho' ? '#E3F2FD' : '#FFF8E1';
       else if(d.diaSem===0) bg = '#FFEBEE';
       else if(d.diaSem===6) bg = '#FFF9C4';
+      const _rd=_compRealDate(mes,ano,d.dia);
       bodyHtml += `<tr style="background:${bg}">
-        <td style="text-align:center"><strong>${String(d.dia).padStart(2,'0')}</strong></td>
+        <td style="text-align:center"><strong>${String(_rd.dia).padStart(2,'0')}/${String(_rd.mes).padStart(2,'0')}</strong></td>
         <td style="text-align:center">${sem}</td>
-        <td style="text-align:center">${d.tipo==='trabalho'?'Trabalho':'Folga'}</td>
+        <td style="text-align:center">${_statusLabel[d.tipo]||'Trabalho'}</td>
         <td style="text-align:center">${d.entrada||'—'}</td>
         <td style="text-align:center">${d.intIni||'—'}</td>
         <td style="text-align:center">${d.intFim||'—'}</td>
@@ -30114,6 +30188,8 @@ async function _carregarDadosPosLogin(){
     catch(_){ State.feriadosConfig = {trabalha:[],extras:[]}; }
     try{ State.acessoUsuarios = (await DB.getDoc('configuracoes','acessoUsuarios')) || {}; }   // trava de horário de acesso. #acesso-horario
     catch(_){ State.acessoUsuarios = {}; }
+    try{ State.escalaConsulta = (await DB.getDoc('configuracoes','escalaConsulta')) || {}; }   // ajuste manual da escala realizada (consulta). #escala-realizada
+    catch(_){ State.escalaConsulta = {}; }
   } catch(e){
     console.error('Erro ao carregar dados:', e);
     const msg = e && e.message ? e.message : String(e);

@@ -4387,6 +4387,10 @@
         </label>
         <div id="usr-acesso-config" style="display:none;padding:8px;border:1px solid var(--border);border-radius:6px;margin-top:4px">
           <div id="usr-acesso-dias"></div>
+          <label class="checkbox-label" style="font-size:13px;display:flex;align-items:center;gap:8px;padding:8px 2px 2px;margin-top:6px;border-top:1px dashed var(--border);cursor:pointer">
+            <input type="checkbox" id="usr-acesso-feriado-libera">
+            <span>Liberar acesso em feriados <em style="color:var(--text-muted);font-style:normal">(desmarcado = feriado bloqueia o dia todo; marque se este usuário pode ser escalado p/ HE em feriado)</em></span>
+          </label>
         </div>
       </div>
       <div class="form-group" id="usr-pass-group">
@@ -7321,6 +7325,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260628h-escala-realizada-cct-preview"></script>
+  <script src="app.js?v=20260628i-escala-edit-feriado-acesso"></script>
 </body>
 </html>

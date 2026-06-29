@@ -1361,7 +1361,7 @@ function showSection(name){
   if(name==='monitorfaltas'  && !mods.monitorarFaltas) return;
   if(name==='estoque'        && !mods.estoque) return;
   if(name==='documentos'     && !mods.employees) return;
-  if(name==='configuracoes'  && Auth.currentUser?.role!=='master') return;
+  if(name==='configuracoes'  && !mods.configuracoes && Auth.currentUser?.role!=='master') return;
   if(name==='lgpd'           && !mods.lgpd && Auth.currentUser?.role!=='master') return;
   // Empilha seção atual antes de trocar (exceto se estiver voltando ou já está na mesma seção)
   if(!_navigatingBack && State.currentSection && State.currentSection!==name){
@@ -1951,7 +1951,7 @@ function applyUserSession(user){
   const estoqueLi=document.getElementById('nav-estoque-li');
   if(estoqueLi) estoqueLi.classList.toggle('hidden', !mods.estoque);
   const cfgLi=document.getElementById('nav-configuracoes-li');
-  if(cfgLi) cfgLi.classList.toggle('hidden', user.role!=='master');
+  if(cfgLi) cfgLi.classList.toggle('hidden', !mods.configuracoes && user.role!=='master');
   const lgpdLi=document.getElementById('nav-lgpd-li');
   if(lgpdLi) lgpdLi.classList.toggle('hidden', !mods.lgpd && user.role!=='master');   // #lgpd
   showSection('dashboard');
@@ -30386,6 +30386,7 @@ const MODULOS_LABELS={
   postos:          'Postos de Trabalho',
   contratos:       'Administração',
   users:           'Usuários & Acessos',
+  configuracoes:   'Configurações (Parâmetros Legais, etc.)',
   log:             'Log de Acessos',
   comunicacao:        'Comunicação (Enviar mensagens)',
   comunicacoesApagar: 'Apagar Mensagens (Comunicações)',
@@ -30400,7 +30401,7 @@ const MODULOS_LABELS={
 // Retorna os módulos permitidos para o usuário
 function getUserModules(user){
   if(!user) return {};
-  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,escalas:true,criarEscalas:true,aprovaHE:true,aprovaHESupervisor:true,reports:true,pagamentos:true,pagamentosLancar:true,pagamentosAprovar:true,decimoterceiro:true,ferias:true,rescisao:true,contabilidade:true,postos:true,contratos:true,users:true,log:true,comunicacao:true,comunicacoesApagar:true,disciplinaApagar:true,autorizarPonto:true,monitorarFaltas:true,revisarContrato:true,gerirFolgasEscala:true,estoque:true,lgpd:true};
+  if(user.role==='master')  return {dashboard:true,employees:true,payroll:true,escalas:true,criarEscalas:true,aprovaHE:true,aprovaHESupervisor:true,reports:true,pagamentos:true,pagamentosLancar:true,pagamentosAprovar:true,decimoterceiro:true,ferias:true,rescisao:true,contabilidade:true,postos:true,contratos:true,users:true,log:true,comunicacao:true,comunicacoesApagar:true,disciplinaApagar:true,autorizarPonto:true,monitorarFaltas:true,revisarContrato:true,gerirFolgasEscala:true,estoque:true,lgpd:true,configuracoes:true};
   // PERMISSÕES POR USUÁRIO (fonte principal; substitui perfis). Vive em
   // configuracoes/permissoesUsuarios por username. Fallback p/ perfil/role se o
   // usuário ainda NÃO tem lista própria — assim ninguém perde acesso. #perm-por-usuario

@@ -1,0 +1,16 @@
+{
+  "name": "DRGlobal — Sistema de Gestão",
+  "short_name": "DRGlobal",
+  "description": "Sistema de gestão de colaboradores D.R. Global Multi Services",
+  "start_url": "/drg-sistema/index.html",
+  "scope": "/drg-sistema/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1a3a6b",
+  "theme_color": "#1a3a6b",
+  "lang": "pt-BR",
+  "icons": [
+    { "src": "logo.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "logo.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

@@ -37,6 +37,20 @@ export default {
       catch(e){ r = { ok:false, erro:String(e&&e.message||e) }; }
       return new Response(JSON.stringify(r), { headers:{ 'content-type':'application/json', ..._corsMon() } });
     }
+    // TESTE do carimbo do tempo: carimba um hash e devolve a prova .ots (base64).
+    // GET  /?carimbar=<sha256hex>&secret=<MONITOR_RUN_SECRET>
+    // POST /carimbar-teste  { "hash": "<sha256hex>" }  (header x-monitor-secret)
+    if (u.searchParams.get('carimbar')) {
+      if(!_manualRunAllowed(req, env, u)) return new Response('forbidden', {status:403});
+      const r = await otsCriar(u.searchParams.get('carimbar'));
+      return new Response(JSON.stringify(r), {headers:{'content-type':'application/json', ..._corsMon()}});
+    }
+    if (u.pathname === '/carimbar-teste' && req.method === 'POST') {
+      if(!_manualRunAllowed(req, env, u)) return new Response('forbidden', {status:403});
+      let body={}; try{ body=await req.json(); }catch(_){}
+      const r = await otsCriar(body && body.hash);
+      return new Response(JSON.stringify(r), {headers:{'content-type':'application/json', ..._corsMon()}});
+    }
     if (u.searchParams.get('run')  === '1') {
       if(!_manualRunAllowed(req, env, u)) return new Response('forbidden', {status:403});
       const r = await rodar(env); return new Response(JSON.stringify(r), {headers:{'content-type':'application/json'}});
@@ -67,6 +81,41 @@ async function enviarTeste(env){
   let enviados=0; const status=[];
   for(const s of subs){ const st=await enviarPush(env,s.data.sub); status.push(st); if(st===201||st===200) enviados++; }
   return {ok:true, teste:true, inscritos:subs.length, enviados, status};
+}
+
+// ═════════ CARIMBO DO TEMPO (OpenTimestamps, nativo) — #carimbo-tempo ═════════
+// Ancora o hash SHA-256 da assinatura em blockchain via "calendar servers" do
+// OpenTimestamps, gerando a prova .ots (verificável em opentimestamps.org).
+// Inspirado no DRG-Check, porém SEM dependência externa: monta o .ots na mão
+// (formato: MAGIC + versão + OpSHA256(file) + digest + OpAppend(nonce) + OpSHA256 + resp-calendar).
+const OTS_CALENDARS = ['https://a.pool.opentimestamps.org','https://b.pool.opentimestamps.org','https://alice.btc.calendar.opentimestamps.org'];
+const OTS_MAGIC = new Uint8Array([0x00,0x4f,0x70,0x65,0x6e,0x54,0x69,0x6d,0x65,0x73,0x74,0x61,0x6d,0x70,0x73,0x00,0x00,0x50,0x72,0x6f,0x6f,0x66,0x00,0xbf,0x89,0xe2,0xe8,0x84,0xe8,0x92,0x94]);
+function _hexToBytes(hex){ const a=new Uint8Array(hex.length/2); for(let i=0;i<a.length;i++) a[i]=parseInt(hex.substr(i*2,2),16); return a; }
+function _bytesToHex(b){ b=new Uint8Array(b); let s=''; for(let i=0;i<b.length;i++) s+=b[i].toString(16).padStart(2,'0'); return s; }
+function _b64(b){ b=new Uint8Array(b); let s=''; for(let i=0;i<b.length;i++) s+=String.fromCharCode(b[i]); return btoa(s); }
+function _concat(...arrs){ let n=0; for(const a of arrs) n+=a.length; const o=new Uint8Array(n); let p=0; for(const a of arrs){ o.set(a,p); p+=a.length; } return o; }
+function _varuint(n){ const o=[]; do{ let b=n&0x7f; n=Math.floor(n/128); if(n>0) b|=0x80; o.push(b); }while(n>0); return new Uint8Array(o); }
+async function _sha256b(bytes){ return new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)); }
+async function _otsSubmit(calendar, digest){
+  const res=await fetch(calendar+'/digest',{method:'POST',headers:{'Content-Type':'application/octet-stream','Accept':'application/vnd.opentimestamps.v1','User-Agent':'drg-kronos-ots'},body:digest});
+  if(!res.ok) throw new Error(calendar+' HTTP '+res.status);
+  return new Uint8Array(await res.arrayBuffer());
+}
+// Cria o carimbo (.ots) do hash SHA-256 (hex 64). Retorna {otsB64, submittedHex, calendar, criadoEm} ou null.
+async function otsCriar(hashHex){
+  try{
+    hashHex=String(hashHex||'').toLowerCase().replace(/[^0-9a-f]/g,'');
+    if(hashHex.length!==64) throw new Error('hash sha256 hex (64) requerido');
+    const digest=_hexToBytes(hashHex);
+    const nonce=crypto.getRandomValues(new Uint8Array(16));
+    const submitted=await _sha256b(_concat(digest, nonce));         // msg enviada à calendar = SHA256(digest||nonce)
+    let resp=null, usado=null, erros=[];
+    for(const cal of OTS_CALENDARS){ try{ resp=await _otsSubmit(cal, submitted); usado=cal; break; }catch(e){ erros.push(String(e&&e.message||e)); } }
+    if(!resp) return { erro:'calendars indisponiveis', detalhe:erros };
+    const opAppend=_concat(new Uint8Array([0xf0]), _varuint(nonce.length), nonce);  // OpAppend(nonce)
+    const ots=_concat(OTS_MAGIC, new Uint8Array([0x01,0x08]), digest, opAppend, new Uint8Array([0x08]), resp);  // ver + fileOp + digest + ops + calResp
+    return { otsB64:_b64(ots), submittedHex:_bytesToHex(submitted), calendar:usado, criadoEm:new Date().toISOString() };
+  }catch(e){ return { erro:String(e&&e.message||e) }; }
 }
 
 // ───────── util base64url ─────────

@@ -2614,19 +2614,6 @@ function _carimboBadgeStatus(s){
   return '';
 }
 function _carimboBadge(t){ return _carimboBadgeStatus(t&&t.carimboStatus); }
-// Copia a prova do carimbo em texto (base64) p/ verificação externa. #carimbo-tempo
-function copiarCarimboTermo(id){
-  const t=(State.termosLgpd||[]).find(x=>x.id===id);
-  if(!t||!t.carimboOts){ toast('Carimbo ainda não gerado.','warning'); return; }
-  const txt=t.carimboOts;
-  const ok=()=>toast('Prova (base64) copiada — cole no chat para eu verificar.');
-  if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(ok,()=>_copiaFallback(txt,ok)); }
-  else _copiaFallback(txt,ok);
-}
-function _copiaFallback(txt,ok){
-  try{ const ta=document.createElement('textarea'); ta.value=txt; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); ok&&ok(); }
-  catch(e){ prompt('Copie a prova (base64):', txt); }
-}
 function _carimboIcon(s){   // versão compacta (só ícone) p/ células estreitas. #carimbo-tempo
   if(s==='confirmado') return ' <i class="fa-solid fa-link" style="color:#2E7D32" title="Carimbo do tempo confirmado na blockchain"></i>';
   if(s==='registrado') return ' <i class="fa-solid fa-link" style="color:#5E35B1" title="Carimbo do tempo registrado (aguardando confirmação na blockchain)"></i>';
@@ -2663,8 +2650,7 @@ function _renderTermosLgpdColab(c){
         <div style="display:flex;align-items:center;gap:8px">
           <span style="background:${bg};color:${cor};padding:3px 10px;border-radius:8px;font-size:11px;font-weight:700">${ass?'Assinado':'Pendente'}</span>${_carimboBadge(t)}
           <button class="btn btn-sm btn-outline" onclick="verTermoLgpd('${t.id}')" style="font-size:11px"><i class="fa-solid fa-eye"></i> Ver termo${ass?' + hash':''}</button>
-          ${t.carimboOts?`<button class="btn btn-sm btn-outline" onclick="baixarOtsTermo('${t.id}')" style="font-size:11px" title="Baixar a prova de carimbo (.ots), verificável em opentimestamps.org"><i class="fa-solid fa-link"></i> .ots</button>
-          <button class="btn btn-sm btn-outline" onclick="copiarCarimboTermo('${t.id}')" style="font-size:11px" title="Copiar a prova em texto (base64) para verificação"><i class="fa-solid fa-copy"></i> copiar prova</button>`:''}
+          ${t.carimboOts?`<button class="btn btn-sm btn-outline" onclick="baixarOtsTermo('${t.id}')" style="font-size:11px" title="Baixar a prova de carimbo (.ots), verificável em opentimestamps.org"><i class="fa-solid fa-link"></i> Baixar .ots</button>`:''}
         </div>
       </div>
     </div>`;

@@ -2758,8 +2758,9 @@ async function salvarPedidoTitular(){
   const nome=val('pt-nome').trim(); if(!nome){ toast('Informe o nome do titular.','warning'); return; }
   const status=val('pt-status');
   const reg={ id, nome, cpf:val('pt-cpf').trim(), contato:val('pt-contato').trim(), tipo:val('pt-tipo'), descricao:val('pt-desc').trim(), resposta:val('pt-resp').trim(), status,
+    origem: exist?(exist.origem||'manual'):'manual', employeeId: exist?(exist.employeeId||null):null,
     criadoEm: exist?exist.criadoEm:new Date().toISOString(), concluidoEm: status==='concluido'?((exist&&exist.concluidoEm)||new Date().toISOString()):null,
-    atualizadoEm:new Date().toISOString(), registradoPor:(Auth.currentUser&&Auth.currentUser.username)||'—' };
+    atualizadoEm:new Date().toISOString(), registradoPor: exist?(exist.registradoPor||(Auth.currentUser&&Auth.currentUser.username)):(Auth.currentUser&&Auth.currentUser.username)||'—' };
   try{ await DB.save('pedidosTitular', reg); State.pedidosTitular=[...(State.pedidosTitular||[]).filter(x=>x.id!==id), reg];
     Auth.log(exist?'LGPD_PEDIDO_ATUALIZADO':'LGPD_PEDIDO_CRIADO', Auth.currentUser.username, `${reg.tipo} — ${reg.nome} (${_pedidoStatusCfg(status).t})`);
     document.getElementById('modal-pedido-titular')?.remove(); toast('Pedido do titular salvo.'); renderLGPD(); }
@@ -2795,7 +2796,7 @@ function _lgpdPedidosTitular(){
   const rows=ps.map(p=>{ const sc=_pedidoStatusCfg(p.status); const venc=p.status!=='concluido'&&p.criadoEm&&(Date.now()-new Date(p.criadoEm).getTime())>15*86400000;
     return `<tr>
     <td style="padding:6px 8px;border:1px solid var(--border);font-size:12px">${p.nome||'—'}<div style="font-size:10px;color:var(--text-muted)">${p.cpf||''}</div></td>
-    <td style="padding:6px 8px;border:1px solid var(--border);font-size:11px">${p.tipo||'—'}</td>
+    <td style="padding:6px 8px;border:1px solid var(--border);font-size:11px">${p.tipo||'—'}${p.origem==='app'?' <span style="background:#EDE7F6;color:#5E35B1;padding:1px 6px;border-radius:6px;font-size:10px;font-weight:700">via app</span>':''}</td>
     <td style="padding:6px 8px;border:1px solid var(--border);text-align:center"><span style="background:${sc.b};color:${sc.c};padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">${sc.t}</span></td>
     <td style="padding:6px 8px;border:1px solid var(--border);font-size:11px;white-space:nowrap;${venc?'color:#c62828;font-weight:700':''}">${p.criadoEm?new Date(p.criadoEm).toLocaleDateString('pt-BR'):'—'}${venc?' ⚠':''}</td>
     <td style="padding:6px 8px;border:1px solid var(--border);text-align:center;white-space:nowrap">

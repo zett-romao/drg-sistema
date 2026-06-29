@@ -357,9 +357,12 @@
           </button>
         </div>
 
-        <div style="text-align:center;margin-top:6px">
+        <div style="text-align:center;margin-top:6px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
           <button onclick="abrirEnvioDoc()" style="background:none;border:1px solid #cbd5e1;color:#475569;padding:7px 16px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer">
             📎 Enviar documento
+          </button>
+          <button onclick="abrirDireitosLgpd()" style="background:none;border:1px solid #cbd5e1;color:#475569;padding:7px 16px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer">
+            🔒 Meus direitos (LGPD)
           </button>
         </div>
 
@@ -618,7 +621,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=41').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=42').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -2705,6 +2708,44 @@ function escolherContestar(){
 
 function fecharModalPin(){ document.getElementById('modal-pin-assinatura').style.display = 'none'; }
 function fecharModalContestar(){ document.getElementById('modal-contestar').style.display = 'none'; }
+
+// ===== Direitos do Titular (LGPD art. 18) — colaborador faz o pedido pelo app. #lgpd-titular =====
+const _LGPD_TIPOS_APP=['Acesso aos meus dados','Correção de dados','Eliminação / Exclusão de dados','Portabilidade dos dados','Revogação de consentimento','Informação sobre compartilhamentos','Outro'];
+function abrirDireitosLgpd(){
+  if(!currentEmp){ alert('Faça login primeiro.'); return; }
+  document.getElementById('modal-direitos-lgpd')?.remove();
+  const opts=_LGPD_TIPOS_APP.map(t=>`<option>${t}</option>`).join('');
+  const html=`<div id="modal-direitos-lgpd" style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9998;display:flex;align-items:center;justify-content:center;padding:16px">
+    <div style="background:#fff;border-radius:14px;max-width:460px;width:100%;max-height:90vh;overflow:auto">
+      <div style="background:#6A1B9A;color:#fff;padding:14px 16px;font-weight:700;font-size:15px">🔒 Meus direitos (LGPD)</div>
+      <div style="padding:16px">
+        <p style="font-size:13px;color:#444;line-height:1.5;margin-bottom:12px">Você pode solicitar sobre os seus dados pessoais. O pedido vai para o responsável pela proteção de dados (DPO) da empresa, que responde no prazo de <strong>15 dias</strong>.</p>
+        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Tipo do pedido</label>
+        <select id="dl-tipo" style="width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px;margin-bottom:12px">${opts}</select>
+        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Descreva o que você precisa</label>
+        <textarea id="dl-desc" rows="4" style="width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px;font-family:inherit" placeholder="Ex.: gostaria de uma cópia dos meus dados pessoais..."></textarea>
+        <div style="display:flex;gap:8px;margin-top:14px">
+          <button onclick="document.getElementById('modal-direitos-lgpd').remove()" style="flex:1;padding:12px;border:1px solid #cbd5e1;background:#fff;border-radius:10px;font-weight:700;cursor:pointer">Cancelar</button>
+          <button id="dl-enviar" onclick="enviarPedidoTitularApp()" style="flex:2;padding:12px;border:none;background:#16a34a;color:#fff;border-radius:10px;font-weight:700;cursor:pointer">Enviar pedido</button>
+        </div>
+      </div>
+    </div></div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+async function enviarPedidoTitularApp(){
+  if(!currentEmp) return;
+  const tipo=document.getElementById('dl-tipo').value;
+  const desc=(document.getElementById('dl-desc').value||'').trim();
+  if(!desc){ alert('Descreva o seu pedido.'); return; }
+  const btn=document.getElementById('dl-enviar'); btn.disabled=true; btn.textContent='Enviando...';
+  const id='pt_'+Date.now()+'_'+Math.random().toString(36).slice(2,8);
+  const reg={ id, nome:currentEmp.nome||'', cpf:currentEmp.cpf||'', contato:currentEmp.email||currentEmp.celular||'', tipo, descricao:desc, resposta:'', status:'aberto', origem:'app', employeeId:currentEmp.id, criadoEm:new Date().toISOString(), atualizadoEm:new Date().toISOString(), registradoPor:'colaborador' };
+  try{
+    await dbCol('pedidosTitular').doc(id).set(reg);
+    document.getElementById('modal-direitos-lgpd')?.remove();
+    alert('✅ Pedido enviado!\n\nO responsável pela proteção de dados vai analisar e responder no prazo legal.');
+  }catch(e){ console.error('pedido titular', e); alert('Não foi possível enviar agora. Verifique a conexão e tente de novo.'); btn.disabled=false; btn.textContent='Enviar pedido'; }
+}
 
 // ===== Termo de Ciência e Consentimento (LGPD) — assina por PIN/hash. #lgpd-termo =====
 let _termosLgpdCache = [], _confCurrentTermo = null;

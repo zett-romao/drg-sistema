@@ -2607,6 +2607,29 @@ ${t.status==='assinado'?`<div class="box"><strong>✔ Assinado eletronicamente</
 <p style="margin-top:18px;font-size:9px;color:#888">Gerado em ${new Date().toLocaleString('pt-BR')}.</p></body></html>`;
   const w=window.open('','_blank','width=860,height=700'); if(!w){ toast('Permita pop-ups','error'); return; } w.document.write(html); w.document.close();
 }
+// Aba "Termos LGPD" no cadastro do colaborador — arquivo dos termos dele. #lgpd-termo
+function renderTermosLgpdColab(){
+  const empId = State.editingEmployeeId || val('emp-id');
+  const c = document.getElementById('termos-lgpd-colab-list'); if(!c) return;
+  if(!empId){ c.innerHTML='<div style="font-size:12px;color:#94a3b8;padding:8px 2px">Salve o colaborador primeiro.</div>'; return; }
+  const lista=(State.termosLgpd||[]).filter(t=>t.employeeId===empId && t.status!=='anulado').sort((a,b)=>(b.enviadoEm||'').localeCompare(a.enviadoEm||''));
+  if(!lista.length){ c.innerHTML=`<div class="empty-state small"><i class="fa-solid fa-file-shield" style="font-size:32px;color:#cbd5e0"></i><p style="font-size:13px;margin-top:8px">Nenhum termo enviado a este colaborador.</p></div>`; return; }
+  c.innerHTML=lista.map(t=>{
+    const ass=t.status==='assinado', cor=ass?'#2E7D32':'#E65100', bg=ass?'#E8F5E9':'#FFF3E0';
+    const quando=ass&&t.assinadoEm?'assinado '+new Date(t.assinadoEm).toLocaleString('pt-BR'):(t.enviadoEm?'enviado '+new Date(t.enviadoEm).toLocaleString('pt-BR'):'—');
+    const hash=t.assinatura&&t.assinatura.hash?`${t.assinatura.hash.substring(0,16)}…`:'';
+    return `<div style="border:1px solid #e0e0e0;border-radius:8px;padding:12px 14px;margin-bottom:10px;background:#fafafa">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <div><div style="font-weight:700;color:#1a1a2e;font-size:14px">${t.titulo||'Termo LGPD'}</div>
+          <div style="font-size:11px;color:#888;margin-top:2px">${quando}${hash?' · hash '+hash:''}</div></div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="background:${bg};color:${cor};padding:3px 10px;border-radius:8px;font-size:11px;font-weight:700">${ass?'Assinado':'Pendente'}</span>
+          <button class="btn btn-sm btn-outline" onclick="verTermoLgpd('${t.id}')" style="font-size:11px"><i class="fa-solid fa-eye"></i> Ver termo${ass?' + hash':''}</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
 function _lgpdTermosTabela(){
   const ts=(State.termosLgpd||[]).filter(t=>t.status!=='anulado').slice().sort((a,b)=>(b.enviadoEm||'').localeCompare(a.enviadoEm||''));
   const nAss=ts.filter(t=>t.status==='assinado').length, nPend=ts.length-nAss;

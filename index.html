@@ -3116,6 +3116,9 @@
         <button class="modal-tab" data-tab-id="tab-holerites-assinados" onclick="switchTab('tab-holerites-assinados');renderHoleritesAssinadosColab()">
           <i class="fa-solid fa-file-invoice-dollar"></i> Holerites Assinados
         </button>
+        <button class="modal-tab" data-tab-id="tab-termos-lgpd" onclick="switchTab('tab-termos-lgpd');renderTermosLgpdColab()">
+          <i class="fa-solid fa-file-shield"></i> Termos LGPD
+        </button>
         <button class="modal-tab" data-tab-id="tab-recibos-beneficio" onclick="switchTab('tab-recibos-beneficio');renderRecibosBeneficioColab()">
           <i class="fa-solid fa-receipt"></i> Recibos de Benefício
         </button>
@@ -4038,6 +4041,16 @@
           Holerites (recibos de pagamento) que o colaborador conferiu e assinou (ou aceitou por silêncio após 48h sem ação) via app. Cada um tem hash SHA-256 — assinatura eletrônica simples (MP 2.200-2/2001).
         </div>
         <div id="holerites-assinados-list">
+          <div style="font-size:12px;color:#94a3b8;padding:8px 2px">Carregando...</div>
+        </div>
+      </div>
+
+      <div class="tab-pane" id="tab-termos-lgpd">
+        <div class="info-banner">
+          <i class="fa-solid fa-file-shield"></i>
+          Termos de Ciência e Consentimento (LGPD) deste colaborador. O assinado tem hash SHA-256 — assinatura eletrônica simples (MP 2.200-2/2001).
+        </div>
+        <div id="termos-lgpd-colab-list">
           <div style="font-size:12px;color:#94a3b8;padding:8px 2px">Carregando...</div>
         </div>
       </div>
@@ -7349,6 +7362,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260628t-termo-resumo"></script>
+  <script src="app.js?v=20260628u-termo-cadastro"></script>
 </body>
 </html>

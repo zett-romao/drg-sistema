@@ -2552,9 +2552,70 @@ function _lgpdImprimirPolitica(){
   if(!w){ toast('Permita pop-ups para imprimir','error'); return; }
   w.document.write(html+'<scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt>'); w.document.close();
 }
+// ===== Termo de Ciência e Consentimento (LGPD) — enviado ao app, assinado por PIN/hash. #lgpd-termo =====
+function _termoLgpdConteudoHtml(emp){
+  const empNome=_e('nomeEmpresa')||'a Empresa';
+  return `<p>Eu, <strong>${emp.nome||'—'}</strong>, CPF <strong>${emp.cpf||'—'}</strong>, na qualidade de colaborador(a) de <strong>${empNome}</strong>, DECLARO que:</p>
+  <ol style="margin:6px 0 0 18px;line-height:1.6">
+    <li>Tomei <strong>ciência da Política de Privacidade e Proteção de Dados</strong> da empresa e da forma como meus dados pessoais são tratados para fins de gestão do contrato de trabalho, folha de pagamento, benefícios e cumprimento de obrigações legais (CLT, eSocial, fiscais).</li>
+    <li>Estou <strong>ciente do monitoramento por câmeras de segurança (CFTV)</strong>, com captação de <strong>imagem e, onde sinalizado, áudio</strong>, nas <strong>portarias e áreas comuns</strong> dos condomínios onde presto serviço, com finalidade exclusiva de <strong>segurança</strong> das pessoas e do patrimônio.</li>
+    <li><strong>Consinto</strong> com o uso da minha imagem/foto no sistema interno para identificação funcional.</li>
+    <li>Fui informado(a) de que posso exercer meus direitos de titular (acesso, correção, eliminação, etc.) junto ao Encarregado/DPO da empresa.</li>
+  </ol>
+  <p style="margin-top:8px">A assinatura eletrônica deste termo é feita com meu PIN pessoal e gera registro de integridade (hash SHA-256) com data, hora e identificação do dispositivo.</p>`;
+}
+function enviarTermoLgpd(){
+  const sel=document.getElementById('lgpd-termo-emp'); const empId=sel?sel.value:'';
+  if(!empId){ toast('Selecione um colaborador.','warning'); return; }
+  const emp=(State.employees||[]).find(e=>e.id===empId); if(!emp){ toast('Colaborador não encontrado.','error'); return; }
+  const reg={ id:genId(), employeeId:empId, employeeNome:emp.nome||'', cpf:emp.cpf||'', tipo:'lgpd-consentimento', titulo:'Termo de Ciência e Consentimento (LGPD)', conteudoHtml:_termoLgpdConteudoHtml(emp), status:'pendente', enviadoEm:new Date().toISOString(), enviadoPor:(Auth.currentUser&&Auth.currentUser.username)||'—' };
+  DB.save('termosLgpd', reg).then(()=>{
+    State.termosLgpd=[...(State.termosLgpd||[]).filter(t=>!(t.employeeId===empId && t.status==='pendente')), reg];
+    Auth.log('LGPD_TERMO_ENVIADO',Auth.currentUser.username,`${emp.nome} (${emp.cpf||'—'})`);
+    toast('Termo enviado ao app do colaborador para assinatura.'); renderLGPD();
+  }).catch(()=>toast('Erro ao enviar o termo.','error'));
+}
+async function anularTermoLgpd(id){
+  if(!confirm('Anular este termo? Ele deixa de valer e some do app do colaborador.')) return;
+  const reg=(State.termosLgpd||[]).find(t=>t.id===id); if(!reg) return;
+  const upd={...reg, status:'anulado', anuladoEm:new Date().toISOString()};
+  try{ await DB.save('termosLgpd',upd); const i=State.termosLgpd.findIndex(t=>t.id===id); if(i>=0) State.termosLgpd[i]=upd; toast('Termo anulado.'); renderLGPD(); }
+  catch(e){ toast('Erro ao anular.','error'); }
+}
+function verTermoLgpd(id){
+  const t=(State.termosLgpd||[]).find(x=>x.id===id); if(!t) return;
+  const ass=t.assinatura||{};
+  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Termo LGPD — ${t.employeeNome}</title>
+<style>body{font-family:Arial,sans-serif;padding:24px;max-width:780px;margin:0 auto;color:#212529;font-size:13px;line-height:1.6}h1{color:#1a3a6b;font-size:18px}.box{border:1px solid #ccc;border-radius:6px;padding:10px 12px;margin-top:14px;font-size:11px;color:#444;word-break:break-all}</style></head><body>
+<h1>${_e('nomeEmpresa')||'Empresa'} — ${t.titulo}</h1>${t.conteudoHtml}
+${t.status==='assinado'?`<div class="box"><strong>✔ Assinado eletronicamente</strong> em ${t.assinadoEm?new Date(t.assinadoEm).toLocaleString('pt-BR'):'—'}<br>Colaborador: ${t.employeeNome} — CPF ${t.cpf||'—'}<br>Hash SHA-256: ${ass.hash||'—'}<br>IP: ${ass.ip||'—'} · Dispositivo: ${(ass.deviceFingerprint||'').slice(0,16)}…</div>`:`<div class="box">Status atual: <strong>${t.status}</strong></div>`}
+<p style="margin-top:18px;font-size:9px;color:#888">Gerado em ${new Date().toLocaleString('pt-BR')}.</p></body></html>`;
+  const w=window.open('','_blank','width=860,height=700'); if(!w){ toast('Permita pop-ups','error'); return; } w.document.write(html); w.document.close();
+}
+function _lgpdTermosTabela(){
+  const ts=(State.termosLgpd||[]).filter(t=>t.status!=='anulado').slice().sort((a,b)=>(b.enviadoEm||'').localeCompare(a.enviadoEm||''));
+  if(!ts.length) return '<div class="empty-state small"><i class="fa-solid fa-file-signature"></i><p>Nenhum termo enviado ainda.</p></div>';
+  const badge=s=> s==='assinado'?'<span style="background:#E8F5E9;color:#2E7D32;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">Assinado</span>':'<span style="background:#FFF3E0;color:#E65100;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">Pendente</span>';
+  const rows=ts.map(t=>`<tr>
+    <td style="padding:6px 8px;border:1px solid var(--border);font-size:12px">${t.employeeNome||'—'}<div style="font-size:10px;color:var(--text-muted)">CPF ${t.cpf||'—'}</div></td>
+    <td style="padding:6px 8px;border:1px solid var(--border);text-align:center">${badge(t.status)}</td>
+    <td style="padding:6px 8px;border:1px solid var(--border);font-size:11px;white-space:nowrap">${t.status==='assinado'&&t.assinadoEm?new Date(t.assinadoEm).toLocaleString('pt-BR'):(t.enviadoEm?'env. '+new Date(t.enviadoEm).toLocaleDateString('pt-BR'):'—')}</td>
+    <td style="padding:6px 8px;border:1px solid var(--border);text-align:center;white-space:nowrap">
+      <button class="btn-icon btn-outline" onclick="verTermoLgpd('${t.id}')" title="Ver termo + hash"><i class="fa-solid fa-eye"></i></button>
+      <button class="btn-icon btn-danger-icon" onclick="anularTermoLgpd('${t.id}')" title="Anular"><i class="fa-solid fa-ban"></i></button>
+    </td>
+  </tr>`).join('');
+  return `<div style="overflow:auto;max-height:40vh"><table style="width:100%;border-collapse:collapse"><thead><tr style="background:#F5F7FB">
+    <th style="padding:6px 8px;border:1px solid var(--border);text-align:left;font-size:11px">Colaborador</th>
+    <th style="padding:6px 8px;border:1px solid var(--border);font-size:11px">Status</th>
+    <th style="padding:6px 8px;border:1px solid var(--border);text-align:left;font-size:11px">Quando</th>
+    <th style="padding:6px 8px;border:1px solid var(--border);font-size:11px">Ações</th>
+  </tr></thead><tbody>${rows}</tbody></table></div>`;
+}
 function renderLGPD(){
   const el=document.getElementById('lgpd-content'); if(!el) return;
   const _cfg=State.lgpdConfig||{};
+  const _empOpts=(State.employees||[]).filter(e=>(e.status||'ativo')==='ativo').sort((a,b)=>(a.nome||'').localeCompare(b.nome||'')).map(e=>`<option value="${e.id}">${e.nome}</option>`).join('');
   const checks=_lgpdChecks();
   const nRisco=checks.filter(c=>c.nivel==='risco').length;
   const nAviso=checks.filter(c=>c.nivel==='aviso').length;
@@ -2603,6 +2664,15 @@ function renderLGPD(){
         <div style="display:flex;align-items:center;gap:10px"><button class="btn btn-outline" onclick="event.stopPropagation();_lgpdImprimirPolitica()" title="Imprimir / salvar PDF"><i class="fa-solid fa-print"></i> Imprimir</button><i id="lgpd-pol-chevron" class="fa-solid fa-chevron-down" style="color:var(--text-muted)"></i></div>
       </div>
       <div id="lgpd-politica" style="display:none;padding:14px 16px;border-top:1px solid var(--border)">${_lgpdPoliticaHtml()}</div>
+    </div>
+    <div style="border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:16px">
+      <div style="font-weight:700;font-size:14px;margin-bottom:8px"><i class="fa-solid fa-file-signature" style="color:var(--primary)"></i> Termo de Ciência e Consentimento (LGPD)</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Envia o termo ao <strong>app de ponto</strong> do colaborador para ele <strong>assinar com o PIN</strong> (gera hash e arquiva no histórico).</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
+        <div class="form-group" style="margin:0;flex:1;min-width:220px"><label style="font-size:12px">Colaborador</label><select id="lgpd-termo-emp"><option value="">Selecione…</option>${_empOpts}</select></div>
+        <button class="btn btn-primary" onclick="enviarTermoLgpd()"><i class="fa-solid fa-paper-plane"></i> Gerar e enviar termo</button>
+      </div>
+      ${_lgpdTermosTabela()}
     </div>
     <div style="display:flex;align-items:center;gap:12px;background:#fff;border:1px solid var(--border);border-left:5px solid ${sg.cor};border-radius:8px;padding:12px 16px;margin-bottom:16px">
       <i class="fa-solid ${sg.ic}" style="font-size:26px;color:${sg.cor}"></i>
@@ -30518,6 +30588,8 @@ async function _carregarDadosPosLogin(){
     catch(_){ State.permissoesUsuarios = {}; }
     try{ State.lgpdConfig = (await DB.getDoc('configuracoes','lgpdConfig')) || {}; }   // encarregado/DPO. #lgpd
     catch(_){ State.lgpdConfig = {}; }
+    try{ State.termosLgpd = await DB.getAll('termosLgpd'); }   // termos de consentimento. #lgpd-termo
+    catch(_){ State.termosLgpd = []; }
   } catch(e){
     console.error('Erro ao carregar dados:', e);
     const msg = e && e.message ? e.message : String(e);

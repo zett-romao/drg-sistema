@@ -290,6 +290,11 @@
     🧾 <span id="banner-recibos-benef-count">0</span> recibo(s) de benefício aguardando sua conferência — clique para abrir
   </div>
 
+  <!-- Banner: Termo de Ciência e Consentimento (LGPD) para assinar. #lgpd-termo -->
+  <div id="banner-termo-lgpd" style="display:none;background:linear-gradient(90deg,#E1BEE7 0%,#CE93D8 100%);padding:12px 16px;cursor:pointer;border-bottom:2px solid #6A1B9A;text-align:center;font-weight:600;color:#4A148C;font-size:14px" onclick="abrirTermoLgpd()">
+    📄 <span id="banner-termo-count">0</span> termo(s) de consentimento (LGPD) para você assinar — clique para abrir
+  </div>
+
   <!-- Banner: batidas aguardando aprovação do supervisor (aparece quando há). #ponto-provisorio -->
   <div id="banner-autz-pendente" style="display:none;background:linear-gradient(90deg,#FFE0B2 0%,#FFCC80 100%);padding:12px 16px;border-bottom:2px solid #E65100;text-align:center;font-weight:600;color:#E65100;font-size:14px">
     ⏳ <span id="banner-autz-count">0</span> batida(s) aguardando aprovação do supervisor
@@ -613,7 +618,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=40').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=41').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -803,6 +808,7 @@ async function carregarHome() {
   _checarMensagensNovas().catch(e => console.warn('checar msgs', e));
   _checarAutzPendentes().catch(e => console.warn('checar autz', e));
   _carregarEpisPendentes().catch(e => console.warn('checar epis', e));   // EPIs a confirmar. #estoque-epi
+  _carregarInboxTermos().catch(e => console.warn('checar termos lgpd', e));   // termos LGPD a assinar. #lgpd-termo
   // Poll leve a cada 60s — apita quando chega comunicação nova com o app aberto. #som-avisos
   if(!window._msgPollTimer) window._msgPollTimer = setInterval(()=>{ _checarMensagensNovas().catch(()=>{}); }, 60*1000);
 }
@@ -2700,6 +2706,48 @@ function escolherContestar(){
 function fecharModalPin(){ document.getElementById('modal-pin-assinatura').style.display = 'none'; }
 function fecharModalContestar(){ document.getElementById('modal-contestar').style.display = 'none'; }
 
+// ===== Termo de Ciência e Consentimento (LGPD) — assina por PIN/hash. #lgpd-termo =====
+let _termosLgpdCache = [], _confCurrentTermo = null;
+async function _carregarInboxTermos(){
+  if(!currentEmp) return;
+  try{
+    const snap = await dbCol('termosLgpd').where('employeeId','==',currentEmp.id).get();
+    const items=[]; snap.forEach(d=>{ const t={id:d.id,...d.data()}; if(t.status==='pendente') items.push(t); });
+    items.sort((a,b)=>(b.enviadoEm||'').localeCompare(a.enviadoEm||''));
+    _termosLgpdCache=items; _atualizarBannerTermos();
+  }catch(e){ console.warn('inbox termos:', e); }
+}
+function _atualizarBannerTermos(){
+  const b=document.getElementById('banner-termo-lgpd'), c=document.getElementById('banner-termo-count');
+  if(!b||!c) return;
+  if(_termosLgpdCache.length>0){ c.textContent=_termosLgpdCache.length; b.style.display='block'; } else b.style.display='none';
+}
+function abrirTermoLgpd(id){
+  const t = id ? _termosLgpdCache.find(x=>x.id===id) : _termosLgpdCache[0];
+  if(!t) return;
+  _confCurrentTermo=t;
+  document.getElementById('modal-termo-lgpd')?.remove();
+  const html=`<div id="modal-termo-lgpd" style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9998;display:flex;align-items:center;justify-content:center;padding:16px">
+    <div style="background:#fff;border-radius:14px;max-width:520px;width:100%;max-height:88vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="background:#6A1B9A;color:#fff;padding:14px 16px;font-weight:700;font-size:15px">📄 ${t.titulo||'Termo LGPD'}</div>
+      <div style="padding:16px;overflow:auto;font-size:13px;color:#222;line-height:1.55">${t.conteudoHtml||''}</div>
+      <div style="padding:12px 16px;border-top:1px solid #eee;display:flex;gap:8px">
+        <button onclick="fecharTermoLgpd()" style="flex:1;padding:12px;border:1px solid #cbd5e1;background:#fff;border-radius:10px;font-weight:700;cursor:pointer">Fechar</button>
+        <button onclick="assinarTermoLgpd()" style="flex:2;padding:12px;border:none;background:#16a34a;color:#fff;border-radius:10px;font-weight:700;cursor:pointer">Li e concordo — assinar com PIN</button>
+      </div>
+    </div></div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+function fecharTermoLgpd(){ const m=document.getElementById('modal-termo-lgpd'); if(m) m.remove(); }
+function assinarTermoLgpd(){
+  if(!_confCurrentTermo) return;
+  _confMode='termo';
+  document.getElementById('modal-pin-assinatura').style.display='flex';
+  document.getElementById('pin-assinatura-input').value='';
+  document.getElementById('pin-assinatura-erro').style.display='none';
+  setTimeout(()=>document.getElementById('pin-assinatura-input').focus(),100);
+}
+
 // Helpers — IP, fingerprint, hash
 async function _obterIP(){
   try{
@@ -2797,6 +2845,22 @@ async function confirmarAssinatura(){
       _recibosBenefInboxCache = _recibosBenefInboxCache.filter(x=>x.id!==r.id);
       _atualizarBannerRecibosBenef();
       alert('✅ Recibo de benefícios assinado!\n\nHash: ' + hash.substring(0,16) + '...\n\nObrigado pela conferência.');
+      return;
+    }
+    // --- TERMO LGPD: assina sobre o conteúdo do termo (termosLgpd). #lgpd-termo ---
+    if(_confMode === 'termo'){
+      const t = _confCurrentTermo || {};
+      const conteudo = t.conteudoHtml || '';
+      const hashInput = `${conteudo}|${pinHash}|${ip}|${ua}|${fingerprint}|${ts}`;
+      const hash = await _sha256(hashInput);
+      const assinatura = { hash, pinHash, ip, userAgent: ua, deviceFingerprint: fingerprint, conteudoJson: conteudo, assinadoEm: ts };
+      await dbCol('termosLgpd').doc(t.id).set({ status:'assinado', assinadoEm: ts, assinatura }, { merge:true });
+      t.status='assinado'; t.assinatura=assinatura;
+      fecharModalPin();
+      fecharTermoLgpd();
+      _termosLgpdCache = _termosLgpdCache.filter(x=>x.id!==t.id);
+      _atualizarBannerTermos();
+      alert('✅ Termo de consentimento assinado!\n\nHash: ' + hash.substring(0,16) + '...\n\nObrigado.');
       return;
     }
     // --- HOLERITE: assina sobre o HTML do recibo gravado pelo gestor ---

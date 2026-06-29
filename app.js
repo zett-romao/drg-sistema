@@ -6944,7 +6944,18 @@ function renderBirthdays(){
 // aba certa, ou a seção). #alertas-clicaveis
 function _alertaAbrirEmp(empId, tab){
   showSection('employees');
-  setTimeout(()=>{ try{ openEmployeeModal(empId); if(tab) setTimeout(()=>{ try{ switchTab(tab); }catch(_){} }, 300); }catch(_){} }, 60);
+  setTimeout(()=>{ try{ openEmployeeModal(empId); if(tab) setTimeout(()=>{ try{ switchTab(tab); _renderLazyTab(tab); }catch(_){} }, 300); }catch(_){} }, 60);
+}
+// Abas que carregam SOB DEMANDA (só ao clicar no botão). Ao chegar nelas por navegação
+// (ex.: clique numa linha → switchTab), precisamos disparar o render. #lazy-tab
+function _renderLazyTab(tab){
+  try{
+    if(tab==='tab-termos-lgpd')           renderTermosLgpdColab();
+    else if(tab==='tab-holerites-assinados') renderHoleritesAssinadosColab();
+    else if(tab==='tab-folhas-assinadas')    renderFolhasAssinadasColab();
+    else if(tab==='tab-recibos-beneficio')   renderRecibosBeneficioColab();
+    else if(tab==='tab-epis')                renderFichaEpiColab();
+  }catch(_){}
 }
 function renderAlerts(){
   const el=document.getElementById('dashboard-alerts'); if(!el) return;

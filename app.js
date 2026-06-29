@@ -2659,6 +2659,24 @@ function _lgpdTermosTabela(){
     <th style="padding:6px 8px;border:1px solid var(--border);font-size:11px">Ações</th>
   </tr></thead><tbody>${rows}</tbody></table></div>`;
 }
+// "Atualizar" do monitor: RECARREGA os dados do banco (não só re-renderiza). #lgpd
+async function atualizarLGPD(){
+  toast('Atualizando…');
+  const cutoff=new Date(Date.now()-186*86400000).toISOString();
+  const tasks=[
+    DB.getAll('termosLgpd').then(d=>{State.termosLgpd=d;}).catch(()=>{}),
+    DB.getAll('employees').then(d=>{State.employees=d;}).catch(()=>{}),
+    DB.getDoc('configuracoes','permissoesUsuarios').then(d=>{State.permissoesUsuarios=d||{};}).catch(()=>{}),
+    DB.getDoc('configuracoes','acessoUsuarios').then(d=>{State.acessoUsuarios=d||{};}).catch(()=>{}),
+    DB.getDoc('configuracoes','lgpdConfig').then(d=>{State.lgpdConfig=d||{};}).catch(()=>{}),
+    DB.col('accessLog').where('timestamp','>=',cutoff).orderBy('timestamp','desc').limit(5000).get()
+      .then(s=>{Auth.accessLog=s.docs.map(d=>d.data());})
+      .catch(()=>DB.col('accessLog').orderBy('timestamp','desc').limit(2000).get().then(s=>{Auth.accessLog=s.docs.map(d=>d.data());}).catch(()=>{}))
+  ];
+  if(typeof loadUsersFromWorker==='function') tasks.push(loadUsersFromWorker().catch(()=>{}));
+  try{ await Promise.all(tasks); renderLGPD(); toast('Atualizado.'); }
+  catch(e){ renderLGPD(); toast('Atualizado (parcial).','warning'); }
+}
 function renderLGPD(){
   const el=document.getElementById('lgpd-content'); if(!el) return;
   const _cfg=State.lgpdConfig||{};
@@ -2686,7 +2704,7 @@ function renderLGPD(){
     <h3><i class="fa-solid fa-user-shield"></i> Conformidade LGPD</h3>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
       <button class="btn btn-primary" onclick="gerarRelatorioLGPD()"><i class="fa-solid fa-file-lines"></i> Gerar relatório</button>
-      <button class="btn btn-outline" style="border-color:#2E7D32;color:#2E7D32" onclick="renderLGPD()"><i class="fa-solid fa-rotate"></i> Atualizar</button>
+      <button class="btn btn-outline" style="border-color:#2E7D32;color:#2E7D32" onclick="atualizarLGPD()"><i class="fa-solid fa-rotate"></i> Atualizar</button>
     </div>
   </div>
   <div class="card-body">

@@ -2488,7 +2488,7 @@ function _lgpdChecks(){
   const demAntigos=emps.filter(e=>(e.status==='demitido'||e.status==='inativo') && e.dataDemissao && _lgpdDiasDesde(e.dataDemissao+'T00:00:00')>365*5);
   out.push(demAntigos.length? {nivel:'aviso',titulo:'Ex-colaboradores retidos há +5 anos',detalhe:`${demAntigos.length} demitido(s) há mais de 5 anos com cadastro completo. Reveja a retenção (atenção: obrigações trabalhistas/fiscais podem exigir a guarda — confirme com o contador).`,corrigir:'Anonimize/elimine o que não tem mais finalidade ou base legal.',nav:'employees'} : {nivel:'ok',titulo:'Retenção de ex-colaboradores ok',detalhe:'Nenhum demitido com +5 anos pendente de revisão.',nav:'employees'});
   const veSaude=users.filter(u=>u.active!==false && (u.role==='master'||getUserModules(u).employees));
-  out.push({nivel:'info',titulo:'Acesso a dados de saúde (atestados)',detalhe:`${veSaude.length} usuário(s) podem ver atestados médicos (dado sensível especial): ${veSaude.map(u=>u.username).join(', ')}. Garanta que só quem precisa tenha esse acesso.`,corrigir:'Reveja quem acessa o cadastro do colaborador.',nav:'users'});
+  out.push({nivel:'info',titulo:'Acesso a dados de saúde (atestados)',detalhe:`${veSaude.length} usuário(s) podem ver atestados médicos (dado sensível especial): ${veSaude.map(u=>u.username).join(', ')}. Garanta que só quem precisa tenha esse acesso.`,corrigir:'Os atestados ficam no cadastro do Colaborador; reveja também as permissões de quem acessa.',nav:'employees'});
   const semEmail=users.filter(u=>u.active!==false && u.role!=='master' && !u.email);
   out.push(semEmail.length? {nivel:'risco',titulo:'Usuários sem e-mail de login seguro',detalhe:`${semEmail.length}: ${semEmail.map(u=>u.username).join(', ')}.`,corrigir:'Cadastre e-mail (login seguro) para todos.',nav:'users'} : {nivel:'ok',titulo:'Login seguro configurado',detalhe:'Todos os usuários têm e-mail de login.',nav:'users'});
   const logRec=log.filter(e=>_lgpdDiasDesde(e.timestamp)<=30).length;
@@ -2647,34 +2647,60 @@ function renderTermosLgpdColab(){
     </div>`;
   }).join('');
 }
+let _lgpdTermoFiltro='todos';
+function _lgpdFiltrarTermo(f){ _lgpdTermoFiltro=(_lgpdTermoFiltro===f)?'todos':f; renderLGPD(); }
+function _lgpdNovoEnvio(empId){   // pré-seleciona o colaborador no envio (não assinou → novo envio). #lgpd
+  const sel=document.getElementById('lgpd-termo-emp');
+  if(sel){ sel.value=empId; try{ sel.scrollIntoView({behavior:'smooth',block:'center'}); }catch(_){} sel.style.outline='2px solid #6A1B9A'; setTimeout(()=>{ if(sel) sel.style.outline=''; }, 1800); }
+  toast('Colaborador selecionado — clique em "Gerar e enviar termo".');
+}
 function _lgpdTermosTabela(){
-  const ts=(State.termosLgpd||[]).filter(t=>t.status!=='anulado').slice().sort((a,b)=>(b.enviadoEm||'').localeCompare(a.enviadoEm||''));
-  const nAss=ts.filter(t=>t.status==='assinado').length, nPend=ts.length-nAss;
-  const nAtivos=(State.employees||[]).filter(e=>(e.status||'ativo')==='ativo').length;
-  const semTermo=Math.max(0, nAtivos-ts.length);
-  const chip=(cor,bg,ic,n,lbl)=>`<div style="flex:1;min-width:120px;background:${bg};border:1px solid ${cor}33;border-radius:8px;padding:10px 12px"><div style="font-size:22px;font-weight:800;color:${cor};line-height:1"><i class="fa-solid ${ic}" style="font-size:14px"></i> ${n}</div><div style="font-size:11px;color:${cor};font-weight:600;margin-top:2px">${lbl}</div></div>`;
-  const resumo=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-    ${chip('#E65100','#FFF3E0','fa-clock',nPend,'Pendentes (não assinaram)')}
-    ${chip('#2E7D32','#E8F5E9','fa-circle-check',nAss,'Assinados')}
-    ${chip('#9E9E9E','#F5F5F5','fa-user-slash',semTermo,'Ativos sem termo enviado')}
-  </div>`;
-  if(!ts.length) return resumo+'<div class="empty-state small"><i class="fa-solid fa-file-signature"></i><p>Nenhum termo enviado ainda.</p></div>';
+  const todos=(State.termosLgpd||[]).filter(t=>t.status!=='anulado');
+  const nAss=todos.filter(t=>t.status==='assinado').length, nPend=todos.length-nAss;
+  const ativos=(State.employees||[]).filter(e=>(e.status||'ativo')==='ativo');
+  const comTermo=new Set(todos.map(t=>t.employeeId));
+  const semTermoEmps=ativos.filter(e=>!comTermo.has(e.id)).sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+  const f=_lgpdTermoFiltro;
+  const chip=(key,cor,bg,ic,n,lbl)=>`<div onclick="_lgpdFiltrarTermo('${key}')" style="flex:1;min-width:120px;background:${bg};border:${f===key?'2px':'1px'} solid ${f===key?cor:cor+'33'};border-radius:8px;padding:10px 12px;cursor:pointer" title="Clique para filtrar a lista"><div style="font-size:22px;font-weight:800;color:${cor};line-height:1"><i class="fa-solid ${ic}" style="font-size:14px"></i> ${n}</div><div style="font-size:11px;color:${cor};font-weight:600;margin-top:2px">${lbl}</div></div>`;
+  const resumo=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+    ${chip('pendente','#E65100','#FFF3E0','fa-clock',nPend,'Pendentes (não assinaram)')}
+    ${chip('assinado','#2E7D32','#E8F5E9','fa-circle-check',nAss,'Assinados')}
+    ${chip('semtermo','#9E9E9E','#F5F5F5','fa-user-slash',semTermoEmps.length,'Ativos sem termo enviado')}
+  </div>${f!=='todos'?`<div style="font-size:12px;margin-bottom:8px"><a href="javascript:void(0)" onclick="_lgpdFiltrarTermo('todos')" style="color:var(--primary);font-weight:600"><i class="fa-solid fa-arrow-left"></i> ver todos</a> · mostrando <strong>${f==='semtermo'?'ativos sem termo':(f==='assinado'?'assinados':'pendentes')}</strong></div>`:''}`;
+  const thead=`<thead><tr style="background:#F5F7FB">
+    <th style="padding:6px 8px;border:1px solid var(--border);text-align:left;font-size:11px">Colaborador</th>
+    <th style="padding:6px 8px;border:1px solid var(--border);font-size:11px">Status</th>
+    <th style="padding:6px 8px;border:1px solid var(--border);text-align:left;font-size:11px">Quando</th>
+    <th style="padding:6px 8px;border:1px solid var(--border);font-size:11px">Ações</th>
+  </tr></thead>`;
+  const wrap=rows=>resumo+`<div style="overflow:auto;max-height:42vh"><table style="width:100%;border-collapse:collapse">${thead}<tbody>${rows}</tbody></table></div>`;
+  if(f==='semtermo'){
+    if(!semTermoEmps.length) return resumo+'<div class="empty-state small"><i class="fa-solid fa-circle-check"></i><p>Todos os colaboradores ativos já têm termo.</p></div>';
+    const rows=semTermoEmps.map(e=>`<tr onclick="_lgpdNovoEnvio('${e.id}')" style="cursor:pointer" title="Selecionar para enviar o termo">
+      <td style="padding:6px 8px;border:1px solid var(--border);font-size:12px">${e.nome||'—'}<div style="font-size:10px;color:var(--text-muted)">CPF ${e.cpf||'—'}</div></td>
+      <td style="padding:6px 8px;border:1px solid var(--border);text-align:center"><span style="background:#F5F5F5;color:#9E9E9E;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">sem termo</span></td>
+      <td style="padding:6px 8px;border:1px solid var(--border);font-size:11px">—</td>
+      <td style="padding:6px 8px;border:1px solid var(--border);text-align:center"><button class="btn-icon btn-outline" onclick="event.stopPropagation();_lgpdNovoEnvio('${e.id}')" title="Enviar termo a este colaborador"><i class="fa-solid fa-paper-plane"></i></button></td>
+    </tr>`).join('');
+    return wrap(rows);
+  }
+  let lista=todos.slice().sort((a,b)=>(b.enviadoEm||'').localeCompare(a.enviadoEm||''));
+  if(f==='assinado') lista=lista.filter(t=>t.status==='assinado');
+  else if(f==='pendente') lista=lista.filter(t=>t.status!=='assinado');
+  if(!lista.length) return resumo+'<div class="empty-state small"><i class="fa-solid fa-file-signature"></i><p>Nenhum termo nesta categoria.</p></div>';
   const badge=s=> s==='assinado'?'<span style="background:#E8F5E9;color:#2E7D32;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">Assinado</span>':'<span style="background:#FFF3E0;color:#E65100;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">Pendente</span>';
-  const rows=ts.map(t=>`<tr onclick="_alertaAbrirEmp('${t.employeeId}','tab-termos-lgpd')" style="cursor:pointer" title="Abrir o cadastro do colaborador">
+  const rows=lista.map(t=>{ const ass=t.status==='assinado'; const nav=ass?`_alertaAbrirEmp('${t.employeeId}','tab-termos-lgpd')`:`_lgpdNovoEnvio('${t.employeeId}')`;
+    return `<tr onclick="${nav}" style="cursor:pointer" title="${ass?'Abrir o cadastro do colaborador':'Reenviar — vai para o novo envio'}">
     <td style="padding:6px 8px;border:1px solid var(--border);font-size:12px">${t.employeeNome||'—'}<div style="font-size:10px;color:var(--text-muted)">CPF ${t.cpf||'—'}</div></td>
     <td style="padding:6px 8px;border:1px solid var(--border);text-align:center;white-space:nowrap">${badge(t.status)}${_carimboBadge(t)}</td>
     <td style="padding:6px 8px;border:1px solid var(--border);font-size:11px;white-space:nowrap">${t.status==='assinado'&&t.assinadoEm?new Date(t.assinadoEm).toLocaleString('pt-BR'):(t.enviadoEm?'env. '+new Date(t.enviadoEm).toLocaleDateString('pt-BR'):'—')}</td>
     <td style="padding:6px 8px;border:1px solid var(--border);text-align:center;white-space:nowrap">
       <button class="btn-icon btn-outline" onclick="event.stopPropagation();verTermoLgpd('${t.id}')" title="Ver termo + hash"><i class="fa-solid fa-eye"></i></button>
+      ${t.carimboOts?`<button class="btn-icon btn-outline" onclick="event.stopPropagation();baixarOtsTermo('${t.id}')" title="Baixar .ots (carimbo do tempo)"><i class="fa-solid fa-link"></i></button>`:''}
       <button class="btn-icon btn-danger-icon" onclick="event.stopPropagation();anularTermoLgpd('${t.id}')" title="Anular"><i class="fa-solid fa-ban"></i></button>
     </td>
-  </tr>`).join('');
-  return resumo+`<div style="overflow:auto;max-height:40vh"><table style="width:100%;border-collapse:collapse"><thead><tr style="background:#F5F7FB">
-    <th style="padding:6px 8px;border:1px solid var(--border);text-align:left;font-size:11px">Colaborador</th>
-    <th style="padding:6px 8px;border:1px solid var(--border);font-size:11px">Status</th>
-    <th style="padding:6px 8px;border:1px solid var(--border);text-align:left;font-size:11px">Quando</th>
-    <th style="padding:6px 8px;border:1px solid var(--border);font-size:11px">Ações</th>
-  </tr></thead><tbody>${rows}</tbody></table></div>`;
+  </tr>`; }).join('');
+  return wrap(rows);
 }
 // "Atualizar" do monitor: RECARREGA os dados do banco (não só re-renderiza). #lgpd
 async function atualizarLGPD(){

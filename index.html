@@ -2641,6 +2641,52 @@
             <div style="color:#94A3B8;font-size:13px;padding:8px">Carregando medidores...</div>
           </div>
         </div>
+
+        <!-- App do Colaborador: prévia ao vivo + funções + parametrizações -->
+        <div class="card" style="max-width:680px;margin-bottom:18px">
+          <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <h3><i class="fa-solid fa-mobile-screen-button" style="color:#16a34a"></i> App do Colaborador (Ponto)</h3>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <a href="ponto.html" target="_blank" class="btn btn-outline" style="font-size:13px"><i class="fa-solid fa-arrow-up-right-from-square"></i> Abrir o app</a>
+              <button class="btn btn-outline" style="font-size:13px" onclick="(function(){var f=document.getElementById('app-colab-preview');if(f)f.src=f.src;})()" title="Recarregar a prévia"><i class="fa-solid fa-rotate"></i> Atualizar prévia</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <p style="font-size:12px;color:#666;margin-bottom:14px"><i class="fa-solid fa-circle-info"></i> Prévia <strong>ao vivo</strong> do app que o colaborador usa — sempre reflete a versão atual no ar. Ao lado, todas as funções e o que dá pra parametrizar sem código.</p>
+            <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start">
+              <div style="flex:0 0 auto;width:290px;max-width:100%">
+                <div style="border:9px solid #1a1a2e;border-radius:26px;overflow:hidden;box-shadow:0 8px 28px rgba(0,0,0,.25);background:#000">
+                  <iframe id="app-colab-preview" src="ponto.html" title="Prévia do app do colaborador" style="width:100%;height:520px;border:0;display:block;background:#fff"></iframe>
+                </div>
+                <div style="text-align:center;font-size:11px;color:#94a3b8;margin-top:6px">Prévia ao vivo (abre na tela de login)</div>
+              </div>
+              <div style="flex:1;min-width:240px">
+                <div style="font-size:12px;font-weight:700;color:#16a34a;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Funções disponíveis no app</div>
+                <ul style="list-style:none;padding:0;margin:0;font-size:13px;line-height:1.85">
+                  <li>⏱️ <strong>Bater ponto</strong> — entrada/saída automática (funciona offline)</li>
+                  <li>🍽️ <strong>Trabalhei sem intervalo hoje</strong> — refeição não rendida</li>
+                  <li>📎 <strong>Enviar documento</strong> — atestado, declaração, comprovante…</li>
+                  <li>🔒 <strong>Meus direitos (LGPD)</strong> — pedido do titular</li>
+                  <li>✍️ <strong>Conferir e assinar</strong> — folha, holerite e recibo de benefício (PIN + hash)</li>
+                  <li>📄 <strong>Assinar Termo de Consentimento</strong> (LGPD)</li>
+                  <li>🦺 <strong>Confirmar recebimento de EPI</strong></li>
+                  <li>🔔 <strong>Avisos/comunicados</strong> (com som opcional)</li>
+                  <li>📅 <strong>Histórico do mês</strong></li>
+                </ul>
+              </div>
+            </div>
+            <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
+              <div style="font-size:12px;font-weight:700;color:#7B1FA2;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Parametrizações sem código (já disponíveis)</div>
+              <ul style="font-size:13px;line-height:1.8;color:#444;margin:0 0 8px 18px">
+                <li><strong>Tolerância de minutos</strong> e <strong>aviso de atraso</strong> (push/e-mail): em <em>Parâmetros Legais → Jornada &amp; Ponto</em> (mais abaixo nesta tela).</li>
+                <li><strong>Horário/dias de acesso</strong> e <strong>permissões</strong> por usuário: em Usuários &amp; Acessos.</li>
+                <li><strong>Feriados</strong> e <strong>escalas</strong>: nas telas de Feriados/Escalas.</li>
+                <li><strong>Termo e Política de LGPD</strong> (texto + DPO): na tela Conformidade LGPD.</li>
+              </ul>
+              <p style="font-size:12px;color:#94a3b8;margin:0"><i class="fa-solid fa-lightbulb"></i> Quer transformar alguma função do app em <strong>liga/desliga</strong> por aqui (ex.: ocultar "Enviar documento", mudar a dica do PIN, texto de boas-vindas)? Me diga quais — eu adiciono como configuração e passa a ser ajustável sem código.</p>
+            </div>
+          </div>
+        </div>
         <div class="card" style="max-width:680px;margin-bottom:18px">
           <div class="card-header">
             <h3><i class="fa-solid fa-scale-balanced" style="color:#7B1FA2"></i> Parâmetros Legais — Regras de Cálculo (CLT)</h3>

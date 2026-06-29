@@ -2609,7 +2609,16 @@ ${t.status==='assinado'?`<div class="box"><strong>✔ Assinado eletronicamente</
 }
 function _lgpdTermosTabela(){
   const ts=(State.termosLgpd||[]).filter(t=>t.status!=='anulado').slice().sort((a,b)=>(b.enviadoEm||'').localeCompare(a.enviadoEm||''));
-  if(!ts.length) return '<div class="empty-state small"><i class="fa-solid fa-file-signature"></i><p>Nenhum termo enviado ainda.</p></div>';
+  const nAss=ts.filter(t=>t.status==='assinado').length, nPend=ts.length-nAss;
+  const nAtivos=(State.employees||[]).filter(e=>(e.status||'ativo')==='ativo').length;
+  const semTermo=Math.max(0, nAtivos-ts.length);
+  const chip=(cor,bg,ic,n,lbl)=>`<div style="flex:1;min-width:120px;background:${bg};border:1px solid ${cor}33;border-radius:8px;padding:10px 12px"><div style="font-size:22px;font-weight:800;color:${cor};line-height:1"><i class="fa-solid ${ic}" style="font-size:14px"></i> ${n}</div><div style="font-size:11px;color:${cor};font-weight:600;margin-top:2px">${lbl}</div></div>`;
+  const resumo=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+    ${chip('#E65100','#FFF3E0','fa-clock',nPend,'Pendentes (não assinaram)')}
+    ${chip('#2E7D32','#E8F5E9','fa-circle-check',nAss,'Assinados')}
+    ${chip('#9E9E9E','#F5F5F5','fa-user-slash',semTermo,'Ativos sem termo enviado')}
+  </div>`;
+  if(!ts.length) return resumo+'<div class="empty-state small"><i class="fa-solid fa-file-signature"></i><p>Nenhum termo enviado ainda.</p></div>';
   const badge=s=> s==='assinado'?'<span style="background:#E8F5E9;color:#2E7D32;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">Assinado</span>':'<span style="background:#FFF3E0;color:#E65100;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">Pendente</span>';
   const rows=ts.map(t=>`<tr>
     <td style="padding:6px 8px;border:1px solid var(--border);font-size:12px">${t.employeeNome||'—'}<div style="font-size:10px;color:var(--text-muted)">CPF ${t.cpf||'—'}</div></td>
@@ -2620,7 +2629,7 @@ function _lgpdTermosTabela(){
       <button class="btn-icon btn-danger-icon" onclick="anularTermoLgpd('${t.id}')" title="Anular"><i class="fa-solid fa-ban"></i></button>
     </td>
   </tr>`).join('');
-  return `<div style="overflow:auto;max-height:40vh"><table style="width:100%;border-collapse:collapse"><thead><tr style="background:#F5F7FB">
+  return resumo+`<div style="overflow:auto;max-height:40vh"><table style="width:100%;border-collapse:collapse"><thead><tr style="background:#F5F7FB">
     <th style="padding:6px 8px;border:1px solid var(--border);text-align:left;font-size:11px">Colaborador</th>
     <th style="padding:6px 8px;border:1px solid var(--border);font-size:11px">Status</th>
     <th style="padding:6px 8px;border:1px solid var(--border);text-align:left;font-size:11px">Quando</th>

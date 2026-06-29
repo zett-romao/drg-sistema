@@ -2608,12 +2608,12 @@ ${t.status==='assinado'?`<div class="box"><strong>✔ Assinado eletronicamente</
   const w=window.open('','_blank','width=860,height=700'); if(!w){ toast('Permita pop-ups','error'); return; } w.document.write(html); w.document.close();
 }
 // Badge do carimbo do tempo (blockchain). #carimbo-tempo
-function _carimboBadge(t){
-  const s=t&&t.carimboStatus;
+function _carimboBadgeStatus(s){
   if(s==='confirmado') return `<span style="background:#E8F5E9;color:#2E7D32;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700;margin-left:6px" title="Carimbo do tempo confirmado na blockchain"><i class="fa-solid fa-link"></i> Blockchain ✓</span>`;
   if(s==='registrado') return `<span style="background:#EDE7F6;color:#5E35B1;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700;margin-left:6px" title="Carimbo do tempo registrado — aguardando confirmação na blockchain (algumas horas)"><i class="fa-solid fa-link"></i> Carimbo registrado</span>`;
   return '';
 }
+function _carimboBadge(t){ return _carimboBadgeStatus(t&&t.carimboStatus); }
 function baixarOtsTermo(id){
   const t=(State.termosLgpd||[]).find(x=>x.id===id); if(!t||!t.carimboOts){ toast('Carimbo ainda não gerado (o robô carimba após a assinatura).','warning'); return; }
   try{
@@ -14228,7 +14228,7 @@ function renderFolhasAssinadasColab(){
           <div style="font-weight:700;color:#1a1a2e;font-size:14px">${MESES[p.mes]} / ${p.ano}</div>
           <div style="font-size:11px;color:#888;margin-top:2px">Enviada: ${enviado} · ${cfg.txt}: ${assinado}</div>
         </div>
-        <span style="background:${cfg.bg};color:${cfg.cor};padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700"><i class="fa-solid ${cfg.icon}"></i> ${cfg.txt.toUpperCase()}</span>
+        <span style="background:${cfg.bg};color:${cfg.cor};padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700"><i class="fa-solid ${cfg.icon}"></i> ${cfg.txt.toUpperCase()}</span>${_carimboBadgeStatus(p.carimboFolStatus)}
       </div>
       <div style="margin-top:8px;font-family:monospace;font-size:11px;color:#666"><strong>Hash:</strong> ${hashTrunc}</div>
       ${motivoContest}
@@ -14422,7 +14422,7 @@ function renderHoleritesAssinadosColab(){
           <div style="font-weight:700;color:#1a1a2e;font-size:14px">${MESES[p.mes]} / ${p.ano}</div>
           <div style="font-size:11px;color:#888;margin-top:2px">Enviado: ${enviado} · ${cfg.txt}: ${quando}</div>
         </div>
-        <span style="background:${cfg.bg};color:${cfg.cor};padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700"><i class="fa-solid ${cfg.icon}"></i> ${cfg.txt.toUpperCase()}</span>
+        <span style="background:${cfg.bg};color:${cfg.cor};padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700"><i class="fa-solid ${cfg.icon}"></i> ${cfg.txt.toUpperCase()}</span>${_carimboBadgeStatus(p.carimboHolStatus)}
       </div>
       <div style="margin-top:8px;font-family:monospace;font-size:11px;color:#666"><strong>Hash:</strong> ${hashTrunc}</div>
       ${motivo}
@@ -14576,7 +14576,7 @@ function renderRecibosBeneficioColab(){
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
         <div><div style="font-weight:700;font-size:14px">${esc(r.periodoLabel||'')}</div>
         <div style="font-size:11px;color:#888;margin-top:2px">Enviado: ${enviado} · Total ${fmtMoney(r.total||0)}</div></div>
-        <span style="background:${cfg.bg};color:${cfg.cor};padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700"><i class="fa-solid ${cfg.icon}"></i> ${cfg.txt.toUpperCase()}</span>
+        <span style="background:${cfg.bg};color:${cfg.cor};padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700"><i class="fa-solid ${cfg.icon}"></i> ${cfg.txt.toUpperCase()}</span>${_carimboBadgeStatus(r.carimboStatus)}
       </div>
       <div style="margin-top:6px;font-family:monospace;font-size:11px;color:#666"><strong>Hash:</strong> ${hashTrunc}</div>
       ${motivo}

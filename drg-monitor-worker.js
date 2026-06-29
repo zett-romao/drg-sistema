@@ -136,34 +136,50 @@ async function otsConfirmar(submittedHex, calendar){
     return { confirmado:found, respBytes:buf };
   }catch(_){ return null; }
 }
-// Varre termos ASSINADOS sem carimbo → cria a prova .ots (status 'registrado'). #carimbo-tempo
-async function carimbarTermos(env){
-  let lista; try{ lista=await fsListCol(env,'termosLgpd'); }catch(e){ return {ok:false,erro:'list '+(e&&e.message||e)}; }
-  const alvo=lista.filter(t=>t.data && t.data.status==='assinado' && t.data.assinatura && t.data.assinatura.hash && !t.data.carimboOts);
-  let feitos=0, falhas=0; const det=[];
-  for(const t of alvo.slice(0,15)){
-    const r=await otsCriar(t.data.assinatura.hash);
-    if(r && r.otsB64){
-      try{ await fsPatchDoc(env,'termosLgpd',t.id,{ carimboOts:r.otsB64, carimboSubmitted:r.submittedHex, carimboCalendar:r.calendar, carimboStatus:'registrado', carimboCriadoEm:r.criadoEm }); feitos++; }
-      catch(e){ falhas++; det.push('patch '+(e&&e.message)); }
-    } else { falhas++; det.push((r&&r.erro)||'sem ots'); }
+// Genérico: carimba docs de uma coleção. getHash(data)→hash|null; prefix=campo base. #carimbo-tempo
+async function _carimbarGen(env, col, getHash, prefix){
+  let lista; try{ lista=await fsListCol(env,col); }catch(e){ return {col,prefix,erro:'list '+(e&&e.message||e)}; }
+  const alvo=lista.filter(d=>{ const h=getHash(d.data||{}); return h && !d.data[prefix+'Ots']; });
+  let feitos=0, falhas=0;
+  for(const d of alvo.slice(0,10)){
+    const r=await otsCriar(getHash(d.data));
+    if(r && r.otsB64){ const p={}; p[prefix+'Ots']=r.otsB64; p[prefix+'Submitted']=r.submittedHex; p[prefix+'Calendar']=r.calendar; p[prefix+'Status']='registrado'; p[prefix+'CriadoEm']=r.criadoEm;
+      try{ await fsPatchDoc(env,col,d.id,p); feitos++; }catch(_){ falhas++; } } else falhas++;
   }
-  return { ok:true, pendentes:alvo.length, carimbados:feitos, falhas, det:det.slice(0,3) };
+  return {col, prefix, pendentes:alvo.length, carimbados:feitos, falhas};
 }
-// Tenta CONFIRMAR (Bitcoin) os carimbos 'registrado' e atualiza a prova .ots. #carimbo-tempo
-async function confirmarCarimbos(env){
-  let lista; try{ lista=await fsListCol(env,'termosLgpd'); }catch(e){ return {ok:false,erro:String(e&&e.message||e)}; }
-  const alvo=lista.filter(t=>t.data && t.data.carimboStatus==='registrado' && t.data.carimboSubmitted && t.data.carimboCalendar && t.data.carimboOts);
+async function _confirmarGen(env, col, prefix){
+  let lista; try{ lista=await fsListCol(env,col); }catch(e){ return {col,prefix,erro:String(e&&e.message||e)}; }
+  const alvo=lista.filter(d=>d.data && d.data[prefix+'Status']==='registrado' && d.data[prefix+'Submitted'] && d.data[prefix+'Calendar'] && d.data[prefix+'Ots']);
   let conf=0;
-  for(const t of alvo.slice(0,15)){
-    const up=await otsConfirmar(t.data.carimboSubmitted, t.data.carimboCalendar);
-    if(up && up.confirmado){
-      let novoOts=t.data.carimboOts;
-      try{ const old=_b64ToBytes(t.data.carimboOts); novoOts=_b64(_concat(old.slice(0,84), up.respBytes)); }catch(_){}   // 84 = prefixo fixo (magic+ver+op+digest+opAppend+sha256)
-      try{ await fsPatchDoc(env,'termosLgpd',t.id,{ carimboOts:novoOts, carimboStatus:'confirmado', carimboConfirmadoEm:new Date().toISOString() }); conf++; }catch(_){}
-    }
+  for(const d of alvo.slice(0,10)){
+    const up=await otsConfirmar(d.data[prefix+'Submitted'], d.data[prefix+'Calendar']);
+    if(up && up.confirmado){ let novo=d.data[prefix+'Ots']; try{ const old=_b64ToBytes(d.data[prefix+'Ots']); novo=_b64(_concat(old.slice(0,84), up.respBytes)); }catch(_){}
+      const p={}; p[prefix+'Ots']=novo; p[prefix+'Status']='confirmado'; p[prefix+'ConfirmadoEm']=new Date().toISOString();
+      try{ await fsPatchDoc(env,col,d.id,p); conf++; }catch(_){} }
   }
-  return { ok:true, registrados:alvo.length, confirmados:conf };
+  return {col, prefix, registrados:alvo.length, confirmados:conf};
+}
+// Carimba TODOS os documentos assinados (termo/folha/holerite/benefício/EPI). #carimbo-tempo
+async function carimbarTermos(env){ return carimbarDocumentos(env); }   // compat
+async function carimbarDocumentos(env){
+  return [
+    await _carimbarGen(env,'termosLgpd',      d=>(d.status==='assinado'&&d.assinatura)?d.assinatura.hash:null,            'carimbo'),
+    await _carimbarGen(env,'payrolls',        d=>(d.assinatura&&d.assinatura.hash)?d.assinatura.hash:null,                'carimboFol'),
+    await _carimbarGen(env,'payrolls',        d=>(d.holeriteAssinatura&&d.holeriteAssinatura.hash)?d.holeriteAssinatura.hash:null, 'carimboHol'),
+    await _carimbarGen(env,'beneficioRecibos',d=>(d.assinatura&&d.assinatura.hash)?d.assinatura.hash:null,                'carimbo'),
+    await _carimbarGen(env,'estoqueMov',      d=>(d.assinatura&&d.assinatura.hash)?d.assinatura.hash:null,                'carimbo'),
+  ];
+}
+async function confirmarCarimbos(env){ return confirmarDocumentos(env); }   // compat
+async function confirmarDocumentos(env){
+  return [
+    await _confirmarGen(env,'termosLgpd','carimbo'),
+    await _confirmarGen(env,'payrolls','carimboFol'),
+    await _confirmarGen(env,'payrolls','carimboHol'),
+    await _confirmarGen(env,'beneficioRecibos','carimbo'),
+    await _confirmarGen(env,'estoqueMov','carimbo'),
+  ];
 }
 
 // ───────── util base64url ─────────

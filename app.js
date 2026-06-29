@@ -2614,6 +2614,11 @@ function _carimboBadgeStatus(s){
   return '';
 }
 function _carimboBadge(t){ return _carimboBadgeStatus(t&&t.carimboStatus); }
+function _carimboIcon(s){   // versão compacta (só ícone) p/ células estreitas. #carimbo-tempo
+  if(s==='confirmado') return ' <i class="fa-solid fa-link" style="color:#2E7D32" title="Carimbo do tempo confirmado na blockchain"></i>';
+  if(s==='registrado') return ' <i class="fa-solid fa-link" style="color:#5E35B1" title="Carimbo do tempo registrado (aguardando confirmação na blockchain)"></i>';
+  return '';
+}
 function baixarOtsTermo(id){
   const t=(State.termosLgpd||[]).find(x=>x.id===id); if(!t||!t.carimboOts){ toast('Carimbo ainda não gerado (o robô carimba após a assinatura).','warning'); return; }
   try{
@@ -2708,6 +2713,7 @@ async function atualizarLGPD(){
   const cutoff=new Date(Date.now()-186*86400000).toISOString();
   const tasks=[
     DB.getAll('termosLgpd').then(d=>{State.termosLgpd=d;}).catch(()=>{}),
+    DB.getAll('pedidosTitular').then(d=>{State.pedidosTitular=d;}).catch(()=>{}),
     DB.getAll('employees').then(d=>{State.employees=d;}).catch(()=>{}),
     DB.getDoc('configuracoes','permissoesUsuarios').then(d=>{State.permissoesUsuarios=d||{};}).catch(()=>{}),
     DB.getDoc('configuracoes','acessoUsuarios').then(d=>{State.acessoUsuarios=d||{};}).catch(()=>{}),
@@ -2719,6 +2725,88 @@ async function atualizarLGPD(){
   if(typeof loadUsersFromWorker==='function') tasks.push(loadUsersFromWorker().catch(()=>{}));
   try{ await Promise.all(tasks); renderLGPD(); toast('Atualizado.'); }
   catch(e){ renderLGPD(); toast('Atualizado (parcial).','warning'); }
+}
+// ===== Direitos do Titular (LGPD art. 18) — registro e acompanhamento. #lgpd-titular =====
+const PEDIDO_TITULAR_TIPOS=['Confirmação / Acesso aos dados','Correção de dados','Eliminação / Exclusão','Anonimização / Bloqueio','Portabilidade','Informação sobre compartilhamentos','Revogação de consentimento','Oposição ao tratamento'];
+function _pedidoStatusCfg(s){ return s==='concluido'?{t:'Concluído',c:'#2E7D32',b:'#E8F5E9'}:s==='andamento'?{t:'Em andamento',c:'#1565C0',b:'#E3F2FD'}:{t:'Aberto',c:'#E65100',b:'#FFF3E0'}; }
+function abrirPedidoTitular(id){
+  const p=id?(State.pedidosTitular||[]).find(x=>x.id===id):null;
+  document.getElementById('modal-pedido-titular')?.remove();
+  const opts=PEDIDO_TITULAR_TIPOS.map(t=>`<option ${p&&p.tipo===t?'selected':''}>${t}</option>`).join('');
+  const html=`<div id="modal-pedido-titular" class="modal" style="display:flex;align-items:center;justify-content:center;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999">
+    <div style="background:#fff;max-width:560px;width:94%;border-radius:10px;max-height:92vh;overflow:auto">
+      <div style="background:#1a3a6b;color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0;font-size:16px"><i class="fa-solid fa-user-lock"></i> ${id?'Editar':'Novo'} pedido do titular</h3><button onclick="document.getElementById('modal-pedido-titular').remove()" style="background:none;border:none;color:#fff;font-size:22px;cursor:pointer;line-height:1">&times;</button></div>
+      <div style="padding:16px">
+        <input type="hidden" id="pt-id" value="${p?p.id:''}">
+        <div class="form-row"><div class="form-group"><label>Titular (nome) <span class="required">*</span></label><input id="pt-nome" value="${p?_lgpdAttr(p.nome):''}"></div><div class="form-group"><label>CPF / identificador</label><input id="pt-cpf" value="${p?_lgpdAttr(p.cpf):''}"></div></div>
+        <div class="form-group"><label>Contato (e-mail / telefone)</label><input id="pt-contato" value="${p?_lgpdAttr(p.contato):''}"></div>
+        <div class="form-row"><div class="form-group"><label>Tipo de pedido</label><select id="pt-tipo">${opts}</select></div><div class="form-group"><label>Status</label><select id="pt-status"><option value="aberto" ${!p||p.status==='aberto'?'selected':''}>Aberto</option><option value="andamento" ${p&&p.status==='andamento'?'selected':''}>Em andamento</option><option value="concluido" ${p&&p.status==='concluido'?'selected':''}>Concluído</option></select></div></div>
+        <div class="form-group"><label>Descrição do pedido</label><textarea id="pt-desc" rows="3" style="width:100%">${p?_lgpdAttr(p.descricao):''}</textarea></div>
+        <div class="form-group"><label>Resposta / providências adotadas</label><textarea id="pt-resp" rows="3" style="width:100%">${p?_lgpdAttr(p.resposta):''}</textarea></div>
+        <button class="btn btn-primary" onclick="salvarPedidoTitular()"><i class="fa-solid fa-floppy-disk"></i> Salvar pedido</button>
+      </div>
+    </div></div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+async function salvarPedidoTitular(){
+  const id=val('pt-id')||genId();
+  const exist=(State.pedidosTitular||[]).find(x=>x.id===id);
+  const nome=val('pt-nome').trim(); if(!nome){ toast('Informe o nome do titular.','warning'); return; }
+  const status=val('pt-status');
+  const reg={ id, nome, cpf:val('pt-cpf').trim(), contato:val('pt-contato').trim(), tipo:val('pt-tipo'), descricao:val('pt-desc').trim(), resposta:val('pt-resp').trim(), status,
+    criadoEm: exist?exist.criadoEm:new Date().toISOString(), concluidoEm: status==='concluido'?((exist&&exist.concluidoEm)||new Date().toISOString()):null,
+    atualizadoEm:new Date().toISOString(), registradoPor:(Auth.currentUser&&Auth.currentUser.username)||'—' };
+  try{ await DB.save('pedidosTitular', reg); State.pedidosTitular=[...(State.pedidosTitular||[]).filter(x=>x.id!==id), reg];
+    Auth.log(exist?'LGPD_PEDIDO_ATUALIZADO':'LGPD_PEDIDO_CRIADO', Auth.currentUser.username, `${reg.tipo} — ${reg.nome} (${_pedidoStatusCfg(status).t})`);
+    document.getElementById('modal-pedido-titular')?.remove(); toast('Pedido do titular salvo.'); renderLGPD(); }
+  catch(e){ toast('Erro ao salvar o pedido.','error'); }
+}
+function imprimirPedidoTitular(id){
+  const p=(State.pedidosTitular||[]).find(x=>x.id===id); if(!p) return;
+  const prazo=p.criadoEm?new Date(new Date(p.criadoEm).getTime()+15*86400000).toLocaleDateString('pt-BR'):'—';
+  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Pedido do titular</title><style>body{font-family:Arial,sans-serif;padding:24px;max-width:760px;margin:0 auto;color:#212529;font-size:13px;line-height:1.6}h1{color:#1a3a6b;font-size:18px}b{color:#1a3a6b}</style></head><body>
+  <h1>${_e('nomeEmpresa')||'Empresa'} — Pedido de Direito do Titular (LGPD art. 18)</h1>
+  <p><b>Titular:</b> ${p.nome||'—'} ${p.cpf?'· CPF '+p.cpf:''}<br><b>Contato:</b> ${p.contato||'—'}</p>
+  <p><b>Tipo:</b> ${p.tipo||'—'}<br><b>Status:</b> ${_pedidoStatusCfg(p.status).t}</p>
+  <p><b>Recebido em:</b> ${p.criadoEm?new Date(p.criadoEm).toLocaleString('pt-BR'):'—'} · <b>Prazo de resposta (15 dias):</b> ${prazo}${p.concluidoEm?' · <b>Concluído em:</b> '+new Date(p.concluidoEm).toLocaleString('pt-BR'):''}</p>
+  <p><b>Descrição:</b><br>${(p.descricao||'—').replace(/</g,'&lt;')}</p>
+  <p><b>Resposta / providências:</b><br>${(p.resposta||'—').replace(/</g,'&lt;')}</p>
+  <p style="margin-top:18px;font-size:10px;color:#888">Encarregado/DPO: ${(State.lgpdConfig&&State.lgpdConfig.nome)||'—'}. Gerado em ${new Date().toLocaleString('pt-BR')}.</p></body></html>`;
+  const w=window.open('','_blank','width=860,height=700'); if(!w){ toast('Permita pop-ups','error'); return; } w.document.write(html); w.document.close();
+}
+async function excluirPedidoTitular(id){
+  if(!confirm('Excluir este registro de pedido do titular?')) return;
+  try{ await DB.remove('pedidosTitular', id); State.pedidosTitular=(State.pedidosTitular||[]).filter(x=>x.id!==id); toast('Pedido excluído.'); renderLGPD(); }
+  catch(e){ toast('Erro ao excluir.','error'); }
+}
+function _lgpdPedidosTitular(){
+  const ps=(State.pedidosTitular||[]).slice().sort((a,b)=>(b.criadoEm||'').localeCompare(a.criadoEm||''));
+  const abertos=ps.filter(p=>p.status!=='concluido').length;
+  const vencidos=ps.filter(p=>p.status!=='concluido' && p.criadoEm && (Date.now()-new Date(p.criadoEm).getTime())>15*86400000).length;
+  const head=`<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+    <div style="font-size:12px;color:var(--text-muted)"><strong style="color:#E65100">${abertos}</strong> em aberto${vencidos?` · <strong style="color:#c62828">${vencidos}</strong> fora do prazo (15 dias)`:''}</div>
+    <button class="btn btn-primary btn-sm" onclick="abrirPedidoTitular()"><i class="fa-solid fa-plus"></i> Registrar pedido</button>
+  </div>`;
+  if(!ps.length) return head+'<div class="empty-state small"><i class="fa-solid fa-user-lock"></i><p>Nenhum pedido de titular registrado.</p></div>';
+  const rows=ps.map(p=>{ const sc=_pedidoStatusCfg(p.status); const venc=p.status!=='concluido'&&p.criadoEm&&(Date.now()-new Date(p.criadoEm).getTime())>15*86400000;
+    return `<tr>
+    <td style="padding:6px 8px;border:1px solid var(--border);font-size:12px">${p.nome||'—'}<div style="font-size:10px;color:var(--text-muted)">${p.cpf||''}</div></td>
+    <td style="padding:6px 8px;border:1px solid var(--border);font-size:11px">${p.tipo||'—'}</td>
+    <td style="padding:6px 8px;border:1px solid var(--border);text-align:center"><span style="background:${sc.b};color:${sc.c};padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">${sc.t}</span></td>
+    <td style="padding:6px 8px;border:1px solid var(--border);font-size:11px;white-space:nowrap;${venc?'color:#c62828;font-weight:700':''}">${p.criadoEm?new Date(p.criadoEm).toLocaleDateString('pt-BR'):'—'}${venc?' ⚠':''}</td>
+    <td style="padding:6px 8px;border:1px solid var(--border);text-align:center;white-space:nowrap">
+      <button class="btn-icon btn-outline" onclick="abrirPedidoTitular('${p.id}')" title="Abrir/editar"><i class="fa-solid fa-pen"></i></button>
+      <button class="btn-icon btn-outline" onclick="imprimirPedidoTitular('${p.id}')" title="Imprimir"><i class="fa-solid fa-print"></i></button>
+      <button class="btn-icon btn-danger-icon" onclick="excluirPedidoTitular('${p.id}')" title="Excluir"><i class="fa-solid fa-trash"></i></button>
+    </td>
+  </tr>`; }).join('');
+  return head+`<div style="overflow:auto;max-height:40vh"><table style="width:100%;border-collapse:collapse"><thead><tr style="background:#F5F7FB">
+    <th style="padding:6px 8px;border:1px solid var(--border);text-align:left;font-size:11px">Titular</th>
+    <th style="padding:6px 8px;border:1px solid var(--border);text-align:left;font-size:11px">Tipo</th>
+    <th style="padding:6px 8px;border:1px solid var(--border);font-size:11px">Status</th>
+    <th style="padding:6px 8px;border:1px solid var(--border);text-align:left;font-size:11px">Recebido</th>
+    <th style="padding:6px 8px;border:1px solid var(--border);font-size:11px">Ações</th>
+  </tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 function renderLGPD(){
   const el=document.getElementById('lgpd-content'); if(!el) return;
@@ -2782,6 +2870,11 @@ function renderLGPD(){
         <button class="btn btn-outline" onclick="enviarTermoTodosLgpd()" title="Enviar a todos os colaboradores ativos que ainda não têm termo"><i class="fa-solid fa-users"></i> Enviar para todos</button>
       </div>
       ${_lgpdTermosTabela()}
+    </div>
+    <div style="border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:16px">
+      <div style="font-weight:700;font-size:14px;margin-bottom:6px"><i class="fa-solid fa-user-lock" style="color:var(--primary)"></i> Pedidos do Titular (direitos LGPD — art. 18)</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Registre e acompanhe pedidos de titulares (acesso, correção, eliminação, etc.). Prazo de resposta: <strong>15 dias</strong>.</div>
+      ${_lgpdPedidosTitular()}
     </div>
     <div style="display:flex;align-items:center;gap:12px;background:#fff;border:1px solid var(--border);border-left:5px solid ${sg.cor};border-radius:8px;padding:12px 16px;margin-bottom:16px">
       <i class="fa-solid ${sg.ic}" style="font-size:26px;color:${sg.cor}"></i>
@@ -21314,7 +21407,7 @@ function renderFichaEpiColab(){
     <tbody>${movs.map(m=>{
       const dev=m.tipo==='devolucao';
       const ass = dev ? '—' : (m.assinatura
-        ? `<span style="color:#1B5E20" title="Assinado em ${m.assinatura.em?new Date(m.assinatura.em).toLocaleString('pt-BR'):''}"><i class="fa-solid fa-circle-check"></i></span>`
+        ? `<span style="color:#1B5E20" title="Assinado em ${m.assinatura.em?new Date(m.assinatura.em).toLocaleString('pt-BR'):''}"><i class="fa-solid fa-circle-check"></i></span>${_carimboIcon(m.carimboStatus)}`
         : '<span style="color:#E65100" title="Aguardando assinatura do colaborador no app (Fase 3)"><i class="fa-solid fa-hourglass-half"></i></span>');
       return `<tr>
         <td>${m.data?formatDateBr(m.data):'—'}</td>
@@ -30699,6 +30792,8 @@ async function _carregarDadosPosLogin(){
     catch(_){ State.lgpdConfig = {}; }
     try{ State.termosLgpd = await DB.getAll('termosLgpd'); }   // termos de consentimento. #lgpd-termo
     catch(_){ State.termosLgpd = []; }
+    try{ State.pedidosTitular = await DB.getAll('pedidosTitular'); }   // direitos do titular (LGPD Fase 3). #lgpd-titular
+    catch(_){ State.pedidosTitular = []; }
   } catch(e){
     console.error('Erro ao carregar dados:', e);
     const msg = e && e.message ? e.message : String(e);

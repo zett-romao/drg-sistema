@@ -2630,8 +2630,12 @@ function baixarOtsTermo(id){
 }
 // Aba "Termos LGPD" no cadastro do colaborador — arquivo dos termos dele. #lgpd-termo
 function renderTermosLgpdColab(){
-  const empId = State.editingEmployeeId || val('emp-id');
   const c = document.getElementById('termos-lgpd-colab-list'); if(!c) return;
+  try{ _renderTermosLgpdColab(c); }
+  catch(e){ c.innerHTML='<div style="font-size:12px;color:#c62828;padding:8px 2px">Erro ao carregar os termos: '+((e&&e.message)||e)+'. Recarregue a página (Ctrl+F5).</div>'; console.error('renderTermosLgpdColab', e); }
+}
+function _renderTermosLgpdColab(c){
+  const empId = State.editingEmployeeId || val('emp-id');
   if(!empId){ c.innerHTML='<div style="font-size:12px;color:#94a3b8;padding:8px 2px">Salve o colaborador primeiro.</div>'; return; }
   const lista=(State.termosLgpd||[]).filter(t=>t.employeeId===empId && t.status!=='anulado').sort((a,b)=>(b.enviadoEm||'').localeCompare(a.enviadoEm||''));
   if(!lista.length){ c.innerHTML=`<div class="empty-state small"><i class="fa-solid fa-file-shield" style="font-size:32px;color:#cbd5e0"></i><p style="font-size:13px;margin-top:8px">Nenhum termo enviado a este colaborador.</p></div>`; return; }

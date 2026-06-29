@@ -2575,6 +2575,21 @@ function enviarTermoLgpd(){
     toast('Termo enviado ao app do colaborador para assinatura.'); renderLGPD();
   }).catch(()=>toast('Erro ao enviar o termo.','error'));
 }
+async function enviarTermoTodosLgpd(){
+  const ativos=(State.employees||[]).filter(e=>(e.status||'ativo')==='ativo');
+  if(!ativos.length){ toast('Nenhum colaborador ativo.','warning'); return; }
+  const jaTem=new Set((State.termosLgpd||[]).filter(t=>t.status!=='anulado').map(t=>t.employeeId));
+  const alvo=ativos.filter(e=>!jaTem.has(e.id));
+  if(!alvo.length){ toast('Todos os ativos já têm termo (pendente ou assinado).'); return; }
+  if(!confirm(`Enviar o Termo de Ciência e Consentimento para ${alvo.length} colaborador(es) que ainda não têm?\n\n${ativos.length-alvo.length} já têm e serão ignorados.`)) return;
+  const novos=alvo.map(emp=>({ id:genId(), employeeId:emp.id, employeeNome:emp.nome||'', cpf:emp.cpf||'', tipo:'lgpd-consentimento', titulo:'Termo de Ciência e Consentimento (LGPD)', conteudoHtml:_termoLgpdConteudoHtml(emp), status:'pendente', enviadoEm:new Date().toISOString(), enviadoPor:(Auth.currentUser&&Auth.currentUser.username)||'—' }));
+  try{
+    await Promise.all(novos.map(r=>DB.save('termosLgpd',r)));
+    State.termosLgpd=[...(State.termosLgpd||[]), ...novos];
+    Auth.log('LGPD_TERMO_ENVIADO_LOTE',Auth.currentUser.username,`${novos.length} colaborador(es)`);
+    toast(`Termo enviado para ${novos.length} colaborador(es).`); renderLGPD();
+  }catch(e){ toast('Erro ao enviar em lote.','error'); }
+}
 async function anularTermoLgpd(id){
   if(!confirm('Anular este termo? Ele deixa de valer e some do app do colaborador.')) return;
   const reg=(State.termosLgpd||[]).find(t=>t.id===id); if(!reg) return;
@@ -2671,6 +2686,7 @@ function renderLGPD(){
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
         <div class="form-group" style="margin:0;flex:1;min-width:220px"><label style="font-size:12px">Colaborador</label><select id="lgpd-termo-emp"><option value="">Selecione…</option>${_empOpts}</select></div>
         <button class="btn btn-primary" onclick="enviarTermoLgpd()"><i class="fa-solid fa-paper-plane"></i> Gerar e enviar termo</button>
+        <button class="btn btn-outline" onclick="enviarTermoTodosLgpd()" title="Enviar a todos os colaboradores ativos que ainda não têm termo"><i class="fa-solid fa-users"></i> Enviar para todos</button>
       </div>
       ${_lgpdTermosTabela()}
     </div>

@@ -2643,13 +2643,13 @@ function _lgpdTermosTabela(){
   </div>`;
   if(!ts.length) return resumo+'<div class="empty-state small"><i class="fa-solid fa-file-signature"></i><p>Nenhum termo enviado ainda.</p></div>';
   const badge=s=> s==='assinado'?'<span style="background:#E8F5E9;color:#2E7D32;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">Assinado</span>':'<span style="background:#FFF3E0;color:#E65100;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">Pendente</span>';
-  const rows=ts.map(t=>`<tr>
+  const rows=ts.map(t=>`<tr onclick="_alertaAbrirEmp('${t.employeeId}','tab-termos-lgpd')" style="cursor:pointer" title="Abrir o cadastro do colaborador">
     <td style="padding:6px 8px;border:1px solid var(--border);font-size:12px">${t.employeeNome||'—'}<div style="font-size:10px;color:var(--text-muted)">CPF ${t.cpf||'—'}</div></td>
     <td style="padding:6px 8px;border:1px solid var(--border);text-align:center">${badge(t.status)}</td>
     <td style="padding:6px 8px;border:1px solid var(--border);font-size:11px;white-space:nowrap">${t.status==='assinado'&&t.assinadoEm?new Date(t.assinadoEm).toLocaleString('pt-BR'):(t.enviadoEm?'env. '+new Date(t.enviadoEm).toLocaleDateString('pt-BR'):'—')}</td>
     <td style="padding:6px 8px;border:1px solid var(--border);text-align:center;white-space:nowrap">
-      <button class="btn-icon btn-outline" onclick="verTermoLgpd('${t.id}')" title="Ver termo + hash"><i class="fa-solid fa-eye"></i></button>
-      <button class="btn-icon btn-danger-icon" onclick="anularTermoLgpd('${t.id}')" title="Anular"><i class="fa-solid fa-ban"></i></button>
+      <button class="btn-icon btn-outline" onclick="event.stopPropagation();verTermoLgpd('${t.id}')" title="Ver termo + hash"><i class="fa-solid fa-eye"></i></button>
+      <button class="btn-icon btn-danger-icon" onclick="event.stopPropagation();anularTermoLgpd('${t.id}')" title="Anular"><i class="fa-solid fa-ban"></i></button>
     </td>
   </tr>`).join('');
   return resumo+`<div style="overflow:auto;max-height:40vh"><table style="width:100%;border-collapse:collapse"><thead><tr style="background:#F5F7FB">

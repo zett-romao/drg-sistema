@@ -2603,9 +2603,25 @@ function verTermoLgpd(id){
   const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Termo LGPD — ${t.employeeNome}</title>
 <style>body{font-family:Arial,sans-serif;padding:24px;max-width:780px;margin:0 auto;color:#212529;font-size:13px;line-height:1.6}h1{color:#1a3a6b;font-size:18px}.box{border:1px solid #ccc;border-radius:6px;padding:10px 12px;margin-top:14px;font-size:11px;color:#444;word-break:break-all}</style></head><body>
 <h1>${_e('nomeEmpresa')||'Empresa'} — ${t.titulo}</h1>${t.conteudoHtml}
-${t.status==='assinado'?`<div class="box"><strong>✔ Assinado eletronicamente</strong> em ${t.assinadoEm?new Date(t.assinadoEm).toLocaleString('pt-BR'):'—'}<br>Colaborador: ${t.employeeNome} — CPF ${t.cpf||'—'}<br>Hash SHA-256: ${ass.hash||'—'}<br>IP: ${ass.ip||'—'} · Dispositivo: ${(ass.deviceFingerprint||'').slice(0,16)}…</div>`:`<div class="box">Status atual: <strong>${t.status}</strong></div>`}
+${t.status==='assinado'?`<div class="box"><strong>✔ Assinado eletronicamente</strong> em ${t.assinadoEm?new Date(t.assinadoEm).toLocaleString('pt-BR'):'—'}<br>Colaborador: ${t.employeeNome} — CPF ${t.cpf||'—'}<br>Hash SHA-256: ${ass.hash||'—'}<br>IP: ${ass.ip||'—'} · Dispositivo: ${(ass.deviceFingerprint||'').slice(0,16)}…${t.carimboStatus?`<br>🔗 Carimbo do tempo (blockchain): <strong>${t.carimboStatus==='confirmado'?'CONFIRMADO':'registrado'}</strong>${t.carimboCriadoEm?' em '+new Date(t.carimboCriadoEm).toLocaleString('pt-BR'):''} — prova .ots verificável em opentimestamps.org`:''}</div>`:`<div class="box">Status atual: <strong>${t.status}</strong></div>`}
 <p style="margin-top:18px;font-size:9px;color:#888">Gerado em ${new Date().toLocaleString('pt-BR')}.</p></body></html>`;
   const w=window.open('','_blank','width=860,height=700'); if(!w){ toast('Permita pop-ups','error'); return; } w.document.write(html); w.document.close();
+}
+// Badge do carimbo do tempo (blockchain). #carimbo-tempo
+function _carimboBadge(t){
+  const s=t&&t.carimboStatus;
+  if(s==='confirmado') return `<span style="background:#E8F5E9;color:#2E7D32;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700;margin-left:6px" title="Carimbo do tempo confirmado na blockchain"><i class="fa-solid fa-link"></i> Blockchain ✓</span>`;
+  if(s==='registrado') return `<span style="background:#EDE7F6;color:#5E35B1;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700;margin-left:6px" title="Carimbo do tempo registrado — aguardando confirmação na blockchain (algumas horas)"><i class="fa-solid fa-link"></i> Carimbo registrado</span>`;
+  return '';
+}
+function baixarOtsTermo(id){
+  const t=(State.termosLgpd||[]).find(x=>x.id===id); if(!t||!t.carimboOts){ toast('Carimbo ainda não gerado (o robô carimba após a assinatura).','warning'); return; }
+  try{
+    const bin=atob(t.carimboOts); const arr=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+    const blob=new Blob([arr],{type:'application/octet-stream'}); const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob); a.download=`carimbo_${(t.employeeNome||'termo').replace(/[^\w]+/g,'_')}.ots`; a.click(); URL.revokeObjectURL(a.href);
+    toast('Arquivo .ots baixado — verificável em opentimestamps.org');
+  }catch(e){ toast('Erro ao baixar o .ots.','error'); }
 }
 // Aba "Termos LGPD" no cadastro do colaborador — arquivo dos termos dele. #lgpd-termo
 function renderTermosLgpdColab(){
@@ -2623,8 +2639,9 @@ function renderTermosLgpdColab(){
         <div><div style="font-weight:700;color:#1a1a2e;font-size:14px">${t.titulo||'Termo LGPD'}</div>
           <div style="font-size:11px;color:#888;margin-top:2px">${quando}${hash?' · hash '+hash:''}</div></div>
         <div style="display:flex;align-items:center;gap:8px">
-          <span style="background:${bg};color:${cor};padding:3px 10px;border-radius:8px;font-size:11px;font-weight:700">${ass?'Assinado':'Pendente'}</span>
+          <span style="background:${bg};color:${cor};padding:3px 10px;border-radius:8px;font-size:11px;font-weight:700">${ass?'Assinado':'Pendente'}</span>${_carimboBadge(t)}
           <button class="btn btn-sm btn-outline" onclick="verTermoLgpd('${t.id}')" style="font-size:11px"><i class="fa-solid fa-eye"></i> Ver termo${ass?' + hash':''}</button>
+          ${t.carimboOts?`<button class="btn btn-sm btn-outline" onclick="baixarOtsTermo('${t.id}')" style="font-size:11px" title="Baixar a prova de carimbo (.ots), verificável em opentimestamps.org"><i class="fa-solid fa-link"></i> .ots</button>`:''}
         </div>
       </div>
     </div>`;
@@ -2645,7 +2662,7 @@ function _lgpdTermosTabela(){
   const badge=s=> s==='assinado'?'<span style="background:#E8F5E9;color:#2E7D32;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">Assinado</span>':'<span style="background:#FFF3E0;color:#E65100;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">Pendente</span>';
   const rows=ts.map(t=>`<tr onclick="_alertaAbrirEmp('${t.employeeId}','tab-termos-lgpd')" style="cursor:pointer" title="Abrir o cadastro do colaborador">
     <td style="padding:6px 8px;border:1px solid var(--border);font-size:12px">${t.employeeNome||'—'}<div style="font-size:10px;color:var(--text-muted)">CPF ${t.cpf||'—'}</div></td>
-    <td style="padding:6px 8px;border:1px solid var(--border);text-align:center">${badge(t.status)}</td>
+    <td style="padding:6px 8px;border:1px solid var(--border);text-align:center;white-space:nowrap">${badge(t.status)}${_carimboBadge(t)}</td>
     <td style="padding:6px 8px;border:1px solid var(--border);font-size:11px;white-space:nowrap">${t.status==='assinado'&&t.assinadoEm?new Date(t.assinadoEm).toLocaleString('pt-BR'):(t.enviadoEm?'env. '+new Date(t.enviadoEm).toLocaleDateString('pt-BR'):'—')}</td>
     <td style="padding:6px 8px;border:1px solid var(--border);text-align:center;white-space:nowrap">
       <button class="btn-icon btn-outline" onclick="event.stopPropagation();verTermoLgpd('${t.id}')" title="Ver termo + hash"><i class="fa-solid fa-eye"></i></button>

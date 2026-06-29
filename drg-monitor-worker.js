@@ -14,7 +14,7 @@
 // =====================================================================
 
 export default {
-  async scheduled(event, env, ctx) { ctx.waitUntil(Promise.all([rodar(env), varrerPedidosSegurados(env)])); },
+  async scheduled(event, env, ctx) { ctx.waitUntil(Promise.all([rodar(env), varrerPedidosSegurados(env), carimbarTermos(env), confirmarCarimbos(env)])); },
   // Permite disparo manual p/ teste: GET https://<worker>/?run=1
   async fetch(req, env) {
     const u = new URL(req.url);
@@ -50,6 +50,12 @@ export default {
       let body={}; try{ body=await req.json(); }catch(_){}
       const r = await otsCriar(body && body.hash);
       return new Response(JSON.stringify(r), {headers:{'content-type':'application/json', ..._corsMon()}});
+    }
+    // Dispara manualmente a varredura+carimbo dos documentos assinados. /?carimbardocs=1&secret=...
+    if (u.searchParams.get('carimbardocs') === '1') {
+      if(!_manualRunAllowed(req, env, u)) return new Response('forbidden', {status:403});
+      const a = await carimbarTermos(env); const b = await confirmarCarimbos(env);
+      return new Response(JSON.stringify({criar:a, confirmar:b}), {headers:{'content-type':'application/json'}});
     }
     if (u.searchParams.get('run')  === '1') {
       if(!_manualRunAllowed(req, env, u)) return new Response('forbidden', {status:403});
@@ -116,6 +122,48 @@ async function otsCriar(hashHex){
     const ots=_concat(OTS_MAGIC, new Uint8Array([0x01,0x08]), digest, opAppend, new Uint8Array([0x08]), resp);  // ver + fileOp + digest + ops + calResp
     return { otsB64:_b64(ots), submittedHex:_bytesToHex(submitted), calendar:usado, criadoEm:new Date().toISOString() };
   }catch(e){ return { erro:String(e&&e.message||e) }; }
+}
+
+function _b64ToBytes(s){ const b=atob(s); const o=new Uint8Array(b.length); for(let i=0;i<b.length;i++) o[i]=b.charCodeAt(i); return o; }
+// Tenta confirmar na blockchain (Bitcoin) um carimbo pendente. Retorna {confirmado, respBytes} ou null.
+async function otsConfirmar(submittedHex, calendar){
+  try{
+    const res=await fetch(calendar+'/timestamp/'+submittedHex,{headers:{'Accept':'application/vnd.opentimestamps.v1','User-Agent':'drg-kronos-ots'}});
+    if(!res.ok) return null;
+    const buf=new Uint8Array(await res.arrayBuffer());
+    const BTC=[0x05,0x88,0x96,0x0d,0x73,0xd7,0x19,0x01];   // magic da atestação Bitcoin
+    let found=false; for(let i=0;i+8<=buf.length && !found;i++){ found=BTC.every((b,j)=>buf[i+j]===b); }
+    return { confirmado:found, respBytes:buf };
+  }catch(_){ return null; }
+}
+// Varre termos ASSINADOS sem carimbo → cria a prova .ots (status 'registrado'). #carimbo-tempo
+async function carimbarTermos(env){
+  let lista; try{ lista=await fsListCol(env,'termosLgpd'); }catch(e){ return {ok:false,erro:'list '+(e&&e.message||e)}; }
+  const alvo=lista.filter(t=>t.data && t.data.status==='assinado' && t.data.assinatura && t.data.assinatura.hash && !t.data.carimboOts);
+  let feitos=0, falhas=0; const det=[];
+  for(const t of alvo.slice(0,15)){
+    const r=await otsCriar(t.data.assinatura.hash);
+    if(r && r.otsB64){
+      try{ await fsPatchDoc(env,'termosLgpd',t.id,{ carimboOts:r.otsB64, carimboSubmitted:r.submittedHex, carimboCalendar:r.calendar, carimboStatus:'registrado', carimboCriadoEm:r.criadoEm }); feitos++; }
+      catch(e){ falhas++; det.push('patch '+(e&&e.message)); }
+    } else { falhas++; det.push((r&&r.erro)||'sem ots'); }
+  }
+  return { ok:true, pendentes:alvo.length, carimbados:feitos, falhas, det:det.slice(0,3) };
+}
+// Tenta CONFIRMAR (Bitcoin) os carimbos 'registrado' e atualiza a prova .ots. #carimbo-tempo
+async function confirmarCarimbos(env){
+  let lista; try{ lista=await fsListCol(env,'termosLgpd'); }catch(e){ return {ok:false,erro:String(e&&e.message||e)}; }
+  const alvo=lista.filter(t=>t.data && t.data.carimboStatus==='registrado' && t.data.carimboSubmitted && t.data.carimboCalendar && t.data.carimboOts);
+  let conf=0;
+  for(const t of alvo.slice(0,15)){
+    const up=await otsConfirmar(t.data.carimboSubmitted, t.data.carimboCalendar);
+    if(up && up.confirmado){
+      let novoOts=t.data.carimboOts;
+      try{ const old=_b64ToBytes(t.data.carimboOts); novoOts=_b64(_concat(old.slice(0,84), up.respBytes)); }catch(_){}   // 84 = prefixo fixo (magic+ver+op+digest+opAppend+sha256)
+      try{ await fsPatchDoc(env,'termosLgpd',t.id,{ carimboOts:novoOts, carimboStatus:'confirmado', carimboConfirmadoEm:new Date().toISOString() }); conf++; }catch(_){}
+    }
+  }
+  return { ok:true, registrados:alvo.length, confirmados:conf };
 }
 
 // ───────── util base64url ─────────

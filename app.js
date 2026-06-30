@@ -17136,6 +17136,7 @@ function renderHorariosTab(empId){
             <div style="font-size:13px;font-weight:600;color:var(--text)">
               ${_fmtDtBr(p.de)} → ${fim}
               ${ativo?'<span style="background:#16a34a;color:#fff;padding:1px 7px;border-radius:9px;font-size:10px;font-weight:700;margin-left:6px">ATIVO HOJE</span>':''}
+              ${p.reancora12x36?'<span style="background:#7e22ce;color:#fff;padding:1px 7px;border-radius:9px;font-size:10px;font-weight:700;margin-left:6px"><i class="fa-solid fa-rotate"></i> REINICIA CICLO 12x36</span>':''}
             </div>
             <div style="font-size:11px;color:#64748b;margin-top:3px"><strong>Escala:</strong> ${escTxt}</div>
             <div style="font-size:11px;color:#64748b">
@@ -17202,6 +17203,7 @@ function abrirNovoPeriodoEscala(){
   setVal('per-esc-ref-ini','');
   setVal('per-esc-ref-fim','');
   setVal('per-esc-obs','');
+  { const _rc=document.getElementById('per-esc-reancora'); if(_rc) _rc.checked=false; }
   document.getElementById('modal-periodo-escala').classList.remove('hidden');
 }
 
@@ -17220,6 +17222,7 @@ function editarPeriodoEscala(periodoId){
   setVal('per-esc-ref-ini', p.horarioRefIni||'');
   setVal('per-esc-ref-fim', p.horarioRefFim||'');
   setVal('per-esc-obs', p.observacao||'');
+  { const _rc=document.getElementById('per-esc-reancora'); if(_rc) _rc.checked=!!p.reancora12x36; }
   document.getElementById('modal-periodo-escala').classList.remove('hidden');
 }
 
@@ -17243,6 +17246,7 @@ async function salvarPeriodoEscala(){
     horarioRefIni:   val('per-esc-ref-ini') || '',
     horarioRefFim:   val('per-esc-ref-fim') || '',
     horarioSaida:    val('per-esc-saida') || '',
+    reancora12x36:   !!(document.getElementById('per-esc-reancora')||{}).checked,   // troca de turno reinicia o ciclo no 1º dia. #troca-turno-12x36-periodo
     observacao:      val('per-esc-obs') || '',
     criadoEm:        ja ? ja.criadoEm : new Date().toISOString(),
     criadoPorNome:   ja ? ja.criadoPorNome : quem,
@@ -24782,7 +24786,21 @@ function _ciclo12x36EhTrabalho(emp, ano, mes, dia){
       segEhMudanca = idx > 0;
     }
   }
+  // PERÍODO DE MUDANÇA marcado "Troca de turno — reinicia o ciclo" (decisão usuário
+  // 2026-06-29): o painel "Período de mudança" (historicoEscalas) só trocava o HORÁRIO e
+  // NÃO reancorava o 12x36 → a alternância seguia a paridade velha do cadastro e marcava
+  // como trabalho um dia que virou folga (falsa falta no Monitor). Quando reancora12x36
+  // está marcado, a DATA DE INÍCIO do período passa a ser a âncora (1º dia = TRABALHO) só
+  // para datas >= de — dias anteriores mantêm o ciclo antigo (caem nos fallbacks). Pega o
+  // período reancora mais RECENTE que já começou; só vence a lotação se estiver dentro/
+  // depois do trecho vigente (perAnchor >= segIni). #troca-turno-12x36-periodo
+  let perAnchor = null;
+  (emp.historicoEscalas||[]).forEach(p=>{
+    if(p && p.reancora12x36 && p.de && p.de <= ymd && (!perAnchor || p.de > perAnchor)) perAnchor = p.de;
+  });
+  const perAnchorVale = perAnchor && (!segIni || perAnchor >= segIni) ? perAnchor : null;
   // Âncora de paridade (decisão usuário 2026-06-23 — TROCA DE TURNO/ESCALA):
+  //  0) PERÍODO DE MUDANÇA reancora (acima) — vence quando dentro/depois do trecho atual;
   //  1) trecho vigente com ciclo PRÓPRIO informado (sobrepõe tudo);
   //  2) PERÍODO DE MUDANÇA sem ciclo informado → ancora no 1º dia do período (a troca
   //     comunicada fecha o período anterior e o 1º dia do novo é TRABALHO normal, sem
@@ -24791,7 +24809,8 @@ function _ciclo12x36EhTrabalho(emp, ano, mes, dia){
   //     os dias antigos. #troca-turno-12x36
   //  3) DATA INFORMADA no cadastro (`ciclo12x36Inicio`);
   //  4) 1º dia batido no ponto (auto); 5) fallback: início do segmento / admissão.
-  const ini = segAnchor
+  const ini = perAnchorVale
+    || segAnchor
     || (segEhMudanca ? segIni : null)
     || emp.ciclo12x36Inicio
     || _primeiroDiaTrabalho12x36(emp, segIni)

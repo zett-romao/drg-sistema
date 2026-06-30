@@ -7119,6 +7119,17 @@
         </div>
       </div>
       <div class="form-row">
+        <div class="form-group" style="grid-column:1 / -1;background:#F5F3FF;border:1px solid #DDD6FE;border-radius:7px;padding:10px 12px">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;margin:0">
+            <input type="checkbox" id="per-esc-reancora" style="width:auto;margin:0">
+            <span><i class="fa-solid fa-rotate" style="color:#7e22ce"></i> É troca de turno — reiniciar o ciclo 12x36 a partir deste período</span>
+          </label>
+          <div style="font-size:11px;color:#64748b;margin-top:6px;padding-left:26px">
+            Marque <strong>só para 12x36</strong> quando a troca deslocou os dias de plantão. A <strong>data de início</strong> passa a contar como <strong>dia de trabalho</strong> e a alternância (noite sim, noite não) recomeça a partir dela — dias anteriores mantêm o ciclo antigo. <strong>Não marque</strong> se o período só ajusta horário/almoço.
+          </div>
+        </div>
+      </div>
+      <div class="form-row">
         <div class="form-group" style="grid-column:1 / -1">
           <label>Observação (motivo da mudança)</label>
           <input type="text" id="per-esc-obs" maxlength="200" placeholder="Ex.: Cobertura de férias, plantão extra, etc.">
@@ -7415,6 +7426,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260629g-config-permissao"></script>
+  <script src="app.js?v=20260629h-troca-turno-12x36"></script>
 </body>
 </html>

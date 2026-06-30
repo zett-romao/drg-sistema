@@ -8,7 +8,7 @@
 //  - HTML/JS/CSS/JSON do app → network-first (pega versao nova; offline cai no cache).
 //  - Imagens/estaticos → cache-first.
 // ============================================================
-const CACHE = 'drg-ponto-v61-20260629a-direitos-lgpd';
+const CACHE = 'drg-ponto-v62-20260629b-troca-turno-12x36';
 
 // Essenciais do mesmo dominio — o install FALHA se algum nao baixar (intencional).
 const ASSETS = [

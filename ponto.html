@@ -548,7 +548,7 @@ try{ window.__APP_BOOTED = true; }catch(_){}
 // ─── VERSÃO DO APP DO COLABORADOR ─────────────────────────────────────────────
 // Bumpe SEMPRE em conjunto com o CACHE do ponto-sw.js e o ?v= do firebase-config.
 // Formato: AA.MM.DD + letra (a, b, c...) — alinhado com o nome do cache.
-const PONTO_VERSION = '26.06.25a';
+const PONTO_VERSION = '26.06.29a';
 // Exibe a versão no rodapé (script roda após o DOM, então o elemento já existe)
 (function _setVersionTag(){
   const t = document.getElementById('app-version-tag');
@@ -1409,7 +1409,16 @@ function _ehTrabalho12x36Ponto(emp, dataObj){
     for(let i=0;i<hist.length;i++){ if(hist[i].dataInicio <= ymd){ vig=hist[i]; idx=i; } else break; }
     if(vig){ segIni = vig.dataInicio; segAnchor = vig.ciclo12x36Inicio || null; segEhMudanca = idx > 0; }
   }
-  const ini = segAnchor
+  // PERÍODO DE MUDANÇA marcado "reinicia o ciclo" (reancora12x36) → a data de início vira
+  // a âncora (1º dia = trabalho) para datas >= de. Mais recente que já começou; só vence a
+  // lotação se estiver dentro/depois do trecho vigente. #troca-turno-12x36-periodo
+  let perAnchor = null;
+  (emp.historicoEscalas||[]).forEach(p=>{
+    if(p && p.reancora12x36 && p.de && p.de <= ymd && (!perAnchor || p.de > perAnchor)) perAnchor = p.de;
+  });
+  const perAnchorVale = perAnchor && (!segIni || perAnchor >= segIni) ? perAnchor : null;
+  const ini = perAnchorVale
+    || segAnchor
     || (segEhMudanca ? segIni : null)
     || emp.ciclo12x36Inicio
     || segIni

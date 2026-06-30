@@ -234,6 +234,12 @@
               <span>Documentos</span>
             </a>
           </li>
+          <li id="nav-docsempresa-li" class="hidden">
+            <a class="nav-link" id="nav-docsempresa" onclick="showSection('docsempresa')">
+              <i class="fa-solid fa-folder-open"></i>
+              <span>Documentos da Empresa</span>
+            </a>
+          </li>
           <li id="nav-comunicacao-li" class="hidden">
             <a class="nav-link" id="nav-comunicacao" onclick="showSection('comunicacao')">
               <i class="fa-solid fa-comments"></i>
@@ -2540,6 +2546,98 @@
           </div>
         </div>
       </section>
+
+      <!-- ===== DOCUMENTOS DA EMPRESA (globais) ===== -->
+      <section id="section-docsempresa" class="section">
+        <div class="page-header">
+          <h2>Documentos da Empresa</h2>
+          <p>Documentos globais da empresa (VR, VT, guias de tributos, FGTS, INSS, notas, comprovantes…). Organizados por pasta/categoria, com download individual ou em .zip para auditorias e processos.</p>
+        </div>
+        <div class="card">
+          <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+            <div id="docsempresa-contador" style="font-size:14px"></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn btn-primary btn-sm" onclick="abrirNovoDocEmpresa()"><i class="fa-solid fa-upload"></i> Novo documento</button>
+              <button class="btn btn-sm" onclick="abrirCategoriasDoc()" style="background:#00695C;color:#fff;border:none"><i class="fa-solid fa-folder-plus"></i> Categorias</button>
+              <button class="btn btn-sm" onclick="baixarPeriodoZipDocEmpresa()" style="background:#6A1B9A;color:#fff;border:none" title="Baixa tudo do filtro atual num único .zip, com subpastas por categoria"><i class="fa-solid fa-file-zipper"></i> Baixar período (.zip)</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="form-row" style="align-items:end">
+              <div class="form-group"><label>Categoria</label><select id="docsempresa-filtro-cat" onchange="renderDocsEmpresa()"><option value="">Todas</option></select></div>
+              <div class="form-group"><label>De (competência)</label><input type="month" id="docsempresa-filtro-de" onchange="renderDocsEmpresa()"></div>
+              <div class="form-group"><label>Até (competência)</label><input type="month" id="docsempresa-filtro-ate" onchange="renderDocsEmpresa()"></div>
+              <div class="form-group"><label>Buscar por nome</label><input type="text" id="docsempresa-filtro-busca" oninput="renderDocsEmpresa()" placeholder="nome do documento..."></div>
+            </div>
+            <div id="docsempresa-pastas" style="margin-top:14px"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Modal: novo/editar documento da empresa -->
+      <div class="modal-overlay hidden" id="modal-doc-empresa" onclick="closeModal('modal-doc-empresa', event)">
+        <div class="modal-dialog">
+          <div class="modal-header">
+            <h3><i class="fa-solid fa-file-arrow-up" style="color:#00695C"></i> <span id="doc-empresa-modal-titulo">Novo documento da empresa</span></h3>
+            <button class="modal-close" onclick="closeModal('modal-doc-empresa')"><i class="fa-solid fa-xmark"></i></button>
+          </div>
+          <div class="modal-body">
+            <input type="hidden" id="doc-empresa-id">
+            <input type="hidden" id="doc-empresa-arquivo-url">
+            <input type="hidden" id="doc-empresa-arquivo-nome">
+            <div class="form-row">
+              <div class="form-group"><label>Categoria (pasta) <span class="required">*</span></label><select id="doc-empresa-cat"></select></div>
+              <div class="form-group"><label>Competência</label><input type="month" id="doc-empresa-competencia"></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group" style="grid-column:1 / -1"><label>Nome / descrição do documento <span class="required">*</span></label><input type="text" id="doc-empresa-nome" maxlength="160" placeholder="Ex.: Guia DARF INSS junho/2026"></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label>Valor (R$)</label><input type="number" id="doc-empresa-valor" min="0" step="0.01" placeholder="0,00"></div>
+              <div class="form-group"><label>Vencimento / pagamento</label><input type="date" id="doc-empresa-vencimento"></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group" style="grid-column:1 / -1"><label>Observação</label><input type="text" id="doc-empresa-obs" maxlength="240" placeholder="Anotações..."></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group" style="grid-column:1 / -1">
+                <label>Arquivo <span class="required">*</span></label>
+                <input type="file" id="doc-empresa-arquivo" onchange="onDocEmpresaArquivoChange(event)">
+                <div id="doc-empresa-upload-status" class="hidden" style="font-size:12px;margin-top:6px"></div>
+                <div id="doc-empresa-arquivo-atual" class="hidden" style="margin-top:6px;font-size:12px"><i class="fa-solid fa-paperclip"></i> <a id="doc-empresa-arquivo-link" href="#" target="_blank"><span id="doc-empresa-arquivo-nome-exib"></span></a></div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-outline" onclick="closeModal('modal-doc-empresa')">Cancelar</button>
+            <button class="btn btn-primary" onclick="salvarDocEmpresa()"><i class="fa-solid fa-floppy-disk"></i> Salvar</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal: gerenciar categorias (pastas) -->
+      <div class="modal-overlay hidden" id="modal-doc-empresa-cat" onclick="closeModal('modal-doc-empresa-cat', event)">
+        <div class="modal-dialog" style="max-width:440px">
+          <div class="modal-header">
+            <h3><i class="fa-solid fa-folder-plus" style="color:#00695C"></i> Categorias (pastas)</h3>
+            <button class="modal-close" onclick="closeModal('modal-doc-empresa-cat')"><i class="fa-solid fa-xmark"></i></button>
+          </div>
+          <div class="modal-body">
+            <div class="form-row">
+              <div class="form-group" style="grid-column:1 / -1"><label>Nova categoria</label>
+                <div style="display:flex;gap:8px">
+                  <input type="text" id="doc-empresa-cat-nome" maxlength="60" placeholder="Ex.: ISS, Alvará, Seguros..." style="flex:1">
+                  <button class="btn btn-primary" onclick="salvarCategoriaDoc()"><i class="fa-solid fa-plus"></i> Adicionar</button>
+                </div>
+              </div>
+            </div>
+            <div id="doc-empresa-cat-lista" style="margin-top:10px"></div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-outline" onclick="closeModal('modal-doc-empresa-cat')">Fechar</button>
+          </div>
+        </div>
+      </div>
 
       <!-- ===== ADIANTAMENTOS ===== -->
       <section id="section-adiantamentos" class="section">
@@ -7456,6 +7554,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260630c-prazo-adiantamento"></script>
+  <script src="app.js?v=20260630d-docs-empresa"></script>
 </body>
 </html>

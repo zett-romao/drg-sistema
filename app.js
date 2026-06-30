@@ -1290,7 +1290,7 @@ function _updateBackBtn(){
 // MENU LATERAL — grupos colapsáveis
 // ============================================
 const NAV_GROUPS = {
-  pessoas:     ['employees','documentos','comunicacao'],
+  pessoas:     ['employees','documentos','docsempresa','comunicacao'],
   ponto:       ['payroll','escalas','autorizacoes'],
   pagamentos:  ['pagamentos','adiantamentos','aprovacoes','recibos'],
   clt:         ['decimoterceiro','ferias','rescisao'],
@@ -1377,6 +1377,7 @@ function showSection(name){
   if(name==='monitorfaltas'  && !mods.monitorarFaltas) return;
   if(name==='estoque'        && !mods.estoque) return;
   if(name==='documentos'     && !mods.employees) return;
+  if(name==='docsempresa'    && !mods.documentosEmpresa && Auth.currentUser?.role!=='master') return;
   if(name==='configuracoes'  && !mods.configuracoes && Auth.currentUser?.role!=='master') return;
   if(name==='lgpd'           && !mods.lgpd && Auth.currentUser?.role!=='master') return;
   // Empilha seção atual antes de trocar (exceto se estiver voltando ou já está na mesma seção)
@@ -1397,7 +1398,7 @@ function showSection(name){
   applyNavGroupsState(name);
   const titles={dashboard:'Dashboard',employees:'Colaboradores',payroll:'Folha de Ponto',escalas:'Escalas',
                 pagamentos:'Pagamentos',beneficios:'Benefícios',recibos:'Recibos Enviados',adiantamentos:'Adiantamentos',aprovacoes:'Aprovações de Pagamentos',decimoterceiro:'13º Salário',ferias:'Férias',rescisao:'Rescisões',
-                contabilidade:'Contabilidade',banco:'Banco de Dados',users:'Usuários & Acessos',postos:'Postos de Trabalho',rubricas:'Rubricas',contratos:'Contratos',comunicacao:'Comunicação',autorizacoes:'Autorizações de Ponto',monitorfaltas:'Monitor de Faltas',estoque:'Estoque / EPIs',documentos:'Documentos do Colaborador',configuracoes:'Configurações',lgpd:'Conformidade LGPD'};
+                contabilidade:'Contabilidade',banco:'Banco de Dados',users:'Usuários & Acessos',postos:'Postos de Trabalho',rubricas:'Rubricas',contratos:'Contratos',comunicacao:'Comunicação',autorizacoes:'Autorizações de Ponto',monitorfaltas:'Monitor de Faltas',estoque:'Estoque / EPIs',documentos:'Documentos do Colaborador',docsempresa:'Documentos da Empresa',configuracoes:'Configurações',lgpd:'Conformidade LGPD'};
   document.getElementById('topbar-title').textContent=titles[name]||name;
   State.currentSection=name;
   if(name==='employees') setEmployeeFilter('ativo');   // abre sempre em ATIVOS (atalhos do dashboard sobrescrevem depois)
@@ -1428,6 +1429,7 @@ function showSection(name){
   if(name==='monitorfaltas')   renderMonitorFaltas();
   if(name==='estoque')         renderEstoque();
   if(name==='documentos')      renderDocumentosPendentes();
+  if(name==='docsempresa')     renderDocsEmpresa();
   if(name==='configuracoes')  renderConfiguracoes();
   if(name==='postos')    renderPostosTable();
   if(name==='rubricas')  renderRubricas();
@@ -1928,6 +1930,9 @@ function applyUserSession(user){
   // Documentos do colaborador (envio pelo app): mesma permissão de employees
   const docLi=document.getElementById('nav-documentos-li');
   if(docLi) docLi.classList.toggle('hidden', !mods.employees);
+  // Documentos da Empresa (globais): permissão dedicada outorgável. Master sempre. #docs-empresa
+  const docEmpLi=document.getElementById('nav-docsempresa-li');
+  if(docEmpLi) docEmpLi.classList.toggle('hidden', !mods.documentosEmpresa && user.role!=='master');
   // Comunicação: módulo dedicado (delegável). Master sempre tem.
   const commLi=document.getElementById('nav-comunicacao-li');
   if(commLi) commLi.classList.toggle('hidden', !mods.comunicacao);
@@ -24606,6 +24611,242 @@ async function downloadAllDocuments(){
   }
 }
 
+// ══════════ DOCUMENTOS DA EMPRESA (globais: VR/VT/guias/etc.) #docs-empresa ══════════
+const DOCS_EMPRESA_CATEGORIAS_PADRAO = [
+  {id:'vr', nome:'VR — Vale Refeição'},
+  {id:'vt', nome:'VT — Vale Transporte'},
+  {id:'va', nome:'VA — Vale Alimentação'},
+  {id:'tributos', nome:'Guias de Tributos'},
+  {id:'fgts', nome:'FGTS'},
+  {id:'inss', nome:'INSS / eSocial'},
+  {id:'notas', nome:'Notas Fiscais'},
+  {id:'comprovantes', nome:'Comprovantes de Pagamento'},
+  {id:'outros', nome:'Outros'},
+];
+function _podeDocsEmpresa(){ return !!(getUserModules(Auth.currentUser)||{}).documentosEmpresa || Auth.currentUser?.role==='master'; }
+function _docsEmpresaCategorias(){
+  const c = State.empresa && State.empresa.categoriasDocsEmpresa;
+  return (Array.isArray(c) && c.length) ? c : DOCS_EMPRESA_CATEGORIAS_PADRAO;
+}
+function _docEmpCatNome(id){ const c=_docsEmpresaCategorias().find(x=>x.id===id); return c?c.nome:(id||'—'); }
+function _compLabelYM(ym){ const p=(ym||'').split('-'); if(p.length<2) return ym||'—'; const mi=parseInt(p[1]); return (MESES[mi]?MESES[mi].slice(0,3):p[1])+'/'+p[0]; }
+async function _salvarCategoriasDoc(cats){
+  State.empresa = State.empresa||{};
+  State.empresa.categoriasDocsEmpresa = cats;
+  await DB.saveDoc('configuracoes','empresa',{categoriasDocsEmpresa:cats},true);
+  _preencherSelectsCategoriaDoc();
+  try{ if(State.currentSection==='docsempresa') renderDocsEmpresa(); }catch(_){}
+}
+function _preencherSelectsCategoriaDoc(){
+  const cats=_docsEmpresaCategorias();
+  const opts=cats.map(c=>`<option value="${c.id}">${esc(c.nome)}</option>`).join('');
+  const mSel=document.getElementById('doc-empresa-cat'); if(mSel){ const cur=mSel.value; mSel.innerHTML=opts; if(cur) mSel.value=cur; }
+  const fSel=document.getElementById('docsempresa-filtro-cat'); if(fSel){ const cur=fSel.value; fSel.innerHTML='<option value="">Todas</option>'+opts; if(cur) fSel.value=cur; }
+}
+// ─ Categorias ─
+function abrirCategoriasDoc(){
+  if(!_podeDocsEmpresa()){ toast('Sem permissão.','error'); return; }
+  setVal('doc-empresa-cat-nome','');
+  _renderCategoriasDocLista();
+  document.getElementById('modal-doc-empresa-cat').classList.remove('hidden');
+}
+function _renderCategoriasDocLista(){
+  const box=document.getElementById('doc-empresa-cat-lista'); if(!box) return;
+  const cats=_docsEmpresaCategorias();
+  box.innerHTML='<div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;margin-bottom:6px">Categorias atuais</div>'+
+    cats.map(c=>{
+      const n=(State.docsEmpresa||[]).filter(d=>d.categoriaId===c.id).length;
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border:1px solid var(--border);border-radius:6px;margin-bottom:5px">
+        <span style="font-size:13px"><i class="fa-solid fa-folder" style="color:#00695C"></i> ${esc(c.nome)} <span style="color:#94a3b8;font-size:11px">(${n})</span></span>
+        <button class="btn btn-sm btn-outline" onclick="excluirCategoriaDoc('${c.id}')" title="Excluir categoria (só se estiver vazia)" style="color:#c62828;border-color:#ef9a9a;font-size:11px;padding:3px 8px"><i class="fa-solid fa-trash"></i></button>
+      </div>`;
+    }).join('');
+}
+async function salvarCategoriaDoc(){
+  if(!_podeDocsEmpresa()){ toast('Sem permissão.','error'); return; }
+  const nome=(val('doc-empresa-cat-nome')||'').trim();
+  if(!nome){ toast('Informe o nome da categoria.','warning'); return; }
+  const cats=_docsEmpresaCategorias().slice();
+  if(cats.some(c=>(c.nome||'').toLowerCase()===nome.toLowerCase())){ toast('Já existe uma categoria com esse nome.','warning'); return; }
+  cats.push({id:'c_'+genId(), nome});
+  try{ await _salvarCategoriasDoc(cats); setVal('doc-empresa-cat-nome',''); _renderCategoriasDocLista(); toast('Categoria adicionada.','success'); }
+  catch(e){ toast('Erro ao salvar categoria: '+(e.message||e),'error'); }
+}
+async function excluirCategoriaDoc(id){
+  if(!_podeDocsEmpresa()){ toast('Sem permissão.','error'); return; }
+  const n=(State.docsEmpresa||[]).filter(d=>d.categoriaId===id).length;
+  if(n>0){ toast(`Não dá para excluir: a categoria tem ${n} documento(s). Mova ou exclua os documentos antes.`,'warning'); return; }
+  if(!confirm('Excluir esta categoria vazia?')) return;
+  try{ await _salvarCategoriasDoc(_docsEmpresaCategorias().filter(c=>c.id!==id)); _renderCategoriasDocLista(); toast('Categoria excluída.','success'); }
+  catch(e){ toast('Erro ao excluir: '+(e.message||e),'error'); }
+}
+// ─ Upload + CRUD de documento ─
+async function onDocEmpresaArquivoChange(event){
+  const file=event.target.files[0]; if(!file) return;
+  const st=document.getElementById('doc-empresa-upload-status');
+  if(st){ st.classList.remove('hidden'); st.innerHTML='<i class="fa-solid fa-circle-notch fa-spin"></i> Enviando arquivo...'; }
+  try{
+    DB.initStorage();
+    const docId=val('doc-empresa-id')||genId(); setVal('doc-empresa-id',docId);
+    const catId=val('doc-empresa-cat')||'outros';
+    const ext=(file.name.split('.').pop()||'dat');
+    const ref=DB.storageRef(`documentosEmpresa/${catId}/${docId}_${Date.now()}.${ext}`);
+    await ref.put(file,{contentType:file.type||'application/octet-stream'});
+    const url=await ref.getDownloadURL();
+    setVal('doc-empresa-arquivo-url',url); setVal('doc-empresa-arquivo-nome',file.name);
+    const atual=document.getElementById('doc-empresa-arquivo-atual'), nomeEx=document.getElementById('doc-empresa-arquivo-nome-exib'), link=document.getElementById('doc-empresa-arquivo-link');
+    if(atual&&nomeEx&&link){ atual.classList.remove('hidden'); nomeEx.textContent=file.name; link.href=url; }
+    if(st) st.innerHTML='<i class="fa-solid fa-circle-check" style="color:var(--success)"></i> Arquivo enviado.';
+  }catch(e){ if(st) st.innerHTML='<i class="fa-solid fa-triangle-exclamation" style="color:var(--danger)"></i> Erro ao enviar arquivo.'; }
+}
+function abrirNovoDocEmpresa(){
+  if(!_podeDocsEmpresa()){ toast('Sem permissão.','error'); return; }
+  _preencherSelectsCategoriaDoc();
+  ['doc-empresa-id','doc-empresa-nome','doc-empresa-competencia','doc-empresa-valor','doc-empresa-vencimento','doc-empresa-obs','doc-empresa-arquivo-url','doc-empresa-arquivo-nome'].forEach(k=>setVal(k,''));
+  const fi=document.getElementById('doc-empresa-arquivo'); if(fi) fi.value='';
+  const atual=document.getElementById('doc-empresa-arquivo-atual'); if(atual) atual.classList.add('hidden');
+  const st=document.getElementById('doc-empresa-upload-status'); if(st) st.classList.add('hidden');
+  const fc=val('docsempresa-filtro-cat'); if(fc) setVal('doc-empresa-cat',fc);
+  document.getElementById('doc-empresa-modal-titulo').textContent='Novo documento da empresa';
+  document.getElementById('modal-doc-empresa').classList.remove('hidden');
+}
+function editarDocEmpresa(id){
+  if(!_podeDocsEmpresa()){ toast('Sem permissão.','error'); return; }
+  const d=(State.docsEmpresa||[]).find(x=>x.id===id); if(!d){ toast('Documento não encontrado.','error'); return; }
+  _preencherSelectsCategoriaDoc();
+  setVal('doc-empresa-id',d.id); setVal('doc-empresa-cat',d.categoriaId||'outros');
+  setVal('doc-empresa-nome',d.nome||''); setVal('doc-empresa-competencia',d.competencia||'');
+  setVal('doc-empresa-valor',d.valor||''); setVal('doc-empresa-vencimento',d.vencimento||''); setVal('doc-empresa-obs',d.observacao||'');
+  setVal('doc-empresa-arquivo-url',d.arquivoUrl||''); setVal('doc-empresa-arquivo-nome',d.arquivoNome||'');
+  const fi=document.getElementById('doc-empresa-arquivo'); if(fi) fi.value='';
+  const atual=document.getElementById('doc-empresa-arquivo-atual'), nomeEx=document.getElementById('doc-empresa-arquivo-nome-exib'), link=document.getElementById('doc-empresa-arquivo-link');
+  if(d.arquivoUrl && atual&&nomeEx&&link){ atual.classList.remove('hidden'); nomeEx.textContent=d.arquivoNome||'arquivo'; link.href=d.arquivoUrl; } else if(atual) atual.classList.add('hidden');
+  const st=document.getElementById('doc-empresa-upload-status'); if(st) st.classList.add('hidden');
+  document.getElementById('doc-empresa-modal-titulo').textContent='Editar documento';
+  document.getElementById('modal-doc-empresa').classList.remove('hidden');
+}
+async function salvarDocEmpresa(){
+  if(!_podeDocsEmpresa()){ toast('Sem permissão.','error'); return; }
+  const nome=(val('doc-empresa-nome')||'').trim();
+  if(!nome){ toast('Informe o nome/descrição do documento.','warning'); return; }
+  const catId=val('doc-empresa-cat'); if(!catId){ toast('Escolha a categoria (pasta).','warning'); return; }
+  const url=val('doc-empresa-arquivo-url'); if(!url){ toast('Envie o arquivo do documento.','warning'); return; }
+  const id=val('doc-empresa-id')||genId();
+  const ja=(State.docsEmpresa||[]).find(x=>x.id===id);
+  const valorNum=parseFloat(val('doc-empresa-valor'));
+  const doc={ id, categoriaId:catId, nome, competencia:val('doc-empresa-competencia')||'',
+    valor:isNaN(valorNum)?0:valorNum, vencimento:val('doc-empresa-vencimento')||'', observacao:val('doc-empresa-obs')||'',
+    arquivoUrl:url, arquivoNome:val('doc-empresa-arquivo-nome')||'',
+    criadoPorNome:(Auth.currentUser&&(Auth.currentUser.username||Auth.currentUser.id))||'—',
+    createdAt: ja?ja.createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() };
+  try{
+    await DB.save('documentosEmpresa', _sanitizeForFirestore(doc));
+    try{ Auth.log(ja?'DOC_EMPRESA_EDIT':'DOC_EMPRESA_NEW', null, `${nome} (${_docEmpCatNome(catId)})`); }catch(_){}
+    closeModal('modal-doc-empresa');
+    toast(ja?'Documento atualizado.':'Documento salvo.','success');
+    renderDocsEmpresa();
+  }catch(e){ toast('Erro ao salvar: '+(e.message||e),'error'); }
+}
+async function excluirDocEmpresa(id){
+  if(!_podeDocsEmpresa()){ toast('Sem permissão.','error'); return; }
+  const d=(State.docsEmpresa||[]).find(x=>x.id===id); if(!d) return;
+  if(!confirm(`Excluir o documento "${d.nome}"? Esta ação não pode ser desfeita.`)) return;
+  try{
+    await DB.remove('documentosEmpresa', id);
+    try{ Auth.log('DOC_EMPRESA_DEL', null, `${d.nome} (${_docEmpCatNome(d.categoriaId)})`); }catch(_){}
+    toast('Documento excluído.','success');
+    renderDocsEmpresa();
+  }catch(e){ toast('Erro ao excluir: '+(e.message||e),'error'); }
+}
+// ─ Filtro + render por pasta ─
+function _docsEmpresaFiltrados(){
+  const fCat=val('docsempresa-filtro-cat')||'', fDe=val('docsempresa-filtro-de')||'', fAte=val('docsempresa-filtro-ate')||'', fBusca=(val('docsempresa-filtro-busca')||'').trim().toLowerCase();
+  return (State.docsEmpresa||[]).filter(d=>{
+    if(fCat && d.categoriaId!==fCat) return false;
+    if((fDe||fAte) && !d.competencia) return false;   // filtro de período exige competência
+    if(fDe && d.competencia<fDe) return false;
+    if(fAte && d.competencia>fAte) return false;
+    if(fBusca && !((d.nome||'').toLowerCase().includes(fBusca))) return false;
+    return true;
+  });
+}
+function renderDocsEmpresa(){
+  const box=document.getElementById('docsempresa-pastas'); if(!box) return;
+  _preencherSelectsCategoriaDoc();
+  const cats=_docsEmpresaCategorias();
+  const fCat=val('docsempresa-filtro-cat')||'';
+  const filtros = !!(val('docsempresa-filtro-de')||val('docsempresa-filtro-ate')||(val('docsempresa-filtro-busca')||'').trim());
+  const docs=_docsEmpresaFiltrados();
+  const cnt=document.getElementById('docsempresa-contador');
+  if(cnt){ const tot=docs.length, soma=docs.reduce((s,d)=>s+(+d.valor||0),0);
+    cnt.innerHTML= tot ? `<strong>${tot}</strong> documento(s)${soma>0?` &middot; Total ${fmtMoney(soma)}`:''}` : '<span style="color:#999">Nenhum documento</span>'; }
+  const catsExibir = fCat ? cats.filter(c=>c.id===fCat) : cats;
+  let html='';
+  catsExibir.forEach(c=>{
+    const ds=docs.filter(d=>d.categoriaId===c.id).sort((a,b)=>(b.competencia||'').localeCompare(a.competencia||'')||(b.createdAt||'').localeCompare(a.createdAt||''));
+    html+=`<div style="border:1px solid var(--border);border-radius:8px;margin-bottom:10px;overflow:hidden">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:#F1F5F9">
+        <div style="font-weight:700;font-size:14px"><i class="fa-solid fa-folder" style="color:#00695C"></i> ${esc(c.nome)} <span style="color:#64748b;font-weight:500;font-size:12px">· ${ds.length} doc(s)</span></div>
+        ${ds.length?`<button class="btn btn-sm btn-outline" onclick="baixarPastaZipDocEmpresa('${c.id}')" style="font-size:11px;padding:4px 10px"><i class="fa-solid fa-file-zipper"></i> Baixar pasta (.zip)</button>`:''}
+      </div>`;
+    if(ds.length){
+      html+=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#fff;text-align:left;border-bottom:1px solid var(--border)">
+        <th style="padding:8px 10px">Nome</th><th style="padding:8px 10px">Competência</th><th style="padding:8px 10px;text-align:right">Valor</th><th style="padding:8px 10px">Vencimento</th><th style="padding:8px 10px;text-align:center">Ações</th></tr></thead><tbody>`;
+      ds.forEach(d=>{
+        html+=`<tr style="border-bottom:1px solid #f1f5f9">
+          <td style="padding:8px 10px">${esc(d.nome)}${d.observacao?`<div style="font-size:11px;color:#94a3b8">${esc(d.observacao)}</div>`:''}</td>
+          <td style="padding:8px 10px">${d.competencia?_compLabelYM(d.competencia):'—'}</td>
+          <td style="padding:8px 10px;text-align:right">${(+d.valor>0)?fmtMoney(+d.valor):'—'}</td>
+          <td style="padding:8px 10px">${d.vencimento?formatDateBr(d.vencimento):'—'}</td>
+          <td style="padding:8px 10px;text-align:center;white-space:nowrap">
+            <a class="btn btn-sm btn-outline" href="${d.arquivoUrl||'#'}" target="_blank" title="Abrir / baixar" style="font-size:11px;padding:3px 8px"><i class="fa-solid fa-download"></i></a>
+            <button class="btn btn-sm btn-outline" onclick="editarDocEmpresa('${d.id}')" title="Editar" style="font-size:11px;padding:3px 8px"><i class="fa-solid fa-pen"></i></button>
+            <button class="btn btn-sm btn-outline" onclick="excluirDocEmpresa('${d.id}')" title="Excluir" style="font-size:11px;padding:3px 8px;color:#c62828;border-color:#ef9a9a"><i class="fa-solid fa-trash"></i></button>
+          </td></tr>`;
+      });
+      html+='</tbody></table></div>';
+    } else {
+      html+=`<div style="padding:14px 12px;color:#94a3b8;font-size:12px">Nenhum documento nesta pasta${filtros?' (com os filtros atuais)':''}.</div>`;
+    }
+    html+='</div>';
+  });
+  box.innerHTML = html || '<div class="empty-state small"><i class="fa-solid fa-folder-open"></i><p>Nenhuma categoria.</p></div>';
+}
+// ─ Downloads em .zip ─
+async function baixarPastaZipDocEmpresa(catId){
+  const ds=(State.docsEmpresa||[]).filter(d=>d.categoriaId===catId && d.arquivoUrl);
+  await _zipDocsEmpresa(ds, _docEmpCatNome(catId), false);
+}
+async function baixarPeriodoZipDocEmpresa(){
+  const ds=_docsEmpresaFiltrados().filter(d=>d.arquivoUrl);
+  const fDe=val('docsempresa-filtro-de')||'', fAte=val('docsempresa-filtro-ate')||'';
+  const nome = (fDe||fAte) ? `documentos_${fDe||'inicio'}_a_${fAte||'fim'}` : 'documentos_empresa';
+  await _zipDocsEmpresa(ds, nome, true);
+}
+async function _zipDocsEmpresa(ds, nomeBase, comSubpastas){
+  if(typeof JSZip==='undefined'){ toast('JSZip não carregado. Verifique a conexão.','error'); return; }
+  if(!ds || !ds.length){ toast('Nenhum documento para baixar com esses filtros.','warning'); return; }
+  const _safe=s=>(s||'').toString().replace(/[^a-zA-Z0-9 _-]/g,'').trim().replace(/\s+/g,'_');
+  toast(`Compactando ${ds.length} documento(s)... aguarde.`,'info');
+  try{
+    const zip=new JSZip(), usados={};
+    await Promise.all(ds.map(async d=>{
+      try{
+        const resp=await fetch(d.arquivoUrl); const blob=await resp.blob();
+        const ext=(d.arquivoNome&&d.arquivoNome.includes('.'))?d.arquivoNome.split('.').pop():'dat';
+        let base=_safe(d.nome)||'documento'; if(d.competencia) base=d.competencia+'_'+base;
+        const dir=comSubpastas?(_safe(_docEmpCatNome(d.categoriaId))+'/'):'';
+        let fname=dir+base+'.'+ext, i=2; while(usados[fname]){ fname=dir+base+'_'+i+'.'+ext; i++; } usados[fname]=1;
+        zip.file(fname, blob);
+      }catch(_){}
+    }));
+    const content=await zip.generateAsync({type:'blob'});
+    const link=document.createElement('a'); link.href=URL.createObjectURL(content); link.download=(_safe(nomeBase)||'documentos')+'.zip';
+    document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(link.href);
+    toast(`ZIP com ${ds.length} documento(s) gerado.`,'success');
+  }catch(e){ console.error('zip docs empresa',e); toast('Erro ao gerar o ZIP.','error'); }
+}
+
 // Toggle do input "especificar outros" no upload de documentos
 function onDocTipoChange(){
   const sel = val('doc-tipo');
@@ -30475,6 +30716,7 @@ const MODULOS_LABELS={
   contratos:       'Administração',
   users:           'Usuários & Acessos',
   configuracoes:   'Configurações (Parâmetros Legais, etc.)',
+  documentosEmpresa: 'Documentos da Empresa (globais)',
   log:             'Log de Acessos',
   comunicacao:        'Comunicação (Enviar mensagens)',
   comunicacoesApagar: 'Apagar Mensagens (Comunicações)',
@@ -31031,6 +31273,10 @@ async function _carregarDadosPosLogin(){
   DB.listen('saidas', data => {
     State.saidas = data;
     if(State.currentSection==='payroll'){ renderSaidasFolha(); recalculate(); }
+  });
+  DB.listen('documentosEmpresa', data => {   // documentos globais da empresa. #docs-empresa
+    State.docsEmpresa = data;
+    if(State.currentSection==='docsempresa') renderDocsEmpresa();
   });
   DB.listen('atrasos', data => {
     State.atrasos = data;

@@ -1438,6 +1438,13 @@ function showSection(name){
     if(pageHeader) pageHeader.style.display  = logOnly?'none':'';
   }
   _applyViewLock(name);
+  // Toda troca de seção começa do TOPO — não herda o scroll da tela anterior (a
+  // rolagem fica no container .page-content). Os drill-downs que rolam até uma linha
+  // (ex.: retorno de Pagamentos via _pagScrollToEmp, foco em Autorizações) usam
+  // setTimeout e rodam DEPOIS deste reset, então continuam funcionando. #scroll-topo
+  const _pc=document.querySelector('.page-content');
+  if(_pc) _pc.scrollTop=0;
+  if(window.scrollTo) window.scrollTo(0,0);
   // Fechar menu automaticamente no celular ao navegar
   if(window.innerWidth<=768) closeSidebarMobile();
 }

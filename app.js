@@ -23101,7 +23101,7 @@ async function _autzRegistrarEResolver(p){
   const empId=p.employeeId, mes=p.mesComp, ano=p.anoComp, dia=p.diaBatida, tp=p.tipoBatida;
   if(empId && mes && ano && dia && tp && p.horarioReal){
     const pay=(State.payrolls||[]).find(x=>x.employeeId===empId && x.mes==mes && x.ano==ano);
-    const base = pay ? {...pay} : { id:(Date.now().toString(36)+Math.random().toString(36).slice(2,8)), employeeId:empId, mes, ano, createdAt:new Date().toISOString() };
+    const base = pay ? {...pay} : { id:_payrollId(empId,mes,ano), employeeId:empId, mes, ano, createdAt:new Date().toISOString() };   // id determinístico — sem folha duplicada. #anti-dup-folha
     const dias = Array.isArray(base.pontoManualDias) ? base.pontoManualDias.map(d=>({...d})) : [];
     let entry = dias.find(d=>d.dia===dia);
     if(!entry){ entry={ dia, diaSem:(p.diaSem!=null?p.diaSem:new Date(ano,mes-1,dia).getDay()), entrada:'',saida:'',intIni:'',intFim:'' }; dias.push(entry); }
@@ -25572,16 +25572,23 @@ async function openPontoManual(){
     </div>`;
   }
   grid.innerHTML=cards;
-  // Busca direta no Firestore para garantir dados frescos do app de ponto
+  // Busca direta no Firestore para garantir dados frescos do app de ponto. Pega a MELHOR
+  // folha (mais dias batidos / fechada / id determinístico) entre eventuais duplicadas —
+  // antes usava .limit(1) e pegava UMA qualquer, podendo esconder a batida do dia se houvesse
+  // cópia. Alinhado ao _pickPayrollDoc do app do colaborador. #anti-dup-folha
   let payrollSalvo = State.payrolls.find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
   try {
     const snap = await DB.col('payrolls')
       .where('employeeId','==',empId)
       .where('mes','==',mes)
       .where('ano','==',ano)
-      .limit(1).get();
+      .get();
     if(!snap.empty){
-      payrollSalvo = snap.docs[0].data();
+      const _scorePM=p=>{ const ds=Array.isArray(p.pontoManualDias)?p.pontoManualDias:[];
+        const bat=ds.filter(d=>d&&(d.entrada||d.saida||d.intIni||d.intFim)).length;
+        return (p.status==='fechada'?1e9:0)+ds.length*1e4+bat*100+(String(p.id||'').startsWith('pay_')?1:0); };
+      let _best=null; snap.docs.forEach(doc=>{ const p={id:doc.id, ...doc.data()}; if(!_best||_scorePM(p)>_scorePM(_best)) _best=p; });
+      payrollSalvo = _best;
       // Sincroniza State para manter cache atualizado
       const idx = State.payrolls.findIndex(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
       if(idx>=0) State.payrolls[idx]=payrollSalvo;

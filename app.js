@@ -2629,9 +2629,15 @@ function verTermoLgpd(id){
   const t=(State.termosLgpd||[]).find(x=>x.id===id); if(!t) return;
   const ass=t.assinatura||{};
   const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Termo LGPD — ${t.employeeNome}</title>
-<style>body{font-family:Arial,sans-serif;padding:24px;max-width:780px;margin:0 auto;color:#212529;font-size:13px;line-height:1.6}h1{color:#1a3a6b;font-size:18px}.box{border:1px solid #ccc;border-radius:6px;padding:10px 12px;margin-top:14px;font-size:11px;color:#444;word-break:break-all}</style></head><body>
+<style>body{font-family:Arial,sans-serif;padding:24px;max-width:780px;margin:0 auto;color:#212529;font-size:13px;line-height:1.6}h1{color:#1a3a6b;font-size:18px}.box{border:1px solid #ccc;border-radius:6px;padding:10px 12px;margin-top:14px;font-size:11px;color:#444;word-break:break-all}.tb-btn{cursor:pointer;border:1px solid #cbd5e1;background:#f8fafc;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;color:#1a3a6b}@media print{.no-print{display:none!important}}</style></head><body>
+<div class="no-print" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid #eee">
+  <button class="tb-btn" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
+  ${(t.status==='assinado'&&t.assinatura)?`<button class="tb-btn" onclick="if(window.opener&&window.opener.baixarTermoConferencia){window.opener.baixarTermoConferencia('${t.id}')}else{alert('Abra o termo pelo sistema para baixar.')}">⬇ Baixar arquivo p/ conferência (blockchain)</button>`:''}
+  ${t.carimboOts?`<button class="tb-btn" onclick="if(window.opener&&window.opener.baixarOtsTermo){window.opener.baixarOtsTermo('${t.id}')}else{alert('Abra o termo pelo sistema para baixar.')}">🔗 Baixar .ots</button>`:''}
+</div>
 <h1>${_e('nomeEmpresa')||'Empresa'} — ${t.titulo}</h1>${t.conteudoHtml}
 ${t.status==='assinado'?`<div class="box"><strong>✔ Assinado eletronicamente</strong> em ${t.assinadoEm?new Date(t.assinadoEm).toLocaleString('pt-BR'):'—'}<br>Colaborador: ${t.employeeNome} — CPF ${t.cpf||'—'}<br>Hash SHA-256: ${ass.hash||'—'}<br>IP: ${ass.ip||'—'} · Dispositivo: ${(ass.deviceFingerprint||'').slice(0,16)}…${t.carimboStatus?`<br>🔗 Carimbo do tempo (blockchain): <strong>${t.carimboStatus==='confirmado'?'CONFIRMADO':'registrado'}</strong>${t.carimboCriadoEm?' em '+new Date(t.carimboCriadoEm).toLocaleString('pt-BR'):''} — prova .ots verificável em opentimestamps.org`:''}</div>`:`<div class="box">Status atual: <strong>${t.status}</strong></div>`}
+${(t.status==='assinado'&&t.carimboStatus)?`<div class="no-print" style="margin-top:12px;font-size:11px;color:#4A148C;background:#F3E5F5;border:1px solid #CE93D8;border-radius:6px;padding:8px 10px"><strong>Conferência no blockchain:</strong> em <strong>opentimestamps.org</strong> → aba <em>Verify</em> → suba o <strong>arquivo p/ conferência</strong> e o <strong>.ots</strong> (botões acima). A rede Bitcoin confirma quando o termo foi assinado. <em>O arquivo de conferência não é para leitura — é o conteúdo exato cujo hash foi carimbado.</em></div>`:''}
 <p style="margin-top:18px;font-size:9px;color:#888">Gerado em ${new Date().toLocaleString('pt-BR')}.</p></body></html>`;
   const w=window.open('','_blank','width=860,height=700'); if(!w){ toast('Permita pop-ups','error'); return; } w.document.write(html); w.document.close();
 }
@@ -2656,6 +2662,37 @@ function baixarOtsTermo(id){
     toast('Arquivo .ots baixado — verificável em opentimestamps.org');
   }catch(e){ toast('Erro ao baixar o .ots.','error'); }
 }
+// Baixa o ARQUIVO EXATO cujo SHA-256 foi carimbado no blockchain (.ots), p/ conferência em
+// opentimestamps.org. Conteúdo = a MESMA string que o app assinou (conteudo|pinHash|ip|ua|
+// fingerprint|ts) — sem cabeçalho/BOM, senão o hash não bate. Recalcula e confere o hash
+// localmente antes de baixar. #lgpd-termo #carimbo-tempo
+async function baixarTermoConferencia(id){
+  const t=(State.termosLgpd||[]).find(x=>x.id===id);
+  if(!t || t.status!=='assinado' || !t.assinatura){ toast('Termo ainda não assinado — não há hash para conferir.','warning'); return; }
+  const a=t.assinatura;
+  const conteudo = (a.conteudoJson!=null) ? a.conteudoJson : (t.conteudoHtml||'');
+  const ts = a.assinadoEm || t.assinadoEm || '';
+  const hashInput = `${conteudo}|${a.pinHash||''}|${a.ip||''}|${a.userAgent||''}|${a.deviceFingerprint||''}|${ts}`;
+  // Confere se o hash recomputado bate com o que foi assinado/carimbado (garante o arquivo certo).
+  let okHash=null;
+  try{
+    const buf=await crypto.subtle.digest('SHA-256', new TextEncoder().encode(hashInput));
+    const hex=Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+    okHash=(hex===(a.hash||''));
+  }catch(_){ okHash=null; }
+  if(okHash===false){
+    if(!confirm('Atenção: o hash recalculado NÃO bateu com o hash assinado (termo de formato antigo?). O arquivo pode não validar no blockchain. Baixar mesmo assim?')) return;
+  }
+  try{
+    const nome=(t.employeeNome||'termo').replace(/[^\w]+/g,'_');
+    const blob=new Blob([hashInput],{type:'application/octet-stream'});   // UTF-8, sem BOM — bytes idênticos ao que gerou o hash
+    const el=document.createElement('a'); el.href=URL.createObjectURL(blob);
+    el.download=`termo_lgpd_${nome}_${(a.hash||'').slice(0,8)}.txt`; el.click(); URL.revokeObjectURL(el.href);
+    toast(okHash===false
+      ? 'Arquivo baixado (atenção: o hash não confere localmente).'
+      : 'Arquivo de conferência baixado. Em opentimestamps.org (Verify), suba ESTE arquivo + o .ots para validar a data na rede Bitcoin.','success');
+  }catch(e){ toast('Erro ao baixar o arquivo de conferência.','error'); }
+}
 // Aba "Termos LGPD" no cadastro do colaborador — arquivo dos termos dele. #lgpd-termo
 function renderTermosLgpdColab(){
   const c = document.getElementById('termos-lgpd-colab-list'); if(!c) return;
@@ -2678,6 +2715,7 @@ function _renderTermosLgpdColab(c){
         <div style="display:flex;align-items:center;gap:8px">
           <span style="background:${bg};color:${cor};padding:3px 10px;border-radius:8px;font-size:11px;font-weight:700">${ass?'Assinado':'Pendente'}</span>${_carimboBadge(t)}
           <button class="btn btn-sm btn-outline" onclick="verTermoLgpd('${t.id}')" style="font-size:11px"><i class="fa-solid fa-eye"></i> Ver termo${ass?' + hash':''}</button>
+          ${ass?`<button class="btn btn-sm btn-outline" onclick="baixarTermoConferencia('${t.id}')" style="font-size:11px" title="Baixar o arquivo exato p/ conferir o carimbo no blockchain (opentimestamps.org)"><i class="fa-solid fa-download"></i> Conferência</button>`:''}
           ${t.carimboOts?`<button class="btn btn-sm btn-outline" onclick="baixarOtsTermo('${t.id}')" style="font-size:11px" title="Baixar a prova de carimbo (.ots), verificável em opentimestamps.org"><i class="fa-solid fa-link"></i> Baixar .ots</button>`:''}
         </div>
       </div>
@@ -2733,6 +2771,7 @@ function _lgpdTermosTabela(){
     <td style="padding:6px 8px;border:1px solid var(--border);font-size:11px;white-space:nowrap">${t.status==='assinado'&&t.assinadoEm?new Date(t.assinadoEm).toLocaleString('pt-BR'):(t.enviadoEm?'env. '+new Date(t.enviadoEm).toLocaleDateString('pt-BR'):'—')}</td>
     <td style="padding:6px 8px;border:1px solid var(--border);text-align:center;white-space:nowrap">
       <button class="btn-icon btn-outline" onclick="event.stopPropagation();verTermoLgpd('${t.id}')" title="Ver termo + hash"><i class="fa-solid fa-eye"></i></button>
+      ${t.status==='assinado'?`<button class="btn-icon btn-outline" onclick="event.stopPropagation();baixarTermoConferencia('${t.id}')" title="Baixar arquivo p/ conferência no blockchain (opentimestamps.org)"><i class="fa-solid fa-download"></i></button>`:''}
       ${t.carimboOts?`<button class="btn-icon btn-outline" onclick="event.stopPropagation();baixarOtsTermo('${t.id}')" title="Baixar .ots (carimbo do tempo)"><i class="fa-solid fa-link"></i></button>`:''}
       <button class="btn-icon btn-danger-icon" onclick="event.stopPropagation();anularTermoLgpd('${t.id}')" title="Anular"><i class="fa-solid fa-ban"></i></button>
     </td>

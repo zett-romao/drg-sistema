@@ -559,6 +559,22 @@ function renderConfiguracoes(){
   renderPainelRecursos();
   renderLinksAcesso();
   renderParametrosLegais();
+  // Regra de adiantamento — prazo mínimo de casa (default 20). #adiant-prazo-admissao
+  { const _v=State.empresa?.adiantamentoMinDiasAdmissao; setVal('cfg-adiant-min-dias', (_v==null?20:_v)); }
+}
+// Salva a regra "prazo mínimo de casa p/ adiantamento" em configuracoes/empresa. Vale para
+// novos lançamentos a partir daqui (não mexe no que já foi lançado/pago). #adiant-prazo-admissao
+async function salvarRegrasAdiantamento(){
+  let dias=parseInt(val('cfg-adiant-min-dias'));
+  if(isNaN(dias)||dias<0) dias=0;
+  State.empresa = State.empresa||{};
+  State.empresa.adiantamentoMinDiasAdmissao = dias;
+  try{
+    await DB.saveDoc('configuracoes','empresa',{adiantamentoMinDiasAdmissao:dias},true);
+    try{ Auth.log('REGRA_ADIANT_SAVE', null, `Prazo mínimo de casa p/ adiantamento: ${dias} dia(s)`); }catch(_){}
+    try{ if(State.currentSection==='adiantamentos') renderAdiantamentos(); }catch(_){}
+    toast(dias>0?`Regra salva: mínimo de ${dias} dia(s) de casa para receber adiantamento.`:'Regra salva: sem prazo mínimo para adiantamento.','success');
+  }catch(e){ toast('Erro ao salvar a regra: '+(e.message||e),'error'); }
 }
 
 // ===== Parâmetros Legais (Configurações) — preenche os campos com os valores atuais
@@ -7882,6 +7898,8 @@ function openEmployeeModal(id=null){
     if(bonifChk) bonifChk.checked=!!(emp.bonificacaoSemprePagar);
     const adiantChk=document.getElementById('emp-recebe-adiantamento');
     if(adiantChk) adiantChk.checked=!!(emp.recebeAdiantamento);
+    const adiantIsentoChk=document.getElementById('emp-adiant-isento-prazo');
+    if(adiantIsentoChk) adiantIsentoChk.checked=!!(emp.adiantamentoIsentoPrazo);   // #adiant-prazo-admissao
     const chk=document.getElementById('emp-turno-noturno'); if(chk) chk.checked=!!(emp.turnoNoturno);
     setVal('emp-ciclo-12x36-inicio', emp.ciclo12x36Inicio||'');
     setVal('emp-alternada-folga',    emp.alternadaPrimeiraFolga||'dom');
@@ -7964,6 +7982,7 @@ function openEmployeeModal(id=null){
     const acumChk=document.getElementById('emp-acumulo-funcao'); if(acumChk) acumChk.checked=false;
     const bonifChk=document.getElementById('emp-bonificacao-sempre-pagar'); if(bonifChk) bonifChk.checked=false;
     const adiantChk=document.getElementById('emp-recebe-adiantamento'); if(adiantChk) adiantChk.checked=false;
+    const adiantIsentoChk=document.getElementById('emp-adiant-isento-prazo'); if(adiantIsentoChk) adiantIsentoChk.checked=false;   // #adiant-prazo-admissao
     const semRefChk=document.getElementById('emp-sem-refeicao'); if(semRefChk){ semRefChk.checked=false; onSemRefeicaoChange(); }
     const isentoChk=document.getElementById('emp-isento-ponto'); if(isentoChk){ isentoChk.checked=false; onIsentoPontoChange(); }
     // Encargos & IRRF — limpar para novo colaborador
@@ -8315,6 +8334,7 @@ async function saveEmployee(){
     acumuloFuncao:!!(document.getElementById('emp-acumulo-funcao')?.checked),
     bonificacaoSemprePagar:!!(document.getElementById('emp-bonificacao-sempre-pagar')?.checked),
     recebeAdiantamento:!!(document.getElementById('emp-recebe-adiantamento')?.checked),
+    adiantamentoIsentoPrazo:!!(document.getElementById('emp-adiant-isento-prazo')?.checked),   // isenta do prazo mínimo de casa. #adiant-prazo-admissao
     // Encargos & IRRF
     dependentesIRRF:parseInt(val('emp-dependentes-irrf')||0),
     pensaoAlimenticia:numVal('emp-pensao-alimenticia')||0,
@@ -8677,8 +8697,9 @@ function onPayrollEmployeeChange(){
       // Sem registro salvo: zera os campos específicos da folha (mas não os de cadastro)
       _resetPayrollFieldsOnly();
       // Defaults vindos do cadastro para uma folha NOVA: se o colaborador está
-      // marcado como "Recebe adiantamento quinzenal", já entra com Sim.
-      if(emp.recebeAdiantamento) setVal('payroll-adiantamento-ativo','sim');
+      // marcado como "Recebe adiantamento quinzenal", já entra com Sim — DESDE QUE
+      // cumpra o prazo mínimo de casa (ou seja isento). #adiant-prazo-admissao
+      if(emp.recebeAdiantamento && _adiantElegivelPrazo(emp, {mes:parseInt(val('payroll-mes'))||currentMes(), ano:parseInt(val('payroll-ano'))||currentAno()})) setVal('payroll-adiantamento-ativo','sim');
     }
     setVal('payroll-vt-dia',emp.valorDiarioVt||'');
     setVal('payroll-vr-dia',emp.valorDiarioVr||'');
@@ -13230,7 +13251,9 @@ function loadPayrollRecord(id){
   // Sem isso, dava prejuízo na empresa: pagava o salário cheio sem descontar o
   // adiantamento já pago no meio do mês.
   const _adEmp = State.employees.find(e=>e.id===p.employeeId);
-  const _adOptante = !!(_adEmp && _adEmp.recebeAdiantamento);
+  // Optante só força "Sim" se cumpre o prazo mínimo de casa (ou é isento). Folha já com
+  // adiantamento ATIVO salvo permanece (não é desfeita). #adiant-prazo-admissao
+  const _adOptante = !!(_adEmp && _adEmp.recebeAdiantamento) && _adiantElegivelPrazo(_adEmp, p);
   const _adPerc = p.adiantamentoPerc || 40;
   setVal('payroll-adiantamento-ativo', (_adOptante || p.adiantamentoAtivo) ? 'sim' : 'nao');
   setVal('payroll-adiantamento-perc', _adPerc);
@@ -13332,6 +13355,19 @@ async function savePayroll(){
   // vtDia*dias com dias crus e gravava/imprimia A MAIOR (divergente da tela). #fix-vtvr-save
   const valeTransporteTotal = numVal('payroll-vt-total');
   const valeRefeicaoTotal   = numVal('payroll-vr-total');
+  // REGRA DURA — prazo mínimo de casa p/ adiantamento (Configurações). Se o operador tentou
+  // lançar adiantamento p/ quem não cumpriu o prazo (e não é isento no contrato), força "Não"
+  // e avisa — não deixa lançar. #adiant-prazo-admissao
+  let _adiantAtivoSave = val('payroll-adiantamento-ativo')==='sim';
+  if(_adiantAtivoSave){
+    const _empAd=State.employees.find(e=>e.id===empId);
+    if(!_adiantElegivelPrazo(_empAd, {mes:parseInt(mes), ano:parseInt(ano)})){
+      _adiantAtivoSave=false;
+      setVal('payroll-adiantamento-ativo','nao'); setVal('payroll-adiantamento-valor','');
+      const _min=parseInt(State.empresa?.adiantamentoMinDiasAdmissao)||0;
+      toast(`Adiantamento NÃO lançado: ${_empAd?.nome||'o colaborador'} ainda não tem ${_min} dias de casa (regra em Configurações). Para liberar, marque "Isentar do prazo mínimo de adiantamento" no contrato dele.`,'warning');
+    }
+  }
   const record={
     id:existing?existing.id:_payrollId(empId,mes,ano), employeeId:empId,
     mes:parseInt(mes), ano:parseInt(ano),
@@ -13358,9 +13394,9 @@ async function savePayroll(){
     // Atrasos — detalhe na coleção `atrasos`; aqui ficam só os totais.
     minutosAtraso:isentoPontoSave?0:(numVal('payroll-atraso-min')||0),
     descontoAtraso:isentoPontoSave?0:(numVal('payroll-desconto-atraso')||0),
-    adiantamentoAtivo:val('payroll-adiantamento-ativo')==='sim',
+    adiantamentoAtivo:_adiantAtivoSave,
     adiantamentoPerc:parseInt(val('payroll-adiantamento-perc')||'40'),
-    adiantamentoValor:val('payroll-adiantamento-ativo')==='sim'?numVal('payroll-adiantamento-valor'):0,
+    adiantamentoValor:_adiantAtivoSave?numVal('payroll-adiantamento-valor'):0,
     // Jornada & Horas Extras
     horarioEntrada:val('payroll-entrada')||'',
     horarioSaida:val('payroll-saida')||'',
@@ -15958,9 +15994,28 @@ function _adiantMesAno(){
 // Adiantamento ATIVO numa folha: a folha já marcada OU o colaborador é OPTANTE
 // (recebeAdiantamento no cadastro) e está ativo — assim o optante aparece TODO mês,
 // mesmo que a folha tenha sido salva antes de marcar. #adiant-optante
+// Prazo mínimo de casa p/ adiantamento (Config: empresa.adiantamentoMinDiasAdmissao). Conta
+// da DATA DE ADMISSÃO até o adiantamento da competência (dia-limite do mês). Quem não cumpriu
+// — e NÃO está ISENTO no contrato (emp.adiantamentoIsentoPrazo) — não é elegível. Sem regra
+// (0/ausente), sem admissão cadastrada ou data inválida → não barra. #adiant-prazo-admissao
+function _adiantElegivelPrazo(emp, p){
+  const min = parseInt(State.empresa?.adiantamentoMinDiasAdmissao);
+  if(!(min>0)) return true;                       // sem regra configurada
+  if(!emp) return true;
+  if(emp.adiantamentoIsentoPrazo) return true;    // válvula individual (checkbox no contrato)
+  if(!emp.dataAdmissao) return true;              // sem admissão → não barra (evita bloqueio indevido)
+  const adm = new Date((emp.dataAdmissao+'').slice(0,10)+'T00:00:00');
+  if(isNaN(adm.getTime())) return true;
+  const diaLimite = Math.min(28, Math.max(1, parseInt(State.empresa?.diaLimiteAdiantamento)||15));
+  const ref = (p && p.mes && p.ano) ? new Date(p.ano, p.mes-1, diaLimite) : new Date();
+  const dias = Math.floor((ref - adm)/86400000);
+  return dias >= min;
+}
 function _adiantAtivoDe(emp, p){
+  // Folha já marcada explicitamente continua valendo (regra "só novos lançamentos" — não
+  // desfaz o que foi lançado quando o prazo muda). Optante só entra se cumpriu o prazo. #adiant-prazo-admissao
   if(p && p.adiantamentoAtivo) return true;
-  return !!(emp && emp.recebeAdiantamento && (emp.status||'ativo')==='ativo');
+  return !!(emp && emp.recebeAdiantamento && (emp.status||'ativo')==='ativo' && _adiantElegivelPrazo(emp, p));
 }
 // Valor do adiantamento: o salvo na folha; senão, p/ optante, deriva do salário (% padrão 40).
 function _adiantValorDe(emp, p){

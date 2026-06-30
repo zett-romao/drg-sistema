@@ -2739,6 +2739,25 @@
         </div>
         <div class="card" style="max-width:680px;margin-bottom:18px">
           <div class="card-header">
+            <h3><i class="fa-solid fa-hand-holding-dollar" style="color:#00695C"></i> Regras de Adiantamento</h3>
+          </div>
+          <div class="card-body">
+            <p style="font-size:12px;color:#666;margin-bottom:14px"><i class="fa-solid fa-circle-info"></i> Prazo mínimo de casa para o colaborador poder receber adiantamento, contado a partir da <strong>data de admissão</strong>. Abaixo do prazo ele <strong>não pode ser lançado</strong> para receber (regra dura). Para liberar um colaborador específico antes do prazo, marque <strong>"Isentar do prazo mínimo de adiantamento"</strong> no contrato dele (cadastro).</p>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Mínimo de dias desde a admissão p/ receber adiantamento</label>
+                <input type="number" id="cfg-adiant-min-dias" min="0" step="1" placeholder="20">
+                <span style="font-size:11px;color:var(--text-muted)">0 = sem restrição. Padrão: 20. Vale para novos lançamentos a partir da edição.</span>
+              </div>
+              <div class="form-group"></div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+              <button class="btn btn-primary" onclick="salvarRegrasAdiantamento()"><i class="fa-solid fa-floppy-disk"></i> Salvar regra</button>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="max-width:680px;margin-bottom:18px">
+          <div class="card-header">
             <h3><i class="fa-solid fa-table-list" style="color:#5C6BC0"></i> Parâmetros Legais — Tabelas Oficiais</h3>
           </div>
           <div class="card-body">
@@ -3784,6 +3803,17 @@
                 <i class="fa-solid fa-coins" style="color:#00695C"></i> Recebe adiantamento quinzenal
               </label>
               <span style="font-size:11px;color:var(--text-muted);margin-left:6px">(deixa a folha do mês já marcada como "Aderiu ao adiantamento — Sim")</span>
+            </div>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group form-group-2">
+            <div class="checkbox-group" style="padding:0 0 9px 0">
+              <input type="checkbox" id="emp-adiant-isento-prazo">
+              <label for="emp-adiant-isento-prazo" style="font-size:14px;font-weight:600;color:var(--text);cursor:pointer">
+                <i class="fa-solid fa-unlock" style="color:#E65100"></i> Isentar do prazo mínimo de adiantamento
+              </label>
+              <span style="font-size:11px;color:var(--text-muted);margin-left:6px">(libera o adiantamento mesmo antes de completar os dias de casa exigidos em Configurações)</span>
             </div>
           </div>
         </div>
@@ -7426,6 +7456,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260630b-anti-dup-folha"></script>
+  <script src="app.js?v=20260630c-prazo-adiantamento"></script>
 </body>
 </html>

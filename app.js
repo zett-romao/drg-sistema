@@ -2584,7 +2584,8 @@ function _lgpdImprimirPolitica(){
 // ===== Termo de Ciência e Consentimento (LGPD) — enviado ao app, assinado por PIN/hash. #lgpd-termo =====
 function _termoLgpdConteudoHtml(emp){
   const empNome=_e('nomeEmpresa')||'a Empresa';
-  return `<p>Eu, <strong>${emp.nome||'—'}</strong>, CPF <strong>${emp.cpf||'—'}</strong>, na qualidade de colaborador(a) de <strong>${empNome}</strong>, DECLARO que:</p>
+  const empCnpj=(typeof _e==='function'?_e('cnpj'):'')||'';
+  return `<p>Eu, <strong>${emp.nome||'—'}</strong>, CPF <strong>${emp.cpf||'—'}</strong>, na qualidade de colaborador(a) de <strong>${empNome}</strong>${empCnpj?`, inscrita no CNPJ <strong>${empCnpj}</strong>`:''}, DECLARO que:</p>
   <ol style="margin:6px 0 0 18px;line-height:1.6">
     <li>Tomei <strong>ciência da Política de Privacidade e Proteção de Dados</strong> da empresa e da forma como meus dados pessoais são tratados para fins de gestão do contrato de trabalho, folha de pagamento, benefícios e cumprimento de obrigações legais (CLT, eSocial, fiscais).</li>
     <li>Estou <strong>ciente do monitoramento por câmeras de segurança (CFTV)</strong>, com captação de <strong>imagem e, onde sinalizado, áudio</strong>, nas <strong>portarias e áreas comuns</strong> dos condomínios onde presto serviço, com finalidade de <strong>segurança</strong> das pessoas e do patrimônio, podendo as imagens/áudios ser utilizados para <strong>apuração de incidentes e de faltas disciplinares cometidas durante o expediente</strong>.</li>
@@ -7618,9 +7619,10 @@ async function removeFerias(feriasId){
 // Conteúdo do termo de férias (aviso + recibo). O hash é calculado sobre este HTML. #ferias-sign
 function _feriasTermoConteudoHtml(emp,f){
   const empNome=(typeof _e==='function'?_e('nomeEmpresa'):'')||'a Empresa';
+  const empCnpj=(typeof _e==='function'?_e('cnpj'):'')||'';
   const per=`${formatDateBr(f.inicio)} a ${formatDateBr(f.fim)}`;
   const tipoTxt={'Férias':'Férias Regulares','Abono':'Abono Pecuniário (10 dias)','Coletivas':'Férias Coletivas'}[f.tipo]||(f.tipo||'Férias');
-  return `<p>Eu, <strong>${emp.nome||'—'}</strong>, CPF <strong>${emp.cpf||'—'}</strong>, colaborador(a) de <strong>${empNome}</strong>, DECLARO estar <strong>ciente e de acordo</strong> com o período de férias abaixo:</p>
+  return `<p>Eu, <strong>${emp.nome||'—'}</strong>, CPF <strong>${emp.cpf||'—'}</strong>, colaborador(a) de <strong>${empNome}</strong>${empCnpj?`, inscrita no CNPJ <strong>${empCnpj}</strong>`:''}, DECLARO estar <strong>ciente e de acordo</strong> com o período de férias abaixo:</p>
   <table style="width:100%;border-collapse:collapse;margin:10px 0;font-size:13px">
     <tr><td style="padding:5px 8px;border:1px solid #ddd;background:#f7f7f7;width:45%"><strong>Período de gozo</strong></td><td style="padding:5px 8px;border:1px solid #ddd">${per}</td></tr>
     <tr><td style="padding:5px 8px;border:1px solid #ddd;background:#f7f7f7"><strong>Total de dias</strong></td><td style="padding:5px 8px;border:1px solid #ddd">${f.dias} dias corridos</td></tr>

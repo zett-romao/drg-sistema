@@ -104,9 +104,27 @@ service cloud.firestore {
                        && resource.data.colaboradorId == request.auth.token.empId
                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['assinatura']));
     }
+    // termos LGPD: colaborador LÊ e ASSINA (só status/assinadoEm/assinatura) os
+    // PRÓPRIOS; staff total. #lgpd-termo
+    match /termosLgpd/{id} {
+      allow read:   if rStaff() || (rColab() && resource.data.employeeId == request.auth.token.empId);
+      allow create, delete: if rStaff();
+      allow update: if rStaff() || (rColab()
+                       && resource.data.employeeId == request.auth.token.empId
+                       && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','assinadoEm','assinatura']));
+    }
     // termos de FÉRIAS: colaborador LÊ e ASSINA (só status/assinadoEm/assinatura) os
     // PRÓPRIOS; staff total. Espelha termosLgpd/estoqueMov. #ferias-sign
     match /termosFerias/{id} {
+      allow read:   if rStaff() || (rColab() && resource.data.employeeId == request.auth.token.empId);
+      allow create, delete: if rStaff();
+      allow update: if rStaff() || (rColab()
+                       && resource.data.employeeId == request.auth.token.empId
+                       && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','assinadoEm','assinatura']));
+    }
+    // recibos de BENEFÍCIO: colaborador LÊ e ASSINA (só status/assinadoEm/assinatura) os
+    // PRÓPRIOS; staff total. #benef-recibo
+    match /beneficioRecibos/{id} {
       allow read:   if rStaff() || (rColab() && resource.data.employeeId == request.auth.token.empId);
       allow create, delete: if rStaff();
       allow update: if rStaff() || (rColab()
@@ -197,7 +215,21 @@ service cloud.firestore {
                          && resource.data.colaboradorId == request.auth.token.empId
                          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['assinatura'])));
       }
+      match /termosLgpd/{id} {   // #lgpd-termo
+        allow read:   if meuTenant(t) && (isStaff() || (isColab() && resource.data.employeeId == request.auth.token.empId));
+        allow create, delete: if meuTenant(t) && isStaff();
+        allow update: if meuTenant(t) && (isStaff() || (isColab()
+                         && resource.data.employeeId == request.auth.token.empId
+                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','assinadoEm','assinatura'])));
+      }
       match /termosFerias/{id} {   // #ferias-sign
+        allow read:   if meuTenant(t) && (isStaff() || (isColab() && resource.data.employeeId == request.auth.token.empId));
+        allow create, delete: if meuTenant(t) && isStaff();
+        allow update: if meuTenant(t) && (isStaff() || (isColab()
+                         && resource.data.employeeId == request.auth.token.empId
+                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','assinadoEm','assinatura'])));
+      }
+      match /beneficioRecibos/{id} {   // #benef-recibo
         allow read:   if meuTenant(t) && (isStaff() || (isColab() && resource.data.employeeId == request.auth.token.empId));
         allow create, delete: if meuTenant(t) && isStaff();
         allow update: if meuTenant(t) && (isStaff() || (isColab()

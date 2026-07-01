@@ -31620,6 +31620,9 @@ async function _carregarDadosPosLogin(){
     _resetPrimTrab12x36Cache();   // ponto mudou → recalcula a âncora 12x36 (1º dia batido)
     if(State.currentSection==='payroll') renderPayrollHistory(val('payroll-employee'));
     if(State.currentSection==='dashboard') renderDashboard();
+    // Batida do app sincronizou → Monitor de Faltas atualiza AO VIVO (senão fica mostrando
+    // "falta" até o tick de 5min/Atualizar, e o operador lança manual à toa). #monitor-faltas-sync
+    if(State.currentSection==='monitorfaltas' && typeof renderMonitorFaltas==='function') renderMonitorFaltas();
     if(State.currentSection==='recibos') renderRecibosEnviados(); // assinatura no app reflete na tela Recibos
     if(document.getElementById('modal-folhas-fechadas')) renderFolhasFechadasLista(); // status na lista de folhas fechadas
     updateDbInfo();

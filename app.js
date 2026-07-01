@@ -3385,6 +3385,20 @@ function renderDashboard(){
         onclick:"openFaltasList()", title:'Colaboradores com faltas injustificadas no mês — clique para ver os nomes e abrir a folha de cada um'})});
     }
   }
+  // Férias — PAGAMENTO a vencer (CLT Art. 145: até 2 dias antes do início). #ferias-pagamento
+  {
+    const _ferPag=_getFeriasPagamentoPend();
+    if(_ferPag.length>0){
+      const _venc=_ferPag.filter(x=>x.vencido).length;
+      catalogo.push({key:'feriasPagar', html:_statCard({label:'Férias a pagar', value:_ferPag.length, icon:'fa-umbrella-beach',
+        accent:'#00695C', iconBg:'#E0F2F1', iconColor:'#00695C', valueColor:_venc>0?'#c62828':'#00695C',
+        sub:_venc>0
+          ? `<i class="fa-solid fa-triangle-exclamation"></i> ${_venc} com prazo VENCIDO — pague já (atraso = em dobro)`
+          : 'pagar até 2 dias antes do início — clique p/ ver',
+        subColor:_venc>0?'#c62828':'#00695C',
+        onclick:"openFeriasPagamentoList()", title:'Férias com pagamento a vencer — remuneração + 1/3 deve ser paga até 2 dias antes do início (CLT Art. 145)'})});
+    }
+  }
   {
     const pendAprov=(State.solicitacoes||[]).filter(s=>s.status==='pendente');
     const md=getUserModules(Auth.currentUser);
@@ -7349,10 +7363,22 @@ function renderFeriasList(ferias){
     el.innerHTML='<div class="empty-state small"><i class="fa-solid fa-umbrella-beach"></i><p>Nenhum período registrado</p></div>';
     return;
   }
+  const _empId = State.editingEmployeeId || val('emp-id');
   const sorted=[...ferias].sort((a,b)=>b.inicio.localeCompare(a.inicio));
   el.innerHTML=sorted.map(f=>{
     const t=_feriasTermoDe(f.id);
     let status, acoes='';
+    // Status de PAGAMENTO — prazo CLT Art. 145: até 2 dias antes do início. #ferias-pagamento
+    const _prazo=_feriasPrazoPagamento(f.inicio);
+    const _hoje=new Date(); _hoje.setHours(0,0,0,0);
+    let pag='';
+    if(f.pago){
+      pag=`<span style="background:#E0F2F1;color:#00695C;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">💰 Pago${f.pagoEm?' em '+formatDateBr(String(f.pagoEm).slice(0,10)):''}</span>`;
+    }else{
+      const _venc = _prazo && _prazo < _hoje;
+      pag=`<span style="background:${_venc?'#FFEBEE':'#FFF8E1'};color:${_venc?'#c62828':'#E65100'};padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700" title="Remuneração de férias + 1/3 deve ser paga até 2 dias antes do início (CLT Art. 145)">💰 ${_venc?'PAGAMENTO VENCIDO — pagar até':'Pagar até'} ${_prazo?formatDateBr(_prazo.toISOString().slice(0,10)):'—'}</span>
+        <button class="btn btn-sm btn-outline" onclick="marcarFeriasPago('${_empId}','${f.id}')" style="font-size:11px" title="Registrar que a remuneração de férias (+1/3) foi paga"><i class="fa-solid fa-money-bill-wave"></i> Marcar pago</button>`;
+    }
     if(!t){
       status='<span class="badge badge-muted" title="Registro antigo, sem termo de ciência">sem termo</span>';
     }else if(t.status==='assinado'){
@@ -7370,6 +7396,7 @@ function renderFeriasList(ferias){
       <div class="ferias-info">
         <div class="ferias-periodo">${formatDateBr(f.inicio)} → ${formatDateBr(f.fim)} <span class="badge badge-muted">${f.dias} dias</span> ${status}</div>
         <div class="ferias-sub">${f.tipo||'Férias'}${f.obs?' · '+f.obs:''}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px">${pag}</div>
         ${acoes?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${acoes}</div>`:''}
       </div>
       <button class="btn-icon btn-danger-icon" onclick="removeFerias('${f.id}')" title="Excluir"><i class="fa-solid fa-trash"></i></button>
@@ -7535,6 +7562,100 @@ async function baixarFeriasConferencia(id){
       ? 'Arquivo baixado (atenção: o hash não confere localmente).'
       : 'Arquivo de conferência baixado. Em opentimestamps.org (Verify), suba ESTE arquivo + o .ots para validar a data na rede Bitcoin.','success');
   }catch(e){ toast('Erro ao baixar o arquivo de conferência.','error'); }
+}
+
+// ===== FÉRIAS — aviso automático de PAGAMENTO (CLT Art. 145: até 2 dias antes do início) =====
+// Súmula 450 TST: pagamento em atraso é devido EM DOBRO — por isso o alerta. #ferias-pagamento
+function _feriasPrazoPagamento(inicioYmd){
+  if(!inicioYmd) return null;
+  const ini=new Date(String(inicioYmd).slice(0,10)+'T00:00:00'); if(isNaN(ini.getTime())) return null;
+  const p=new Date(ini); p.setDate(p.getDate()-2); p.setHours(0,0,0,0); return p;
+}
+// Colaboradores com férias cujo pagamento está a vencer (ou vencido) e ainda NÃO pago.
+// Janela de aviso: começa 10 dias antes do prazo; mantém enquanto as férias não terminam.
+function _getFeriasPagamentoPend(){
+  const hoje=new Date(); hoje.setHours(0,0,0,0);
+  const ALERTA_DIAS=10;
+  const out=[];
+  (State.employees||[]).forEach(emp=>{
+    if(!emp || (emp.status||'ativo')!=='ativo') return;   // só ativos
+    if(typeof _empNoEscopo==='function' && !_empNoEscopo(emp)) return;   // escopo do supervisor
+    (emp.ferias||[]).forEach(f=>{
+      if(!f || !f.inicio || f.pago) return;
+      const ini=new Date(String(f.inicio).slice(0,10)+'T00:00:00'); if(isNaN(ini.getTime())) return;
+      const fim=f.fim?new Date(String(f.fim).slice(0,10)+'T00:00:00'):ini;
+      if(hoje>fim) return;   // férias já terminaram — sai do alerta (vira caso de correção manual)
+      const prazo=_feriasPrazoPagamento(f.inicio);
+      const diasAtePrazo=Math.round((prazo-hoje)/86400000);
+      if(diasAtePrazo>ALERTA_DIAS) return;   // ainda longe do prazo — não alerta
+      out.push({ emp, ferias:f, inicio:ini, fim, prazo, diasAtePrazo, vencido: diasAtePrazo<0 });
+    });
+  });
+  out.sort((a,b)=> a.prazo-b.prazo || (a.emp.nome||'').localeCompare(b.emp.nome||''));
+  return out;
+}
+function fecharFeriasPagar(){ const m=document.getElementById('modal-ferias-pagar'); if(m) m.remove(); }
+function openFeriasPagamentoList(){
+  const lista=_getFeriasPagamentoPend();
+  const _venc=lista.filter(x=>x.vencido).length;
+  const rows = lista.length ? lista.map((l,idx)=>{
+    const bg=idx%2?'#FAFBFC':'#fff';
+    const matr=l.emp.registro?String(l.emp.registro).padStart(4,'0'):'—';
+    const prazoTxt=formatDateBr(l.prazo.toISOString().slice(0,10));
+    const st = l.vencido
+      ? `<span style="color:#c62828;font-weight:700">VENCIDO há ${Math.abs(l.diasAtePrazo)} dia(s)</span>`
+      : (l.diasAtePrazo===0 ? `<span style="color:#c62828;font-weight:700">vence HOJE</span>`
+         : `<span style="color:#E65100;font-weight:700">faltam ${l.diasAtePrazo} dia(s)</span>`);
+    return `<tr style="background:${bg}">
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF2F7"><small style="color:var(--text-muted);font-weight:700">${matr}</small><br><strong style="color:var(--primary)">${l.emp.nome}</strong></td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF2F7;font-size:12px">${l.emp.posto||'—'}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF2F7;font-size:12px;white-space:nowrap">${formatDateBr(l.inicio.toISOString().slice(0,10))} → ${formatDateBr(l.fim.toISOString().slice(0,10))}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF2F7;text-align:center;white-space:nowrap"><strong>${prazoTxt}</strong><br>${st}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF2F7;text-align:center"><button class="btn btn-sm btn-primary" onclick="marcarFeriasPago('${l.emp.id}','${l.ferias.id}')" style="font-size:11px;white-space:nowrap"><i class="fa-solid fa-money-bill-wave"></i> Marcar pago</button></td>
+    </tr>`;
+  }).join('') : '';
+  const body = lista.length
+    ? `<table style="width:100%;border-collapse:collapse;font-size:13px"><thead style="background:#F5F7FB;position:sticky;top:0"><tr>
+        <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border)">Colaborador</th>
+        <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border)">Posto</th>
+        <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border)">Período das férias</th>
+        <th style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border)">Pagar até</th>
+        <th style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border)">Ação</th>
+      </tr></thead><tbody>${rows}</tbody></table>`
+    : '<div class="empty-state"><i class="fa-solid fa-circle-check" style="color:#1B5E20"></i><p>Nenhum pagamento de férias a vencer.</p></div>';
+  fecharFeriasPagar();
+  const html=`<div id="modal-ferias-pagar" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9998;display:flex;align-items:center;justify-content:center;padding:16px" onclick="if(event.target===this)fecharFeriasPagar()">
+    <div style="background:#fff;border-radius:14px;max-width:760px;width:100%;max-height:88vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="background:#00695C;color:#fff;padding:14px 16px;font-weight:700;font-size:15px;display:flex;justify-content:space-between;align-items:center">
+        <span>🏖️ Férias — pagamento a vencer</span>
+        <button onclick="fecharFeriasPagar()" style="background:none;border:none;color:#fff;font-size:20px;cursor:pointer;line-height:1">&times;</button>
+      </div>
+      <div style="padding:12px 16px;font-size:13px;color:#444;border-bottom:1px solid #eee">
+        <strong>${lista.length}</strong> pagamento(s) a vencer${_venc>0?` &middot; <strong style="color:#c62828">${_venc} VENCIDO(s)</strong>`:''}.
+        O pagamento das férias (remuneração + 1/3) deve ser feito <strong>até 2 dias antes do início</strong> (CLT Art. 145). Atraso = pagamento <strong>em dobro</strong> (Súmula 450 TST).
+      </div>
+      <div style="overflow:auto;padding:6px 10px 12px">${body}</div>
+    </div></div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+async function marcarFeriasPago(empId, feriasId){
+  const emp=State.employees.find(e=>e.id===empId); if(!emp){ toast('Colaborador não encontrado.','error'); return; }
+  const f=(emp.ferias||[]).find(x=>x.id===feriasId); if(!f) return;
+  if(!confirm(`Confirmar que o pagamento das FÉRIAS de ${emp.nome} (remuneração + 1/3) foi realizado?\n\nPeríodo: ${formatDateBr(f.inicio)} → ${formatDateBr(f.fim)}`)) return;
+  const ferias=(emp.ferias||[]).map(x=>x.id===feriasId?{...x, pago:true, pagoEm:new Date().toISOString(), pagoPor:(Auth.currentUser&&Auth.currentUser.username)||'—'}:x);
+  try{
+    await DB.save('employees',{...emp, ferias, updatedAt:new Date().toISOString()});
+    State.employees=State.employees.map(e=>e.id===empId?{...e, ferias}:e);
+    if(Auth.currentUser) Auth.log('FERIAS_PAGAMENTO_MARCADO',Auth.currentUser.username,`${emp.nome} · ${formatDateBr(f.inicio)}`);
+    toast('Pagamento de férias marcado como pago.');
+    if(document.getElementById('modal-ferias-pagar')) openFeriasPagamentoList();   // atualiza a lista
+    if(State.currentSection==='dashboard' && typeof renderDashboard==='function') renderDashboard();
+    const fichaModal=document.getElementById('modal-employee');
+    if(fichaModal && !fichaModal.classList.contains('hidden')){
+      const aba=document.getElementById('tab-ferias');
+      if(aba && aba.classList.contains('active') && (State.editingEmployeeId||val('emp-id'))===empId) renderFeriasList(ferias);
+    }
+  }catch(e){ console.error('marcar férias pago',e); toast('Erro ao marcar como pago.','error'); }
 }
 
 // ============================================

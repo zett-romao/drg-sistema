@@ -369,6 +369,9 @@
           <button onclick="abrirDireitosLgpd()" style="background:none;border:1px solid #cbd5e1;color:#475569;padding:7px 16px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer">
             🔒 Meus direitos (LGPD)
           </button>
+          <button onclick="abrirMeusDocumentos()" style="background:none;border:1px solid #cbd5e1;color:#475569;padding:7px 16px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer">
+            📄 Meus documentos
+          </button>
         </div>
 
         <!-- Refeição não rendida: dia em que trabalhou SEM fazer intervalo (vai p/ aprovação do supervisor) -->
@@ -553,7 +556,7 @@ try{ window.__APP_BOOTED = true; }catch(_){}
 // ─── VERSÃO DO APP DO COLABORADOR ─────────────────────────────────────────────
 // Bumpe SEMPRE em conjunto com o CACHE do ponto-sw.js e o ?v= do firebase-config.
 // Formato: AA.MM.DD + letra (a, b, c...) — alinhado com o nome do cache.
-const PONTO_VERSION = '26.07.01b';
+const PONTO_VERSION = '26.07.01c';
 // Exibe a versão no rodapé (script roda após o DOM, então o elemento já existe)
 (function _setVersionTag(){
   const t = document.getElementById('app-version-tag');
@@ -2860,6 +2863,74 @@ function abrirTermoFerias(id){
   document.body.insertAdjacentHTML('beforeend', html);
 }
 function fecharTermoFerias(){ const m=document.getElementById('modal-termo-ferias'); if(m) m.remove(); }
+
+// ===== MEUS DOCUMENTOS ASSINADOS — via de TUDO que o colaborador assina (direito LGPD). #meus-documentos =====
+function _carimboBadgePonto(status){
+  if(status==='confirmado') return '<span style="background:#E8F5E9;color:#2E7D32;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">🔗 Blockchain ✓</span>';
+  if(status==='registrado') return '<span style="background:#EDE7F6;color:#5E35B1;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">🔗 Carimbo registrado</span>';
+  return '<span style="background:#FFF3E0;color:#E65100;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">⏳ Carimbo pendente</span>';
+}
+let _meusDocsCache = [];
+function _mkMeuDoc(tipo,label,d,data,titulo,conteudoHtml,ass,pref){
+  const icones={lgpd:'🔒',ferias:'🏖️',folha:'📋',holerite:'💰',beneficio:'🎫',epi:'🦺'};
+  return { tipo, label, id:d.id, data, titulo, conteudoHtml:conteudoHtml||'', ass:ass||{}, icone:icones[tipo]||'📄',
+    carimboStatus:d[pref+'Status']||'', carimboCriadoEm:d[pref+'CriadoEm']||'', carimboConfirmadoEm:d[pref+'ConfirmadoEm']||'' };
+}
+async function abrirMeusDocumentos(){
+  if(!currentEmp){ toast('Recarregue o app e tente de novo.','error'); return; }
+  document.getElementById('modal-meus-docs')?.remove();
+  document.body.insertAdjacentHTML('beforeend', `<div id="modal-meus-docs" style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9998;display:flex;align-items:flex-end;justify-content:center">
+    <div style="background:#fff;width:100%;max-width:520px;max-height:88vh;border-radius:16px 16px 0 0;display:flex;flex-direction:column;overflow:hidden">
+      <div style="background:#2563eb;color:#fff;padding:14px 16px;font-weight:700;font-size:15px;display:flex;justify-content:space-between;align-items:center">📄 Meus documentos assinados
+        <button onclick="document.getElementById('modal-meus-docs').remove()" style="background:none;border:none;color:#fff;font-size:20px;cursor:pointer">✕</button></div>
+      <div id="meus-docs-lista" style="padding:12px;overflow-y:auto;flex:1"><div style="text-align:center;color:#94a3b8;padding:24px">Carregando...</div></div>
+    </div></div>`);
+  try{
+    const eid=currentEmp.id;
+    const q=col=>dbCol(col);
+    const [lgpd,fer,pay,ben,epi]=await Promise.all([
+      q('termosLgpd').where('employeeId','==',eid).get().catch(()=>({docs:[]})),
+      q('termosFerias').where('employeeId','==',eid).get().catch(()=>({docs:[]})),
+      q('payrolls').where('employeeId','==',eid).get().catch(()=>({docs:[]})),
+      q('beneficioRecibos').where('employeeId','==',eid).get().catch(()=>({docs:[]})),
+      q('estoqueMov').where('colaboradorId','==',eid).get().catch(()=>({docs:[]})),
+    ]);
+    const items=[];
+    lgpd.docs.forEach(s=>{ const d={id:s.id,...s.data()}; if(d.status==='assinado'&&d.assinatura) items.push(_mkMeuDoc('lgpd','Termo LGPD',d,d.assinadoEm,d.titulo||'Termo de Ciência e Consentimento (LGPD)',d.conteudoHtml,d.assinatura,'carimbo')); });
+    fer.docs.forEach(s=>{ const d={id:s.id,...s.data()}; if(d.status==='assinado'&&d.assinatura) items.push(_mkMeuDoc('ferias','Termo de Férias',d,d.assinadoEm,d.titulo||'Comunicação e Recibo de Férias',d.conteudoHtml,d.assinatura,'carimbo')); });
+    pay.docs.forEach(s=>{ const d={id:s.id,...s.data()};
+      if(d.assinatura&&d.assinatura.hash) items.push(_mkMeuDoc('folha','Folha de Ponto assinada',d,(d.assinatura.assinadoEm||d.assinadoEm),`Folha de Ponto — ${d.mes}/${d.ano}`,((d.envioConferencia&&d.envioConferencia.reciboHtml)||d.assinatura.conteudoJson||''),d.assinatura,'carimboFol'));
+      if(d.holeriteAssinatura&&d.holeriteAssinatura.hash) items.push(_mkMeuDoc('holerite','Holerite assinado',d,d.holeriteAssinatura.assinadoEm,`Holerite — ${d.mes}/${d.ano}`,((d.holeriteConferencia&&d.holeriteConferencia.reciboHtml)||''),d.holeriteAssinatura,'carimboHol'));
+    });
+    ben.docs.forEach(s=>{ const d={id:s.id,...s.data()}; if((d.status==='assinada'||d.status==='assinado')&&d.assinatura) items.push(_mkMeuDoc('beneficio','Recibo de Benefício',d,d.assinadoEm,d.titulo||'Recibo de Benefício',((d.assinatura.htmlRender)||d.reciboHtml||''),d.assinatura,'carimbo')); });
+    epi.docs.forEach(s=>{ const d={id:s.id,...s.data()}; if(d.assinatura&&d.assinatura.hash) items.push(_mkMeuDoc('epi','Recibo de EPI',d,d.assinatura.em,`Recibo de EPI — ${d.itemNome||''}`,'',d.assinatura,'carimbo')); });
+    items.sort((a,b)=>String(b.data||'').localeCompare(String(a.data||'')));
+    _meusDocsCache=items;
+    const box=document.getElementById('meus-docs-lista'); if(!box) return;
+    box.innerHTML = items.length ? items.map((it,i)=>`<div style="border:1px solid #e2e8f0;border-radius:12px;padding:12px;margin-bottom:10px">
+        <div style="font-weight:700;font-size:14px;color:#1e293b">${it.icone} ${_esc(it.titulo)}</div>
+        <div style="font-size:12px;color:#64748b;margin:2px 0 8px">${it.label}${it.data?' · assinado em '+new Date(it.data).toLocaleString('pt-BR'):''}</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${_carimboBadgePonto(it.carimboStatus)}
+          <button onclick="verMeuDocumento(${i})" style="margin-left:auto;background:#2563eb;color:#fff;border:none;padding:7px 14px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer">📄 Ver / Salvar PDF</button>
+        </div></div>`).join('')
+      : '<div style="text-align:center;color:#94a3b8;padding:24px">Você ainda não tem documentos assinados.</div>';
+  }catch(e){ const box=document.getElementById('meus-docs-lista'); if(box) box.innerHTML='<div style="color:#c62828;padding:16px">Erro ao carregar. Tente de novo.</div>'; console.error('meus docs',e); }
+}
+function verMeuDocumento(i){
+  const it=_meusDocsCache[i]; if(!it) return; const a=it.ass||{};
+  const carimboLinha = it.carimboStatus
+    ? `<br>🔗 Carimbo do tempo (blockchain): <strong>${it.carimboStatus==='confirmado'?'CONFIRMADO no Bitcoin':'registrado'}</strong>${(it.carimboConfirmadoEm||it.carimboCriadoEm)?' em '+new Date(it.carimboConfirmadoEm||it.carimboCriadoEm).toLocaleString('pt-BR'):''}`
+    : '<br>🔗 Carimbo do tempo: <strong>pendente</strong> (o sistema carimba após a assinatura).';
+  const corpo = it.conteudoHtml || `<p style="color:#666">Documento: ${_esc(it.titulo)}.</p>`;
+  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${_esc(it.titulo)} — ${_esc(currentEmp.nome||'')}</title>
+<style>body{font-family:Arial,sans-serif;padding:24px;max-width:780px;margin:0 auto;color:#212529;font-size:13px;line-height:1.6}h1{color:#1a3a6b;font-size:18px}.box{border:1px solid #ccc;border-radius:6px;padding:10px 12px;margin-top:14px;font-size:11px;color:#444;word-break:break-all}.tb{cursor:pointer;border:1px solid #cbd5e1;background:#f8fafc;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;color:#1a3a6b}@media print{.no-print{display:none!important}}</style></head><body>
+<div class="no-print" style="margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid #eee"><button class="tb" onclick="window.print()">🖨 Salvar PDF / Imprimir</button></div>
+${corpo}
+<div class="box"><strong>✔ Assinado eletronicamente por você</strong>${it.data?' em '+new Date(it.data).toLocaleString('pt-BR'):''}<br>${_esc(currentEmp.nome||'')} — CPF ${_esc(currentEmp.cpf||'')}<br>Hash SHA-256: ${a.hash||'—'}${carimboLinha}</div>
+<p style="margin-top:18px;font-size:9px;color:#888">Via do colaborador · gerada em ${new Date().toLocaleString('pt-BR')}.</p></body></html>`;
+  const w=window.open('','_blank'); if(!w){ toast('Permita pop-ups para ver/salvar o documento.','error'); return; }
+  w.document.write(html); w.document.close();
+}
 function assinarTermoFerias(){
   if(!_confCurrentFerias) return;
   _confMode='ferias';

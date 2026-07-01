@@ -14,7 +14,7 @@
 // =====================================================================
 
 export default {
-  async scheduled(event, env, ctx) { ctx.waitUntil(Promise.all([rodar(env), varrerPedidosSegurados(env), carimbarTermos(env), confirmarCarimbos(env)])); },
+  async scheduled(event, env, ctx) { ctx.waitUntil(Promise.all([rodar(env), varrerPedidosSegurados(env), varrerFeriasPagamento(env), carimbarTermos(env), confirmarCarimbos(env)])); },
   // Permite disparo manual p/ teste: GET https://<worker>/?run=1
   async fetch(req, env) {
     const u = new URL(req.url);
@@ -68,6 +68,11 @@ export default {
     if (u.searchParams.get('sweep') === '1') {
       if(!_manualRunAllowed(req, env, u)) return new Response('forbidden', {status:403});
       const r = await varrerPedidosSegurados(env); return new Response(JSON.stringify(r), {headers:{'content-type':'application/json'}});
+    }
+    // Dispara manualmente a varredura de férias a pagar. /?feriaspag=1&secret=<MONITOR_RUN_SECRET>
+    if (u.searchParams.get('feriaspag') === '1') {
+      if(!_manualRunAllowed(req, env, u)) return new Response('forbidden', {status:403});
+      const r = await varrerFeriasPagamento(env); return new Response(JSON.stringify(r), {headers:{'content-type':'application/json'}});
     }
     return new Response('drg-monitor-worker ok', {status:200});
   }
@@ -476,6 +481,94 @@ async function notificarAtraso(req, env){
     mail=await enviarEmailResend(env, emails, assunto, html);
   }
   return { ok:true, posto, minutos, supervisores:alvo.length, pushEnviados, email:mail };
+}
+
+// Varredura (cron): FÉRIAS com PAGAMENTO a vencer/vencido e ainda NÃO pago → avisa os
+// Masters por push + e-mail, no máx. 1x/dia por período (dedup em
+// configuracoes/feriasAvisoPagamento). Base: CLT Art. 145 (pagar até 2 dias antes do
+// início) + Súmula 450 TST (atraso = em dobro). O card no sistema cobre todo mundo;
+// isto é o reforço que alcança mesmo com o sistema fechado. #ferias-pagamento
+async function varrerFeriasPagamento(env){
+  const ALERTA_DIAS=10;
+  // "hoje" no fuso do Brasil (UTC-3), só a data (o Worker roda em UTC).
+  const nowBR=new Date(Date.now()-3*3600*1000);
+  const hoje=new Date(nowBR.getFullYear(), nowBR.getMonth(), nowBR.getDate());
+  const _ymd=(dt)=>`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+  const _fmt=(ymd)=>{ const p=String(ymd).slice(0,10).split('-'); return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:String(ymd); };
+  const _parse=(ymd)=>{ const p=String(ymd||'').slice(0,10).split('-'); if(p.length!==3) return null; const dt=new Date(+p[0],+p[1]-1,+p[2]); return isNaN(dt.getTime())?null:dt; };
+  const todayYmd=_ymd(hoje);
+
+  let emps; try{ emps=await fsListCol(env,'employees'); }catch(e){ return {erro:'list employees '+(e&&e.message||e)}; }
+  const pend=[];
+  for(const e of emps){
+    const emp=e.data||{};
+    if((emp.status||'ativo')!=='ativo') continue;
+    const ferias=Array.isArray(emp.ferias)?emp.ferias:[];
+    for(const f of ferias){
+      if(!f || !f.inicio || f.pago) continue;
+      const ini=_parse(f.inicio); if(!ini) continue;
+      const fim=_parse(f.fim)||ini;
+      if(hoje>fim) continue;                      // férias já terminaram — sai do aviso
+      const prazo=new Date(ini); prazo.setDate(prazo.getDate()-2);
+      const dias=Math.round((prazo-hoje)/86400000);
+      if(dias>ALERTA_DIAS) continue;              // ainda longe do prazo
+      const key=String(f.id||(f.inicio+f.fim)).replace(/[^a-zA-Z0-9]/g,'') || (e.id+_ymd(ini)).replace(/[^a-zA-Z0-9]/g,'');
+      pend.push({ key, nome:emp.nome||'—', posto:emp.posto||'', inicio:f.inicio, fim:f.fim||f.inicio, prazoYmd:_ymd(prazo), dias, vencido:dias<0 });
+    }
+  }
+  if(!pend.length) return { ok:true, pendentes:0 };
+
+  // dedup: 1 aviso por período por dia
+  let marc={}; try{ marc=(await fsGetDoc(env,'configuracoes','feriasAvisoPagamento'))||{}; }catch(_){ marc={}; }
+  const frescos=pend.filter(p=> marc[p.key]!==todayYmd);
+  if(!frescos.length) return { ok:true, pendentes:pend.length, novos:0 };
+
+  // destinatários = Masters (retaguarda; o card no sistema cobre RH/operadores)
+  const users=await fsListCol(env,'users');
+  const masters=users.filter(u=>u.data && u.data.role==='master' && u.data.active!==false)
+                     .map(u=>({ id:u.id, username:u.data.username||'', email:(u.data.email||'').trim() }));
+  const idsMaster=new Set(masters.map(m=>m.id));
+  const keysMaster=new Set(masters.map(m=>m.username).filter(Boolean));
+
+  let pushEnviados=0;
+  try{
+    const cfgs=await fsListCol(env,'configuracoes');
+    const subs=cfgs.filter(c=>(c.id.startsWith('pushsub_')||c.id.startsWith('psup_'))
+      && c.data && c.data.sub && c.data.sub.endpoint
+      && (idsMaster.has(c.data.userId) || keysMaster.has(c.data.userKey)));
+    for(const s of subs){ const st=await enviarPush(env, s.data.sub); if(st===201||st===200) pushEnviados++; }
+  }catch(_){}
+
+  const linhas=frescos.map(p=>{
+    const st=p.vencido?`<span style="color:#c62828;font-weight:700">VENCIDO há ${Math.abs(p.dias)} dia(s)</span>`
+       :(p.dias===0?`<span style="color:#c62828;font-weight:700">vence HOJE</span>`:`<span style="color:#E65100">faltam ${p.dias} dia(s)</span>`);
+    return `<tr><td style="padding:5px 8px;border:1px solid #eee">${p.nome}${p.posto?` <span style="color:#888">· ${p.posto}</span>`:''}</td>
+      <td style="padding:5px 8px;border:1px solid #eee">${_fmt(p.inicio)} → ${_fmt(p.fim)}</td>
+      <td style="padding:5px 8px;border:1px solid #eee;white-space:nowrap"><strong>${_fmt(p.prazoYmd)}</strong></td>
+      <td style="padding:5px 8px;border:1px solid #eee">${st}</td></tr>`;
+  }).join('');
+  const nVenc=frescos.filter(p=>p.vencido).length;
+  const emails=[...new Set(masters.map(m=>m.email).filter(x=>x && x.includes('@')))];
+  const assunto=`DRG-Kronos — ${frescos.length} pagamento(s) de férias a vencer${nVenc?` (${nVenc} VENCIDO)`:''}`;
+  const html=`<div style="font-family:Arial,sans-serif;font-size:14px;color:#222">
+    <h2 style="color:#00695C;margin:0 0 10px">Pagamento de férias a vencer</h2>
+    <p>O pagamento das férias (remuneração + 1/3) deve ser feito <strong>até 2 dias antes do início</strong> (CLT Art. 145). Atraso = pagamento <strong>em dobro</strong> (Súmula 450 TST).</p>
+    <table style="border-collapse:collapse;font-size:13px"><thead><tr>
+      <th style="padding:5px 8px;border:1px solid #eee;text-align:left">Colaborador</th>
+      <th style="padding:5px 8px;border:1px solid #eee;text-align:left">Período</th>
+      <th style="padding:5px 8px;border:1px solid #eee;text-align:left">Pagar até</th>
+      <th style="padding:5px 8px;border:1px solid #eee;text-align:left">Status</th>
+    </tr></thead><tbody>${linhas}</tbody></table>
+    <p style="margin-top:10px">No DRG-Kronos: card <strong>“Férias a pagar”</strong> no painel → <strong>“Marcar pago”</strong> após o pagamento.</p>
+    <p style="color:#888;font-size:12px">Aviso automático — não responda este e-mail.</p>
+  </div>`;
+  let mail={skip:true};
+  try{ mail=await enviarEmailResend(env, emails, assunto, html); }catch(e){ mail={ok:false, erro:String(e&&e.message||e)}; }
+
+  const patch={}; frescos.forEach(p=>{ patch[p.key]=todayYmd; });
+  try{ await fsPatchDoc(env,'configuracoes','feriasAvisoPagamento', patch); }catch(_){}
+
+  return { ok:true, pendentes:pend.length, novos:frescos.length, masters:masters.length, pushEnviados, email:mail };
 }
 
 // Varredura (roda no cron): pedidos pendentes "segurados" fora da janela — quando

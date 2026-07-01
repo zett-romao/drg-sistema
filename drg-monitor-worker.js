@@ -165,6 +165,7 @@ async function carimbarTermos(env){ return carimbarDocumentos(env); }   // compa
 async function carimbarDocumentos(env){
   return [
     await _carimbarGen(env,'termosLgpd',      d=>(d.status==='assinado'&&d.assinatura)?d.assinatura.hash:null,            'carimbo'),
+    await _carimbarGen(env,'termosFerias',    d=>(d.status==='assinado'&&d.assinatura)?d.assinatura.hash:null,            'carimbo'),
     await _carimbarGen(env,'payrolls',        d=>(d.assinatura&&d.assinatura.hash)?d.assinatura.hash:null,                'carimboFol'),
     await _carimbarGen(env,'payrolls',        d=>(d.holeriteAssinatura&&d.holeriteAssinatura.hash)?d.holeriteAssinatura.hash:null, 'carimboHol'),
     await _carimbarGen(env,'beneficioRecibos',d=>(d.assinatura&&d.assinatura.hash)?d.assinatura.hash:null,                'carimbo'),
@@ -175,6 +176,7 @@ async function confirmarCarimbos(env){ return confirmarDocumentos(env); }   // c
 async function confirmarDocumentos(env){
   return [
     await _confirmarGen(env,'termosLgpd','carimbo'),
+    await _confirmarGen(env,'termosFerias','carimbo'),
     await _confirmarGen(env,'payrolls','carimboFol'),
     await _confirmarGen(env,'payrolls','carimboHol'),
     await _confirmarGen(env,'beneficioRecibos','carimbo'),

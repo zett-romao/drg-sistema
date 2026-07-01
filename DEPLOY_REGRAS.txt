@@ -104,6 +104,15 @@ service cloud.firestore {
                        && resource.data.colaboradorId == request.auth.token.empId
                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['assinatura']));
     }
+    // termos de FÉRIAS: colaborador LÊ e ASSINA (só status/assinadoEm/assinatura) os
+    // PRÓPRIOS; staff total. Espelha termosLgpd/estoqueMov. #ferias-sign
+    match /termosFerias/{id} {
+      allow read:   if rStaff() || (rColab() && resource.data.employeeId == request.auth.token.empId);
+      allow create, delete: if rStaff();
+      allow update: if rStaff() || (rColab()
+                       && resource.data.employeeId == request.auth.token.empId
+                       && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','assinadoEm','assinatura']));
+    }
 
     // demais coleções de GESTÃO (escalas, cct, postos, ferias, rescisoes,
     // decimoTerceiro, bancoHoras, contratos, disciplina, rubricas, perfis,
@@ -187,6 +196,13 @@ service cloud.firestore {
         allow update: if meuTenant(t) && (isStaff() || (isColab()
                          && resource.data.colaboradorId == request.auth.token.empId
                          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['assinatura'])));
+      }
+      match /termosFerias/{id} {   // #ferias-sign
+        allow read:   if meuTenant(t) && (isStaff() || (isColab() && resource.data.employeeId == request.auth.token.empId));
+        allow create, delete: if meuTenant(t) && isStaff();
+        allow update: if meuTenant(t) && (isStaff() || (isColab()
+                         && resource.data.employeeId == request.auth.token.empId
+                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','assinadoEm','assinatura'])));
       }
       // só-servidor dentro do tenant
       match /mfa/{d}          { allow read, write: if false; }

@@ -295,6 +295,11 @@
     📄 <span id="banner-termo-count">0</span> termo(s) de consentimento (LGPD) para você assinar — clique para abrir
   </div>
 
+  <!-- Banner: Comunicação/Recibo de Férias para assinar. #ferias-sign -->
+  <div id="banner-termo-ferias" style="display:none;background:linear-gradient(90deg,#B3E5FC 0%,#81D4FA 100%);padding:12px 16px;cursor:pointer;border-bottom:2px solid #0277BD;text-align:center;font-weight:600;color:#01579B;font-size:14px" onclick="abrirTermoFerias()">
+    🏖️ <span id="banner-ferias-count">0</span> comunicação(ões) de férias para você assinar — clique para abrir
+  </div>
+
   <!-- Banner: batidas aguardando aprovação do supervisor (aparece quando há). #ponto-provisorio -->
   <div id="banner-autz-pendente" style="display:none;background:linear-gradient(90deg,#FFE0B2 0%,#FFCC80 100%);padding:12px 16px;border-bottom:2px solid #E65100;text-align:center;font-weight:600;color:#E65100;font-size:14px">
     ⏳ <span id="banner-autz-count">0</span> batida(s) aguardando aprovação do supervisor
@@ -548,7 +553,7 @@ try{ window.__APP_BOOTED = true; }catch(_){}
 // ─── VERSÃO DO APP DO COLABORADOR ─────────────────────────────────────────────
 // Bumpe SEMPRE em conjunto com o CACHE do ponto-sw.js e o ?v= do firebase-config.
 // Formato: AA.MM.DD + letra (a, b, c...) — alinhado com o nome do cache.
-const PONTO_VERSION = '26.06.30a';
+const PONTO_VERSION = '26.07.01a';
 // Exibe a versão no rodapé (script roda após o DOM, então o elemento já existe)
 (function _setVersionTag(){
   const t = document.getElementById('app-version-tag');
@@ -812,6 +817,7 @@ async function carregarHome() {
   _checarAutzPendentes().catch(e => console.warn('checar autz', e));
   _carregarEpisPendentes().catch(e => console.warn('checar epis', e));   // EPIs a confirmar. #estoque-epi
   _carregarInboxTermos().catch(e => console.warn('checar termos lgpd', e));   // termos LGPD a assinar. #lgpd-termo
+  _carregarInboxFerias().catch(e => console.warn('checar termos ferias', e));   // comunicações de férias a assinar. #ferias-sign
   // Poll leve a cada 60s — apita quando chega comunicação nova com o app aberto. #som-avisos
   if(!window._msgPollTimer) window._msgPollTimer = setInterval(()=>{ _checarMensagensNovas().catch(()=>{}); }, 60*1000);
 }
@@ -2806,6 +2812,48 @@ function assinarTermoLgpd(){
   setTimeout(()=>document.getElementById('pin-assinatura-input').focus(),100);
 }
 
+// ===== Comunicação / Recibo de Férias — assina por PIN/hash. #ferias-sign =====
+let _termosFeriasCache = [], _confCurrentFerias = null;
+async function _carregarInboxFerias(){
+  if(!currentEmp) return;
+  try{
+    const snap = await dbCol('termosFerias').where('employeeId','==',currentEmp.id).get();
+    const items=[]; snap.forEach(d=>{ const t={id:d.id,...d.data()}; if(t.status==='pendente') items.push(t); });
+    items.sort((a,b)=>(b.enviadoEm||'').localeCompare(a.enviadoEm||''));
+    _termosFeriasCache=items; _atualizarBannerFerias();
+  }catch(e){ console.warn('inbox ferias:', e); }
+}
+function _atualizarBannerFerias(){
+  const b=document.getElementById('banner-termo-ferias'), c=document.getElementById('banner-ferias-count');
+  if(!b||!c) return;
+  if(_termosFeriasCache.length>0){ c.textContent=_termosFeriasCache.length; b.style.display='block'; } else b.style.display='none';
+}
+function abrirTermoFerias(id){
+  const t = id ? _termosFeriasCache.find(x=>x.id===id) : _termosFeriasCache[0];
+  if(!t) return;
+  _confCurrentFerias=t;
+  document.getElementById('modal-termo-ferias')?.remove();
+  const html=`<div id="modal-termo-ferias" style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9998;display:flex;align-items:center;justify-content:center;padding:16px">
+    <div style="background:#fff;border-radius:14px;max-width:520px;width:100%;max-height:88vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="background:#0277BD;color:#fff;padding:14px 16px;font-weight:700;font-size:15px">🏖️ ${t.titulo||'Comunicação de Férias'}</div>
+      <div style="padding:16px;overflow:auto;font-size:13px;color:#222;line-height:1.55">${t.conteudoHtml||''}</div>
+      <div style="padding:12px 16px;border-top:1px solid #eee;display:flex;gap:8px">
+        <button onclick="fecharTermoFerias()" style="flex:1;padding:12px;border:1px solid #cbd5e1;background:#fff;border-radius:10px;font-weight:700;cursor:pointer">Fechar</button>
+        <button onclick="assinarTermoFerias()" style="flex:2;padding:12px;border:none;background:#16a34a;color:#fff;border-radius:10px;font-weight:700;cursor:pointer">Li e concordo — assinar com PIN</button>
+      </div>
+    </div></div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+function fecharTermoFerias(){ const m=document.getElementById('modal-termo-ferias'); if(m) m.remove(); }
+function assinarTermoFerias(){
+  if(!_confCurrentFerias) return;
+  _confMode='ferias';
+  document.getElementById('modal-pin-assinatura').style.display='flex';
+  document.getElementById('pin-assinatura-input').value='';
+  document.getElementById('pin-assinatura-erro').style.display='none';
+  setTimeout(()=>document.getElementById('pin-assinatura-input').focus(),100);
+}
+
 // Helpers — IP, fingerprint, hash
 async function _obterIP(){
   try{
@@ -2919,6 +2967,22 @@ async function confirmarAssinatura(){
       _termosLgpdCache = _termosLgpdCache.filter(x=>x.id!==t.id);
       _atualizarBannerTermos();
       alert('✅ Termo de consentimento assinado!\n\nHash: ' + hash.substring(0,16) + '...\n\nObrigado.');
+      return;
+    }
+    // --- FÉRIAS: assina sobre o conteúdo do termo de férias (termosFerias). #ferias-sign ---
+    if(_confMode === 'ferias'){
+      const t = _confCurrentFerias || {};
+      const conteudo = t.conteudoHtml || '';
+      const hashInput = `${conteudo}|${pinHash}|${ip}|${ua}|${fingerprint}|${ts}`;
+      const hash = await _sha256(hashInput);
+      const assinatura = { hash, pinHash, ip, userAgent: ua, deviceFingerprint: fingerprint, conteudoJson: conteudo, assinadoEm: ts };
+      await dbCol('termosFerias').doc(t.id).set({ status:'assinado', assinadoEm: ts, assinatura }, { merge:true });
+      t.status='assinado'; t.assinatura=assinatura;
+      fecharModalPin();
+      fecharTermoFerias();
+      _termosFeriasCache = _termosFeriasCache.filter(x=>x.id!==t.id);
+      _atualizarBannerFerias();
+      alert('✅ Comunicação de férias assinada!\n\nHash: ' + hash.substring(0,16) + '...\n\nObrigado.');
       return;
     }
     // --- HOLERITE: assina sobre o HTML do recibo gravado pelo gestor ---

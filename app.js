@@ -279,6 +279,7 @@ const State = {
   empresa: {...EMPRESA_DEFAULTS},
   decimoTerceiro: [],
   ferias:         [],
+  termosFerias:   [],   // termos de ciência/recibo de férias (assinados no app). #ferias-sign
   currentSection: 'dashboard',
   sectionHistory: [],          // pilha de navegação para o botão Voltar
   editingEmployeeId: null,
@@ -7326,6 +7327,22 @@ function collectDependentes(){
 // ============================================
 // FÉRIAS
 // ============================================
+// Sincroniza início/fim/dias no formulário de férias (aba do cadastro). #ferias-sign
+// Regra do dono: marcou DIAS + data INICIAL → data FINAL é preenchida sozinha.
+// Também mantém o caminho antigo (início+fim → dias) quando o gestor edita a data final.
+function _feriasSync(src){
+  const ini=val('ferias-inicio'), fim=val('ferias-fim'), dias=parseInt(val('ferias-dias'),10);
+  const addDias=(ymd,n)=>{ const d=new Date(ymd+'T00:00:00'); d.setDate(d.getDate()+(n-1)); return d.toISOString().slice(0,10); };
+  if(src==='fim'){
+    // Editou a data final → recalcula o nº de dias.
+    if(ini&&fim){ const n=Math.round((new Date(fim)-new Date(ini))/86400000)+1; setVal('ferias-dias',n>0?n:''); }
+    return;
+  }
+  // Editou início ou dias → recalcula a data final a partir de início + dias.
+  if(ini&&dias>0){ setVal('ferias-fim',addDias(ini,dias)); }
+  else if(ini&&fim){ const n=Math.round((new Date(fim)-new Date(ini))/86400000)+1; setVal('ferias-dias',n>0?n:''); }
+}
+
 function renderFeriasList(ferias){
   const el=document.getElementById('ferias-list'); if(!el) return;
   if(!ferias||ferias.length===0){
@@ -7333,27 +7350,36 @@ function renderFeriasList(ferias){
     return;
   }
   const sorted=[...ferias].sort((a,b)=>b.inicio.localeCompare(a.inicio));
-  el.innerHTML=sorted.map(f=>`
+  el.innerHTML=sorted.map(f=>{
+    const t=_feriasTermoDe(f.id);
+    let status, acoes='';
+    if(!t){
+      status='<span class="badge badge-muted" title="Registro antigo, sem termo de ciência">sem termo</span>';
+    }else if(t.status==='assinado'){
+      status=`<span style="background:#E8F5E9;color:#2E7D32;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">✔ Assinado</span>${_carimboBadge(t)}`;
+      acoes=`<button class="btn btn-sm btn-outline" onclick="verFeriasTermo('${t.id}')" style="font-size:11px" title="Ver o termo de férias assinado"><i class="fa-solid fa-file-lines"></i> Ver</button>
+        <button class="btn btn-sm btn-outline" onclick="baixarFeriasConferencia('${t.id}')" style="font-size:11px" title="Baixar o arquivo exato p/ conferir o carimbo no blockchain (opentimestamps.org)"><i class="fa-solid fa-download"></i> Conferência</button>
+        ${t.carimboOts?`<button class="btn btn-sm btn-outline" onclick="baixarOtsFerias('${t.id}')" style="font-size:11px" title="Baixar a prova de carimbo (.ots), verificável em opentimestamps.org"><i class="fa-solid fa-link"></i> .ots</button>`:''}`;
+    }else{
+      status='<span style="background:#FFF3E0;color:#E65100;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">⏳ Aguardando assinatura</span>';
+      acoes=`<button class="btn btn-sm btn-outline" onclick="verFeriasTermo('${t.id}')" style="font-size:11px" title="Ver o termo enviado"><i class="fa-solid fa-file-lines"></i> Ver</button>`;
+    }
+    return `
     <div class="ferias-item">
       <div class="ferias-icon"><i class="fa-solid fa-umbrella-beach" style="color:#5C6BC0"></i></div>
       <div class="ferias-info">
-        <div class="ferias-periodo">${formatDateBr(f.inicio)} → ${formatDateBr(f.fim)} <span class="badge badge-muted">${f.dias} dias</span></div>
+        <div class="ferias-periodo">${formatDateBr(f.inicio)} → ${formatDateBr(f.fim)} <span class="badge badge-muted">${f.dias} dias</span> ${status}</div>
         <div class="ferias-sub">${f.tipo||'Férias'}${f.obs?' · '+f.obs:''}</div>
+        ${acoes?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${acoes}</div>`:''}
       </div>
       <button class="btn-icon btn-danger-icon" onclick="removeFerias('${f.id}')" title="Excluir"><i class="fa-solid fa-trash"></i></button>
-    </div>
-  `).join('');
-  // Input de dias no formulário de férias
-  document.getElementById('ferias-inicio').addEventListener('change',calcFeriasDias);
-  document.getElementById('ferias-fim').addEventListener('change',calcFeriasDias);
+    </div>`;
+  }).join('');
 }
 
-function calcFeriasDias(){
-  const ini=val('ferias-inicio'), fim=val('ferias-fim');
-  if(ini&&fim){
-    const d=Math.round((new Date(fim)-new Date(ini))/(1000*60*60*24))+1;
-    setVal('ferias-dias',d>0?d:'');
-  }
+// Termo de ciência/recibo de férias vinculado a um período (por feriasId). #ferias-sign
+function _feriasTermoDe(feriasId){
+  return (State.termosFerias||[]).find(t=>t.feriasId===feriasId && t.status!=='anulado');
 }
 
 async function addFerias(){
@@ -7364,22 +7390,122 @@ async function addFerias(){
   if(fim<inicio){ toast('Fim deve ser após o início.','error'); return; }
   const dias=Math.round((new Date(fim)-new Date(inicio))/(1000*60*60*24))+1;
   const emp=State.employees.find(e=>e.id===empId); if(!emp) return;
-  const ferias=[...(emp.ferias||[]),{id:genId(),inicio,fim,dias,tipo:val('ferias-tipo')||'Férias',obs:val('ferias-obs')}];
+  const feriasId=genId();
+  const tipo=val('ferias-tipo')||'Férias', obs=val('ferias-obs');
+  const ferias=[...(emp.ferias||[]),{id:feriasId,inicio,fim,dias,tipo,obs}];
   await DB.save('employees',{...emp,ferias,updatedAt:new Date().toISOString()});
   State.employees=State.employees.map(e=>e.id===empId?{...e,ferias}:e);
+  // Cria o termo de ciência/recibo de férias e DISPARA a assinatura no app do colaborador.
+  const reg={ id:genId(), employeeId:empId, employeeNome:emp.nome||'', cpf:emp.cpf||'', feriasId,
+    tipo:'ferias-ciencia', titulo:'Comunicação e Recibo de Férias',
+    inicio, fim, dias, tipoFerias:tipo, obs:obs||'',
+    conteudoHtml:_feriasTermoConteudoHtml(emp,{inicio,fim,dias,tipo,obs}),
+    status:'pendente', enviadoEm:new Date().toISOString(), enviadoPor:(Auth.currentUser&&Auth.currentUser.username)||'—' };
+  try{
+    await DB.save('termosFerias',reg);
+    State.termosFerias=[...(State.termosFerias||[]), reg];
+    if(Auth.currentUser) Auth.log('FERIAS_TERMO_ENVIADO',Auth.currentUser.username,`${emp.nome} · ${formatDateBr(inicio)}→${formatDateBr(fim)}`);
+    toast('Férias registradas! Aviso enviado ao app do colaborador para assinatura.');
+  }catch(e){
+    console.error('enviar termo férias',e);
+    toast('Férias registradas, mas falhou ao enviar o aviso ao app. Tente reenviar.','warning');
+  }
   renderFeriasList(ferias);
-  setVal('ferias-inicio',''); setVal('ferias-fim',''); setVal('ferias-dias',''); setVal('ferias-obs','');
-  toast('Férias registradas!');
+  setVal('ferias-inicio',''); setVal('ferias-fim',''); setVal('ferias-dias','30'); setVal('ferias-obs','');
 }
 
 async function removeFerias(feriasId){
   const empId=val('emp-id'); if(!empId) return;
   const emp=State.employees.find(e=>e.id===empId); if(!emp) return;
+  const t=_feriasTermoDe(feriasId);
+  if(t && t.status==='assinado'){
+    if(!confirm('Este período JÁ FOI ASSINADO pelo colaborador (tem prova/carimbo). Excluir mesmo assim? O termo assinado será anulado.')) return;
+  }
   const ferias=(emp.ferias||[]).filter(f=>f.id!==feriasId);
   await DB.save('employees',{...emp,ferias,updatedAt:new Date().toISOString()});
   State.employees=State.employees.map(e=>e.id===empId?{...e,ferias}:e);
+  // Anula o termo vinculado (some do app do colaborador; some da lista).
+  if(t){
+    try{ await DB.save('termosFerias',{...t,status:'anulado',anuladoEm:new Date().toISOString()});
+      State.termosFerias=(State.termosFerias||[]).map(x=>x.id===t.id?{...x,status:'anulado',anuladoEm:new Date().toISOString()}:x);
+    }catch(_){}
+  }
   renderFeriasList(ferias);
   toast('Registro removido.','warning');
+}
+
+// Conteúdo do termo de férias (aviso + recibo). O hash é calculado sobre este HTML. #ferias-sign
+function _feriasTermoConteudoHtml(emp,f){
+  const empNome=(typeof _e==='function'?_e('nomeEmpresa'):'')||'a Empresa';
+  const per=`${formatDateBr(f.inicio)} a ${formatDateBr(f.fim)}`;
+  const tipoTxt={'Férias':'Férias Regulares','Abono':'Abono Pecuniário (10 dias)','Coletivas':'Férias Coletivas'}[f.tipo]||(f.tipo||'Férias');
+  return `<p>Eu, <strong>${emp.nome||'—'}</strong>, CPF <strong>${emp.cpf||'—'}</strong>, colaborador(a) de <strong>${empNome}</strong>, DECLARO estar <strong>ciente e de acordo</strong> com o período de férias abaixo:</p>
+  <table style="width:100%;border-collapse:collapse;margin:10px 0;font-size:13px">
+    <tr><td style="padding:5px 8px;border:1px solid #ddd;background:#f7f7f7;width:45%"><strong>Período de gozo</strong></td><td style="padding:5px 8px;border:1px solid #ddd">${per}</td></tr>
+    <tr><td style="padding:5px 8px;border:1px solid #ddd;background:#f7f7f7"><strong>Total de dias</strong></td><td style="padding:5px 8px;border:1px solid #ddd">${f.dias} dias corridos</td></tr>
+    <tr><td style="padding:5px 8px;border:1px solid #ddd;background:#f7f7f7"><strong>Tipo</strong></td><td style="padding:5px 8px;border:1px solid #ddd">${tipoTxt}</td></tr>
+    ${f.obs?`<tr><td style="padding:5px 8px;border:1px solid #ddd;background:#f7f7f7"><strong>Observação</strong></td><td style="padding:5px 8px;border:1px solid #ddd">${f.obs}</td></tr>`:''}
+  </table>
+  <ol style="margin:6px 0 0 18px;line-height:1.6">
+    <li>Recebi a <strong>comunicação de férias</strong> com a devida antecedência, na forma do art. 135 da CLT.</li>
+    <li>Estou ciente de que a <strong>remuneração de férias, acrescida de 1/3 constitucional</strong>, será paga na forma da lei (art. 145 da CLT).</li>
+    <li>Confirmo o <strong>período de gozo</strong> acima e me comprometo a retornar ao trabalho no primeiro dia útil seguinte ao término.</li>
+  </ol>
+  <p style="margin-top:8px">A assinatura eletrônica deste documento é feita com meu PIN pessoal e gera registro de integridade (hash SHA-256) com data, hora, IP e identificação do dispositivo, com carimbo do tempo em blockchain (OpenTimestamps).</p>`;
+}
+
+// Abre o termo de férias (pendente ou assinado) numa janela — igual ao termo LGPD. #ferias-sign
+function verFeriasTermo(id){
+  const t=(State.termosFerias||[]).find(x=>x.id===id); if(!t) return;
+  const ass=t.assinatura||{};
+  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Termo de Férias — ${t.employeeNome}</title>
+<style>body{font-family:Arial,sans-serif;padding:24px;max-width:780px;margin:0 auto;color:#212529;font-size:13px;line-height:1.6}h1{color:#1a3a6b;font-size:18px}.box{border:1px solid #ccc;border-radius:6px;padding:10px 12px;margin-top:14px;font-size:11px;color:#444;word-break:break-all}.tb-btn{cursor:pointer;border:1px solid #cbd5e1;background:#f8fafc;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;color:#1a3a6b}@media print{.no-print{display:none!important}}</style></head><body>
+<div class="no-print" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid #eee">
+  <button class="tb-btn" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
+  ${(t.status==='assinado'&&t.assinatura)?`<button class="tb-btn" onclick="if(window.opener&&window.opener.baixarFeriasConferencia){window.opener.baixarFeriasConferencia('${t.id}')}else{alert('Abra pelo sistema para baixar.')}">⬇ Baixar arquivo p/ conferência (blockchain)</button>`:''}
+  ${t.carimboOts?`<button class="tb-btn" onclick="if(window.opener&&window.opener.baixarOtsFerias){window.opener.baixarOtsFerias('${t.id}')}else{alert('Abra pelo sistema para baixar.')}">🔗 Baixar .ots</button>`:''}
+</div>
+<h1>${(typeof _e==='function'?_e('nomeEmpresa'):'')||'Empresa'} — ${t.titulo}</h1>${t.conteudoHtml}
+${t.status==='assinado'?`<div class="box"><strong>✔ Assinado eletronicamente</strong> em ${t.assinadoEm?new Date(t.assinadoEm).toLocaleString('pt-BR'):'—'}<br>Colaborador: ${t.employeeNome} — CPF ${t.cpf||'—'}<br>Hash SHA-256: ${ass.hash||'—'}<br>IP: ${ass.ip||'—'} · Dispositivo: ${(ass.deviceFingerprint||'').slice(0,16)}…${t.carimboStatus?`<br>🔗 Carimbo do tempo (blockchain): <strong>${t.carimboStatus==='confirmado'?'CONFIRMADO':'registrado'}</strong>${t.carimboCriadoEm?' em '+new Date(t.carimboCriadoEm).toLocaleString('pt-BR'):''} — prova .ots verificável em opentimestamps.org`:''}</div>`:`<div class="box">Status atual: <strong>${t.status}</strong> — aguardando assinatura do colaborador no app.</div>`}
+<p style="margin-top:18px;font-size:9px;color:#888">Gerado em ${new Date().toLocaleString('pt-BR')}.</p></body></html>`;
+  const w=window.open('','_blank','width=860,height=700'); if(!w){ toast('Permita pop-ups','error'); return; } w.document.write(html); w.document.close();
+}
+
+function baixarOtsFerias(id){
+  const t=(State.termosFerias||[]).find(x=>x.id===id); if(!t||!t.carimboOts){ toast('Carimbo ainda não gerado (o robô carimba após a assinatura).','warning'); return; }
+  try{
+    const bin=atob(t.carimboOts); const arr=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+    const blob=new Blob([arr],{type:'application/octet-stream'}); const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob); a.download=`carimbo_ferias_${(t.employeeNome||'termo').replace(/[^\w]+/g,'_')}.ots`; a.click(); URL.revokeObjectURL(a.href);
+    toast('Arquivo .ots baixado — verificável em opentimestamps.org');
+  }catch(e){ toast('Erro ao baixar o .ots.','error'); }
+}
+// Baixa o ARQUIVO EXATO cujo SHA-256 foi carimbado (conteudo|pinHash|ip|ua|fingerprint|ts). #ferias-sign
+async function baixarFeriasConferencia(id){
+  const t=(State.termosFerias||[]).find(x=>x.id===id);
+  if(!t || t.status!=='assinado' || !t.assinatura){ toast('Termo ainda não assinado — não há hash para conferir.','warning'); return; }
+  const a=t.assinatura;
+  const conteudo = (a.conteudoJson!=null) ? a.conteudoJson : (t.conteudoHtml||'');
+  const ts = a.assinadoEm || t.assinadoEm || '';
+  const hashInput = `${conteudo}|${a.pinHash||''}|${a.ip||''}|${a.userAgent||''}|${a.deviceFingerprint||''}|${ts}`;
+  let okHash=null;
+  try{
+    const buf=await crypto.subtle.digest('SHA-256', new TextEncoder().encode(hashInput));
+    const hex=Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+    okHash=(hex===(a.hash||''));
+  }catch(_){ okHash=null; }
+  if(okHash===false){
+    if(!confirm('Atenção: o hash recalculado NÃO bateu com o hash assinado. O arquivo pode não validar no blockchain. Baixar mesmo assim?')) return;
+  }
+  try{
+    const nome=(t.employeeNome||'ferias').replace(/[^\w]+/g,'_');
+    const blob=new Blob([hashInput],{type:'application/octet-stream'});
+    const el=document.createElement('a'); el.href=URL.createObjectURL(blob);
+    el.download=`ferias_${nome}_${(a.hash||'').slice(0,8)}.txt`; el.click(); URL.revokeObjectURL(el.href);
+    toast(okHash===false
+      ? 'Arquivo baixado (atenção: o hash não confere localmente).'
+      : 'Arquivo de conferência baixado. Em opentimestamps.org (Verify), suba ESTE arquivo + o .ots para validar a data na rede Bitcoin.','success');
+  }catch(e){ toast('Erro ao baixar o arquivo de conferência.','error'); }
 }
 
 // ============================================
@@ -31178,6 +31304,8 @@ async function _carregarDadosPosLogin(){
     catch(_){ State.lgpdConfig = {}; }
     try{ State.termosLgpd = await DB.getAll('termosLgpd'); }   // termos de consentimento. #lgpd-termo
     catch(_){ State.termosLgpd = []; }
+    try{ State.termosFerias = await DB.getAll('termosFerias'); }   // termos de férias assinados. #ferias-sign
+    catch(_){ State.termosFerias = []; }
     try{ State.pedidosTitular = await DB.getAll('pedidosTitular'); }   // direitos do titular (LGPD Fase 3). #lgpd-titular
     catch(_){ State.pedidosTitular = []; }
   } catch(e){
@@ -31344,6 +31472,17 @@ async function _carregarDadosPosLogin(){
     if(State.currentSection==='adiantamentos') renderAdiantamentos();
     if(State.currentSection==='dashboard') renderDashboard();
   });
+  DB.listen('termosFerias', data => {   // termos de férias — atualiza status/carimbo ao vivo. #ferias-sign
+    State.termosFerias = data;
+    const fichaModal = document.getElementById('modal-employee');
+    if(fichaModal && !fichaModal.classList.contains('hidden')){
+      const aba = document.getElementById('tab-ferias');
+      if(aba && aba.classList.contains('active')){
+        const emp = State.employees.find(e=>e.id===(State.editingEmployeeId||val('emp-id')));
+        if(emp) renderFeriasList(emp.ferias||[]);
+      }
+    }
+  });
   DB.listen('beneficioRecibos', data => {
     State.beneficioRecibos = data;
     // Atualiza a aba "Recibos de Benefício" da ficha se estiver aberta
@@ -31423,8 +31562,7 @@ async function init(){
   if(await _entrarRotaPublicaSeAplicavel()) return;
 
   // 3. Listeners de UI permanentes (não dependem de login)
-  document.getElementById('ferias-inicio')?.addEventListener('change', calcFeriasDias);
-  document.getElementById('ferias-fim')?.addEventListener('change', calcFeriasDias);
+  // (férias: início/fim/dias usam onchange/oninput inline → _feriasSync). #ferias-sign
   document.addEventListener('keydown', e => {
     if(e.key==='Escape'){
       ['modal-employee','modal-pdf','modal-confirm','modal-user','modal-change-pass','modal-cct',

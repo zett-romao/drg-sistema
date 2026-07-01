@@ -25767,6 +25767,7 @@ function _detectHEDivergencia(realDay, expectedDay){
   if(!realDay || !expectedDay) return out;
   if(!realDay.entrada || !realDay.saida) return out; // sem ponto real, nada a detectar
   if(expectedDay.preAdmissao) return out; // dia anterior à admissão: não é HE (não era colaborador)
+  if(expectedDay.posDemissao) return out; // dia após a demissão: vínculo cortado, não gera HE (nem folga trabalhada). #pos-demissao
   // Trabalhou em dia de FOLGA → toda a jornada é hora extra e PRECISA de decisão
   // do gestor. Aparece na revisão como pendente (e denuncia erro de escala, como
   // ponto batido num dia que deveria ser folga).

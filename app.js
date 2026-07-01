@@ -2633,12 +2633,9 @@ function verTermoLgpd(id){
 <style>body{font-family:Arial,sans-serif;padding:24px;max-width:780px;margin:0 auto;color:#212529;font-size:13px;line-height:1.6}h1{color:#1a3a6b;font-size:18px}.box{border:1px solid #ccc;border-radius:6px;padding:10px 12px;margin-top:14px;font-size:11px;color:#444;word-break:break-all}.tb-btn{cursor:pointer;border:1px solid #cbd5e1;background:#f8fafc;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;color:#1a3a6b}@media print{.no-print{display:none!important}}</style></head><body>
 <div class="no-print" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid #eee">
   <button class="tb-btn" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
-  ${(t.status==='assinado'&&t.assinatura)?`<button class="tb-btn" onclick="if(window.opener&&window.opener.baixarTermoConferencia){window.opener.baixarTermoConferencia('${t.id}')}else{alert('Abra o termo pelo sistema para baixar.')}">⬇ Baixar arquivo p/ conferência (blockchain)</button>`:''}
-  ${t.carimboOts?`<button class="tb-btn" onclick="if(window.opener&&window.opener.baixarOtsTermo){window.opener.baixarOtsTermo('${t.id}')}else{alert('Abra o termo pelo sistema para baixar.')}">🔗 Baixar .ots</button>`:''}
 </div>
 <h1>${_e('nomeEmpresa')||'Empresa'} — ${t.titulo}</h1>${t.conteudoHtml}
 ${t.status==='assinado'?`<div class="box"><strong>✔ Assinado eletronicamente</strong> em ${t.assinadoEm?new Date(t.assinadoEm).toLocaleString('pt-BR'):'—'}<br>Colaborador: ${t.employeeNome} — CPF ${t.cpf||'—'}<br>Hash SHA-256: ${ass.hash||'—'}<br>IP: ${ass.ip||'—'} · Dispositivo: ${(ass.deviceFingerprint||'').slice(0,16)}…${t.carimboStatus?`<br>🔗 Carimbo do tempo (blockchain): <strong>${t.carimboStatus==='confirmado'?'CONFIRMADO':'registrado'}</strong>${t.carimboCriadoEm?' em '+new Date(t.carimboCriadoEm).toLocaleString('pt-BR'):''} — prova .ots verificável em opentimestamps.org`:''}</div>`:`<div class="box">Status atual: <strong>${t.status}</strong></div>`}
-${(t.status==='assinado'&&t.carimboStatus)?`<div class="no-print" style="margin-top:12px;font-size:11px;color:#4A148C;background:#F3E5F5;border:1px solid #CE93D8;border-radius:6px;padding:8px 10px"><strong>Conferência no blockchain:</strong> em <strong>opentimestamps.org</strong> → aba <em>Verify</em> → suba o <strong>arquivo p/ conferência</strong> e o <strong>.ots</strong> (botões acima). A rede Bitcoin confirma quando o termo foi assinado. <em>O arquivo de conferência não é para leitura — é o conteúdo exato cujo hash foi carimbado.</em></div>`:''}
 <p style="margin-top:18px;font-size:9px;color:#888">Gerado em ${new Date().toLocaleString('pt-BR')}.</p></body></html>`;
   const w=window.open('','_blank','width=860,height=700'); if(!w){ toast('Permita pop-ups','error'); return; } w.document.write(html); w.document.close();
 }
@@ -2694,6 +2691,137 @@ async function baixarTermoConferencia(id){
       : 'Arquivo de conferência baixado. Em opentimestamps.org (Verify), suba ESTE arquivo + o .ots para validar a data na rede Bitcoin.','success');
   }catch(e){ toast('Erro ao baixar o arquivo de conferência.','error'); }
 }
+
+// ══════════ VERIFICAÇÃO DO CARIMBO DO TEMPO — DENTRO DO APP (sem site externo) #carimbo-verificar ══════════
+// Motor ÚNICO reusado em TODAS as instâncias com carimbo (termo LGPD, férias, folha, holerite,
+// recibo de benefício, EPI). Pragmático: (1) a prova .ots corresponde ao documento (o digest
+// embutido no .ots == hash assinado); (2) integridade do conteúdo (best-effort); (3) status que
+// o robô já gravou (registrado/confirmado). Não depende de site/serviço externo.
+const CARIMBO_TIPOS = {
+  termolgpd: { find:id=>(State.termosLgpd||[]).find(x=>x.id===id),       assin:d=>d.assinatura,         pref:'carimbo',    label:'Termo LGPD',          nome:d=>d.employeeNome||'' },
+  ferias:    { find:id=>(State.termosFerias||[]).find(x=>x.id===id),     assin:d=>d.assinatura,         pref:'carimbo',    label:'Termo de Férias',     nome:d=>d.employeeNome||'' },
+  folha:     { find:id=>(State.payrolls||[]).find(x=>x.id===id),         assin:d=>d.assinatura,         pref:'carimboFol', label:'Folha assinada',      nome:d=>_carimboNomeEmp(d.employeeId) },
+  holerite:  { find:id=>(State.payrolls||[]).find(x=>x.id===id),         assin:d=>d.holeriteAssinatura, pref:'carimboHol', label:'Holerite',            nome:d=>_carimboNomeEmp(d.employeeId) },
+  beneficio: { find:id=>(State.beneficioRecibos||[]).find(x=>x.id===id), assin:d=>d.assinatura,         pref:'carimbo',    label:'Recibo de Benefício', nome:d=>d.employeeNome||_carimboNomeEmp(d.employeeId) },
+  epi:       { find:id=>(State.estoqueMov||[]).find(x=>x.id===id),       assin:d=>d.assinatura,         pref:'carimbo',    label:'Recibo de EPI',       nome:d=>_carimboNomeEmp(d.colaboradorId) },
+};
+function _carimboNomeEmp(empId){ const e=(State.employees||[]).find(x=>x.id===empId); return e?e.nome:''; }
+function _carimboCampos(d, pref){ return { ots:d[pref+'Ots']||'', status:d[pref+'Status']||'', criadoEm:d[pref+'CriadoEm']||'', confirmadoEm:d[pref+'ConfirmadoEm']||'' }; }
+// Reconstrói a string EXATA que foi assinada (integridade + arquivo de conferência). Conteúdo:
+// conteudoJson (termo/férias/EPI) → reciboHtml (benefício) → conteudoHtml (doc) → holerite; ts em assinadoEm/em.
+function _carimboHashInput(d, a){
+  if(!a) return null;
+  const conteudo = (a.conteudoJson!=null) ? a.conteudoJson
+    : (d.reciboHtml!=null ? d.reciboHtml
+    : (d.conteudoHtml!=null ? d.conteudoHtml
+    : ((d.holeriteConferencia&&d.holeriteConferencia.reciboHtml!=null) ? d.holeriteConferencia.reciboHtml : null)));
+  if(conteudo==null) return null;
+  const ts = a.assinadoEm || a.em || d.assinadoEm || '';
+  return `${conteudo}|${a.pinHash||''}|${a.ip||''}|${a.userAgent||''}|${a.deviceFingerprint||''}|${ts}`;
+}
+// Digest (32 bytes → hex) embutido no .ots do worker: header 31(magic)+1(versão)+1(op sha256) → bytes [33..65).
+function _otsDigestHex(otsBase64){
+  try{ const bin=atob(otsBase64); if(bin.length<65) return '';
+    let hex=''; for(let i=33;i<65;i++) hex+=(bin.charCodeAt(i)&0xff).toString(16).padStart(2,'0'); return hex;
+  }catch(_){ return ''; }
+}
+async function _carimboVerificar(tipo, id){
+  const cfg=CARIMBO_TIPOS[tipo]; if(!cfg) return null;
+  const d=cfg.find(id); if(!d) return null;
+  const a=cfg.assin(d)||null; const c=_carimboCampos(d, cfg.pref);
+  const hash=(a&&a.hash)||'';
+  const res={ label:cfg.label, nome:cfg.nome(d), hash, assinado:!!a, temOts:!!c.ots, status:c.status, criadoEm:c.criadoEm, confirmadoEm:c.confirmadoEm, provaOk:null, integridadeOk:null };
+  if(c.ots){ const dg=_otsDigestHex(c.ots); res.provaOk = !!(dg && hash && dg.toLowerCase()===String(hash).toLowerCase()); }
+  const hi=_carimboHashInput(d, a);
+  if(hi!=null && hash){ try{ const buf=await crypto.subtle.digest('SHA-256', new TextEncoder().encode(hi));
+    res.integridadeOk=(Array.from(new Uint8Array(buf)).map(x=>x.toString(16).padStart(2,'0')).join('')===hash);
+  }catch(_){ res.integridadeOk=null; } }
+  return res;
+}
+async function verificarCarimbo(tipo, id){
+  const r=await _carimboVerificar(tipo, id);
+  if(!r){ toast('Documento não encontrado.','error'); return; }
+  _carimboVerificarModal(tipo, id, r);
+}
+function _carimboLinha(ok, okTxt, falhaTxt, nuloTxt){
+  if(ok===true)  return `<div style="color:#1B5E20"><i class="fa-solid fa-circle-check"></i> ${okTxt}</div>`;
+  if(ok===false) return `<div style="color:#c62828"><i class="fa-solid fa-circle-xmark"></i> ${falhaTxt}</div>`;
+  return `<div style="color:#94a3b8"><i class="fa-solid fa-circle-minus"></i> ${nuloTxt}</div>`;
+}
+function _carimboVerificarModal(tipo, id, r){
+  document.getElementById('modal-carimbo-verificar')?.remove();
+  let statusHtml;
+  if(!r.assinado){ statusHtml=`<div style="color:#E65100"><i class="fa-solid fa-clock"></i> Documento ainda não assinado.</div>`; }
+  else if(!r.temOts){ statusHtml=`<div style="color:#5E35B1"><i class="fa-solid fa-hourglass-half"></i> <strong>Carimbo pendente</strong> — o robô carimba após a assinatura (pode levar alguns minutos). Ainda não há prova para validar.</div>`; }
+  else {
+    const bloco = r.status==='confirmado'
+      ? `<div style="color:#1B5E20;font-weight:700;margin-top:2px"><i class="fa-solid fa-link"></i> Confirmado no blockchain (Bitcoin)${r.confirmadoEm?' em '+new Date(r.confirmadoEm).toLocaleString('pt-BR'):''}.</div>`
+      : `<div style="color:#5E35B1;font-weight:700;margin-top:2px"><i class="fa-solid fa-link"></i> Carimbo registrado${r.criadoEm?' em '+new Date(r.criadoEm).toLocaleString('pt-BR'):''} — aguardando confirmação do Bitcoin (algumas horas).</div>`;
+    statusHtml = `${_carimboLinha(r.provaOk,'A prova (.ots) corresponde a este documento.','A prova (.ots) NÃO corresponde a este documento.','Prova .ots não pôde ser lida.')}
+      ${_carimboLinha(r.integridadeOk,'Conteúdo íntegro (confere com o que foi assinado).','Conteúdo NÃO confere com o assinado.','Integridade não verificável neste formato.')}
+      ${bloco}`;
+  }
+  const acoes = r.temOts ? `<button class="btn btn-outline" onclick="baixarComprovanteCarimbo('${tipo}','${id}')" style="font-size:12px"><i class="fa-solid fa-download"></i> Baixar comprovante p/ auditoria</button>` : '';
+  const html=`<div id="modal-carimbo-verificar" class="modal-overlay" onclick="if(event.target===this)this.remove()">
+    <div class="modal-dialog" style="max-width:470px">
+      <div class="modal-header"><h3><i class="fa-solid fa-shield-halved" style="color:#00695C"></i> Verificação do carimbo</h3>
+        <button class="modal-close" onclick="document.getElementById('modal-carimbo-verificar').remove()"><i class="fa-solid fa-xmark"></i></button></div>
+      <div class="modal-body" style="font-size:13px;line-height:1.7">
+        <div style="font-size:12px;color:#64748b;margin-bottom:8px">${r.label}${r.nome?' — '+esc(r.nome):''}</div>
+        ${statusHtml}
+        ${r.temOts?`<div style="font-size:11px;color:#64748b;margin-top:12px">Precisa comprovar para um auditor ou processo? Baixe o comprovante — traz a prova e o passo a passo.</div>`:''}
+      </div>
+      <div class="modal-footer" style="flex-wrap:wrap;gap:8px">${acoes}
+        <button class="btn btn-primary" onclick="document.getElementById('modal-carimbo-verificar').remove()">Fechar</button></div>
+    </div></div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+// UM ÚNICO download p/ auditoria: .zip com a prova (.ots) + o documento de conferência + LEIA-ME.
+// Acaba a confusão de "qual arquivo baixar" — é só entregar o .zip ao auditor/advogado. #carimbo-verificar
+async function baixarComprovanteCarimbo(tipo, id){
+  const cfg=CARIMBO_TIPOS[tipo]; if(!cfg) return; const d=cfg.find(id); if(!d) return;
+  const c=_carimboCampos(d, cfg.pref); const a=cfg.assin(d);
+  if(!c.ots){ toast('Ainda não há carimbo para gerar o comprovante.','warning'); return; }
+  if(typeof JSZip==='undefined'){ toast('JSZip não carregado. Verifique a conexão.','error'); return; }
+  try{
+    const zip=new JSZip();
+    const bin=atob(c.ots); const arr=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+    zip.file('carimbo.ots', arr);
+    const hi=_carimboHashInput(d, a);
+    if(hi!=null) zip.file('documento_para_conferencia.txt', hi);
+    zip.file('LEIA-ME.txt',
+`Como validar este carimbo do tempo (blockchain / OpenTimestamps)
+
+1) Acesse https://opentimestamps.org
+2) Clique na aba "Verify"
+3) Envie os DOIS arquivos desta pasta:
+   - documento_para_conferencia.txt
+   - carimbo.ots
+4) O site confirma a data e a hora em que o documento foi assinado, gravadas na rede Bitcoin.
+
+Observacao: a validacao so aparece DEPOIS que o carimbo e "confirmado" no Bitcoin
+(algumas horas apos a assinatura). Antes disso o status fica "registrado/pendente".
+
+Hash SHA-256 do documento: ${(a&&a.hash)||'-'}
+`);
+    const nome=(cfg.nome(d)||'documento').replace(/[^\w]+/g,'_');
+    const content=await zip.generateAsync({type:'blob'});
+    const el=document.createElement('a'); el.href=URL.createObjectURL(content); el.download=`comprovante_${tipo}_${nome}.zip`; el.click(); URL.revokeObjectURL(el.href);
+    toast('Comprovante (.zip) baixado — contém a prova, o documento e o passo a passo.','success');
+  }catch(e){ console.error('comprovante carimbo',e); toast('Erro ao gerar o comprovante.','error'); }
+}
+// Botões padronizados p/ as listas: "Verificar" (se assinado) + selo "carimbo pendente" enquanto
+// o robô não carimbou. Substitui os botões avulsos de .ots/Conferência (o Verificar já os oferece). #carimbo-verificar
+function _carimboAcoesHtml(tipo, id, stop){
+  const cfg=CARIMBO_TIPOS[tipo]; if(!cfg) return ''; const d=cfg.find(id); if(!d) return '';
+  const a=cfg.assin(d); if(!a) return '';   // só documento assinado
+  const c=_carimboCampos(d, cfg.pref);
+  const sp = stop?'event.stopPropagation();':'';
+  const verif=`<button class="btn btn-sm btn-outline" onclick="${sp}verificarCarimbo('${tipo}','${id}')" style="font-size:11px" title="Verificar o carimbo do tempo dentro do sistema"><i class="fa-solid fa-shield-halved"></i> Verificar carimbo</button>`;
+  if(!c.ots) return `${verif} <span style="font-size:11px;color:#5E35B1" title="O robô ainda vai carimbar este documento"><i class="fa-solid fa-hourglass-half"></i> carimbo pendente</span>`;
+  return verif;
+}
+
 // Aba "Termos LGPD" no cadastro do colaborador — arquivo dos termos dele. #lgpd-termo
 function renderTermosLgpdColab(){
   const c = document.getElementById('termos-lgpd-colab-list'); if(!c) return;
@@ -2716,8 +2844,7 @@ function _renderTermosLgpdColab(c){
         <div style="display:flex;align-items:center;gap:8px">
           <span style="background:${bg};color:${cor};padding:3px 10px;border-radius:8px;font-size:11px;font-weight:700">${ass?'Assinado':'Pendente'}</span>${_carimboBadge(t)}
           <button class="btn btn-sm btn-outline" onclick="verTermoLgpd('${t.id}')" style="font-size:11px"><i class="fa-solid fa-eye"></i> Ver termo${ass?' + hash':''}</button>
-          ${ass?`<button class="btn btn-sm btn-outline" onclick="baixarTermoConferencia('${t.id}')" style="font-size:11px" title="Baixar o arquivo exato p/ conferir o carimbo no blockchain (opentimestamps.org)"><i class="fa-solid fa-download"></i> Conferência</button>`:''}
-          ${t.carimboOts?`<button class="btn btn-sm btn-outline" onclick="baixarOtsTermo('${t.id}')" style="font-size:11px" title="Baixar a prova de carimbo (.ots), verificável em opentimestamps.org"><i class="fa-solid fa-link"></i> Baixar .ots</button>`:''}
+          ${_carimboAcoesHtml('termolgpd', t.id)}
         </div>
       </div>
     </div>`;
@@ -2772,8 +2899,7 @@ function _lgpdTermosTabela(){
     <td style="padding:6px 8px;border:1px solid var(--border);font-size:11px;white-space:nowrap">${t.status==='assinado'&&t.assinadoEm?new Date(t.assinadoEm).toLocaleString('pt-BR'):(t.enviadoEm?'env. '+new Date(t.enviadoEm).toLocaleDateString('pt-BR'):'—')}</td>
     <td style="padding:6px 8px;border:1px solid var(--border);text-align:center;white-space:nowrap">
       <button class="btn-icon btn-outline" onclick="event.stopPropagation();verTermoLgpd('${t.id}')" title="Ver termo + hash"><i class="fa-solid fa-eye"></i></button>
-      ${t.status==='assinado'?`<button class="btn-icon btn-outline" onclick="event.stopPropagation();baixarTermoConferencia('${t.id}')" title="Baixar arquivo p/ conferência no blockchain (opentimestamps.org)"><i class="fa-solid fa-download"></i></button>`:''}
-      ${t.carimboOts?`<button class="btn-icon btn-outline" onclick="event.stopPropagation();baixarOtsTermo('${t.id}')" title="Baixar .ots (carimbo do tempo)"><i class="fa-solid fa-link"></i></button>`:''}
+      ${_carimboAcoesHtml('termolgpd', t.id, true)}
       <button class="btn-icon btn-danger-icon" onclick="event.stopPropagation();anularTermoLgpd('${t.id}')" title="Anular"><i class="fa-solid fa-ban"></i></button>
     </td>
   </tr>`; }).join('');
@@ -7384,8 +7510,7 @@ function renderFeriasList(ferias){
     }else if(t.status==='assinado'){
       status=`<span style="background:#E8F5E9;color:#2E7D32;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">✔ Assinado</span>${_carimboBadge(t)}`;
       acoes=`<button class="btn btn-sm btn-outline" onclick="verFeriasTermo('${t.id}')" style="font-size:11px" title="Ver o termo de férias assinado"><i class="fa-solid fa-file-lines"></i> Ver</button>
-        <button class="btn btn-sm btn-outline" onclick="baixarFeriasConferencia('${t.id}')" style="font-size:11px" title="Baixar o arquivo exato p/ conferir o carimbo no blockchain (opentimestamps.org)"><i class="fa-solid fa-download"></i> Conferência</button>
-        ${t.carimboOts?`<button class="btn btn-sm btn-outline" onclick="baixarOtsFerias('${t.id}')" style="font-size:11px" title="Baixar a prova de carimbo (.ots), verificável em opentimestamps.org"><i class="fa-solid fa-link"></i> .ots</button>`:''}`;
+        ${_carimboAcoesHtml('ferias', t.id)}`;
     }else{
       status='<span style="background:#FFF3E0;color:#E65100;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">⏳ Aguardando assinatura</span>';
       acoes=`<button class="btn btn-sm btn-outline" onclick="verFeriasTermo('${t.id}')" style="font-size:11px" title="Ver o termo enviado"><i class="fa-solid fa-file-lines"></i> Ver</button>`;
@@ -7518,8 +7643,6 @@ function verFeriasTermo(id){
 <style>body{font-family:Arial,sans-serif;padding:24px;max-width:780px;margin:0 auto;color:#212529;font-size:13px;line-height:1.6}h1{color:#1a3a6b;font-size:18px}.box{border:1px solid #ccc;border-radius:6px;padding:10px 12px;margin-top:14px;font-size:11px;color:#444;word-break:break-all}.tb-btn{cursor:pointer;border:1px solid #cbd5e1;background:#f8fafc;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;color:#1a3a6b}@media print{.no-print{display:none!important}}</style></head><body>
 <div class="no-print" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid #eee">
   <button class="tb-btn" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
-  ${(t.status==='assinado'&&t.assinatura)?`<button class="tb-btn" onclick="if(window.opener&&window.opener.baixarFeriasConferencia){window.opener.baixarFeriasConferencia('${t.id}')}else{alert('Abra pelo sistema para baixar.')}">⬇ Baixar arquivo p/ conferência (blockchain)</button>`:''}
-  ${t.carimboOts?`<button class="tb-btn" onclick="if(window.opener&&window.opener.baixarOtsFerias){window.opener.baixarOtsFerias('${t.id}')}else{alert('Abra pelo sistema para baixar.')}">🔗 Baixar .ots</button>`:''}
 </div>
 <h1>${(typeof _e==='function'?_e('nomeEmpresa'):'')||'Empresa'} — ${t.titulo}</h1>${t.conteudoHtml}
 ${t.status==='assinado'?`<div class="box"><strong>✔ Assinado eletronicamente</strong> em ${t.assinadoEm?new Date(t.assinadoEm).toLocaleString('pt-BR'):'—'}<br>Colaborador: ${t.employeeNome} — CPF ${t.cpf||'—'}<br>Hash SHA-256: ${ass.hash||'—'}<br>IP: ${ass.ip||'—'} · Dispositivo: ${(ass.deviceFingerprint||'').slice(0,16)}…${t.carimboStatus?`<br>🔗 Carimbo do tempo (blockchain): <strong>${t.carimboStatus==='confirmado'?'CONFIRMADO':'registrado'}</strong>${t.carimboCriadoEm?' em '+new Date(t.carimboCriadoEm).toLocaleString('pt-BR'):''} — prova .ots verificável em opentimestamps.org`:''}</div>`:`<div class="box">Status atual: <strong>${t.status}</strong> — aguardando assinatura do colaborador no app.</div>`}
@@ -14700,7 +14823,7 @@ function renderFolhasAssinadasColab(){
           <div style="font-weight:700;color:#1a1a2e;font-size:14px">${MESES[p.mes]} / ${p.ano}</div>
           <div style="font-size:11px;color:#888;margin-top:2px">Enviada: ${enviado} · ${cfg.txt}: ${assinado}</div>
         </div>
-        <span style="background:${cfg.bg};color:${cfg.cor};padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700"><i class="fa-solid ${cfg.icon}"></i> ${cfg.txt.toUpperCase()}</span>${_carimboBadgeStatus(p.carimboFolStatus)}
+        <span style="background:${cfg.bg};color:${cfg.cor};padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700"><i class="fa-solid ${cfg.icon}"></i> ${cfg.txt.toUpperCase()}</span>${_carimboBadgeStatus(p.carimboFolStatus)} ${_carimboAcoesHtml('folha', p.id, true)}
       </div>
       <div style="margin-top:8px;font-family:monospace;font-size:11px;color:#666"><strong>Hash:</strong> ${hashTrunc}</div>
       ${motivoContest}
@@ -14894,7 +15017,7 @@ function renderHoleritesAssinadosColab(){
           <div style="font-weight:700;color:#1a1a2e;font-size:14px">${MESES[p.mes]} / ${p.ano}</div>
           <div style="font-size:11px;color:#888;margin-top:2px">Enviado: ${enviado} · ${cfg.txt}: ${quando}</div>
         </div>
-        <span style="background:${cfg.bg};color:${cfg.cor};padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700"><i class="fa-solid ${cfg.icon}"></i> ${cfg.txt.toUpperCase()}</span>${_carimboBadgeStatus(p.carimboHolStatus)}
+        <span style="background:${cfg.bg};color:${cfg.cor};padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700"><i class="fa-solid ${cfg.icon}"></i> ${cfg.txt.toUpperCase()}</span>${_carimboBadgeStatus(p.carimboHolStatus)} ${_carimboAcoesHtml('holerite', p.id, true)}
       </div>
       <div style="margin-top:8px;font-family:monospace;font-size:11px;color:#666"><strong>Hash:</strong> ${hashTrunc}</div>
       ${motivo}
@@ -15048,7 +15171,7 @@ function renderRecibosBeneficioColab(){
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
         <div><div style="font-weight:700;font-size:14px">${esc(r.periodoLabel||'')}</div>
         <div style="font-size:11px;color:#888;margin-top:2px">Enviado: ${enviado} · Total ${fmtMoney(r.total||0)}</div></div>
-        <span style="background:${cfg.bg};color:${cfg.cor};padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700"><i class="fa-solid ${cfg.icon}"></i> ${cfg.txt.toUpperCase()}</span>${_carimboBadgeStatus(r.carimboStatus)}
+        <span style="background:${cfg.bg};color:${cfg.cor};padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700"><i class="fa-solid ${cfg.icon}"></i> ${cfg.txt.toUpperCase()}</span>${_carimboBadgeStatus(r.carimboStatus)} ${_carimboAcoesHtml('beneficio', r.id, true)}
       </div>
       <div style="margin-top:6px;font-family:monospace;font-size:11px;color:#666"><strong>Hash:</strong> ${hashTrunc}</div>
       ${motivo}
@@ -21809,7 +21932,7 @@ function renderFichaEpiColab(){
     <tbody>${movs.map(m=>{
       const dev=m.tipo==='devolucao';
       const ass = dev ? '—' : (m.assinatura
-        ? `<span style="color:#1B5E20" title="Assinado em ${m.assinatura.em?new Date(m.assinatura.em).toLocaleString('pt-BR'):''}"><i class="fa-solid fa-circle-check"></i></span>${_carimboIcon(m.carimboStatus)}`
+        ? `<span style="color:#1B5E20" title="Assinado em ${m.assinatura.em?new Date(m.assinatura.em).toLocaleString('pt-BR'):''}"><i class="fa-solid fa-circle-check"></i></span>${_carimboIcon(m.carimboStatus)} ${_carimboAcoesHtml('epi', m.id, true)}`
         : '<span style="color:#E65100" title="Aguardando assinatura do colaborador no app (Fase 3)"><i class="fa-solid fa-hourglass-half"></i></span>');
       return `<tr>
         <td>${m.data?formatDateBr(m.data):'—'}</td>

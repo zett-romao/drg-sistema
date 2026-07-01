@@ -4089,11 +4089,11 @@
         <div class="form-row" style="align-items:flex-end">
           <div class="form-group">
             <label>Início das Férias</label>
-            <input type="date" id="ferias-inicio" onchange="_feriasSync('inicio')">
+            <input type="date" id="ferias-inicio" onchange="_feriasSync('inicio')" onclick="try{this.showPicker()}catch(_){}">
           </div>
           <div class="form-group">
             <label>Fim das Férias</label>
-            <input type="date" id="ferias-fim" onchange="_feriasSync('fim')">
+            <input type="date" id="ferias-fim" onchange="_feriasSync('fim')" onclick="try{this.showPicker()}catch(_){}">
           </div>
           <div class="form-group form-group-sm">
             <label>Dias</label>
@@ -7554,6 +7554,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260701c-he-posdemissao"></script>
+  <script src="app.js?v=20260701d-ferias-inicio-clt"></script>
 </body>
 </html>

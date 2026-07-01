@@ -7382,6 +7382,32 @@ function _feriasTermoDe(feriasId){
   return (State.termosFerias||[]).find(t=>t.feriasId===feriasId && t.status!=='anulado');
 }
 
+// CLT Art. 134 §3º: é VEDADO o início das férias no dia de descanso semanal/feriado
+// e nos DOIS dias que o antecedem. Usa a escala REAL do colaborador (folga) + feriado
+// do posto. Retorna a razão (string) se proibido, ou null se ok. #ferias-inicio-clt
+function _feriasDescansoOuFeriado(emp, dt){
+  const y=dt.getFullYear(), m=dt.getMonth()+1, d=dt.getDate();
+  let exp=null; try{ exp=_getExpectedDay(emp, m, y, d); }catch(_){}
+  if(exp && exp.tipo==='folga' && !exp.posDemissao && !exp.preAdmissao) return 'descanso';
+  let f=null; try{ f=_ehFeriado(y, m, d, _locFeriadoEmp(emp)); }catch(_){}
+  if(f && f.folga && _escalaRespeitaFeriado(emp.escala)) return 'feriado';
+  return null;
+}
+function _feriasInicioProibido(emp, ymdInicio){
+  if(!emp || !ymdInicio) return null;
+  const base=new Date(ymdInicio+'T00:00:00'); if(isNaN(base.getTime())) return null;
+  const noProprio=_feriasDescansoOuFeriado(emp, base);
+  if(noProprio) return noProprio==='feriado'
+    ? 'O início cai em um FERIADO — férias não podem começar em feriado.'
+    : 'O início cai em um dia de DESCANSO (folga da escala) — férias não podem começar no descanso semanal.';
+  const d1=new Date(base); d1.setDate(d1.getDate()+1);
+  const d2=new Date(base); d2.setDate(d2.getDate()+2);
+  const r1=_feriasDescansoOuFeriado(emp, d1), r2=_feriasDescansoOuFeriado(emp, d2);
+  const tipo = r1 || r2;
+  if(tipo) return `O início cai nos 2 dias que antecedem um ${tipo==='feriado'?'feriado':'dia de descanso semanal'} — vedado pela CLT (Art. 134 §3º). Escolha começar antes.`;
+  return null;
+}
+
 async function addFerias(){
   const empId=val('emp-id');
   if(!empId){ toast('Salve o colaborador primeiro.','warning'); return; }
@@ -7390,6 +7416,9 @@ async function addFerias(){
   if(fim<inicio){ toast('Fim deve ser após o início.','error'); return; }
   const dias=Math.round((new Date(fim)-new Date(inicio))/(1000*60*60*24))+1;
   const emp=State.employees.find(e=>e.id===empId); if(!emp) return;
+  // CLT Art. 134 §3º — bloqueia início em descanso/feriado ou nos 2 dias anteriores. #ferias-inicio-clt
+  const _proibido=_feriasInicioProibido(emp, inicio);
+  if(_proibido){ toast('Não é possível iniciar as férias nesse dia. '+_proibido, 'error'); return; }
   const feriasId=genId();
   const tipo=val('ferias-tipo')||'Férias', obs=val('ferias-obs');
   const ferias=[...(emp.ferias||[]),{id:feriasId,inicio,fim,dias,tipo,obs}];

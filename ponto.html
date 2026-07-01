@@ -28,11 +28,14 @@
         +'</div>';
       (document.body||document.documentElement).appendChild(d);
     }
+    function _esc0(s){ return String(s).replace(/[<&>]/g,function(c){return c==='<'?'&lt;':c==='>'?'&gt;':'&amp;';}); }
     function _banner(){
       if(document.getElementById('__drg_errbar')) return;
       var b=document.createElement('div'); b.id='__drg_errbar';
-      b.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:2147483500;background:#C62828;color:#fff;font-family:-apple-system,Arial,sans-serif;font-size:13px;padding:10px 14px;display:flex;align-items:center;gap:8px';
-      b.innerHTML='<span style="flex:1">⚠️ Ocorreu um erro. Se travou, recarregue.</span>'
+      b.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:2147483500;background:#C62828;color:#fff;font-family:-apple-system,Arial,sans-serif;font-size:12px;padding:10px 14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap';
+      // Mostra a mensagem REAL do erro (ajuda o diagnóstico) — não só o texto genérico. #diag-erro
+      var det=(window.__APP_ERRORS&&window.__APP_ERRORS.length)?_esc0(String(window.__APP_ERRORS[0]).slice(0,220)):'';
+      b.innerHTML='<span style="flex:1;min-width:150px">⚠️ Ocorreu um erro. Se travou, recarregue.'+(det?'<br><span style="font-size:11px;opacity:.92;font-family:monospace;word-break:break-word">'+det+'</span>':'')+'</span>'
         +'<button onclick="location.reload(true)" style="background:#fff;color:#C62828;border:none;border-radius:4px;padding:6px 12px;font-size:12px;font-weight:700">↻ Recarregar</button>'
         +'<button onclick="this.parentNode.remove()" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,.5);border-radius:4px;padding:6px 10px;font-size:12px">Fechar</button>';
       (document.body||document.documentElement).appendChild(b);
@@ -556,7 +559,7 @@ try{ window.__APP_BOOTED = true; }catch(_){}
 // ─── VERSÃO DO APP DO COLABORADOR ─────────────────────────────────────────────
 // Bumpe SEMPRE em conjunto com o CACHE do ponto-sw.js e o ?v= do firebase-config.
 // Formato: AA.MM.DD + letra (a, b, c...) — alinhado com o nome do cache.
-const PONTO_VERSION = '26.07.01c';
+const PONTO_VERSION = '26.07.01d';
 // Exibe a versão no rodapé (script roda após o DOM, então o elemento já existe)
 (function _setVersionTag(){
   const t = document.getElementById('app-version-tag');

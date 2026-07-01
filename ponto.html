@@ -553,7 +553,7 @@ try{ window.__APP_BOOTED = true; }catch(_){}
 // ─── VERSÃO DO APP DO COLABORADOR ─────────────────────────────────────────────
 // Bumpe SEMPRE em conjunto com o CACHE do ponto-sw.js e o ?v= do firebase-config.
 // Formato: AA.MM.DD + letra (a, b, c...) — alinhado com o nome do cache.
-const PONTO_VERSION = '26.07.01a';
+const PONTO_VERSION = '26.07.01b';
 // Exibe a versão no rodapé (script roda após o DOM, então o elemento já existe)
 (function _setVersionTag(){
   const t = document.getElementById('app-version-tag');
@@ -1055,22 +1055,37 @@ function _diaJornada(){
   const emp=currentEmp||{};
   const ent=emp.horarioEntrada?timeToMin(emp.horarioEntrada):null;
   const sai=emp.horarioSaida?timeToMin(emp.horarioSaida):null;
+  const nowMin=now.getHours()*60+now.getMinutes();
+  // Véspera (calendário) e seu registro na folha ATUAL. A competência (26→25) já traz
+  // os dias 26-31 do mês anterior, então a virada 30/31→01 NÃO perde a jornada. #ponto-noturno-virada
+  const ontem=new Date(now); ontem.setDate(ontem.getDate()-1);
+  const oDia=ontem.getDate();
+  const recOntem=(currentPayroll?.pontoManualDias||[]).find(d=>d && d.dia===oDia);
+  // Jornada noturna EM CURSO na véspera: entrou de tarde/noite (≥16h) e AINDA não bateu
+  // a saída. Cobre 12x36/escala noturna mesmo SEM flag turnoNoturno nem horário fixo no
+  // cadastro — sem isso, o intervalo/saída após a meia-noite virava ENTRADA nova. #ponto-noturno-virada
+  const turnoAbertoOntem = !!(recOntem && recOntem.entrada && !recOntem.saida
+                              && timeToMin(recOntem.entrada) >= 16*60);
   // Turno noturno: flag marcada, OU saída antes da entrada (cruza meia-noite),
-  // OU entrada a partir das 17h (forte indício de turno da noite).
+  // OU entrada a partir das 17h, OU turno aberto na véspera (12x36/escala).
   const ehNoturno = !!emp.turnoNoturno
     || (ent!=null && sai!=null && sai<ent)
-    || (ent!=null && ent>=17*60);
+    || (ent!=null && ent>=17*60)
+    || turnoAbertoOntem;
   if(!ehNoturno) return base;
   // Ponto de virada da jornada: meio do caminho entre a saída e a entrada previstas
   // (ex.: saída 07h + entrada 19h → vira às 13h). Antes desse horário, o registro
   // pertence à jornada que começou na véspera. Sem horários definidos, usa 14h.
   let corte = 14*60;
   if(ent!=null && sai!=null && sai<ent) corte = Math.round((sai+ent)/2);
-  if(now.getHours()*60+now.getMinutes() >= corte) return base;
-  const ontem=new Date(now); ontem.setDate(ontem.getDate()-1);
-  // Virada de mês fica fora deste ajuste (a folha do mês anterior não está carregada)
-  if(ontem.getMonth()+1!==base.mes || ontem.getFullYear()!==base.ano) return base;
-  return {dia:ontem.getDate(), mes:base.mes, ano:base.ano};
+  if(nowMin >= corte) return base;
+  // Só atribui à véspera se ela estiver na MESMA COMPETÊNCIA de hoje (a folha da véspera
+  // está carregada) — assim a virada de mês 30/31→01 continua a jornada, e a fronteira
+  // real da competência (25→26) permanece separada (folha anterior não carregada). #ponto-noturno-virada
+  const cOntem=_competenciaDe(oDia, ontem.getMonth()+1, ontem.getFullYear());
+  const cBase =_competenciaDe(base.dia, base.mes, base.ano);
+  if(cOntem.mes!==cBase.mes || cOntem.ano!==cBase.ano) return base;
+  return {dia:oDia, mes:ontem.getMonth()+1, ano:ontem.getFullYear()};
 }
 
 function getDiaHoje() {

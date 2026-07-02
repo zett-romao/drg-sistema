@@ -559,7 +559,7 @@ try{ window.__APP_BOOTED = true; }catch(_){}
 // ─── VERSÃO DO APP DO COLABORADOR ─────────────────────────────────────────────
 // Bumpe SEMPRE em conjunto com o CACHE do ponto-sw.js e o ?v= do firebase-config.
 // Formato: AA.MM.DD + letra (a, b, c...) — alinhado com o nome do cache.
-const PONTO_VERSION = '26.07.01d';
+const PONTO_VERSION = '26.07.02a';
 // Exibe a versão no rodapé (script roda após o DOM, então o elemento já existe)
 (function _setVersionTag(){
   const t = document.getElementById('app-version-tag');
@@ -2890,23 +2890,23 @@ async function abrirMeusDocumentos(){
     </div></div>`);
   try{
     const eid=currentEmp.id;
-    const q=col=>dbCol(col);
+    // Cada coleção é buscada de forma INDEPENDENTE e tolerante a falha: se uma for negada/
+    // indisponível, as demais ainda aparecem (não derruba a lista inteira). #meus-documentos
+    const _qy=async (col,field)=>{ try{ const s=await dbCol(col).where(field,'==',eid).get(); return s.docs||[]; }catch(e){ console.warn('meus docs query',col,(e&&e.message)||e); return []; } };
+    const _safe=fn=>{ try{ fn(); }catch(e){ console.warn('meus docs proc',(e&&e.message)||e); } };
     const [lgpd,fer,pay,ben,epi]=await Promise.all([
-      q('termosLgpd').where('employeeId','==',eid).get().catch(()=>({docs:[]})),
-      q('termosFerias').where('employeeId','==',eid).get().catch(()=>({docs:[]})),
-      q('payrolls').where('employeeId','==',eid).get().catch(()=>({docs:[]})),
-      q('beneficioRecibos').where('employeeId','==',eid).get().catch(()=>({docs:[]})),
-      q('estoqueMov').where('colaboradorId','==',eid).get().catch(()=>({docs:[]})),
+      _qy('termosLgpd','employeeId'), _qy('termosFerias','employeeId'), _qy('payrolls','employeeId'),
+      _qy('beneficioRecibos','employeeId'), _qy('estoqueMov','colaboradorId'),
     ]);
     const items=[];
-    lgpd.docs.forEach(s=>{ const d={id:s.id,...s.data()}; if(d.status==='assinado'&&d.assinatura) items.push(_mkMeuDoc('lgpd','Termo LGPD',d,d.assinadoEm,d.titulo||'Termo de Ciência e Consentimento (LGPD)',d.conteudoHtml,d.assinatura,'carimbo')); });
-    fer.docs.forEach(s=>{ const d={id:s.id,...s.data()}; if(d.status==='assinado'&&d.assinatura) items.push(_mkMeuDoc('ferias','Termo de Férias',d,d.assinadoEm,d.titulo||'Comunicação e Recibo de Férias',d.conteudoHtml,d.assinatura,'carimbo')); });
-    pay.docs.forEach(s=>{ const d={id:s.id,...s.data()};
+    lgpd.forEach(s=>_safe(()=>{ const d={id:s.id,...s.data()}; if(d.status==='assinado'&&d.assinatura) items.push(_mkMeuDoc('lgpd','Termo LGPD',d,d.assinadoEm,d.titulo||'Termo de Ciência e Consentimento (LGPD)',d.conteudoHtml,d.assinatura,'carimbo')); }));
+    fer.forEach(s=>_safe(()=>{ const d={id:s.id,...s.data()}; if(d.status==='assinado'&&d.assinatura) items.push(_mkMeuDoc('ferias','Termo de Férias',d,d.assinadoEm,d.titulo||'Comunicação e Recibo de Férias',d.conteudoHtml,d.assinatura,'carimbo')); }));
+    pay.forEach(s=>_safe(()=>{ const d={id:s.id,...s.data()};
       if(d.assinatura&&d.assinatura.hash) items.push(_mkMeuDoc('folha','Folha de Ponto assinada',d,(d.assinatura.assinadoEm||d.assinadoEm),`Folha de Ponto — ${d.mes}/${d.ano}`,((d.envioConferencia&&d.envioConferencia.reciboHtml)||d.assinatura.conteudoJson||''),d.assinatura,'carimboFol'));
       if(d.holeriteAssinatura&&d.holeriteAssinatura.hash) items.push(_mkMeuDoc('holerite','Holerite assinado',d,d.holeriteAssinatura.assinadoEm,`Holerite — ${d.mes}/${d.ano}`,((d.holeriteConferencia&&d.holeriteConferencia.reciboHtml)||''),d.holeriteAssinatura,'carimboHol'));
-    });
-    ben.docs.forEach(s=>{ const d={id:s.id,...s.data()}; if((d.status==='assinada'||d.status==='assinado')&&d.assinatura) items.push(_mkMeuDoc('beneficio','Recibo de Benefício',d,d.assinadoEm,d.titulo||'Recibo de Benefício',((d.assinatura.htmlRender)||d.reciboHtml||''),d.assinatura,'carimbo')); });
-    epi.docs.forEach(s=>{ const d={id:s.id,...s.data()}; if(d.assinatura&&d.assinatura.hash) items.push(_mkMeuDoc('epi','Recibo de EPI',d,d.assinatura.em,`Recibo de EPI — ${d.itemNome||''}`,'',d.assinatura,'carimbo')); });
+    }));
+    ben.forEach(s=>_safe(()=>{ const d={id:s.id,...s.data()}; if((d.status==='assinada'||d.status==='assinado')&&d.assinatura) items.push(_mkMeuDoc('beneficio','Recibo de Benefício',d,d.assinadoEm,d.titulo||'Recibo de Benefício',((d.assinatura.htmlRender)||d.reciboHtml||''),d.assinatura,'carimbo')); }));
+    epi.forEach(s=>_safe(()=>{ const d={id:s.id,...s.data()}; if(d.assinatura&&d.assinatura.hash) items.push(_mkMeuDoc('epi','Recibo de EPI',d,d.assinatura.em,`Recibo de EPI — ${d.itemNome||''}`,'',d.assinatura,'carimbo')); }));
     items.sort((a,b)=>String(b.data||'').localeCompare(String(a.data||'')));
     _meusDocsCache=items;
     const box=document.getElementById('meus-docs-lista'); if(!box) return;
@@ -2917,7 +2917,7 @@ async function abrirMeusDocumentos(){
           <button onclick="verMeuDocumento(${i})" style="margin-left:auto;background:#2563eb;color:#fff;border:none;padding:7px 14px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer">📄 Ver / Salvar PDF</button>
         </div></div>`).join('')
       : '<div style="text-align:center;color:#94a3b8;padding:24px">Você ainda não tem documentos assinados.</div>';
-  }catch(e){ const box=document.getElementById('meus-docs-lista'); if(box) box.innerHTML='<div style="color:#c62828;padding:16px">Erro ao carregar. Tente de novo.</div>'; console.error('meus docs',e); }
+  }catch(e){ const box=document.getElementById('meus-docs-lista'); if(box) box.innerHTML='<div style="color:#c62828;padding:16px;font-size:13px">Erro ao carregar. Tente de novo.<br><span style="font-size:11px;font-family:monospace;word-break:break-word;color:#94a3b8">'+_esc(String((e&&e.message)||e).slice(0,200))+'</span></div>'; console.error('meus docs',e); }
 }
 function verMeuDocumento(i){
   const it=_meusDocsCache[i]; if(!it) return; const a=it.ass||{};

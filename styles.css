@@ -1268,7 +1268,9 @@ ul { list-style: none; }
   .topbar-user span { max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   /* --- Conteúdo --- */
-  .page-content { padding: 14px; }
+  /* overflow-x:auto = rede de segurança: se alguma seção tiver conteúdo largo (tabela/
+     dashboard), rola na horizontal em vez de cortar. #mobile */
+  .page-content { padding: 14px; overflow-x: auto; }
 
   /* --- Cabeçalho de seção --- */
   .page-header {
@@ -1310,13 +1312,14 @@ ul { list-style: none; }
   .btn-action span { display: none; }
   .btn-action { padding: 6px 8px; }
 
-  /* --- Modais --- */
+  /* --- Modais: viram "bottom sheet" de tela cheia no celular. A app usa .modal-dialog
+     (o .modal-box antigo quase não é usado) — mirar os dois. #mobile --- */
   .modal-overlay { align-items: flex-end; padding: 0; }
-  .modal-box {
+  .modal-dialog, .modal-box {
     width: 100% !important;
     max-width: 100% !important;
     max-height: 92vh;
-    border-radius: var(--radius) var(--radius) 0 0;
+    border-radius: 14px 14px 0 0;
     margin: 0;
   }
   .modal-sm, .modal-md, .modal-lg { max-width: 100% !important; }
@@ -1331,8 +1334,11 @@ ul { list-style: none; }
   .modal-tabs::-webkit-scrollbar { display: none; }
   .modal-tab { white-space: nowrap; padding: 10px 14px; font-size: 12px; }
 
-  /* Modal body com scroll */
-  .modal-body { overflow-y: auto; max-height: calc(92vh - 130px); padding: 16px; }
+  /* Modal body com scroll (vertical E horizontal — tabelas largas rolam DENTRO do modal,
+     em vez de estourar a tela). #mobile */
+  .modal-body { overflow-y: auto; overflow-x: auto; max-height: calc(92vh - 130px); padding: 16px; }
+  /* Tabelas/blocos largos dentro do conteúdo rolam sozinhos, sem empurrar a página. */
+  .page-content table { max-width: 100%; }
 
   /* Formulários: 1 coluna */
   .form-row { flex-direction: column; gap: 10px; }

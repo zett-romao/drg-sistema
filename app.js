@@ -23278,6 +23278,7 @@ function _monitorAtrasosHoje(){
     if((emp.status||'ativo') !== 'ativo') return;
     if(emp.isentoPonto) return;
     if(!_empNoEscopo(emp)) return;
+    const _r=_mfResolv[emp.id]; if(_r && _r.status==='atraso-tratado') return;   // atraso já validado hoje → sai da lista. #monitor-atraso-tratar
     const exp = _getExpectedDay(emp, mes, ano, dia);
     if(!exp || exp.tipo==='folga' || !exp.entrada) return;
     const entMin = timeToMinutes(exp.entrada);
@@ -23293,6 +23294,19 @@ function _monitorAtrasosHoje(){
     }
   });
   return out.sort((a,b)=> b.atrasoMin - a.atrasoMin);
+}
+// "Validado" na lista de ATRASOS: o operador já conferiu/aplicou o atraso na folha → tira
+// da lista (marca 'atraso-tratado' na resolução do dia). NÃO mexe na folha — o atraso já é
+// apurado automaticamente (Súmula 366). Reseta no dia seguinte. #monitor-atraso-tratar
+async function _monitorAtrasoTratar(empId){
+  if(!_mfPodeAgir()){ toast('Sem permissão.','error'); return; }
+  const emp=State.employees.find(e=>e.id===empId);
+  try{
+    await _mfSalvarResolv(empId,'atraso-tratado');
+    Auth.log && Auth.log('ATRASO_VALIDADO', null, `${emp?emp.nome:empId} — ${_mfYmdHoje()} (Monitor de Faltas)`);
+    toast(`Atraso de ${emp?emp.nome:''} validado — saiu da lista.`,'success');
+    renderMonitorFaltas();
+  }catch(e){ toast('Erro: '+(e&&e.message||e),'error'); }
 }
 // Atestado/abono aprovado (em dias) cobrindo a data ymd → colaborador justificado. #monitor-faltas
 function _temAtestadoNoDia(empId, ymd){
@@ -23429,6 +23443,7 @@ async function renderMonitorFaltas(){
           <th style="padding:10px 8px;text-align:center">Entrada prevista</th>
           <th style="padding:10px 8px;text-align:center">Entrada real</th>
           <th style="padding:10px 8px;text-align:center">Atraso</th>
+          <th style="padding:10px 8px;text-align:center">Ação</th>
         </tr></thead><tbody>${atrasos.map(a=>`
           <tr style="border-bottom:1px solid #eee">
             <td style="padding:10px 8px;font-weight:600"><a href="javascript:void(0)" onclick="openPayrollForEmployee('${a.id}')" title="Abrir a folha de ${esc(a.nome)}" style="color:#C2410C;text-decoration:none;border-bottom:1px dotted #C2410C">${esc(a.nome)}</a></td>
@@ -23436,8 +23451,9 @@ async function renderMonitorFaltas(){
             <td style="padding:10px 8px;text-align:center;font-variant-numeric:tabular-nums">${esc(a.previsto)}</td>
             <td style="padding:10px 8px;text-align:center;font-variant-numeric:tabular-nums">${esc(a.real)}</td>
             <td style="padding:10px 8px;text-align:center;color:#C2410C;font-weight:700;font-variant-numeric:tabular-nums">${_fmtAtraso(a.atrasoMin)}</td>
+            <td style="padding:10px 8px;text-align:center"><button class="btn btn-sm" onclick="_monitorAtrasoTratar('${a.id}')" title="Já conferi/apliquei este atraso na folha — tirar da lista" style="font-size:11px;padding:4px 10px;background:#E8F5E9;color:#2E7D32;border:1px solid #A5D6A7"><i class="fa-solid fa-check"></i> Validado</button></td>
           </tr>`).join('')}</tbody></table></div>
-      <div style="margin-top:6px;font-size:11px;color:#9A3412">O atraso é apurado automaticamente na folha (Súmula 366: soma > 10 min/dia desconta o total). Esta lista é só para acompanhamento.</div>
+      <div style="margin-top:6px;font-size:11px;color:#9A3412">O atraso é apurado automaticamente na folha (Súmula 366: soma > 10 min/dia desconta o total). Clique em <strong>Validado</strong> quando já tiver conferido/aplicado o atraso na folha para tirar da lista (reseta amanhã).</div>
     </div>` : '';
 
   let corpo;

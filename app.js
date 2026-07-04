@@ -8841,6 +8841,12 @@ async function saveEmployee(){
     const _eix=State.employees.findIndex(e=>e.id===data.id);
     if(_eix>=0) State.employees[_eix]={...State.employees[_eix],...data};
     else State.employees.push(data);
+    // REGRA (dono 2026-07-03): demissão NOVA (comparada com a anterior) → fecha automático as
+    // folhas (mês da demissão + abertas anteriores) com as faltas apuradas. #demissao-fecha-folha
+    if(demissao && (!existing || (existing.dataDemissao||'')!==demissao)){
+      try{ await _fecharFolhasDemissao(State.employees.find(e=>e.id===data.id)||data); }
+      catch(e){ console.error('demissao fecha folha', e); }
+    }
     if(State.currentSection==='payroll' && val('payroll-employee')===data.id){
       onPayrollEmployeeChange();
     }
@@ -14685,6 +14691,50 @@ async function fecharFolhaPorId(payrollId){
     renderFolhasFechadasLista();
     if(State.currentSection==='pagamentos') renderPagamentos();
   }catch(e){ console.error(e); toast('Erro ao fechar folha.','error'); }
+}
+
+// REGRA DURA (dono 2026-07-03): informada a DATA DE DEMISSÃO, fecha AUTOMÁTICO (sem confirm) as
+// folhas do colaborador — a da COMPETÊNCIA da demissão + todas as ABERTAS de meses anteriores —
+// apurando e gravando as faltas (`faltasInjustificadas` via _apuracaoPontoTotais; bônus via
+// _apurarBonusFolha). Ele já vira 'inativo' (some do Monitor); folha fechada some do card
+// "Faltas Registradas". Reversível: reabrir a folha / apagar a demissão volta ao normal.
+// #demissao-fecha-folha
+async function _fecharFolhasDemissao(emp){
+  if(!emp || !emp.dataDemissao) return;
+  const dem=new Date((emp.dataDemissao+'').slice(0,10)+'T00:00:00');
+  if(isNaN(dem.getTime())) return;
+  const cDem=_competenciaDe(dem);
+  const keyDem=(+cDem.ano)*12 + (+cDem.mes);
+  const _key=p=>(+p.ano)*12 + (+p.mes);
+  const alvo=(State.payrolls||[]).filter(p=> p && p.employeeId===emp.id && p.status!=='fechada' && _key(p)<=keyDem);
+  // Garante a folha da competência da demissão (cria determinística se não existir NENHUMA — aberta ou fechada).
+  const temDem=(State.payrolls||[]).some(p=> p && p.employeeId===emp.id && p.mes==cDem.mes && p.ano==cDem.ano);
+  if(!temDem){
+    alvo.push({ id:_payrollId(emp.id,cDem.mes,cDem.ano), employeeId:emp.id, mes:cDem.mes, ano:cDem.ano,
+      pontoManualDias:[], status:'aberta', createdAt:new Date().toISOString() });
+  }
+  if(!alvo.length) return;
+  const agora=new Date().toISOString();
+  let n=0;
+  for(const p of alvo){
+    try{
+      const faltas=(!emp.isentoPonto)?(_apuracaoPontoTotais(emp,p).faltaQtd||0):0;
+      let bonus=null; try{ if(!emp.isentoPonto) bonus=_apurarBonusFolha(p,emp,State.cct); }catch(_){}
+      const record={...p, faltasInjustificadas:faltas, status:'fechada', fechadoEm:agora, updatedAt:agora };
+      if(bonus) Object.assign(record, bonus);
+      await DB.save('payrolls', _sanitizeForFirestore(record));
+      const ix=(State.payrolls||[]).findIndex(r=>r.id===record.id);
+      if(ix>=0) State.payrolls[ix]=record; else (State.payrolls=State.payrolls||[]).push(record);
+      n++;
+    }catch(e){ console.error('fechar folha demissao', emp&&emp.nome, e); }
+  }
+  try{ Auth.log('DEMISSAO_FECHA_FOLHA', null, `${emp.nome} — demissão ${emp.dataDemissao} — ${n} folha(s) fechada(s)`); }catch(_){}
+  if(n){
+    toast(`Demissão de ${emp.nome}: ${n} folha(s) fechada(s) com as faltas apuradas.`,'success');
+    try{ if(State.currentSection==='dashboard') renderDashboard(); }catch(_){}
+    try{ if(State.currentSection==='monitorfaltas') renderMonitorFaltas(); }catch(_){}
+    try{ renderFolhasFechadasLista(); }catch(_){}
+  }
 }
 
 // Envia SÓ as folhas marcadas na lista de Folhas Fechadas pra conferência.

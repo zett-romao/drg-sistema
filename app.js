@@ -27738,6 +27738,20 @@ async function applyPontoManual(){
   // aprovada). Antes só gravava se >0, deixando valor velho na folha.
   setVal('payroll-he-total', heHorasAplic>0 ? heHorasAplic : '');
   recalculate();
+  // Persiste TAMBÉM os encargos recalculados (bruto/INSS/IRRF/FGTS/líquido) no MESMO gesto —
+  // senão a folha fica "sem valores calculados" na Contabilidade mesmo após aplicar o ponto
+  // (o aviso não some). Antes só o savePayroll ("Salvar Lançamento") gravava isso. #contab-some-nome
+  try{
+    const _pf = (State.payrolls||[]).find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
+    if(_pf){
+      const _enc = { totalBruto:numVal('payroll-total-bruto')||0, inss:numVal('payroll-inss')||0,
+        irrf:numVal('payroll-irrf')||0, fgts:numVal('payroll-fgts')||0,
+        totalLiquidoFinal:numVal('payroll-total-liquido-final')||0, updatedAt:new Date().toISOString() };
+      Object.assign(_pf, _enc);
+      await DB.merge('payrolls', _pf.id, _enc);
+      if(State.currentSection==='contabilidade' && typeof renderContabilidade==='function') renderContabilidade();
+    }
+  }catch(e){ console.warn('persistir encargos no aplicar', e); }
   renderAtrasosFolha();
   closeModal('modal-ponto-manual');
   // Atualiza o dashboard (card "Faltas Registradas") com o nº de faltas já sincronizado. #falta-monitor-sync

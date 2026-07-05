@@ -19638,7 +19638,8 @@ function renderDocumentosAprovadosNaFicha(empId){
     box.innerHTML='<div style="font-size:12px;color:#94a3b8;padding:8px 2px">Nenhum documento enviado pelo app ainda.</div>';
     return;
   }
-  box.innerHTML = docs.map(d=>{
+  _docFichaAppItems=docs;   // guarda p/ o botão "Baixar". #docs-ver-baixar
+  box.innerHTML = docs.map((d,i)=>{
     const meta=DOC_TIPOS_META[d.tipo]||{ico:'📄',nome:d.tipoLabel||d.tipo||'Documento'};
     const dt=(d.createdAt||'').substring(0,10).split('-').reverse().join('/');
     return `<div class="doc-item">
@@ -19648,11 +19649,14 @@ function renderDocumentosAprovadosNaFicha(empId){
         <div class="doc-meta">Enviado em ${dt} · aprovado por ${d.aprovadoPorNome||'—'}</div>
       </div>
       <div class="doc-actions">
-        <a href="${d.arquivoUrl}" target="_blank" rel="noopener" class="btn-icon btn-primary-icon" title="Abrir"><i class="fa-solid fa-download"></i></a>
+        <a href="${d.arquivoUrl}" target="_blank" rel="noopener" class="btn-icon btn-outline" title="Visualizar"><i class="fa-solid fa-eye"></i></a>
+        <button class="btn-icon btn-primary-icon" onclick="_baixarDocApp(${i})" title="Baixar"><i class="fa-solid fa-download"></i></button>
       </div>
     </div>`;
   }).join('');
 }
+let _docFichaAppItems=[];
+function _baixarDocApp(i){ const d=(_docFichaAppItems||[])[i]; if(!d) return; const meta=DOC_TIPOS_META[d.tipo]||{}; _baixarArquivoUrl(d.arquivoUrl, d.arquivoNome||meta.nome||'documento'); }
 
 function _lockPayrollForm(isLocked){
   const form=document.querySelector('#section-payroll .payroll-form-col');

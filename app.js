@@ -5730,14 +5730,19 @@ function _resumoEncargosCompetencia(mes,ano){
   const folhaMap=_buildFolhaMap(folhasMes);   // dedup: pega o registro mais completo por colaborador
   const P=_encParamsEmpresa();
   const r={...P, headcount:0, base:0, inssRetido:0, irrfRetido:0, fgts:0, liquido:0,
-           inssPatronal:0, rat:0, terceiros:0, gpsTotal:0, custoEmpregador:0, semValores:0};
+           inssPatronal:0, rat:0, terceiros:0, gpsTotal:0, custoEmpregador:0, semValores:0, semValoresList:[]};
   Object.keys(folhaMap).forEach(id=>{
     const p=folhaMap[id]; if(!p) return;
     const base=+(p.totalBruto||0), inss=+(p.inss||0), irrf=+(p.irrf||0), fgts=+(p.fgts||0), liq=+(p.totalLiquidoFinal||0);
     r.headcount++;
     r.base+=base; r.inssRetido+=inss; r.irrfRetido+=irrf; r.fgts+=fgts; r.liquido+=liq;
-    if(base<=0 && inss<=0 && fgts<=0) r.semValores++;
+    if(base<=0 && inss<=0 && fgts<=0){ r.semValores++;
+      // Guarda quem está sem valores p/ o aviso clicável (abre a folha da pessoa). #alerta-clicavel
+      const _e=(State.employees||[]).find(x=>x.id===id);
+      r.semValoresList.push({ id, nome:(_e&&_e.nome)||p.employeeNome||'(sem nome)', reg:(_e&&_e.registro)||'' });
+    }
   });
+  r.semValoresList.sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
   if(P.regime!=='simples'){
     r.inssPatronal = r.base * P.patrAliq/100;
     r.rat          = r.base * (P.ratAliq*P.fap)/100;
@@ -5793,7 +5798,12 @@ function _encargosResumoHtml(r,mes,ano){
         <div style="font-size:10px;color:#888">bruto + patronais + FGTS</div>
       </div>
     </div>
-    ${r.semValores>0?`<div style="margin-top:12px;padding:8px 12px;background:#FFEBEE;border:1px solid #EF9A9A;border-radius:6px;font-size:12px;color:#B71C1C"><i class="fa-solid fa-triangle-exclamation"></i> ${r.semValores} folha(s) sem valores calculados (INSS/FGTS zerados) — abra cada uma e clique <strong>Aplicar na Folha</strong> p/ o resumo ficar completo.</div>`:''}
+    ${r.semValores>0?`<div style="margin-top:12px;padding:10px 12px;background:#FFEBEE;border:1px solid #EF9A9A;border-radius:6px;font-size:12px;color:#B71C1C">
+      <i class="fa-solid fa-triangle-exclamation"></i> <strong>${r.semValores} folha(s)</strong> sem valores calculados (INSS/FGTS zerados). <strong>Clique no nome</strong> para abrir a folha e clicar em <strong>Aplicar na Folha</strong>:
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
+        ${(r.semValoresList||[]).map(c=>`<a href="javascript:void(0)" onclick="openPayrollForEmployee('${c.id}',{mes:${mes},ano:${ano}})" title="Abrir a folha de ${esc(c.nome)}" style="background:#fff;border:1px solid #EF9A9A;color:#B71C1C;border-radius:14px;padding:3px 10px;text-decoration:none;font-weight:600;white-space:nowrap">${c.reg?`<span style="opacity:.55">${esc(String(c.reg).padStart(4,'0'))}</span> `:''}${esc(c.nome)}</a>`).join('')}
+      </div>
+    </div>`:''}
     <div style="margin-top:12px;font-size:11px;color:#999;line-height:1.5">
       <i class="fa-solid fa-circle-info"></i> Regime: <strong>${regimeLbl}</strong> · ${r.headcount} folha(s) na competência. Base contributiva = total bruto das folhas mensais; <strong>não inclui</strong> 13º, férias e rescisões (encargos próprios). Confira as alíquotas patronais (RAT/FAP/terceiros) com seu contador — variam por CNAE/FPAS.
     </div>`;

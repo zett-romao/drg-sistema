@@ -25117,6 +25117,19 @@ async function confirmApplyCct(){
 // ============================================
 // DOCUMENTOS DO COLABORADOR (Firebase Storage)
 // ============================================
+// FORÇA o download de um arquivo (fetch→blob→<a download>). A tag `download` sozinha é
+// ignorada em URL de outro domínio (Firebase Storage), por isso baixamos o blob. Se falhar
+// (ex.: offline), abre numa aba. #docs-ver-baixar
+let _docFichaStorageItems=[];
+async function _baixarArquivoUrl(url, nome){
+  try{
+    const r=await fetch(url); if(!r.ok) throw 0;
+    const b=await r.blob(); const a=document.createElement('a');
+    a.href=URL.createObjectURL(b); a.download=String(nome||'documento').replace(/^\d+_/,'');
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+  }catch(_){ try{ window.open(url,'_blank'); }catch(__){} }
+}
+function _baixarDocFicha(i){ const it=(_docFichaStorageItems||[])[i]; if(it) _baixarArquivoUrl(it.url, it.name); }
 async function loadDocumentList(empId){
   const docList=document.getElementById('doc-list'); if(!docList) return;
   DB.initStorage();
@@ -25141,7 +25154,8 @@ async function loadDocumentList(empId){
       const meta=await item.getMetadata();
       return {name:item.name, url, contentType:meta.contentType, timeCreated:meta.timeCreated, fullPath:item.fullPath};
     }));
-    docList.innerHTML=items.map(doc=>{
+    _docFichaStorageItems=items;   // guarda p/ o botão "Baixar" (fetch+blob). #docs-ver-baixar
+    docList.innerHTML=items.map((doc,i)=>{
       const icon=doc.contentType==='application/pdf'?'fa-file-pdf':'fa-file-image';
       const color=doc.contentType==='application/pdf'?'var(--danger)':'var(--primary)';
       const nameParts=doc.name.split('_');
@@ -25153,7 +25167,8 @@ async function loadDocumentList(empId){
           <div class="doc-meta">${new Date(doc.timeCreated).toLocaleDateString('pt-BR')}</div>
         </div>
         <div class="doc-actions">
-          <a href="${doc.url}" target="_blank" class="btn-icon btn-primary-icon" title="Download"><i class="fa-solid fa-download"></i></a>
+          <a href="${doc.url}" target="_blank" rel="noopener" class="btn-icon btn-outline" title="Visualizar"><i class="fa-solid fa-eye"></i></a>
+          <button class="btn-icon btn-primary-icon" onclick="_baixarDocFicha(${i})" title="Baixar"><i class="fa-solid fa-download"></i></button>
           <button class="btn-icon btn-danger-icon" onclick="deleteDocument('${empId}','${doc.name}')" title="Excluir"><i class="fa-solid fa-trash"></i></button>
         </div>
       </div>`;

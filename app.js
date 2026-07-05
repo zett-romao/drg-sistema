@@ -13926,6 +13926,10 @@ async function savePayroll(){
     // Sanitiza o record inteiro contra `undefined` (Firestore rejeita)
     const cleanRecord = _sanitizeForFirestore(record);
     await DB.save('payrolls', cleanRecord);
+    // Atualiza o cache local NA HORA (o listener confirma depois) — assim telas que releem
+    // ao voltar (ex.: Contabilidade) já refletem os valores aplicados e o nome sai do aviso
+    // de "folhas sem valores". #contab-retorno-competencia
+    { const _ix=(State.payrolls||[]).findIndex(p=>p.id===cleanRecord.id); if(_ix>=0) State.payrolls[_ix]=cleanRecord; else (State.payrolls=State.payrolls||[]).push(cleanRecord); }
     // Sincroniza o crédito de banco de horas gerado por esta folha
     await _syncBancoFromPayroll(cleanRecord);
     const empNome=(State.employees.find(e=>e.id===empId)||{}).nome||'—';
@@ -31737,6 +31741,7 @@ async function _carregarDadosPosLogin(){
     // Batida do app sincronizou → Monitor de Faltas atualiza AO VIVO (senão fica mostrando
     // "falta" até o tick de 5min/Atualizar, e o operador lança manual à toa). #monitor-faltas-sync
     if(State.currentSection==='monitorfaltas' && typeof renderMonitorFaltas==='function') renderMonitorFaltas();
+    if(State.currentSection==='contabilidade' && typeof renderContabilidade==='function') renderContabilidade();   // #contab-retorno-competencia
     if(State.currentSection==='recibos') renderRecibosEnviados(); // assinatura no app reflete na tela Recibos
     if(document.getElementById('modal-folhas-fechadas')) renderFolhasFechadasLista(); // status na lista de folhas fechadas
     updateDbInfo();

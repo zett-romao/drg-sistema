@@ -17981,11 +17981,14 @@ function abrirCompensacaoSolo(){
   if(!empId){ toast('Salve o colaborador primeiro.','warning'); return; }
   setVal('comp-solo-folga-data','');
   setVal('comp-solo-trab-data','');
-  // Pré-preenche o horário do plantão a partir do cadastro
-  setVal('comp-solo-entrada', val('emp-horario-entrada')||'');
-  setVal('comp-solo-saida',   val('emp-horario-saida')||'');
-  setVal('comp-solo-ref-ini', val('emp-horario-ref-ini')||'');
-  setVal('comp-solo-ref-fim', val('emp-horario-ref-fim')||'');
+  // Pré-preenche o horário do plantão a partir do cadastro DO COLABORADOR EM FOCO
+  // (objeto emp, não os campos DOM da ficha — que podem estar vazios/de outro
+  // colaborador quando aberto pelo Ponto Manual). #ajuste-escala-ponto
+  const _empC = State.employees.find(e=>e.id===empId) || {};
+  setVal('comp-solo-entrada', _empC.horarioEntrada || val('emp-horario-entrada')||'');
+  setVal('comp-solo-saida',   _empC.horarioSaida   || val('emp-horario-saida')||'');
+  setVal('comp-solo-ref-ini', _empC.horarioRefIni  || val('emp-horario-ref-ini')||'');
+  setVal('comp-solo-ref-fim', _empC.horarioRefFim  || val('emp-horario-ref-fim')||'');
   setVal('comp-solo-obs','');
   document.getElementById('modal-compensacao-solo').classList.remove('hidden');
 }

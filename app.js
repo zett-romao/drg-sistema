@@ -1423,7 +1423,12 @@ function showSection(name){
   if(name==='decimoterceiro')  renderDecimoTerceiro();
   if(name==='ferias')          renderFeriasModulo();
   if(name==='rescisao')        renderRescisoes();
-  if(name==='contabilidade')   { _applyModoBanners(State.empresa?.modoContabilidade||'ambas'); const _vc=competenciaVigente(); setVal('cont-mes',_vc.mes); setVal('cont-ano',_vc.ano); renderContabilidade(); }
+  if(name==='contabilidade')   { _applyModoBanners(State.empresa?.modoContabilidade||'ambas');
+    // Volta à MESMA competência de onde saiu (clicou num nome do aviso → aplicou folha →
+    // voltou); senão abre na vigente. #contab-retorno-competencia
+    if(State._contReturn){ setVal('cont-mes',State._contReturn.mes); setVal('cont-ano',State._contReturn.ano); State._contReturn=null; }
+    else { const _vc=competenciaVigente(); setVal('cont-mes',_vc.mes); setVal('cont-ano',_vc.ano); }
+    renderContabilidade(); }
   if(name==='banco')           renderBancoDados();
   if(name==='comunicacao')     renderComunicacaoSection();
   if(name==='autorizacoes')    renderAutorizacoesSection();
@@ -5752,6 +5757,12 @@ function _resumoEncargosCompetencia(mes,ano){
   r.custoEmpregador = r.base + r.inssPatronal + r.rat + r.terceiros + r.fgts;  // custo total ~ bruto + patronais + FGTS
   return r;
 }
+// Clique num nome do aviso "folhas sem valores": lembra a competência da Contabilidade p/
+// voltar NELA depois de aplicar a folha, e abre a folha da pessoa. #contab-retorno-competencia
+function _contAbrirFolha(empId, mes, ano){
+  State._contReturn = { mes:+mes, ano:+ano };
+  openPayrollForEmployee(empId, { mes:+mes, ano:+ano });
+}
 // HTML do resumo (reusado na tela e na impressão).
 function _encargosResumoHtml(r,mes,ano){
   const simples = r.regime==='simples';
@@ -5801,7 +5812,7 @@ function _encargosResumoHtml(r,mes,ano){
     ${r.semValores>0?`<div style="margin-top:12px;padding:10px 12px;background:#FFEBEE;border:1px solid #EF9A9A;border-radius:6px;font-size:12px;color:#B71C1C">
       <i class="fa-solid fa-triangle-exclamation"></i> <strong>${r.semValores} folha(s)</strong> sem valores calculados (INSS/FGTS zerados). <strong>Clique no nome</strong> para abrir a folha e clicar em <strong>Aplicar na Folha</strong>:
       <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
-        ${(r.semValoresList||[]).map(c=>`<a href="javascript:void(0)" onclick="openPayrollForEmployee('${c.id}',{mes:${mes},ano:${ano}})" title="Abrir a folha de ${esc(c.nome)}" style="background:#fff;border:1px solid #EF9A9A;color:#B71C1C;border-radius:14px;padding:3px 10px;text-decoration:none;font-weight:600;white-space:nowrap">${c.reg?`<span style="opacity:.55">${esc(String(c.reg).padStart(4,'0'))}</span> `:''}${esc(c.nome)}</a>`).join('')}
+        ${(r.semValoresList||[]).map(c=>`<a href="javascript:void(0)" onclick="_contAbrirFolha('${c.id}',${mes},${ano})" title="Abrir a folha de ${esc(c.nome)}" style="background:#fff;border:1px solid #EF9A9A;color:#B71C1C;border-radius:14px;padding:3px 10px;text-decoration:none;font-weight:600;white-space:nowrap">${c.reg?`<span style="opacity:.55">${esc(String(c.reg).padStart(4,'0'))}</span> `:''}${esc(c.nome)}</a>`).join('')}
       </div>
     </div>`:''}
     <div style="margin-top:12px;font-size:11px;color:#999;line-height:1.5">

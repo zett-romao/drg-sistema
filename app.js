@@ -2865,7 +2865,11 @@ function _lgpdNovoEnvio(empId){   // pré-seleciona o colaborador no envio (não
 }
 function _lgpdTermosTabela(){
   const todos=(State.termosLgpd||[]).filter(t=>t.status!=='anulado');
-  const nAss=todos.filter(t=>t.status==='assinado').length, nPend=todos.length-nAss;
+  // Demitido/inativo SOME dos PENDENTES (demitido antes de assinar não fica "pendente" na tela).
+  // O ASSINADO permanece (é histórico/prova). #demissao-some-lgpd
+  const _empAtivoT = t => { const e=(State.employees||[]).find(x=>x.id===t.employeeId); return !e || (e.status||'ativo')==='ativo'; };
+  const nAss=todos.filter(t=>t.status==='assinado').length;
+  const nPend=todos.filter(t=>t.status!=='assinado' && _empAtivoT(t)).length;
   const ativos=(State.employees||[]).filter(e=>(e.status||'ativo')==='ativo');
   const comTermo=new Set(todos.map(t=>t.employeeId));
   const semTermoEmps=ativos.filter(e=>!comTermo.has(e.id)).sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
@@ -2895,7 +2899,8 @@ function _lgpdTermosTabela(){
   }
   let lista=todos.slice().sort((a,b)=>(b.enviadoEm||'').localeCompare(a.enviadoEm||''));
   if(f==='assinado') lista=lista.filter(t=>t.status==='assinado');
-  else if(f==='pendente') lista=lista.filter(t=>t.status!=='assinado');
+  else if(f==='pendente') lista=lista.filter(t=>t.status!=='assinado' && _empAtivoT(t));
+  else lista=lista.filter(t=>t.status==='assinado' || _empAtivoT(t)); // 'todos': esconde pendentes de demitidos
   if(!lista.length) return resumo+'<div class="empty-state small"><i class="fa-solid fa-file-signature"></i><p>Nenhum termo nesta categoria.</p></div>';
   const badge=s=> s==='assinado'?'<span style="background:#E8F5E9;color:#2E7D32;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">Assinado</span>':'<span style="background:#FFF3E0;color:#E65100;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">Pendente</span>';
   const rows=lista.map(t=>{ const ass=t.status==='assinado'; const nav=ass?`_alertaAbrirEmp('${t.employeeId}','tab-termos-lgpd')`:`_lgpdNovoEnvio('${t.employeeId}')`;

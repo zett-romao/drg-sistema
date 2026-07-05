@@ -5785,13 +5785,37 @@
       </div>
     </div>
     <div class="modal-body" style="padding:16px;max-height:70vh;overflow-y:auto">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:12px">
-        <p style="font-size:12px;color:var(--text-muted);margin:0;flex:1;min-width:240px">
-          <i class="fa-solid fa-circle-info"></i>
-          Preencha Entrada e Saída dos dias trabalhados. Dias úteis sem preenchimento = falta. Sáb/Dom vazios = folga.
-        </p>
-        <button type="button" class="btn btn-sm" style="font-size:12px;background:#6D28D9;color:#fff;border-color:#6D28D9;white-space:nowrap" onclick="abrirTrocaPlantao()" title="Trocou de dia com outra pessoa? Lança a folga/trabalho nas duas, sem virar falta."><i class="fa-solid fa-right-left"></i> Troca de plantão</button>
-      </div>
+      <p style="font-size:12px;color:var(--text-muted);margin:0 0 10px 0">
+        <i class="fa-solid fa-circle-info"></i>
+        Preencha Entrada e Saída dos dias trabalhados. Dias úteis sem preenchimento = falta. Sáb/Dom vazios = folga.
+      </p>
+      <!-- Ajustes de escala: MESMOS botões/dados da aba Horários. Um atualiza o outro. #ajuste-escala-ponto -->
+      <details id="pm-ajustes-escala" style="margin-bottom:12px;border:1px solid var(--border);border-radius:8px;background:#fafafa;overflow:hidden">
+        <summary style="cursor:pointer;padding:10px 12px;font-weight:600;font-size:13px;color:var(--text);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <i class="fa-solid fa-calendar-pen" style="color:#1976D2"></i> Ajustes de escala
+          <span style="font-weight:400;color:var(--text-muted);font-size:11px">— folgas, dias avulsos, troca de plantão e períodos. Mesma coisa da aba <em>Horários</em>: mexeu aqui, muda lá (e vice-versa). Depois rode <em>Prévia Parcial</em> ou <em>Aplicar na Folha</em>.</span>
+        </summary>
+        <div style="padding:0 12px 12px 12px">
+          <div id="pm-hor-padrao" style="background:#f1f5f9;border-radius:6px;padding:8px 10px;margin-bottom:10px"></div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+            <button type="button" class="btn btn-sm btn-primary js-gerir-folga-escala" onclick="abrirNovoPeriodoEscala()" style="font-size:12px"><i class="fa-solid fa-plus"></i> Novo período</button>
+            <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;background:#1B5E20;color:#fff;border-color:#1B5E20" onclick="abrirNovaFolga()"><i class="fa-solid fa-mug-hot"></i> Adicionar folga</button>
+            <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;background:#00897B;color:#fff;border-color:#00897B" onclick="abrirCompensacaoSolo()" title="Ela trocou de dia só ela mesma: não veio num dia (vira folga paga) e trabalhou em outro (vira dia de trabalho). Sem falta nem hora extra."><i class="fa-solid fa-arrow-right-arrow-left"></i> Compensação solo</button>
+            <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;background:#6D28D9;color:#fff;border-color:#6D28D9" onclick="abrirTrocaPlantao()"><i class="fa-solid fa-right-left"></i> Troca de plantão</button>
+            <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;background:#E65100;color:#fff;border-color:#E65100" onclick="abrirNovoOverrideEscala()"><i class="fa-solid fa-plus"></i> Novo dia avulso</button>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">
+            <div>
+              <strong style="font-size:13px;color:var(--text)"><i class="fa-solid fa-calendar-range" style="color:#1976D2"></i> Períodos de mudança</strong>
+              <div id="pm-periodos-list" style="margin-top:6px"></div>
+            </div>
+            <div>
+              <strong style="font-size:13px;color:var(--text)"><i class="fa-solid fa-calendar-day" style="color:#E65100"></i> Dias avulsos (overrides)</strong>
+              <div id="pm-overrides-list" style="margin-top:6px"></div>
+            </div>
+          </div>
+        </div>
+      </details>
       <div id="ponto-manual-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:6px"></div>
       <div id="ponto-manual-resumo" style="margin-top:14px;padding:12px;background:var(--primary-light);border-radius:8px;display:none;flex-direction:column;gap:8px">
         <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center">
@@ -7558,6 +7582,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260705d-docs-app-ver-baixar"></script>
+  <script src="app.js?v=20260705e-ajuste-escala-ponto"></script>
 </body>
 </html>

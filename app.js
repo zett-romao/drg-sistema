@@ -26054,10 +26054,14 @@ function _getExpectedDayBase(emp, mes, ano, dia, ignoreAdmissao){
       return { tipo:'trabalho', entrada:_h.entrada, saida:_h.saida, intIni:_h.intIni, intFim:_h.intFim };
     // Fim de semana: para modelo PERSONALIZADO usa o horário do dia de fds marcado
     // trabalho (aplicado a sáb OU dom). Escala do sistema mantém _h. #escala-custom-fdslivre
-    const _hFds = _modeloFdsHorario(lot.escala) || _h;
     const _r = _fdsLivreResolve(emp, ano, mes, dia);
     const _trab = _r.esteBatido || (!_r.algumBatido && diaSem===6);
     if(!_trab) return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
+    // Fim de semana por DURAÇÃO (horário livre): dia de trabalho SEM horário fixo — vale pela
+    // duração exigida (duracaoMinFds). Sem horário esperado → sem atraso; HE = o que passar. #fds-duracao
+    const _mFds=_modeloFdsLivre(lot.escala); const _durFds=_mFds?(+_mFds.fdsDuracaoMin||0):0;
+    if(_durFds>0) return { tipo:'trabalho', entrada:'', saida:'', intIni:'', intFim:'', duracaoMinFds:_durFds };
+    const _hFds = _modeloFdsHorario(lot.escala) || _h;
     return { tipo:'trabalho', entrada:_hFds.entrada, saida:_hFds.saida, intIni:_hFds.intIni, intFim:_hFds.intFim };
   }
   // 5x2 FIM DE SEMANA OPCIONAL: Seg–Sex trabalha; no fds, trabalha SÓ o dia que ela
@@ -26119,6 +26123,14 @@ function _detectHEDivergencia(realDay, expectedDay){
       out.motivos.push('Trabalhou em dia de FOLGA — toda a jornada é hora extra');
       out.precisaRevisao = true;
     }
+    return out;
+  }
+  // Fim de semana por DURAÇÃO (horário livre): a divergência é o que passou da duração exigida
+  // (ex.: 4h). Sem comparar horário → só o excedente vira HE (revisão). #fds-duracao
+  if(expectedDay.duracaoMinFds!=null){
+    const _exc=_liqMin(realDay) - (+expectedDay.duracaoMinFds||0);
+    if(_exc > HE_TOLERANCIA_DIA_MIN){ out.totalMin=_exc; out.precisaRevisao=true;
+      out.motivos.push(`Trabalhou ${_exc}min além das ${Math.round((+expectedDay.duracaoMinFds||0)/60)}h exigidas`); }
     return out;
   }
   if(!expectedDay.entrada || !expectedDay.saida) return out; // dia previsto sem horário
@@ -26198,6 +26210,13 @@ function _heMinDia(realDay, expectedDay, minContratados){
   if(expectedDay?.preAdmissao) return 0; // antes da admissão não gera HE
   const realLiq = _liqMin(realDay);
   const aprovado = (realDay.heReview?.status === 'aprovado');
+  // Fim de semana por DURAÇÃO (horário livre): HE = o que passou da duração exigida (ex.: 4h),
+  // acima da tolerância diária; só paga se aprovado. Sem comparar horário. #fds-duracao
+  if(expectedDay && expectedDay.duracaoMinFds!=null){
+    const exc = realLiq - (+expectedDay.duracaoMinFds||0);
+    if(exc <= HE_TOLERANCIA_DIA_MIN) return 0;
+    return aprovado ? exc : 0;
+  }
   // Folga (ou sem dia previsto) trabalhada → jornada inteira é HE, só se aprovada.
   if(!expectedDay || expectedDay.tipo === 'folga'){
     return aprovado ? realLiq : 0;
@@ -30230,6 +30249,7 @@ function novoEscalaModelo(){
   _renderEscalaModeloDias('semanal', _escModDefSemanal());
   { const fl=document.getElementById('esc-mod-fds-livre'); if(fl) fl.checked=false;
     const flw=document.getElementById('esc-mod-fds-livre-wrap'); if(flw) flw.style.display=''; }
+  setVal('esc-mod-fds-duracao-horas','');
   document.getElementById('esc-mod-form-titulo').textContent='Novo modelo de escala';
   _escModMostrarForm();
 }
@@ -30247,6 +30267,7 @@ function editEscalaModelo(id){
   // Reflete o estado REAL: flag explícita OU detecção automática (1 dia de fds marcado). #escala-custom-fdslivre
   { const fl=document.getElementById('esc-mod-fds-livre'); if(fl) fl.checked=(!!m.fdsLivre || !!_modeloFdsLivre('m_'+m.id));
     const flw=document.getElementById('esc-mod-fds-livre-wrap'); if(flw) flw.style.display=(tipo==='ciclo')?'none':''; }
+  setVal('esc-mod-fds-duracao-horas', (+m.fdsDuracaoMin>0)?(m.fdsDuracaoMin/60):'');
   document.getElementById('esc-mod-form-titulo').textContent='Editar modelo de escala';
   _escModMostrarForm();
 }
@@ -30266,14 +30287,17 @@ async function saveEscalaModelo(){
   }
   // FDS LIVRE (só semanal): trabalha sáb OU dom (livre). Precisa de horário num dos dois. #escala-custom-fdslivre
   const fdsLivre = tipo==='semanal' && !!document.getElementById('esc-mod-fds-livre')?.checked;
+  // Fim de semana por DURAÇÃO (horário livre): X horas em qualquer horário no sáb OU dom. #fds-duracao
+  const fdsDuracaoMin = fdsLivre ? Math.round((parseFloat(val('esc-mod-fds-duracao-horas'))||0)*60) : 0;
   if(fdsLivre){
-    const _t=d=>!!(d && (d.tipo==='trabalho'||d.tipo==='corrido') && d.entrada);
-    if(!_t(dias[6]) && !_t(dias[0])){ toast('Fim de semana livre: marque "Trabalho" e o horário em Sábado e/ou Domingo (basta um).','error'); return; }
+    // Por duração: basta marcar "Trabalho" em sáb e/ou dom (horário opcional). Por horário fixo: precisa do horário.
+    const _t=d=>!!(d && (d.tipo==='trabalho'||d.tipo==='corrido') && (fdsDuracaoMin>0 || d.entrada));
+    if(!_t(dias[6]) && !_t(dias[0])){ toast(fdsDuracaoMin>0?'Fim de semana livre: marque "Trabalho" em Sábado e/ou Domingo (basta um).':'Fim de semana livre: marque "Trabalho" e o horário em Sábado e/ou Domingo (basta um).','error'); return; }
   }
   const id=val('esc-mod-id');
   const existente=id?(State.escalasModelos||[]).find(x=>x.id===id):null;
   const doc={
-    id:id||genId(), nome, tipo, dias, dataInicio, fdsLivre,
+    id:id||genId(), nome, tipo, dias, dataInicio, fdsLivre, fdsDuracaoMin,
     createdAt:existente?.createdAt||new Date().toISOString(),
     updatedAt:new Date().toISOString()
   };

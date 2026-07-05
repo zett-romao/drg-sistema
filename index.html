@@ -5515,6 +5515,10 @@
               <span style="display:block;font-size:11px;color:#1565C0">O sistema resolve pelo dia que a pessoa bater. Não gera falta se ela trabalhou um dos dois. Preencha o horário do fim de semana em <strong>sábado e/ou domingo</strong> (basta um).</span>
             </span>
           </label>
+          <div style="margin-top:8px;padding-top:8px;border-top:1px dashed #90CAF9;font-size:12px;color:#0D47A1">
+            🕓 Exigir <input type="number" id="esc-mod-fds-duracao-horas" min="0" step="0.5" placeholder="0" style="width:66px;padding:4px 6px;border:1px solid #90CAF9;border-radius:5px;font-size:12px"> horas no fim de semana, em <strong>horário livre</strong>.
+            <span style="display:block;font-size:11px;color:#1565C0;margin-top:2px">Se preencher (ex.: <strong>4</strong>), o dia vale <strong>pela duração</strong>: qualquer horário, contanto que cumpra as horas. Não gera atraso; o que passar das horas exigidas vira hora extra (revisão do gestor). Deixe <strong>0/vazio</strong> para usar o horário fixo de sábado/domingo acima.</span>
+          </div>
         </div>
         <div style="font-size:11px;color:var(--text-muted);margin-top:6px"><i class="fa-solid fa-circle-info"></i> Em dias de folga os horários são ignorados. "Hora corrida" = trabalho sem intervalo. No ciclo, a <strong>data-âncora</strong> é uma data em que o "Dia 1" do ciclo aconteceu.</div>
       </div>
@@ -7554,6 +7558,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260702c-demissao-fecha-folha"></script>
+  <script src="app.js?v=20260702d-fds-duracao"></script>
 </body>
 </html>

@@ -8697,6 +8697,9 @@ async function saveEmployee(){
     }
   }
   const demissao=val('emp-data-demissao');
+  // Demissão ANTERIOR (do State, antes de salvar) — p/ disparar o fecha-folha só quando a
+  // demissão é NOVA. Escopo de função (não usar `existing`, que é de bloco). #demissao-fecha-folha
+  const _demissaoAntes = (State.editingEmployeeId ? (State.employees.find(e=>e.id===State.editingEmployeeId)||{}) : {}).dataDemissao || '';
   let status=val('emp-status')||'ativo';
   if(demissao) status='inativo'; // auto-inativar se data de demissão preenchida
   const chk=document.getElementById('emp-turno-noturno');
@@ -8843,7 +8846,7 @@ async function saveEmployee(){
     else State.employees.push(data);
     // REGRA (dono 2026-07-03): demissão NOVA (comparada com a anterior) → fecha automático as
     // folhas (mês da demissão + abertas anteriores) com as faltas apuradas. #demissao-fecha-folha
-    if(demissao && (!existing || (existing.dataDemissao||'')!==demissao)){
+    if(demissao && demissao!==_demissaoAntes){
       try{ await _fecharFolhasDemissao(State.employees.find(e=>e.id===data.id)||data); }
       catch(e){ console.error('demissao fecha folha', e); }
     }

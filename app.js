@@ -5768,6 +5768,50 @@ function _contAbrirFolha(empId, mes, ano){
   State._contReturn = { mes:+mes, ano:+ano };
   openPayrollForEmployee(empId, { mes:+mes, ano:+ano });
 }
+// Seleção múltipla + aplicar em LOTE as folhas "sem valores" — sem abrir uma por uma. #contab-aplicar-lote
+function _contSelAll(on){ document.querySelectorAll('.cont-chk').forEach(c=>{ c.checked=!!on; }); }
+function _contAplicarSelecionados(mes,ano){
+  const ids=[...document.querySelectorAll('.cont-chk:checked')].map(c=>c.value);
+  if(!ids.length){ toast('Marque ao menos um colaborador.','warning'); return; }
+  _contAplicarLote(ids, mes, ano);
+}
+function _contAplicarTodos(mes,ano){
+  const ids=[...document.querySelectorAll('.cont-chk')].map(c=>c.value);
+  if(!ids.length){ toast('Nenhuma folha para aplicar.','warning'); return; }
+  _contAplicarLote(ids, mes, ano);
+}
+// Reusa o MESMO cálculo da tela (onPayrollEmployeeChange+recalculate, síncronos) p/ cada folha,
+// lê os encargos e persiste — igual abrir e clicar "Aplicar na Folha", mas em lote. #contab-aplicar-lote
+async function _contAplicarLote(ids, mes, ano){
+  mes=parseInt(mes)||parseInt(val('cont-mes'))||currentMes(); ano=parseInt(ano)||parseInt(val('cont-ano'))||currentAno();
+  if(!ids||!ids.length) return;
+  if(!confirm(`Aplicar a folha de ${ids.length} colaborador(es) em ${MESES[mes]}/${ano}?\n\nCalcula e grava os encargos (INSS/FGTS/bruto) de cada um de uma vez — igual abrir e clicar "Aplicar na Folha".`)) return;
+  const _pEmp=val('payroll-employee'), _pMes=val('payroll-mes'), _pAno=val('payroll-ano');   // p/ restaurar o form
+  setVal('payroll-mes',mes); setVal('payroll-ano',ano);
+  let ok=0, pend=0, err=0;
+  for(const empId of ids){
+    try{
+      if(typeof _ensurePayrollEmployeeOption==='function') _ensurePayrollEmployeeOption(empId);
+      setVal('payroll-employee', empId);
+      onPayrollEmployeeChange();   // carrega a folha do colaborador + recalcula (síncrono)
+      recalculate();              // garante os encargos no DOM
+      const bruto=numVal('payroll-total-bruto')||0;
+      if(!(bruto>0)){ pend++; continue; }   // cadastro incompleto / sem base → não aplica
+      const _enc={ totalBruto:bruto, inss:numVal('payroll-inss')||0, irrf:numVal('payroll-irrf')||0,
+        fgts:numVal('payroll-fgts')||0, totalLiquidoFinal:numVal('payroll-total-liquido-final')||0, updatedAt:new Date().toISOString() };
+      let _pf=(State.payrolls||[]).find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
+      const _existed=!!_pf; const id=_pf?_pf.id:_payrollId(empId,mes,ano);
+      if(_pf) Object.assign(_pf,_enc); else { _pf={id,employeeId:empId,mes,ano,createdAt:new Date().toISOString(),..._enc}; (State.payrolls=State.payrolls||[]).push(_pf); }
+      await DB.merge('payrolls', id, _existed?_enc:{employeeId:empId,mes,ano,createdAt:_pf.createdAt,..._enc});
+      ok++;
+    }catch(e){ console.error('aplicar lote', empId, e); err++; }
+  }
+  if(_pMes) setVal('payroll-mes',_pMes); if(_pAno) setVal('payroll-ano',_pAno);
+  if(_pEmp){ setVal('payroll-employee',_pEmp); try{ onPayrollEmployeeChange(); }catch(_){} }
+  try{ Auth.log('CONTAB_APLICAR_LOTE', null, `${MESES[mes]}/${ano} — ${ok} aplicada(s), ${pend} pendente(s), ${err} erro(s)`); }catch(_){}
+  toast(`${ok} folha(s) aplicada(s)${pend?` · ${pend} com cadastro incompleto/sem base`:''}${err?` · ${err} erro(s)`:''}.`, ok?'success':'warning');
+  renderContabilidade();
+}
 // HTML do resumo (reusado na tela e na impressão).
 function _encargosResumoHtml(r,mes,ano){
   const simples = r.regime==='simples';
@@ -5815,9 +5859,17 @@ function _encargosResumoHtml(r,mes,ano){
       </div>
     </div>
     ${r.semValores>0?`<div style="margin-top:12px;padding:10px 12px;background:#FFEBEE;border:1px solid #EF9A9A;border-radius:6px;font-size:12px;color:#B71C1C">
-      <i class="fa-solid fa-triangle-exclamation"></i> <strong>${r.semValores} folha(s)</strong> sem valores calculados (INSS/FGTS zerados). <strong>Clique no nome</strong> para abrir a folha e clicar em <strong>Aplicar na Folha</strong>:
-      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
-        ${(r.semValoresList||[]).map(c=>`<a href="javascript:void(0)" onclick="_contAbrirFolha('${c.id}',${mes},${ano})" title="Abrir a folha de ${esc(c.nome)}" style="background:#fff;border:1px solid #EF9A9A;color:#B71C1C;border-radius:14px;padding:3px 10px;text-decoration:none;font-weight:600;white-space:nowrap">${c.reg?`<span style="opacity:.55">${esc(String(c.reg).padStart(4,'0'))}</span> `:''}${esc(c.nome)}</a>`).join('')}
+      <i class="fa-solid fa-triangle-exclamation"></i> <strong>${r.semValores} folha(s)</strong> sem valores calculados (INSS/FGTS zerados). Marque e aplique em lote, ou clique no nome para abrir uma:
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0">
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-weight:600"><input type="checkbox" id="cont-sel-all" onchange="_contSelAll(this.checked)" style="width:auto;margin:0"> Selecionar todos</label>
+        <button class="btn btn-sm" onclick="_contAplicarSelecionados(${mes},${ano})" style="background:#C62828;color:#fff;border:none;font-size:11px;padding:5px 12px;font-weight:700"><i class="fa-solid fa-check-double"></i> Aplicar selecionados</button>
+        <button class="btn btn-sm" onclick="_contAplicarTodos(${mes},${ano})" style="background:#8E0000;color:#fff;border:none;font-size:11px;padding:5px 12px;font-weight:700"><i class="fa-solid fa-list-check"></i> Aplicar em todas (${r.semValores})</button>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${(r.semValoresList||[]).map(c=>`<label style="display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid #EF9A9A;border-radius:14px;padding:3px 10px;font-weight:600;white-space:nowrap">
+          <input type="checkbox" class="cont-chk" value="${c.id}" style="width:auto;margin:0">
+          <a href="javascript:void(0)" onclick="_contAbrirFolha('${c.id}',${mes},${ano})" title="Abrir a folha de ${esc(c.nome)}" style="color:#B71C1C;text-decoration:none">${c.reg?`<span style="opacity:.55">${esc(String(c.reg).padStart(4,'0'))}</span> `:''}${esc(c.nome)}</a>
+        </label>`).join('')}
       </div>
     </div>`:''}
     <div style="margin-top:12px;font-size:11px;color:#999;line-height:1.5">

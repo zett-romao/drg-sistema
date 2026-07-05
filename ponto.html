@@ -559,7 +559,7 @@ try{ window.__APP_BOOTED = true; }catch(_){}
 // ─── VERSÃO DO APP DO COLABORADOR ─────────────────────────────────────────────
 // Bumpe SEMPRE em conjunto com o CACHE do ponto-sw.js e o ?v= do firebase-config.
 // Formato: AA.MM.DD + letra (a, b, c...) — alinhado com o nome do cache.
-const PONTO_VERSION = '26.07.02a';
+const PONTO_VERSION = '26.07.04a';
 // Exibe a versão no rodapé (script roda após o DOM, então o elemento já existe)
 (function _setVersionTag(){
   const t = document.getElementById('app-version-tag');
@@ -2868,6 +2868,8 @@ function abrirTermoFerias(id){
 function fecharTermoFerias(){ const m=document.getElementById('modal-termo-ferias'); if(m) m.remove(); }
 
 // ===== MEUS DOCUMENTOS ASSINADOS — via de TUDO que o colaborador assina (direito LGPD). #meus-documentos =====
+// Escape de HTML no escopo do app (o _esc do topo vive dentro do IIFE do boot). #meus-documentos
+function _esc(s){ return String(s==null?'':s).replace(/[<>&]/g,function(c){return {'<':'&lt;','>':'&gt;','&':'&amp;'}[c];}); }
 function _carimboBadgePonto(status){
   if(status==='confirmado') return '<span style="background:#E8F5E9;color:#2E7D32;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">🔗 Blockchain ✓</span>';
   if(status==='registrado') return '<span style="background:#EDE7F6;color:#5E35B1;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">🔗 Carimbo registrado</span>';

@@ -559,7 +559,7 @@ try{ window.__APP_BOOTED = true; }catch(_){}
 // ─── VERSÃO DO APP DO COLABORADOR ─────────────────────────────────────────────
 // Bumpe SEMPRE em conjunto com o CACHE do ponto-sw.js e o ?v= do firebase-config.
 // Formato: AA.MM.DD + letra (a, b, c...) — alinhado com o nome do cache.
-const PONTO_VERSION = '26.07.04a';
+const PONTO_VERSION = '26.07.05a';
 // Exibe a versão no rodapé (script roda após o DOM, então o elemento já existe)
 (function _setVersionTag(){
   const t = document.getElementById('app-version-tag');
@@ -632,7 +632,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=42').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=43').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -1133,6 +1133,11 @@ function renderRefExtra(){
   const wrap = document.getElementById('ref-extra-wrap');
   if(!wrap) return;
   const re = (getDiaHoje()||{}).refExtra;
+  const _temAtivo = re && (re.status==='pendente' || re.status==='aprovado');
+  // Opt-in por colaborador: só aparece pra quem o gestor habilitou no cadastro
+  // (checkbox "Pode marcar Trabalhei sem intervalo"). Quem não tem, nem vê o botão —
+  // a não ser que já exista um pedido ativo (aí mantém pra ele poder desfazer). #sem-intervalo-optin
+  if(!currentEmp || (!currentEmp.permiteSemIntervalo && !_temAtivo)){ wrap.innerHTML=''; return; }
   // O pagamento/aprovação da refeição não rendida é PROCEDIMENTO INTERNO (gestor) e NÃO
   // aparece pro colaborador — ele só marca que trabalhou sem intervalo (libera as 2 batidas).
   // Nada de "aguardando supervisor/aprovado/recusado" aqui, pra ele não achar que está

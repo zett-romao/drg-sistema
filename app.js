@@ -8419,6 +8419,8 @@ function openEmployeeModal(id=null){
     if(semRefChk){ semRefChk.checked=!!(emp.semRefeicao); onSemRefeicaoChange(); }
     const isentoChk=document.getElementById('emp-isento-ponto');
     if(isentoChk){ isentoChk.checked=!!(emp.isentoPonto); onIsentoPontoChange(); }
+    const semIntervChk=document.getElementById('emp-permite-sem-intervalo');
+    if(semIntervChk){ semIntervChk.checked=!!(emp.permiteSemIntervalo); }
     setVal('emp-salario-base',emp.salarioBase||'');
     setVal('emp-posto',emp.posto||'');
     setVal('emp-setor',emp.setor||'');
@@ -8522,6 +8524,7 @@ function openEmployeeModal(id=null){
     const adiantIsentoChk=document.getElementById('emp-adiant-isento-prazo'); if(adiantIsentoChk) adiantIsentoChk.checked=false;   // #adiant-prazo-admissao
     const semRefChk=document.getElementById('emp-sem-refeicao'); if(semRefChk){ semRefChk.checked=false; onSemRefeicaoChange(); }
     const isentoChk=document.getElementById('emp-isento-ponto'); if(isentoChk){ isentoChk.checked=false; onIsentoPontoChange(); }
+    const semIntervChk=document.getElementById('emp-permite-sem-intervalo'); if(semIntervChk) semIntervChk.checked=false;   // #sem-intervalo-optin
     // Encargos & IRRF — limpar para novo colaborador
     setVal('emp-dependentes-irrf',0);
     setVal('emp-pensao-alimenticia','0.00');
@@ -8849,6 +8852,7 @@ async function saveEmployee(){
     horarioRefFim:val('emp-horario-ref-fim'),
     semRefeicao:!!(document.getElementById('emp-sem-refeicao')?.checked),
     isentoPonto:!!(document.getElementById('emp-isento-ponto')?.checked),
+    permiteSemIntervalo:!!(document.getElementById('emp-permite-sem-intervalo')?.checked),   // mostra o botão "Trabalhei sem intervalo" no app. #sem-intervalo-optin
     turnoNoturno:chk?chk.checked:false,
     // Novos campos pessoais (Dados Pessoais)
     sexo:               val('emp-sexo'),

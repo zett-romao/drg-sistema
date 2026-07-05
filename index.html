@@ -3719,6 +3719,20 @@
             </small>
           </div>
         </div>
+        <!-- Botão "Trabalhei sem intervalo" no app do colaborador — opt-in por pessoa -->
+        <div class="form-row">
+          <div class="form-group" style="grid-column:1 / -1">
+            <div class="checkbox-group" style="background:#FFF7ED;border:1px solid #FED7AA;border-radius:8px;padding:10px 12px">
+              <input type="checkbox" id="emp-permite-sem-intervalo">
+              <label for="emp-permite-sem-intervalo" style="font-size:14px;font-weight:600;color:var(--text)">
+                <i class="fa-solid fa-utensils" style="color:#EA580C"></i> Pode marcar <strong>“Trabalhei sem intervalo”</strong> no app
+              </label>
+            </div>
+            <small style="display:block;color:#9A3412;font-size:12px;margin-top:6px">
+              <i class="fa-solid fa-circle-info"></i> Só quem for marcado aqui verá o botão “🍽 Trabalhei sem intervalo hoje” no app do ponto. Deixe desmarcado para quem não precisa.
+            </small>
+          </div>
+        </div>
         <!-- Campos de Licença Maternidade — visíveis apenas quando status = licenca-maternidade -->
         <div class="form-row" id="row-licenca-maternidade" style="display:none">
           <div class="form-group">
@@ -7582,6 +7596,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260705f-ajuste-escala-fix"></script>
+  <script src="app.js?v=20260705g-sem-intervalo-optin"></script>
 </body>
 </html>

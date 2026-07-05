@@ -2635,12 +2635,19 @@ async function anularTermoLgpd(id){
 function verTermoLgpd(id){
   const t=(State.termosLgpd||[]).find(x=>x.id===id); if(!t) return;
   const ass=t.assinatura||{};
-  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Termo LGPD — ${t.employeeNome}</title>
-<style>body{font-family:Arial,sans-serif;padding:24px;max-width:780px;margin:0 auto;color:#212529;font-size:13px;line-height:1.6}h1{color:#1a3a6b;font-size:18px}.box{border:1px solid #ccc;border-radius:6px;padding:10px 12px;margin-top:14px;font-size:11px;color:#444;word-break:break-all}.tb-btn{cursor:pointer;border:1px solid #cbd5e1;background:#f8fafc;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;color:#1a3a6b}@media print{.no-print{display:none!important}}</style></head><body>
+  const html=`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Termo LGPD — ${t.employeeNome}</title>
+<style>html{-webkit-text-size-adjust:100%}body{font-family:'Segoe UI',-apple-system,Roboto,Arial,sans-serif;padding:32px 26px;max-width:760px;margin:0 auto;color:#1f2937;font-size:14px;line-height:1.75}h1{color:#1a3a6b;font-size:19px;font-weight:700;margin:0 0 6px;padding-bottom:10px;border-bottom:2px solid #e5e7eb}p,li{text-align:justify;text-justify:inter-word;hyphens:auto;-webkit-hyphens:auto;-ms-hyphens:auto}p{margin:12px 0}ol{margin:12px 0;padding-left:24px}li{margin:8px 0;padding-left:4px}strong{color:#111827}.box{border:1px solid #e5e7eb;background:#f9fafb;border-radius:8px;padding:12px 14px;margin-top:18px;font-size:11.5px;color:#4b5563;line-height:1.7;word-break:break-word;text-align:left;hyphens:none}.tb-btn{cursor:pointer;border:1px solid #cbd5e1;background:#f8fafc;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;color:#1a3a6b}@media print{.no-print{display:none!important}body{padding:0}}</style></head><body>
 <div class="no-print" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid #eee">
   <button class="tb-btn" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
 </div>
-<h1>${_e('nomeEmpresa')||'Empresa'} — ${t.titulo}</h1>${t.conteudoHtml}
+<div style="display:flex;align-items:center;gap:14px;border-bottom:2px solid #e5e7eb;padding-bottom:12px;margin-bottom:10px">
+  ${_e('logoUrl')?`<img src="${_e('logoUrl')}" alt="" style="height:54px;width:auto;max-width:130px;object-fit:contain;background:#fff;border-radius:6px;flex-shrink:0">`:''}
+  <div style="min-width:0">
+    <div style="font-size:19px;font-weight:700;color:#1a3a6b;line-height:1.2">${esc(_e('nomeEmpresa')||'Empresa')}</div>
+    ${_e('cnpj')?`<div style="font-size:12px;color:#6b7280;margin-top:1px">CNPJ ${esc(_e('cnpj'))}</div>`:''}
+    <div style="font-size:13.5px;color:#374151;font-weight:600;margin-top:4px">${esc(t.titulo)}</div>
+  </div>
+</div>${t.conteudoHtml}
 ${t.status==='assinado'?`<div class="box"><strong>✔ Assinado eletronicamente</strong> em ${t.assinadoEm?new Date(t.assinadoEm).toLocaleString('pt-BR'):'—'}<br>Colaborador: ${t.employeeNome} — CPF ${t.cpf||'—'}<br>Hash SHA-256: ${ass.hash||'—'}<br>IP: ${ass.ip||'—'} · Dispositivo: ${(ass.deviceFingerprint||'').slice(0,16)}…${t.carimboStatus?`<br>🔗 Carimbo do tempo (blockchain): <strong>${t.carimboStatus==='confirmado'?'CONFIRMADO':'registrado'}</strong>${t.carimboCriadoEm?' em '+new Date(t.carimboCriadoEm).toLocaleString('pt-BR'):''} — prova .ots verificável em opentimestamps.org`:''}</div>`:`<div class="box">Status atual: <strong>${t.status}</strong></div>`}
 <p style="margin-top:18px;font-size:9px;color:#888">Gerado em ${new Date().toLocaleString('pt-BR')}.</p></body></html>`;
   const w=window.open('','_blank','width=860,height=700'); if(!w){ toast('Permita pop-ups','error'); return; } w.document.write(html); w.document.close();
@@ -7719,12 +7726,19 @@ function _feriasTermoConteudoHtml(emp,f){
 function verFeriasTermo(id){
   const t=(State.termosFerias||[]).find(x=>x.id===id); if(!t) return;
   const ass=t.assinatura||{};
-  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Termo de Férias — ${t.employeeNome}</title>
-<style>body{font-family:Arial,sans-serif;padding:24px;max-width:780px;margin:0 auto;color:#212529;font-size:13px;line-height:1.6}h1{color:#1a3a6b;font-size:18px}.box{border:1px solid #ccc;border-radius:6px;padding:10px 12px;margin-top:14px;font-size:11px;color:#444;word-break:break-all}.tb-btn{cursor:pointer;border:1px solid #cbd5e1;background:#f8fafc;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;color:#1a3a6b}@media print{.no-print{display:none!important}}</style></head><body>
+  const html=`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Termo de Férias — ${t.employeeNome}</title>
+<style>html{-webkit-text-size-adjust:100%}body{font-family:'Segoe UI',-apple-system,Roboto,Arial,sans-serif;padding:32px 26px;max-width:760px;margin:0 auto;color:#1f2937;font-size:14px;line-height:1.75}h1{color:#1a3a6b;font-size:19px}p,li{text-align:justify;text-justify:inter-word;hyphens:auto;-webkit-hyphens:auto;-ms-hyphens:auto}p{margin:12px 0}ol{margin:12px 0;padding-left:24px}li{margin:8px 0;padding-left:4px}strong{color:#111827}table{width:100%;border-collapse:collapse;margin:10px 0}.box{border:1px solid #e5e7eb;background:#f9fafb;border-radius:8px;padding:12px 14px;margin-top:18px;font-size:11.5px;color:#4b5563;line-height:1.7;word-break:break-word;text-align:left;hyphens:none}.tb-btn{cursor:pointer;border:1px solid #cbd5e1;background:#f8fafc;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;color:#1a3a6b}@media print{.no-print{display:none!important}body{padding:0}}</style></head><body>
 <div class="no-print" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid #eee">
   <button class="tb-btn" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
 </div>
-<h1>${(typeof _e==='function'?_e('nomeEmpresa'):'')||'Empresa'} — ${t.titulo}</h1>${t.conteudoHtml}
+<div style="display:flex;align-items:center;gap:14px;border-bottom:2px solid #e5e7eb;padding-bottom:12px;margin-bottom:10px">
+  ${(typeof _e==='function'&&_e('logoUrl'))?`<img src="${_e('logoUrl')}" alt="" style="height:54px;width:auto;max-width:130px;object-fit:contain;background:#fff;border-radius:6px;flex-shrink:0">`:''}
+  <div style="min-width:0">
+    <div style="font-size:19px;font-weight:700;color:#1a3a6b;line-height:1.2">${esc((typeof _e==='function'?_e('nomeEmpresa'):'')||'Empresa')}</div>
+    ${(typeof _e==='function'&&_e('cnpj'))?`<div style="font-size:12px;color:#6b7280;margin-top:1px">CNPJ ${esc(_e('cnpj'))}</div>`:''}
+    <div style="font-size:13.5px;color:#374151;font-weight:600;margin-top:4px">${esc(t.titulo)}</div>
+  </div>
+</div>${t.conteudoHtml}
 ${t.status==='assinado'?`<div class="box"><strong>✔ Assinado eletronicamente</strong> em ${t.assinadoEm?new Date(t.assinadoEm).toLocaleString('pt-BR'):'—'}<br>Colaborador: ${t.employeeNome} — CPF ${t.cpf||'—'}<br>Hash SHA-256: ${ass.hash||'—'}<br>IP: ${ass.ip||'—'} · Dispositivo: ${(ass.deviceFingerprint||'').slice(0,16)}…${t.carimboStatus?`<br>🔗 Carimbo do tempo (blockchain): <strong>${t.carimboStatus==='confirmado'?'CONFIRMADO':'registrado'}</strong>${t.carimboCriadoEm?' em '+new Date(t.carimboCriadoEm).toLocaleString('pt-BR'):''} — prova .ots verificável em opentimestamps.org`:''}</div>`:`<div class="box">Status atual: <strong>${t.status}</strong> — aguardando assinatura do colaborador no app.</div>`}
 <p style="margin-top:18px;font-size:9px;color:#888">Gerado em ${new Date().toLocaleString('pt-BR')}.</p></body></html>`;
   const w=window.open('','_blank','width=860,height=700'); if(!w){ toast('Permita pop-ups','error'); return; } w.document.write(html); w.document.close();

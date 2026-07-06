@@ -21560,13 +21560,32 @@ function renderAdminTenants() {
       const suf  = diff < 0 ? ` (${Math.abs(diff)}d vencido)` : diff <= 7 ? ` (em ${diff}d)` : '';
       vencLabel  = `<span style="color:${cor}">${venc.split('-').reverse().join('/')}${suf}</span>`;
     }
-    const mens = t.mensalidade > 0 ? fmtMoney(t.mensalidade) : '—';
+    // Plano assinado (faixa) + ciclo — vindo da assinatura Asaas; senão o plano cru.
+    const faixaNome = t.planoFaixa || t.planoNome || '';
+    const cicloSuf  = t.planoCiclo==='YEARLY' ? ' · anual' : t.planoCiclo==='MONTHLY' ? ' · mensal' : '';
+    const planoCell = faixaNome
+      ? `<strong>${esc(faixaNome)}</strong><span style="color:#888">${cicloSuf}</span>`
+      : (t.plano||'—');
+    // Valor: prioriza o valor da assinatura (com sufixo do ciclo); senão a mensalidade manual.
+    const valAssin = Number(t.planoValor)||0;
+    const mens = valAssin > 0
+      ? `${fmtMoney(valAssin)}<span style="font-size:10px;color:#888">/${t.planoCiclo==='YEARLY'?'ano':'mês'}</span>`
+      : (t.mensalidade > 0 ? fmtMoney(t.mensalidade) : '—');
+    // Último pagamento confirmado (webhook Asaas).
+    let ultPgLine = '';
+    if (t.ultimoPagamentoEm) {
+      const d = new Date(t.ultimoPagamentoEm);
+      const dl = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+      const vl = Number(t.ultimoPagamentoValor)>0 ? ' · '+fmtMoney(t.ultimoPagamentoValor) : '';
+      ultPgLine = `<br><span style="font-size:10px;color:#2e7d32" title="Último pagamento confirmado">✓ pago ${dl}${vl}</span>`;
+    }
+    const inadBadge = t.inadimplente ? ` <span class="badge badge-danger" style="font-size:10px">● Em atraso</span>` : '';
     return `<tr>
       <td><strong>${t.nome||'—'}</strong><br><span style="font-size:11px;color:#aaa">${t.cnpj||''}</span></td>
-      <td style="font-size:12px">${t.plano||'—'}</td>
-      <td style="font-weight:600">${mens}</td>
+      <td style="font-size:12px">${planoCell}</td>
+      <td style="font-weight:600">${mens}${ultPgLine}</td>
       <td style="font-size:12px">${vencLabel}</td>
-      <td>${statusBadge}</td>
+      <td>${statusBadge}${inadBadge}</td>
       <td>
         <div style="display:flex;gap:4px;flex-wrap:wrap">
           <button class="btn-icon" onclick="openAdmManageTenant('${t.id}')" title="Editar"><i class="fa-solid fa-gear" style="color:var(--primary)"></i></button>

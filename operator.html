@@ -595,7 +595,12 @@ function renderTenants() {
                       :            '<span class="badge badge-arquiv"><i class="fa-solid fa-box-archive"></i> Arquivado</span>';
 
     const tipoBadge  = `<span class="badge" style="background:#f0f4ff;color:#1a3a6b"><i class="fa-solid fa-building"></i> ${t.tipo||'—'}</span>`;
-    const planoBadge = isTrial ? 'Trial' : (t.plano||'—');
+    // Plano assinado (faixa Asaas) + ciclo; senão o plano cru / Trial.
+    const faixaNome = t.planoFaixa || t.planoNome || '';
+    const cicloSuf  = t.planoCiclo==='YEARLY' ? ' · anual' : t.planoCiclo==='MONTHLY' ? ' · mensal' : '';
+    const planoBadge = faixaNome
+      ? `<strong>${faixaNome}</strong><span style="color:#888">${cicloSuf}</span>`
+      : (isTrial ? 'Trial' : (t.plano||'—'));
 
     const venc    = t.validade || null;
     let vencLabel = '—';
@@ -606,9 +611,18 @@ function renderTenants() {
       vencLabel  = `<span style="color:${cor}">${venc.split('-').reverse().join('/')} <small>${suf}</small></span>`;
     }
 
-    const mensLabel = t.mensalidade > 0
-      ? `R$ ${parseFloat(t.mensalidade).toLocaleString('pt-BR',{minimumFractionDigits:2})}`
-      : '—';
+    const _fmtBRL = v => 'R$ ' + parseFloat(v).toLocaleString('pt-BR',{minimumFractionDigits:2});
+    const valAssin = Number(t.planoValor)||0;
+    let mensLabel = valAssin > 0
+      ? `${_fmtBRL(valAssin)}<span style="font-size:10px;color:#888">/${t.planoCiclo==='YEARLY'?'ano':'mês'}</span>`
+      : (t.mensalidade > 0 ? _fmtBRL(t.mensalidade) : '—');
+    if (t.ultimoPagamentoEm) {
+      const d = new Date(t.ultimoPagamentoEm);
+      const dl = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+      const vl = Number(t.ultimoPagamentoValor)>0 ? ' · '+_fmtBRL(t.ultimoPagamentoValor) : '';
+      mensLabel += `<br><span style="font-size:10px;color:#2e7d32" title="Último pagamento confirmado">✓ pago ${dl}${vl}</span>`;
+    }
+    const inadBadge = t.inadimplente ? ` <span class="badge badge-bloq" style="font-size:10px"><i class="fa-solid fa-triangle-exclamation"></i> Em atraso</span>` : '';
 
     const badges = `
       ${isMeu ? '<span class="badge badge-meu"><i class="fa-solid fa-house"></i> MEU TENANT</span>' : ''}
@@ -623,7 +637,7 @@ function renderTenants() {
       <td>${planoBadge}</td>
       <td>${mensLabel}</td>
       <td>${vencLabel}</td>
-      <td>${statusBadge}</td>
+      <td>${statusBadge}${inadBadge}</td>
       <td>
         <div style="display:flex;gap:5px;flex-wrap:wrap">
           <button class="btn btn-outline btn-sm" onclick="openManageTenant('${t.id}')">

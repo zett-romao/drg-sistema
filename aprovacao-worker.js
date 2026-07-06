@@ -769,6 +769,18 @@ async function handleOperatorLogin(body, token, env, ip){
 // novos clientes — trial 6 meses). O Worker faz todas as 3 escritas
 // com a conta de serviço (operator/tenants/lista/{id}, tenants/{id}/
 // users/master_{id}, tenants/{id}/configuracoes/empresa).
+// [PÚBLICA] Devolve a tabela comercial (configuracoes/planos) para a landing/cadastro
+// exibir os planos. São dados públicos de marketing (sem login). #planos-precos
+async function handlePlanosPublicos(token){
+  try{
+    const pl = await fsGetDoc('configuracoes/planos', token);
+    if (pl && Array.isArray(pl.faixas) && pl.faixas.length){
+      return { ok:true, trialDias: Number(pl.trialDias) || 180, faixas: pl.faixas };
+    }
+  }catch(_){ /* cai no default do cliente */ }
+  return { ok:true, trialDias:180, faixas:null };
+}
+
 async function handleTenantCadastrar(body, token){
   const nome        = String(body.nome || '').trim();
   const cnpjRaw     = String(body.cnpj || '').replace(/\D/g, '');
@@ -1178,6 +1190,10 @@ export default {
       if (url.pathname === '/tenant-cadastrar') {
         const t = await getAccessToken(env);
         return json(await handleTenantCadastrar(body, t), 200, origin);
+      }
+      if (url.pathname === '/planos-publicos') {
+        const t = await getAccessToken(env);
+        return json(await handlePlanosPublicos(t), 200, origin);
       }
 
       const auth  = await verifyIdToken(body.idToken);   // 401 se o token for inválido

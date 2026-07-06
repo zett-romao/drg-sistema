@@ -45,6 +45,27 @@
       border-radius: 20px; padding: 6px 16px; font-size: 13px; margin-top: 20px;
     }
 
+    /* Planos & Preços na landing (puxados do Worker /planos-publicos) */
+    .planos-landing { margin-top: 24px; }
+    .planos-landing .titulo {
+      font-size: 12px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase;
+      opacity: .75; margin-bottom: 10px;
+    }
+    .plano-item {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 10px 14px; margin-bottom: 8px; border-radius: 10px;
+      background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14);
+    }
+    .plano-item.free { background: rgba(129,199,132,.18); border-color: rgba(129,199,132,.5); }
+    .plano-nome { font-size: 14px; font-weight: 600; text-align: left; }
+    .plano-func { display: block; font-size: 11px; opacity: .7; font-weight: 400; margin-top: 2px; }
+    .plano-preco { font-size: 16px; font-weight: 700; white-space: nowrap; text-align: right; }
+    .plano-preco span { font-size: 11px; font-weight: 400; opacity: .7; }
+    .plano-preco .gratis { color: #a5d6a7; font-size: 14px; }
+    .plano-preco .depois { display: block; font-size: 11px; font-weight: 400; opacity: .7; }
+    .plano-preco .consulta { font-size: 13px; font-weight: 600; opacity: .85; }
+    .planos-nota { font-size: 11px; opacity: .6; margin-top: 6px; }
+
     /* Card de cadastro */
     .card {
       background: #fff; border-radius: 16px; padding: 36px 40px;
@@ -140,7 +161,8 @@
       <li><i class="fa-solid fa-check-circle"></i> Relatórios e exportação para contabilidade</li>
       <li><i class="fa-solid fa-check-circle"></i> Dados 100% no Firebase — seguro e em nuvem</li>
     </ul>
-    <div class="trial-badge"><i class="fa-solid fa-gift"></i> &nbsp;Até 10 funcionários — grátis por 6 meses, sem cartão de crédito</div>
+    <div class="trial-badge" id="trial-badge"><i class="fa-solid fa-gift"></i> &nbsp;Até 10 funcionários — grátis por 6 meses, sem cartão de crédito</div>
+    <div class="planos-landing" id="planos-landing"></div>
   </div>
 
   <!-- Card de cadastro -->
@@ -297,6 +319,66 @@ document.addEventListener('keydown', e => {
     doCadastro();
   }
 });
+
+// ── Planos & Preços — puxa a tabela do Worker (/planos-publicos), que lê a mesma
+// configuração editável em Configurações → Planos & Preços. Se falhar, usa o default. ──
+function _plNum(n){ n = Number(n) || 0; return n % 1 ? n.toFixed(2).replace('.', ',') : String(n); }
+function _plEsc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function _plMeses(dias){ return Math.round((Number(dias) || 180) / 30); }
+function _plFaixaLabel(f){
+  const min = f.min == null ? 0 : Number(f.min);
+  const max = (f.max == null || f.max === '') ? null : Number(f.max);
+  if (max == null) return `acima de ${Math.max(0, min - 1)} func.`;
+  if (min <= 1)   return `até ${max} func.`;
+  return `${min}–${max} func.`;
+}
+function _planosFallback(){
+  return [
+    { nome:'Start',        min:0,   max:10,   mensal:39  },
+    { nome:'Essencial',    min:11,  max:25,   mensal:79  },
+    { nome:'Profissional', min:26,  max:50,   mensal:149 },
+    { nome:'Empresarial',  min:51,  max:100,  mensal:249 },
+    { nome:'Acima de 100', min:101, max:null, mensal:0   },
+  ];
+}
+function renderPlanosLanding(faixas, meses){
+  const el = document.getElementById('planos-landing');
+  if (!el) return;
+  const itens = faixas.map((f, i) => {
+    const free = i === 0;
+    let preco;
+    if (free) {
+      preco = `<span class="gratis">Grátis ${meses} meses</span>` +
+              (f.mensal > 0 ? `<span class="depois">depois R$ ${_plNum(f.mensal)}/mês</span>` : '');
+    } else if (!(f.mensal > 0)) {
+      preco = `<span class="consulta">Sob consulta</span>`;
+    } else {
+      preco = `R$ ${_plNum(f.mensal)}<span>/mês</span>`;
+    }
+    return `<div class="plano-item${free ? ' free' : ''}">
+      <div class="plano-nome">${_plEsc(f.nome)}<span class="plano-func">${_plFaixaLabel(f)}</span></div>
+      <div class="plano-preco">${preco}</div>
+    </div>`;
+  }).join('');
+  el.innerHTML = `<div class="titulo"><i class="fa-solid fa-tags"></i> Planos e preços</div>${itens}` +
+    `<div class="planos-nota">Plano anual com 2 meses grátis. Valores por nº de funcionários ativos.</div>`;
+}
+async function carregarPlanos(){
+  let dados = null;
+  try {
+    const r = await fetch(APROVACAO_WORKER + '/planos-publicos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    });
+    const j = await r.json().catch(() => null);
+    if (j && j.ok) dados = j;
+  } catch(_) { /* usa fallback */ }
+  const meses  = _plMeses(dados && dados.trialDias);
+  const faixas = (dados && Array.isArray(dados.faixas) && dados.faixas.length) ? dados.faixas : _planosFallback();
+  renderPlanosLanding(faixas, meses);
+  const badge = document.getElementById('trial-badge');
+  if (badge) badge.innerHTML = `<i class="fa-solid fa-gift"></i> &nbsp;Até 10 funcionários — grátis por ${meses} meses, sem cartão de crédito`;
+}
+carregarPlanos();
 </script>
 </body>
 </html>

@@ -100,10 +100,26 @@
     .ja-tem { text-align: center; margin-top: 16px; font-size: 13px; color: var(--muted); }
     .ja-tem a { color: var(--primary); text-decoration: none; font-weight: 600; }
 
-    @media (max-width: 780px) {
-      .page-wrap { flex-direction: column; align-items: center; }
-      .marketing { text-align: center; }
-      .card { width: 100%; padding: 28px 24px; }
+    /* Tablets e celulares — empilha e permite rolar do topo */
+    @media (max-width: 820px) {
+      body { align-items: flex-start; }               /* não centraliza vertical: topo não some */
+      .page-wrap { flex-direction: column; align-items: center; gap: 24px; }
+      .marketing { text-align: center; padding-top: 0; }
+      .marketing h1 { font-size: 26px; }
+      .card { width: 100%; max-width: 480px; padding: 28px 24px; }
+    }
+    /* Celulares estreitos */
+    @media (max-width: 480px) {
+      body { padding: 14px; }
+      .marketing img { height: 46px; }
+      .marketing h1 { font-size: 22px; }
+      .marketing p  { font-size: 14px; margin-bottom: 18px; }
+      .features li  { font-size: 13px; }
+      .trial-badge  { font-size: 12px; padding: 6px 12px; }
+      .card { padding: 22px 18px; border-radius: 14px; }
+      .card h2 { font-size: 18px; }
+      .form-row { flex-direction: column; gap: 0; }   /* dois campos passam a empilhar */
+      .btn-submit { padding: 14px; font-size: 15px; }
     }
   </style>
 </head>

@@ -31933,6 +31933,13 @@ async function checkLicenca(){
         showLicencaLock('Este tenant foi arquivado. Entre em contato com o suporte.');
         return false;
       }
+      // Trava por INADIMPLÊNCIA: pagamento em atraso confirmado pelo Asaas (webhook PAYMENT_OVERDUE
+      // marca inadimplente:true; PAYMENT_CONFIRMED/RECEIVED zera e estende a validade). Some sozinha
+      // assim que o cliente paga. Master pode ficar isento com t.isentoInadimplencia. #planos-precos
+      if(t.inadimplente === true && !t.isentoInadimplencia){
+        showLicencaLock('Pagamento da assinatura em atraso. Regularize para reativar o acesso — assim que o Asaas confirmar o pagamento, o sistema libera automaticamente.');
+        return false;
+      }
       // Trial ou ativo com validade expirada
       if(t.validade && hoje > t.validade){
         const planoLabel = t.plano==='trial' ? 'Trial' : 'Licença';

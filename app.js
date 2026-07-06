@@ -632,6 +632,7 @@ function renderLinksAcesso(){
   // Base = diretório atual (tira query/hash e o nome do arquivo). Ex.: .../drg-sistema/
   const base = location.href.replace(/[?#].*$/,'').replace(/[^/]*$/,'');
   const links = [
+    {icon:'fa-user-plus',     cor:'#2E7D32', nome:'Criar conta (cadastro gratuito)', desc:'Link para novas empresas criarem a própria conta. Compartilhe com quem vai se cadastrar.', arq:'cadastro.html'},
     {icon:'fa-table-columns', cor:'#1565C0', nome:'Portal (todos os acessos)', desc:'Página inicial com os apps — boa para deixar salva.', arq:'portal.html'},
     {icon:'fa-user-shield',   cor:'#7B1FA2', nome:'Master',      desc:'App principal — acesso total. Entra com o login master.', arq:'index.html'},
     {icon:'fa-user-gear',     cor:'#5C6BC0', nome:'Gestor',      desc:'Mesmo app principal — acesso conforme o perfil. Entra com o próprio login.', arq:'index.html'},

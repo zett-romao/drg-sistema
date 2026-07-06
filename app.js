@@ -559,6 +559,7 @@ function renderConfiguracoes(){
   renderFeriadosConfig();
   renderPainelRecursos();
   renderLinksAcesso();
+  renderPlanosPrecos();
   renderParametrosLegais();
   // Regra de adiantamento — prazo mínimo de casa (default 20). #adiant-prazo-admissao
   { const _v=State.empresa?.adiantamentoMinDiasAdmissao; setVal('cfg-adiant-min-dias', (_v==null?20:_v)); }
@@ -658,6 +659,101 @@ function _copiarLink(url){
   if(navigator.clipboard && navigator.clipboard.writeText){
     navigator.clipboard.writeText(url).then(()=>toast('Link copiado!','success')).catch(()=>toast('Não consegui copiar — copie manualmente: '+url,'warning'));
   } else { toast('Copie manualmente: '+url,'info'); }
+}
+
+// ===== Planos & Preços (Configurações) — tabela comercial editável pelo master.
+// Salva em configuracoes/planos (raiz). O Worker de cadastro lê 'trialDias' daqui,
+// então o período grátis vale de verdade sem mexer no código. #planos-precos
+function _planosDefault(){
+  return {
+    trialDias: 180,
+    faixas: [
+      {nome:'Start',        min:0,   max:10,   mensal:39,  anual:390},
+      {nome:'Essencial',    min:11,  max:25,   mensal:79,  anual:790},
+      {nome:'Profissional', min:26,  max:50,   mensal:149, anual:1490},
+      {nome:'Empresarial',  min:51,  max:100,  mensal:249, anual:2490},
+      {nome:'Acima de 100', min:101, max:null, mensal:0,   anual:0},
+    ],
+  };
+}
+async function renderPlanosPrecos(){
+  const el = document.getElementById('planos-precos-body');
+  if(!el) return;
+  if(!State.planos){
+    try{ State.planos = await DB.getDoc('configuracoes','planos'); }catch(_){ State.planos=null; }
+    if(!State.planos || !Array.isArray(State.planos.faixas) || !State.planos.faixas.length) State.planos = _planosDefault();
+  }
+  _planosPintar();
+}
+function _planosPintar(){
+  const el = document.getElementById('planos-precos-body');
+  if(!el) return;
+  const p = State.planos || _planosDefault();
+  const meses = (p.trialDias||0)/30;
+  const rows = (p.faixas||[]).map((f,i)=>`
+    <tr>
+      <td style="padding:4px"><input type="text" value="${esc(f.nome||'')}" data-pl="nome" data-i="${i}" style="min-width:120px;width:100%;padding:6px;border:1px solid var(--border);border-radius:5px"></td>
+      <td style="padding:4px"><input type="number" value="${f.min==null?0:f.min}" data-pl="min" data-i="${i}" min="0" style="width:66px;padding:6px;border:1px solid var(--border);border-radius:5px"></td>
+      <td style="padding:4px"><input type="number" value="${f.max==null?'':f.max}" data-pl="max" data-i="${i}" min="0" placeholder="∞" style="width:66px;padding:6px;border:1px solid var(--border);border-radius:5px"></td>
+      <td style="padding:4px"><input type="number" value="${f.mensal==null?0:f.mensal}" data-pl="mensal" data-i="${i}" min="0" step="0.01" style="width:88px;padding:6px;border:1px solid var(--border);border-radius:5px"></td>
+      <td style="padding:4px"><input type="number" value="${f.anual==null?0:f.anual}" data-pl="anual" data-i="${i}" min="0" step="0.01" style="width:88px;padding:6px;border:1px solid var(--border);border-radius:5px"></td>
+      <td style="padding:4px;text-align:center"><button class="btn btn-sm btn-outline" onclick="_planosRemover(${i})" title="Remover faixa" style="color:#c62828;border-color:#ef9a9a;padding:5px 9px"><i class="fa-solid fa-trash"></i></button></td>
+    </tr>`).join('');
+  el.innerHTML = `
+    <p style="font-size:12px;color:#666;margin-bottom:12px"><i class="fa-solid fa-circle-info"></i> Sua tabela comercial — edite valores, faixas e o período grátis como quiser. O cadastro de novos clientes usa o <strong>período grátis</strong> abaixo. (A cobrança automática por Asaas ainda não está ligada; por ora a tabela é referência de venda.)</p>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+      <label style="font-size:13px;font-weight:600;color:#444">Período grátis (dias):</label>
+      <input type="number" id="pl-trial-dias" value="${p.trialDias==null?180:p.trialDias}" min="0" style="width:90px;padding:8px;border:1px solid var(--border);border-radius:6px">
+      <span style="font-size:12px;color:#94a3b8">≈ ${meses ? meses.toFixed(meses%1?1:0) : 0} mes(es) — 180 = 6 meses</span>
+    </div>
+    <div style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="text-align:left;color:#64748b;border-bottom:2px solid var(--border)">
+        <th style="padding:6px 4px">Plano</th><th style="padding:6px 4px">De (func.)</th><th style="padding:6px 4px">Até (func.)</th>
+        <th style="padding:6px 4px">Mensal (R$)</th><th style="padding:6px 4px">Anual (R$)</th><th></th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+      <button class="btn btn-outline btn-sm" onclick="_planosAdicionar()"><i class="fa-solid fa-plus"></i> Adicionar faixa</button>
+      <button class="btn btn-primary btn-sm" onclick="salvarPlanosPrecos()"><i class="fa-solid fa-floppy-disk"></i> Salvar planos</button>
+    </div>
+    <p style="font-size:11px;color:#94a3b8;margin-top:8px">Dica: deixe o campo "Até" vazio na última faixa para "sem limite". Anual sugerido = 10× o mensal (2 meses grátis).</p>`;
+}
+// Lê os inputs de volta pro State (evita perder edições ao adicionar/remover faixa)
+function _planosColeta(){
+  const p = State.planos || _planosDefault();
+  const td = document.getElementById('pl-trial-dias');
+  if(td) p.trialDias = Math.max(0, parseInt(td.value)||0);
+  document.querySelectorAll('#planos-precos-body [data-pl]').forEach(inp=>{
+    const i = +inp.dataset.i, campo = inp.dataset.pl;
+    if(!p.faixas[i]) return;
+    if(campo==='nome')      p.faixas[i].nome = inp.value.trim();
+    else if(campo==='max')  p.faixas[i].max  = (inp.value==='' ? null : Math.max(0, parseInt(inp.value)||0));
+    else                    p.faixas[i][campo] = Math.max(0, parseFloat(inp.value)||0);
+  });
+  State.planos = p;
+  return p;
+}
+function _planosAdicionar(){
+  _planosColeta();
+  State.planos.faixas.push({nome:'Nova faixa', min:0, max:null, mensal:0, anual:0});
+  _planosPintar();
+}
+function _planosRemover(i){
+  _planosColeta();
+  State.planos.faixas.splice(i,1);
+  _planosPintar();
+}
+async function salvarPlanosPrecos(){
+  if(Auth.currentUser?.role!=='master'){ toast('Apenas o master pode alterar os planos','error'); return; }
+  const p = _planosColeta();
+  p.updatedAt = new Date().toISOString();
+  try{
+    await DB.saveDoc('configuracoes','planos',p,true);
+    toast('Planos & preços salvos!','success');
+  }catch(e){ toast('Erro ao salvar planos: '+e.message,'error'); }
 }
 
 // ===== Feriados — UI de configuração (folga/trabalha + extras). #feriados =====

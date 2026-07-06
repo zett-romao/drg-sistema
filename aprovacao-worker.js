@@ -790,8 +790,14 @@ async function handleTenantCadastrar(body, token){
   const existing = await fsGetDoc('operator/tenants/lista/' + tenantId, token);
   if (existing) return { ok:false, erro:'este CNPJ já possui uma conta', jaExiste:true };
 
-  // Trial 6 meses (oferta: até 10 funcionários grátis por 6 meses)
-  const validade = new Date(); validade.setDate(validade.getDate() + 180);
+  // Período grátis configurável pelo master (Configurações → Planos & Preços →
+  // configuracoes/planos.trialDias). Default 180 = 6 meses. #planos-precos
+  let trialDias = 180;
+  try {
+    const pl = await fsGetDoc('configuracoes/planos', token);
+    if (pl && Number(pl.trialDias) > 0) trialDias = Math.round(Number(pl.trialDias));
+  } catch(_){ /* usa default */ }
+  const validade = new Date(); validade.setDate(validade.getDate() + trialDias);
   const validadeStr = validade.toISOString().split('T')[0];
   const agora       = new Date().toISOString();
 

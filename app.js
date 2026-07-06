@@ -697,6 +697,8 @@ function _planoMaxFuncionarios(){
 async function renderPlanosPrecos(){
   const el = document.getElementById('planos-precos-body');
   if(!el) return;
+  // Cliente (tenant) assina; só o dono/raiz edita a tabela de preços. #planos-precos
+  if(DB.tenantId) return renderAssinaturaCliente(el);
   if(!State.planos){
     try{ State.planos = await DB.getDoc('configuracoes','planos'); }catch(_){ State.planos=null; }
     if(!State.planos || !Array.isArray(State.planos.faixas) || !State.planos.faixas.length) State.planos = _planosDefault();
@@ -772,6 +774,71 @@ async function salvarPlanosPrecos(){
     await DB.saveDoc('configuracoes','planos',p,true);
     toast('Planos & preços salvos!','success');
   }catch(e){ toast('Erro ao salvar planos: '+e.message,'error'); }
+}
+
+// ===== Assinatura do CLIENTE (tenant) — escolhe faixa, gera cobrança recorrente Asaas
+// via Worker /assinar-plano e abre o link de pagamento. Preços vêm de /planos-publicos. #planos-precos
+function _plNumApp(n){ n = Number(n)||0; return n%1 ? n.toFixed(2).replace('.',',') : String(n); }
+async function renderAssinaturaCliente(el){
+  const t = State.tenantMeta || {};
+  const hoje = new Date().toISOString().split('T')[0];
+  let statusHtml;
+  if(t.status==='ativo'){
+    statusHtml = `<div style="padding:10px 14px;border-radius:10px;background:#E8F5E9;border:1px solid #A5D6A7;color:#2E7D32;font-size:13px;font-weight:600">
+      <i class="fa-solid fa-circle-check"></i> Plano ativo${t.planoFaixa?': '+esc(t.planoFaixa):''}${t.validade?' — próxima renovação em '+formatDateBr(t.validade):''}.${t.inadimplente?' <span style="color:#c62828">(pagamento em atraso)</span>':''}</div>`;
+  } else if(t.validade && t.validade>=hoje){
+    const dias = Math.max(0, Math.floor((new Date(t.validade)-new Date())/86400000));
+    statusHtml = `<div style="padding:10px 14px;border-radius:10px;background:#FFF8E1;border:1px solid #FFE082;color:#8D6E00;font-size:13px;font-weight:600">
+      <i class="fa-solid fa-gift"></i> Período grátis — ${dias} dia(s) restante(s) (até ${formatDateBr(t.validade)}). Assine para não perder o acesso.</div>`;
+  } else {
+    statusHtml = `<div style="padding:10px 14px;border-radius:10px;background:#FDECEA;border:1px solid #F5B5AE;color:#c62828;font-size:13px;font-weight:600">
+      <i class="fa-solid fa-triangle-exclamation"></i> Período grátis encerrado. Assine um plano para continuar usando o sistema.</div>`;
+  }
+  el.innerHTML = statusHtml +
+    `<p style="font-size:12px;color:#666;margin:12px 0 8px"><i class="fa-solid fa-circle-info"></i> Escolha o plano pelo seu nº de funcionários. O pagamento (PIX, boleto ou cartão) abre em outra aba e o acesso é liberado automaticamente após a confirmação.</p>
+     <label style="font-size:13px;display:inline-flex;align-items:center;gap:6px;margin-bottom:10px"><input type="checkbox" id="pl-ciclo-anual"> Cobrança anual <span style="color:#2E7D32;font-weight:600">(2 meses grátis)</span></label>
+     <div id="pl-assinar-lista"><div style="color:#94A3B8;font-size:13px">Carregando planos...</div></div>`;
+  let dados=null;
+  try{
+    const r = await fetch(APROVACAO_WORKER+'/planos-publicos',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    dados = await r.json().catch(()=>null);
+  }catch(_){}
+  State._faixasAssinatura = (dados && Array.isArray(dados.faixas) && dados.faixas.length) ? dados.faixas : null;
+  _renderAssinarLista();
+  const chk=document.getElementById('pl-ciclo-anual'); if(chk) chk.onchange=_renderAssinarLista;
+}
+function _renderAssinarLista(){
+  const box=document.getElementById('pl-assinar-lista'); if(!box) return;
+  const faixas=State._faixasAssinatura;
+  if(!faixas){ box.innerHTML='<div style="color:#c62828;font-size:13px">Não consegui carregar os planos agora. Recarregue a página e tente de novo.</div>'; return; }
+  const anual=!!(document.getElementById('pl-ciclo-anual')||{}).checked;
+  box.innerHTML = faixas.map((f,i)=>{
+    const valor = anual ? Number(f.anual) : Number(f.mensal);
+    const label = (f.max==null||f.max==='') ? `acima de ${Math.max(0,(Number(f.min)||0)-1)} func.`
+                : (Number(f.min)<=1 ? `até ${f.max} func.` : `${f.min}–${f.max} func.`);
+    const pode = valor>0;
+    const preco = pode ? `R$ ${_plNumApp(valor)}<span style="font-size:11px;color:#778;font-weight:400">/${anual?'ano':'mês'}</span>` : `<span style="color:#778;font-size:13px">Sob consulta</span>`;
+    return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px">
+      <div><div style="font-weight:700;font-size:14px">${esc(f.nome||'')}</div><div style="font-size:11px;color:#778">${label}</div></div>
+      <div style="text-align:right"><div style="font-weight:700;font-size:15px">${preco}</div>
+      ${pode?`<button class="btn btn-primary btn-sm" style="margin-top:4px" onclick="assinarPlano(${i})"><i class="fa-solid fa-credit-card"></i> Assinar</button>`:''}</div>
+    </div>`;
+  }).join('');
+}
+async function assinarPlano(i){
+  const anual=!!(document.getElementById('pl-ciclo-anual')||{}).checked;
+  const cycle = anual ? 'YEARLY' : 'MONTHLY';
+  if(!confirm('Vamos gerar sua assinatura e abrir a página de pagamento em outra aba. Continuar?')) return;
+  toast('Gerando assinatura...','info');
+  try{
+    const r = await _aprovacaoReq('/assinar-plano',{ faixaIndex:i, cycle });
+    if(r && r.ok && r.invoiceUrl){
+      window.open(r.invoiceUrl,'_blank','noopener');
+      toast('Assinatura criada! A página de pagamento abriu em outra aba.','success');
+    } else {
+      toast((r&&r.erro)||'Não foi possível criar a assinatura.','error');
+    }
+  }catch(e){ toast('Erro ao assinar: '+(e.message||e),'error'); }
 }
 
 // ===== Feriados — UI de configuração (folga/trabalha + extras). #feriados =====

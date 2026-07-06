@@ -24,6 +24,9 @@
  *   /ponto-login       { matricula, pin }               → [PÚBLICA] valida colaborador e devolve custom token (role: colaborador)
  *   /operator-login    { password }                     → [PÚBLICA] valida a senha do Painel do Operador e devolve custom token (role: operator)
  *   /tenant-cadastrar  { nome, cnpj, tipo, responsavel, usuario, senha } → [PÚBLICA] cria tenant trial 6 meses
+ *   /planos-publicos   { }                                → [PÚBLICA] tabela comercial (configuracoes/planos) p/ landing
+ *   /assinar-plano     { idToken, faixaIndex, cycle }     → [master] cria assinatura Asaas recorrente e devolve link
+ *   /asaas-webhook     { event, payment }                 → [Asaas] confirma pagamento → ativa tenant + estende validade
  *   /tenant-excluir    { idToken, tenantId }            → [operator] apaga tenant ARQUIVADO + todos os dados
  *   /usuarios/listar       { idToken }                          → [master] lista usuários (sem hash)
  *   /usuarios/salvar       { idToken, user, novaSenha? }        → [master] cria/edita usuário
@@ -34,6 +37,7 @@
  *   FIREBASE_SERVICE_ACCOUNT  → JSON da conta de serviço
  *   RECOVERY_CODE             → código secreto de recuperação do master
  *   ASAAS_API_KEY             → chave da API Asaas de PRODUÇÃO ($aact_...)
+ *   ASAAS_WEBHOOK_TOKEN       → token do webhook Asaas (mesmo valor no painel Asaas → Integrações → Webhooks)
  * ============================================================
  */
 
@@ -107,7 +111,8 @@ async function verifyIdToken(idToken){
   if (payload.aud !== PROJECT_ID)   throw new Error('projeto invalido');
   if (payload.iss !== TOKEN_ISSUER) throw new Error('emissor invalido');
   if (!payload.sub || !payload.exp || payload.exp <= agora) throw new Error('token expirado');
-  return { uid: payload.sub, email: payload.email || '', authTime: payload.auth_time || 0 };
+  return { uid: payload.sub, email: payload.email || '', authTime: payload.auth_time || 0,
+           tenantId: payload.tenantId || '', role: payload.role || '' };
 }
 
 // ── TOTP — RFC 6238 (Google Authenticator) ───────────────────
@@ -414,6 +419,149 @@ async function asaasTransfer(body, env){
     throw new Error(msg);
   }
   return data;
+}
+
+// ── Assinatura de plano (cobrança recorrente Asaas) ──────────
+// Chamada genérica à API do Asaas (produção). Usa o MESMO ASAAS_API_KEY do PIX.
+async function asaasApi(path, method, body, env){
+  if (!env || !env.ASAAS_API_KEY)
+    throw new Error('ASAAS_API_KEY nao configurado no Worker drg-aprovacao');
+  const res = await fetch('https://api.asaas.com/v3' + path, {
+    method,
+    headers: {
+      'access_token': env.ASAAS_API_KEY,
+      'Content-Type': 'application/json',
+      'User-Agent':   'DRG-Kronos/3.0',
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const txt = await res.text();
+  let data = {}; try { data = JSON.parse(txt); } catch(_){}
+  if (!res.ok) {
+    const msg = (data.errors && data.errors[0] && data.errors[0].description)
+              || data.description || ('Asaas HTTP ' + res.status + ' — ' + (txt ? txt.slice(0,300) : ''));
+    throw new Error(msg);
+  }
+  return data;
+}
+// Soma 1 ciclo a uma data YYYY-MM-DD (usa UTC p/ não escorregar fuso). Grafa a nova validade.
+function _addPeriodo(ymd, cycle){
+  const [y,m,d] = String(ymd).split('-').map(n=>parseInt(n,10));
+  const base = new Date(Date.UTC(y, (m||1)-1, d||1));
+  if (cycle === 'YEARLY') base.setUTCFullYear(base.getUTCFullYear()+1);
+  else                    base.setUTCMonth(base.getUTCMonth()+1);
+  base.setUTCDate(base.getUTCDate()+3); // 3 dias de folga até a próxima cobrança
+  return base.toISOString().split('T')[0];
+}
+
+// [master do tenant] Cria (ou reusa) o cliente Asaas do tenant e abre uma assinatura
+// recorrente para a faixa escolhida. Devolve o link de pagamento (PIX/boleto/cartão).
+// O valor NÃO vem do cliente: é lido de configuracoes/planos no servidor. #planos-precos
+async function handleAssinarPlano(auth, body, token, env){
+  const tenantId = auth.tenantId;
+  if (!tenantId) return { ok:false, erro:'somente contas de cliente (tenant) podem assinar' };
+  if (auth.role && auth.role !== 'master') return { ok:false, erro:'apenas o master pode assinar o plano' };
+
+  const cycle = (String(body.cycle||'MONTHLY').toUpperCase()==='YEARLY') ? 'YEARLY' : 'MONTHLY';
+  const idx   = parseInt(body.faixaIndex, 10);
+
+  // Preço e teto vêm da configuração (fonte da verdade), nunca do cliente.
+  const planos = await fsGetDoc('configuracoes/planos', token);
+  const faixas = (planos && Array.isArray(planos.faixas)) ? planos.faixas : [];
+  const faixa  = faixas[idx];
+  if (!faixa) return { ok:false, erro:'plano inválido' };
+  const value   = cycle==='YEARLY' ? Number(faixa.anual) : Number(faixa.mensal);
+  if (!(value > 0)) return { ok:false, erro:'este plano é sob consulta — fale com o suporte' };
+  const maxFunc = (faixa.max==null || faixa.max==='') ? 0 : Math.max(0, parseInt(faixa.max,10)||0);
+
+  // Metadata do tenant (nome + cliente Asaas + validade do trial)
+  const meta = await fsGetDoc('operator/tenants/lista/' + tenantId, token) || {};
+  const nome = meta.nome || ('Tenant ' + tenantId);
+
+  // 1) Cliente Asaas — reusa se já existe; senão cria com o CNPJ (= tenantId)
+  let customerId = meta.asaasCustomerId || '';
+  if (!customerId) {
+    const cli = await asaasApi('/customers', 'POST', {
+      name: nome, cpfCnpj: tenantId, externalReference: 'kronos:' + tenantId,
+    }, env);
+    customerId = cli.id;
+  }
+
+  // 2) Primeira cobrança: se ainda está no período grátis, começa quando o trial acaba
+  const hoje = new Date().toISOString().split('T')[0];
+  let nextDueDate = hoje;
+  if (meta.validade && meta.validade > hoje) nextDueDate = meta.validade;
+  else { const d = new Date(); d.setUTCDate(d.getUTCDate()+3); nextDueDate = d.toISOString().split('T')[0]; }
+
+  // 3) Assinatura recorrente. billingType UNDEFINED = cliente escolhe PIX/boleto/cartão na fatura.
+  const sub = await asaasApi('/subscriptions', 'POST', {
+    customer: customerId,
+    billingType: 'UNDEFINED',
+    value, cycle, nextDueDate,
+    description: 'DRG-Kronos — plano ' + (faixa.nome||'') + (cycle==='YEARLY'?' (anual)':' (mensal)'),
+    externalReference: 'kronos:' + tenantId,
+  }, env);
+
+  // 4) Link da 1ª fatura
+  let invoiceUrl = '';
+  try {
+    const pays = await asaasApi('/subscriptions/' + sub.id + '/payments', 'GET', null, env);
+    if (pays && pays.data && pays.data[0]) invoiceUrl = pays.data[0].invoiceUrl || '';
+  } catch(_){}
+
+  // 5) Guarda no tenant (status só vira 'ativo' quando o pagamento confirmar no webhook)
+  await fsUpdate('operator/tenants/lista/' + tenantId, {
+    asaasCustomerId: customerId,
+    asaasSubscriptionId: sub.id,
+    planoFaixa: faixa.nome || '',
+    planoFaixaIndex: idx,
+    planoCiclo: cycle,
+    planoValor: value,
+    planoMaxFuncionarios: maxFunc,
+    assinaturaCriadaEm: new Date().toISOString(),
+  }, token);
+
+  return { ok:true, invoiceUrl, subscriptionId: sub.id, value, cycle, plano: faixa.nome||'', proximoVencimento: nextDueDate };
+}
+
+// [PÚBLICA c/ token] Webhook do Asaas: quando um pagamento CONFIRMA, ativa o tenant,
+// estende a validade por 1 ciclo e grava o teto de funcionários da faixa. #planos-precos
+async function handleAsaasWebhook(request, body, env, token){
+  // Autenticação do webhook (token configurado no painel Asaas → header asaas-access-token)
+  const hdr = request.headers.get('asaas-access-token') || '';
+  if (!env.ASAAS_WEBHOOK_TOKEN || hdr !== env.ASAAS_WEBHOOK_TOKEN)
+    return { received:false, erro:'token inválido' };
+
+  const evento = String(body.event || '');
+  const pay    = body.payment || {};
+  const ref    = String(pay.externalReference || '');
+  // Só tratamos cobranças do Kronos (prefixo kronos:) que foram pagas.
+  if (!ref.startsWith('kronos:')) return { received:true, ignorado:'sem prefixo kronos:' };
+  const tenantId = ref.slice('kronos:'.length);
+  if (!tenantId) return { received:true, ignorado:'sem tenant' };
+
+  if (evento === 'PAYMENT_CONFIRMED' || evento === 'PAYMENT_RECEIVED') {
+    const meta  = await fsGetDoc('operator/tenants/lista/' + tenantId, token) || {};
+    const cycle = meta.planoCiclo === 'YEARLY' ? 'YEARLY' : 'MONTHLY';
+    const baseData = pay.dueDate || pay.paymentDate || new Date().toISOString().split('T')[0];
+    const novaValidade = _addPeriodo(baseData, cycle);
+    const patch = {
+      status: 'ativo', plano: 'pago',
+      validade: novaValidade,
+      inadimplente: false,
+      ultimoPagamentoEm: new Date().toISOString(),
+      ultimoPagamentoValor: Number(pay.value)||0,
+    };
+    if (Number(meta.planoMaxFuncionarios) > 0) patch.maxFuncionarios = Number(meta.planoMaxFuncionarios);
+    if (meta.planoFaixa) patch.planoNome = meta.planoFaixa;
+    await fsUpdate('operator/tenants/lista/' + tenantId, patch, token);
+    return { received:true, tenant:tenantId, ativado:true, validade:novaValidade };
+  }
+  if (evento === 'PAYMENT_OVERDUE') {
+    await fsUpdate('operator/tenants/lista/' + tenantId, { inadimplente:true }, token);
+    return { received:true, tenant:tenantId, inadimplente:true };
+  }
+  return { received:true, evento };
 }
 
 // ── Recuperação de acesso do master (rota pública) ───────────
@@ -1195,6 +1343,10 @@ export default {
         const t = await getAccessToken(env);
         return json(await handlePlanosPublicos(t), 200, origin);
       }
+      if (url.pathname === '/asaas-webhook') {
+        const t = await getAccessToken(env);
+        return json(await handleAsaasWebhook(request, body, env, t), 200, origin);
+      }
 
       const auth  = await verifyIdToken(body.idToken);   // 401 se o token for inválido
       const token = await getAccessToken(env);
@@ -1203,6 +1355,7 @@ export default {
       if (url.pathname === '/mfa/confirm') return json(await handleConfirm(auth, body.code, token), 200, origin);
       if (url.pathname === '/mfa/status')  return json(await handleStatus(auth, token), 200, origin);
       if (url.pathname === '/aprovar-pagamento') return json(await handleAprovarPagamento(auth, body, token, env), 200, origin);
+      if (url.pathname === '/assinar-plano')     return json(await handleAssinarPlano(auth, body, token, env), 200, origin);
       if (url.pathname === '/tenant-excluir')    return json(await handleTenantExcluir(auth, body, token), 200, origin);
       if (url.pathname === '/usuarios/listar')       return json(await handleUsuariosListar(auth, token), 200, origin);
       if (url.pathname === '/usuarios/salvar')       return json(await handleUsuariosSalvar(auth, body, token), 200, origin);

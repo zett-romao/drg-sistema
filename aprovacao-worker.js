@@ -23,7 +23,7 @@
  *   /login             { username, password }           → [PÚBLICA] verifica a senha e devolve custom token
  *   /ponto-login       { matricula, pin }               → [PÚBLICA] valida colaborador e devolve custom token (role: colaborador)
  *   /operator-login    { password }                     → [PÚBLICA] valida a senha do Painel do Operador e devolve custom token (role: operator)
- *   /tenant-cadastrar  { nome, cnpj, tipo, responsavel, usuario, senha } → [PÚBLICA] cria tenant trial 30 dias
+ *   /tenant-cadastrar  { nome, cnpj, tipo, responsavel, usuario, senha } → [PÚBLICA] cria tenant trial 6 meses
  *   /tenant-excluir    { idToken, tenantId }            → [operator] apaga tenant ARQUIVADO + todos os dados
  *   /usuarios/listar       { idToken }                          → [master] lista usuários (sem hash)
  *   /usuarios/salvar       { idToken, user, novaSenha? }        → [master] cria/edita usuário
@@ -766,7 +766,7 @@ async function handleOperatorLogin(body, token, env, ip){
 
 // ── Cadastro de novo tenant (rota pública) ───────────────────
 // Substitui as escritas diretas do cadastro.html (auto-cadastro de
-// novos clientes — trial 30 dias). O Worker faz todas as 3 escritas
+// novos clientes — trial 6 meses). O Worker faz todas as 3 escritas
 // com a conta de serviço (operator/tenants/lista/{id}, tenants/{id}/
 // users/master_{id}, tenants/{id}/configuracoes/empresa).
 async function handleTenantCadastrar(body, token){
@@ -790,8 +790,8 @@ async function handleTenantCadastrar(body, token){
   const existing = await fsGetDoc('operator/tenants/lista/' + tenantId, token);
   if (existing) return { ok:false, erro:'este CNPJ já possui uma conta', jaExiste:true };
 
-  // Trial 30 dias
-  const validade = new Date(); validade.setDate(validade.getDate() + 30);
+  // Trial 6 meses (oferta: até 10 funcionários grátis por 6 meses)
+  const validade = new Date(); validade.setDate(validade.getDate() + 180);
   const validadeStr = validade.toISOString().split('T')[0];
   const agora       = new Date().toISOString();
 

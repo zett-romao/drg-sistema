@@ -31771,11 +31771,12 @@ async function showTrialBanner(){
     const hoje = new Date().toISOString().split('T')[0];
     if(hoje > t.validade) return; // já bloqueado pelo checkLicenca
     const dias = Math.floor((new Date(t.validade) - new Date()) / 86400000);
-    if(t.status === 'trial'){
+    // Período grátis de 6 meses: só avisa nos últimos 30 dias, pra não "cobrar" o cliente o tempo todo.
+    if(t.status === 'trial' && dias <= 30){
       const banner = document.getElementById('trial-banner');
       const msg = document.getElementById('trial-banner-msg');
       if(banner && msg){
-        msg.textContent = `Trial: ${dias} dia(s) restante(s) — entre em contato para continuar usando o sistema.`;
+        msg.textContent = `Período grátis: ${dias} dia(s) restante(s) — entre em contato para contratar um plano e continuar usando o sistema.`;
         banner.classList.remove('hidden');
         banner.style.background = dias <= 3 ? '#c62828' : '#e65100';
       }

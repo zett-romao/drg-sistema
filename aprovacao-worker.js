@@ -453,6 +453,13 @@ function _addPeriodo(ymd, cycle){
   base.setUTCDate(base.getUTCDate()+3); // 3 dias de folga até a próxima cobrança
   return base.toISOString().split('T')[0];
 }
+// Soma N dias a uma data YYYY-MM-DD (UTC).
+function _addDias(ymd, n){
+  const [y,m,d] = String(ymd).split('-').map(x=>parseInt(x,10));
+  const base = new Date(Date.UTC(y, (m||1)-1, d||1));
+  base.setUTCDate(base.getUTCDate() + (parseInt(n,10)||0));
+  return base.toISOString().split('T')[0];
+}
 
 // [master do tenant] Cria (ou reusa) o cliente Asaas do tenant e abre uma assinatura
 // recorrente para a faixa escolhida. Devolve o link de pagamento (PIX/boleto/cartão).
@@ -549,6 +556,8 @@ async function handleAsaasWebhook(request, body, env, token){
       status: 'ativo', plano: 'pago',
       validade: novaValidade,
       inadimplente: false,
+      inadimplenteDesde: '',   // limpa o marcador de atraso
+      bloqueioEm: '',          // limpa a data-limite de bloqueio
       ultimoPagamentoEm: new Date().toISOString(),
       ultimoPagamentoValor: Number(pay.value)||0,
     };
@@ -558,8 +567,17 @@ async function handleAsaasWebhook(request, body, env, token){
     return { received:true, tenant:tenantId, ativado:true, validade:novaValidade };
   }
   if (evento === 'PAYMENT_OVERDUE') {
-    await fsUpdate('operator/tenants/lista/' + tenantId, { inadimplente:true }, token);
-    return { received:true, tenant:tenantId, inadimplente:true };
+    // Tolerância editável em Configurações → Planos & Preços (configuracoes/planos.
+    // toleranciaInadimplenciaDias, default 5). bloqueioEm = vencimento + tolerância.
+    const meta   = await fsGetDoc('operator/tenants/lista/' + tenantId, token) || {};
+    const planos = await fsGetDoc('configuracoes/planos', token) || {};
+    let grace = Number(planos.toleranciaInadimplenciaDias);
+    if (!(grace >= 0)) grace = 5;
+    const due = pay.dueDate || new Date().toISOString().split('T')[0];
+    const patch = { inadimplente:true, bloqueioEm: _addDias(due, grace) };
+    if (!meta.inadimplenteDesde) patch.inadimplenteDesde = due;
+    await fsUpdate('operator/tenants/lista/' + tenantId, patch, token);
+    return { received:true, tenant:tenantId, inadimplente:true, bloqueioEm: patch.bloqueioEm };
   }
   return { received:true, evento };
 }

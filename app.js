@@ -667,6 +667,7 @@ function _copiarLink(url){
 function _planosDefault(){
   return {
     trialDias: 180,
+    toleranciaInadimplenciaDias: 5,
     faixas: [
       {nome:'Start',        min:0,   max:10,   mensal:39,  anual:390},
       {nome:'Essencial',    min:11,  max:25,   mensal:79,  anual:790},
@@ -726,6 +727,11 @@ function _planosPintar(){
       <input type="number" id="pl-trial-dias" value="${p.trialDias==null?180:p.trialDias}" min="0" style="width:90px;padding:8px;border:1px solid var(--border);border-radius:6px">
       <span style="font-size:12px;color:#94a3b8">≈ ${meses ? meses.toFixed(meses%1?1:0) : 0} mes(es) — 180 = 6 meses</span>
     </div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+      <label style="font-size:13px;font-weight:600;color:#444">Tolerância de inadimplência (dias):</label>
+      <input type="number" id="pl-tolerancia-dias" value="${p.toleranciaInadimplenciaDias==null?5:p.toleranciaInadimplenciaDias}" min="0" style="width:90px;padding:8px;border:1px solid var(--border);border-radius:6px">
+      <span style="font-size:12px;color:#94a3b8">dias de folga após o vencimento antes de bloquear o acesso</span>
+    </div>
     <div style="overflow-x:auto">
     <table style="width:100%;border-collapse:collapse;font-size:13px">
       <thead><tr style="text-align:left;color:#64748b;border-bottom:2px solid var(--border)">
@@ -746,6 +752,8 @@ function _planosColeta(){
   const p = State.planos || _planosDefault();
   const td = document.getElementById('pl-trial-dias');
   if(td) p.trialDias = Math.max(0, parseInt(td.value)||0);
+  const tol = document.getElementById('pl-tolerancia-dias');
+  if(tol) p.toleranciaInadimplenciaDias = Math.max(0, parseInt(tol.value)||0);
   document.querySelectorAll('#planos-precos-body [data-pl]').forEach(inp=>{
     const i = +inp.dataset.i, campo = inp.dataset.pl;
     if(!p.faixas[i]) return;
@@ -31934,11 +31942,16 @@ async function checkLicenca(){
         return false;
       }
       // Trava por INADIMPLÊNCIA: pagamento em atraso confirmado pelo Asaas (webhook PAYMENT_OVERDUE
-      // marca inadimplente:true; PAYMENT_CONFIRMED/RECEIVED zera e estende a validade). Some sozinha
-      // assim que o cliente paga. Master pode ficar isento com t.isentoInadimplencia. #planos-precos
+      // marca inadimplente:true e grava bloqueioEm = vencimento + tolerância). PAYMENT_CONFIRMED/
+      // RECEIVED zera e estende a validade. Some sozinha quando paga. Isenção: t.isentoInadimplencia.
+      // Sem bloqueioEm (flag antiga / webhook não republicado) = bloqueia direto. #planos-precos
       if(t.inadimplente === true && !t.isentoInadimplencia){
-        showLicencaLock('Pagamento da assinatura em atraso. Regularize para reativar o acesso — assim que o Asaas confirmar o pagamento, o sistema libera automaticamente.');
-        return false;
+        if(!t.bloqueioEm || hoje >= t.bloqueioEm){
+          showLicencaLock('Pagamento da assinatura em atraso. Regularize para reativar o acesso — assim que o Asaas confirmar o pagamento, o sistema libera automaticamente.');
+          return false;
+        }
+        // Dentro da tolerância: deixa entrar, mas avisa até quando.
+        setTimeout(()=>toast(`⚠ Pagamento em atraso. Regularize até ${formatDateBr(t.bloqueioEm)} para não perder o acesso.`,'warning'),2500);
       }
       // Trial ou ativo com validade expirada
       if(t.validade && hoje > t.validade){

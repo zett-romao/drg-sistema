@@ -676,6 +676,24 @@ function _planosDefault(){
     ],
   };
 }
+// Teto de funcionários ATIVOS do plano do tenant. Prioridade:
+//  1) maxFuncionarios explícito no metadata (setado pelo operador ou pelo Asaas na contratação)
+//  2) em trial sem teto explícito → teto da 1ª faixa dos planos (Start, ex.: 10)
+//  3) sem tenant (dono/raiz) ou plano pago sem teto → ilimitado (não bloqueia). #planos-trava
+function _planoMaxFuncionarios(){
+  if(!DB.tenantId) return Infinity;
+  const t = State.tenantMeta || {};
+  const m = Number(t.maxFuncionarios);
+  if(m > 0) return m;
+  const status = t.status || t.plano;
+  if(status === 'trial'){
+    const faixas = (State.planos && Array.isArray(State.planos.faixas) && State.planos.faixas.length)
+      ? State.planos.faixas : _planosDefault().faixas;
+    const fm = Number(faixas[0] && faixas[0].max);
+    return fm > 0 ? fm : 10;
+  }
+  return Infinity;
+}
 async function renderPlanosPrecos(){
   const el = document.getElementById('planos-precos-body');
   if(!el) return;
@@ -8896,6 +8914,19 @@ async function saveEmployee(){
   if(demissao) status='inativo'; // auto-inativar se data de demissão preenchida
   const chk=document.getElementById('emp-turno-noturno');
   const isNew = !State.editingEmployeeId;
+  // Trava de plano: impede passar do teto de funcionários ATIVOS. Vale ao criar um novo
+  // ativo OU ao reativar um inativo (ambos abrem uma "vaga" nova). #planos-trava
+  {
+    const _eraAtivo = !isNew && (((State.employees.find(e=>e.id===State.editingEmployeeId)||{}).status)||'ativo')==='ativo';
+    if(status==='ativo' && !_eraAtivo){
+      const _max = _planoMaxFuncionarios();
+      const _ativos = (State.employees||[]).filter(e=>e.id!==State.editingEmployeeId && (e.status||'ativo')==='ativo').length;
+      if(_ativos >= _max){
+        toast(`Seu plano permite até ${_max} funcionário(s) ativo(s). Faça upgrade do plano para adicionar mais.`,'error');
+        return;
+      }
+    }
+  }
   const data={
     id:val('emp-id')||genId(),
     registro: isNew ? getNextRegistro() : (State.employees.find(e=>e.id===State.editingEmployeeId)?.registro || getNextRegistro()),
@@ -31804,6 +31835,7 @@ async function checkLicenca(){
       const doc = await tenantRef.get();
       if(!doc.exists) return true; // tenant ainda não registrado no operador = livre
       const t = doc.data();
+      State.tenantMeta = t; // guarda p/ a trava de funcionários por plano #planos-trava
       const hoje = new Date().toISOString().split('T')[0];
       // Bloqueado pelo operador
       if(t.status==='bloqueado'){

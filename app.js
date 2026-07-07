@@ -19373,19 +19373,19 @@ function renderAprovacoes(){
       }
     } else if(s.status==='estornado'){
       const refazBtn = mods.pagamentosLancar
-        ? `<div style="margin-top:5px"><button class="btn btn-sm btn-outline" style="color:#1565C0;border-color:#90CAF9;font-size:11px;padding:3px 9px" onclick="refazerSolicitacao('${s.id}')" title="Cria uma NOVA solicitação pendente com os mesmos dados"><i class="fa-solid fa-arrows-rotate"></i> Refazer lançamento</button></div>`
+        ? `<div style="margin-top:5px"><button class="btn btn-sm btn-outline" style="color:#1565C0;border-color:#90CAF9;font-size:11px;padding:3px 9px" onclick="refazerSolicitacao('${s.id}')" title="Cria uma NOVA solicitação pendente com os mesmos dados"><i class="fa-solid fa-arrows-rotate"></i> Relançar</button></div>`
         : '';
       acoes=`<span style="font-size:11px;color:#E65100" title="${(s.motivoEstorno||'').replace(/"/g,'&quot;')}"><i class="fa-solid fa-rotate-left"></i> ${s.motivoEstorno||'estornado'}</span>`
         + (s.estornadoEm?`<div style="font-size:10px;color:#aaa;margin-top:2px">por ${s.estornadoPorNome||'—'} · ${(s.estornadoEm||'').substring(0,10).split('-').reverse().join('/')}</div>`:'')
         + refazBtn;
     } else if(s.status==='recusado'){
       const refazBtn = mods.pagamentosLancar
-        ? `<div style="margin-top:5px"><button class="btn btn-sm btn-outline" style="color:#1565C0;border-color:#90CAF9;font-size:11px;padding:3px 9px" onclick="refazerSolicitacao('${s.id}')" title="Cria uma NOVA solicitação pendente com os mesmos dados"><i class="fa-solid fa-arrows-rotate"></i> Refazer lançamento</button></div>`
+        ? `<div style="margin-top:5px"><button class="btn btn-sm btn-outline" style="color:#1565C0;border-color:#90CAF9;font-size:11px;padding:3px 9px" onclick="refazerSolicitacao('${s.id}')" title="Cria uma NOVA solicitação pendente com os mesmos dados"><i class="fa-solid fa-arrows-rotate"></i> Relançar</button></div>`
         : '';
       acoes=`<span style="font-size:11px;color:#c62828">${(s.motivoRecusa||'recusado')}</span>` + refazBtn;
     } else if(s.status==='erro'){
       const refazBtn = mods.pagamentosLancar
-        ? `<button class="btn btn-sm btn-outline" style="color:#1565C0;border-color:#90CAF9;font-size:11px;padding:3px 9px;margin-left:4px" onclick="refazerSolicitacao('${s.id}')" title="Cria uma NOVA solicitação pendente (em vez de retentar a mesma)"><i class="fa-solid fa-arrows-rotate"></i> Refazer</button>`
+        ? `<button class="btn btn-sm btn-outline" style="color:#1565C0;border-color:#90CAF9;font-size:11px;padding:3px 9px;margin-left:4px" onclick="refazerSolicitacao('${s.id}')" title="Cria uma NOVA solicitação pendente (em vez de retentar a mesma)"><i class="fa-solid fa-arrows-rotate"></i> Relançar</button>`
         : '';
       acoes = podeAprovar
         ? `<button class="btn btn-sm" style="background:#e65100;color:#fff;border-color:#e65100;margin-right:4px" onclick="openAprovarPagamento('${s.id}')" title="${(s.erro||'').replace(/"/g,'')}"><i class="fa-solid fa-rotate-right"></i> Tentar de novo</button>`
@@ -19558,16 +19558,33 @@ async function recusarLote(){
 async function refazerLote(){
   if(!getUserModules(Auth.currentUser).pagamentosLancar){ toast('Sem permissão para lançar pagamentos.','error'); return; }
   const sel=_aprSelecionadas().filter(_aprPodeRefazerStatus);
-  if(!sel.length){ toast('Selecione ao menos um lançamento com erro, recusado ou estornado para refazer.','warning'); return; }
-  const total=sel.reduce((a,s)=>a+(s.valor||0),0);
-  if(!confirm(`Refazer ${sel.length} lançamento(s) selecionado(s) — total ${fmtMoney(total)}?\n\nCria uma NOVA solicitação PENDENTE (mesma chave PIX) para cada um. Vão para "Aprovações" e o aprovador confirma com o 2FA.\n\nQuem já tiver uma pendente no mesmo período será pulado.`)) return;
-  // Snapshot dos pendentes que já existiam ANTES do lote (por colaborador+competência).
+  if(!sel.length){ toast('Selecione ao menos um lançamento com erro, recusado ou estornado para relançar.','warning'); return; }
+  // Separa ANTES de confirmar: o que será refeito, o que será pulado (já tem
+  // pendente no mesmo período) e o que não dá (sem chave PIX/valor). O snapshot
+  // dos pendentes é de ANTES do lote, para não bloquear 2 pagamentos legítimos
+  // da mesma pessoa/competência criados agora. #refazer-lote
   const pendPrevios=new Set((State.solicitacoes||[]).filter(s=>s.status==='pendente').map(s=>s.employeeId+'|'+(s.competencia||'')));
-  let ok=0, pulados=0, fail=0; const erros=[];
-  for(const orig of sel){
+  const semDados=[], jaPend=[], refazer=[];
+  for(const s of sel){
+    if(!s.pixKey || (s.valor||0)<=0) semDados.push(s);
+    else if(pendPrevios.has(s.employeeId+'|'+(s.competencia||''))) jaPend.push(s);
+    else refazer.push(s);
+  }
+  if(!refazer.length){
+    toast(`Nada a relançar: ${jaPend.length} já com pendente${semDados.length?` · ${semDados.length} sem chave PIX/valor`:''}.`,'warning');
+    return;
+  }
+  const totalRef=refazer.reduce((a,s)=>a+(s.valor||0),0);
+  const listaTxt=refazer.slice(0,15).map(s=>`• ${s.employeeNome||'—'} — ${fmtMoney(s.valor||0)}`).join('\n')
+    + (refazer.length>15?`\n… e mais ${refazer.length-15}`:'');
+  let msg=`RELANÇAR ${refazer.length} lançamento(s) — total ${fmtMoney(totalRef)}:\n\n${listaTxt}\n`;
+  if(jaPend.length)  msg+=`\n⚠️ ${jaPend.length} será(ão) PULADO(S) — já tem pendente no mesmo período.`;
+  if(semDados.length) msg+=`\n⚠️ ${semDados.length} sem chave PIX/valor — não dá pra relançar.`;
+  msg+=`\n\nCria uma NOVA solicitação PENDENTE (mesma chave PIX) para cada um. Depois é só aprovar com o 2FA.\n\nConfirmar?`;
+  if(!confirm(msg)) return;
+  let ok=0, fail=0; const erros=[];
+  for(const orig of refazer){
     try{
-      if(!orig.pixKey || (orig.valor||0)<=0){ fail++; erros.push(`${orig.employeeNome||orig.id}: sem chave PIX/valor`); continue; }
-      if(pendPrevios.has(orig.employeeId+'|'+(orig.competencia||''))){ pulados++; continue; }
       const dtOrig=(orig.criadoEm||'').substring(0,10).split('-').reverse().join('/');
       const novo=await _criarSolicitacaoPagamento({
         employeeId:    orig.employeeId,
@@ -19585,9 +19602,10 @@ async function refazerLote(){
       try{ Auth.log('PAGAMENTO_SOLICITADO',null,`RE-LANÇAMENTO(lote) ${orig.employeeNome||orig.id} | R$ ${(orig.valor||0).toFixed(2)} | nova ${novo.id} (original ${orig.id} / ${orig.status})`); }catch(_){}
     }catch(e){ fail++; erros.push(`${orig.employeeNome||orig.id}: ${e.message||e}`); }
   }
-  const partes=[`${ok} refeito(s)`];
-  if(pulados) partes.push(`${pulados} pulado(s) (já pendente)`);
-  if(fail) partes.push(`${fail} falhou`);
+  const partes=[`${ok} relançado(s)`];
+  if(jaPend.length)   partes.push(`${jaPend.length} pulado(s) (já pendente)`);
+  if(semDados.length) partes.push(`${semDados.length} sem dados`);
+  if(fail)            partes.push(`${fail} falhou`);
   toast(partes.join(' · ')+'. Os novos ficam em "Pendentes" para aprovação.', fail?'warning':(ok?'success':'info'));
   if(State.currentSection==='aprovacoes') renderAprovacoes();
 }
@@ -19789,13 +19807,13 @@ async function refazerSolicitacao(id){
   }
   const orig=(State.solicitacoes||[]).find(s=>s.id===id);
   if(!orig){ toast('Solicitação não encontrada.','error'); return; }
-  if(!orig.pixKey || (orig.valor||0)<=0){ toast('Solicitação original sem chave PIX ou valor — não dá pra refazer.','error'); return; }
+  if(!orig.pixKey || (orig.valor||0)<=0){ toast('Solicitação original sem chave PIX ou valor — não dá pra relançar.','error'); return; }
   const jaPend=(State.solicitacoes||[]).some(s=>s.employeeId===orig.employeeId && s.competencia===orig.competencia && s.status==='pendente' && s.id!==orig.id);
   if(jaPend){ toast(`Já existe uma solicitação PENDENTE para ${orig.employeeNome} neste período — aprove/recuse a existente antes.`,'warning'); return; }
   const motivoOrig = orig.status==='estornado' ? (orig.motivoEstorno||'estornado')
                     : orig.status==='recusado' ? (orig.motivoRecusa||'recusado')
                     : (orig.erro||orig.status||'');
-  if(!confirm(`Refazer o lançamento de ${orig.employeeNome} — ${fmtMoney(orig.valor||0)}?\n\nOriginal: ${orig.status.toUpperCase()} (${motivoOrig})\n\nCria uma NOVA solicitação PENDENTE com os mesmos dados (mesma chave PIX). Vai pra "Aprovações" e o aprovador faz o 2FA.`)) return;
+  if(!confirm(`Relançar o pagamento de ${orig.employeeNome} — ${fmtMoney(orig.valor||0)}?\n\nOriginal: ${orig.status.toUpperCase()} (${motivoOrig})\n\nCria uma NOVA solicitação PENDENTE com os mesmos dados (mesma chave PIX). Vai pra "Aprovações" e o aprovador faz o 2FA.`)) return;
   try{
     const dtOrig=(orig.criadoEm||'').substring(0,10).split('-').reverse().join('/');
     const novo=await _criarSolicitacaoPagamento({
@@ -19811,9 +19829,9 @@ async function refazerSolicitacao(id){
       origem:        orig.origem||'avulso',
     });
     Auth.log('PAGAMENTO_SOLICITADO',null,`RE-LANÇAMENTO ${orig.employeeNome} | R$ ${(orig.valor||0).toFixed(2)} | nova ${novo.id} (original ${orig.id} / ${orig.status})`);
-    toast(`Lançamento refeito — nova solicitação pendente criada. Vá em Aprovações p/ aprovar.`,'success');
+    toast(`Lançamento relançado — nova solicitação pendente criada. Vá em Aprovações p/ aprovar.`,'success');
     renderAprovacoes();
-  }catch(e){ toast('Erro ao refazer: '+(e.message||e),'error'); }
+  }catch(e){ toast('Erro ao relançar: '+(e.message||e),'error'); }
 }
 
 // ============================================

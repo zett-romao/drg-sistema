@@ -19401,7 +19401,7 @@ function renderAprovacoes(){
       <td style="padding:9px 10px;font-size:12px">${sched||'—'}</td>
       <td style="padding:9px 10px;font-size:12px">${s.criadoPorNome||'—'}<br><span style="color:#aaa;font-size:10px">${dt}</span></td>
       <td style="padding:9px 10px;text-align:center">${_aprovacaoStatusBadge(s.status)}</td>
-      <td style="padding:9px 10px;font-size:12px">${s.aprovadoPorNome||'—'}</td>
+      <td style="padding:9px 10px;font-size:12px">${s.aprovadoPorNome||'—'}${s.aprovadoEm?`<br><span style="color:#aaa;font-size:10px" title="Data em que foi ${s.status==='recusado'?'recusado':s.status==='pago'?'aprovado/pago':'decidido'}">${(s.aprovadoEm||'').substring(0,10).split('-').reverse().join('/')}</span>`:''}</td>
       <td style="padding:9px 10px">${acoes}</td>
     </tr>`;
   }).join('');
@@ -19487,6 +19487,7 @@ async function confirmarAprovarLote(){
         if(st){
           st.status='pago'; st.asaasTransferId=r.asaasTransferId||st.asaasTransferId; st.asaasStatus=r.status||st.asaasStatus;
           st.aprovadoPorNome=Auth.currentUser?.username||st.aprovadoPorNome;
+          st.aprovadoEm=st.aprovadoEm||new Date().toISOString();
           if(st.autorizacaoSolicitada && !st.inclusaoAutorizada){
             try{ await DB.merge('solicitacoesPagamento', st.id, { inclusaoAutorizada:true, inclusaoAutorizadaPorNome:(Auth.currentUser?.username||''), inclusaoAutorizadaEm:new Date().toISOString() }); st.inclusaoAutorizada=true; }catch(_){}
           }

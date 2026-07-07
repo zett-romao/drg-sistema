@@ -173,6 +173,7 @@ async function carimbarDocumentos(env){
     await _carimbarGen(env,'termosFerias',    d=>(d.status==='assinado'&&d.assinatura)?d.assinatura.hash:null,            'carimbo'),
     await _carimbarGen(env,'payrolls',        d=>(d.assinatura&&d.assinatura.hash)?d.assinatura.hash:null,                'carimboFol'),
     await _carimbarGen(env,'payrolls',        d=>(d.holeriteAssinatura&&d.holeriteAssinatura.hash)?d.holeriteAssinatura.hash:null, 'carimboHol'),
+    await _carimbarGen(env,'holeritesImportados',d=>(d.assinatura&&d.assinatura.hash)?d.assinatura.hash:null,             'carimbo'),   // holerite da contabilidade externa. #importar-holerite
     await _carimbarGen(env,'beneficioRecibos',d=>(d.assinatura&&d.assinatura.hash)?d.assinatura.hash:null,                'carimbo'),
     await _carimbarGen(env,'estoqueMov',      d=>(d.assinatura&&d.assinatura.hash)?d.assinatura.hash:null,                'carimbo'),
   ];
@@ -184,6 +185,7 @@ async function confirmarDocumentos(env){
     await _confirmarGen(env,'termosFerias','carimbo'),
     await _confirmarGen(env,'payrolls','carimboFol'),
     await _confirmarGen(env,'payrolls','carimboHol'),
+    await _confirmarGen(env,'holeritesImportados','carimbo'),   // #importar-holerite
     await _confirmarGen(env,'beneficioRecibos','carimbo'),
     await _confirmarGen(env,'estoqueMov','carimbo'),
   ];

@@ -131,6 +131,15 @@ service cloud.firestore {
                        && resource.data.employeeId == request.auth.token.empId
                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','assinadoEm','assinatura']));
     }
+    // holerites IMPORTADOS da contabilidade: colaborador LÊ e ASSINA (só status/
+    // assinadoEm/assinatura) os PRÓPRIOS; staff total. #importar-holerite
+    match /holeritesImportados/{id} {
+      allow read:   if rStaff() || (rColab() && resource.data.employeeId == request.auth.token.empId);
+      allow create, delete: if rStaff();
+      allow update: if rStaff() || (rColab()
+                       && resource.data.employeeId == request.auth.token.empId
+                       && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','assinadoEm','assinatura']));
+    }
 
     // demais coleções de GESTÃO (escalas, cct, postos, ferias, rescisoes,
     // decimoTerceiro, bancoHoras, contratos, disciplina, rubricas, perfis,
@@ -167,6 +176,14 @@ service cloud.firestore {
                                'holeriteConferencia','holeriteAssinatura','assinatura',
                                'holeriteContestacao','contestacao'])));
         allow delete: if meuTenant(t) && isStaff();
+      }
+      // holerites IMPORTADOS da contabilidade (tenant): colab LÊ/ASSINA os próprios. #importar-holerite
+      match /holeritesImportados/{id} {
+        allow read:   if meuTenant(t) && (isStaff() || (isColab() && resource.data.employeeId == request.auth.token.empId));
+        allow create, delete: if meuTenant(t) && isStaff();
+        allow update: if meuTenant(t) && (isStaff() || (isColab()
+                         && resource.data.employeeId == request.auth.token.empId
+                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','assinadoEm','assinatura'])));
       }
       match /documentos/{id} {
         allow read:   if meuTenant(t) && (isStaff() || (isColab() && resource.data.employeeId == request.auth.token.empId));

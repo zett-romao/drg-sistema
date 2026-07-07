@@ -25733,6 +25733,47 @@ async function excluirHoleriteImportado(id){
   catch(e){ toast('Erro ao excluir: '+(e.message||e),'error'); }
 }
 
+// Envia o holerite vinculado pro app do colaborador conferir e assinar (PIN → hash
+// → carimbo blockchain via worker). Só muda o status; o colab vê no ponto.html. #importar-holerite
+async function enviarHoleriteImpAssinar(id){
+  if(!_podeImportarHolerite()){ toast('Sem permissão.','error'); return; }
+  const rec=(State.holeritesImportados||[]).find(x=>x.id===id); if(!rec) return;
+  if(!rec.employeeId){ toast('Vincule a um colaborador antes de enviar.','warning'); return; }
+  const emp=(State.employees||[]).find(e=>e.id===rec.employeeId);
+  const jaEnviado = rec.status==='enviado_assinatura';
+  if(!confirm(`Enviar o holerite ${rec.competencia?_compLabelYM(rec.competencia):''} de ${rec.employeeNome||''} pro app do colaborador conferir e assinar (com hash + carimbo blockchain)?${jaEnviado?'\n\nJá foi enviado — isto reenvia.':''}`)) return;
+  try{
+    const ts=new Date().toISOString();
+    await DB.merge('holeritesImportados', id, { status:'enviado_assinatura', enviadoAssinaturaEm:ts, enviadoAssinaturaPor:(Auth.currentUser&&Auth.currentUser.username)||'—' });
+    Object.assign(rec,{status:'enviado_assinatura',enviadoAssinaturaEm:ts});
+    try{ Auth.log('HOLERITE_IMP_ENVIADO_ASSINAR', null, `${rec.employeeNome} — ${rec.competencia||''}`); }catch(_){}
+    toast(`Enviado pro app de ${((emp&&emp.nome)||rec.employeeNome||'').split(' ')[0]} assinar.`,'success');
+    renderImportaHolerite();
+  }catch(e){ toast('Erro ao enviar: '+(e.message||e),'error'); }
+}
+
+// Abre o holerite JÁ ASSINADO (comprovante com hash) numa nova aba.
+function verHoleriteImpAssinado(id){
+  const rec=(State.holeritesImportados||[]).find(x=>x.id===id); if(!rec||!rec.assinatura){ toast('Este holerite ainda não foi assinado.','warning'); return; }
+  const w=window.open('','_blank'); if(!w){ toast('Permita pop-ups para ver o comprovante.','warning'); return; }
+  if(rec.assinatura.htmlRender){ w.document.write(rec.assinatura.htmlRender); w.document.close(); }
+  else { w.location.href=rec.arquivoUrl||'about:blank'; }
+}
+
+// Badge de status do holerite vinculado.
+function _ihStatusBadge(h){
+  if(h.status==='assinado') return '<span style="background:#DCFCE7;color:#166534;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">Assinado ✔</span>';
+  if(h.status==='enviado_assinatura') return '<span style="background:#FEF3C7;color:#92400E;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">Aguardando assinatura</span>';
+  return '<span style="background:#E2E8F0;color:#475569;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">Vinculado</span>';
+}
+// Badge do carimbo blockchain (campos gravados pelo worker: carimboStatus/CriadoEm/ConfirmadoEm).
+function _ihCarimboBadge(h){
+  if(h.status!=='assinado') return '';
+  if(h.carimboStatus==='confirmado') return '<div style="font-size:10px;color:#166534;margin-top:3px">🔗 Blockchain: <b>CONFIRMADO no Bitcoin</b></div>';
+  if(h.carimboStatus==='registrado') return '<div style="font-size:10px;color:#2563EB;margin-top:3px">🔗 Blockchain: <b>registrado</b> (confirmando no Bitcoin)</div>';
+  return '<div style="font-size:10px;color:#94a3b8;margin-top:3px">🔗 Carimbo blockchain: na fila (até ~10 min)</div>';
+}
+
 // <datalist> com os nomes dos colaboradores (autocompletar da caixa de vínculo).
 function _ihDatalistColaboradores(){
   return '<datalist id="ih-colaboradores-list">'+(State.employees||[]).slice().sort((a,b)=>_ihNorm(a.nome).localeCompare(_ihNorm(b.nome))).map(e=>`<option value="${esc(e.nome||'')}"></option>`).join('')+'</datalist>';
@@ -25781,19 +25822,26 @@ function renderImportaHolerite(){
     const grupos={};
     vinc.forEach(h=>{ const k=h.employeeId||'?'; (grupos[k]=grupos[k]||[]).push(h); });
     html+=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#fff;text-align:left;border-bottom:1px solid var(--border)">
-      <th style="padding:8px 10px">Colaborador</th><th style="padding:8px 10px">Competência</th><th style="padding:8px 10px;text-align:right">Líquido</th><th style="padding:8px 10px">Como vinculou</th><th style="padding:8px 10px;text-align:center">Ações</th></tr></thead><tbody>`;
+      <th style="padding:8px 10px">Colaborador</th><th style="padding:8px 10px">Competência</th><th style="padding:8px 10px;text-align:right">Líquido</th><th style="padding:8px 10px;min-width:150px">Status</th><th style="padding:8px 10px;text-align:center">Ações</th></tr></thead><tbody>`;
     Object.keys(grupos).forEach(k=>{
       grupos[k].sort((a,b)=>(b.competencia||'').localeCompare(a.competencia||'')).forEach(h=>{
-        const conf = h.matchConfianca==='manual' ? '<span style="color:#2563EB">manual</span>' : `<span style="color:#059669">auto (${esc(h.matchMotivo||'')})</span>`;
+        const conf = h.matchConfianca==='manual' ? 'vínculo manual' : `auto · ${esc(h.matchMotivo||'')}`;
+        const assinado = h.status==='assinado';
+        const btnEnviar = assinado ? '' : `<button class="btn btn-sm btn-primary" onclick="enviarHoleriteImpAssinar('${h.id}')" title="Enviar pro app do colaborador assinar" style="font-size:11px;padding:4px 8px;white-space:nowrap"><i class="fa-solid fa-paper-plane"></i> ${h.status==='enviado_assinatura'?'Reenviar':'Enviar p/ assinar'}</button>`;
+        const btnVerAssin = assinado ? `<button class="btn btn-sm btn-outline" onclick="verHoleriteImpAssinado('${h.id}')" title="Ver comprovante assinado (hash)" style="font-size:11px;padding:4px 8px"><i class="fa-solid fa-file-signature"></i></button>` : '';
+        const btnDesv = assinado ? '' : `<button class="btn btn-sm btn-outline" onclick="desvincularHolerite('${h.id}')" title="Desfazer vínculo" style="font-size:11px;padding:4px 8px"><i class="fa-solid fa-link-slash"></i></button>`;
         html+=`<tr style="border-bottom:1px solid #f1f5f9">
           <td style="padding:8px 10px"><strong>${esc(h.employeeNome||'—')}</strong>${h.iaNome&&_ihNorm(h.iaNome)!==_ihNorm(h.employeeNome)?`<div style="font-size:11px;color:#94a3b8">IA leu: ${esc(h.iaNome)}</div>`:''}</td>
           <td style="padding:8px 10px">${h.competencia?_compLabelYM(h.competencia):'—'}</td>
           <td style="padding:8px 10px;text-align:right">${(+h.liquido>0)?fmtMoney(+h.liquido):'—'}</td>
-          <td style="padding:8px 10px;font-size:12px">${conf}</td>
+          <td style="padding:8px 10px">${_ihStatusBadge(h)}${_ihCarimboBadge(h)}<div style="font-size:10px;color:#cbd5e1;margin-top:2px">${conf}</div></td>
           <td style="padding:8px 10px;text-align:center;white-space:nowrap">
-            <a class="btn btn-sm btn-outline" href="${h.arquivoUrl||'#'}" target="_blank" title="Abrir holerite" style="font-size:11px;padding:3px 8px"><i class="fa-solid fa-file-pdf"></i></a>
-            <button class="btn btn-sm btn-outline" onclick="desvincularHolerite('${h.id}')" title="Desfazer vínculo" style="font-size:11px;padding:3px 8px"><i class="fa-solid fa-link-slash"></i></button>
-            <button class="btn btn-sm btn-outline" onclick="excluirHoleriteImportado('${h.id}')" title="Excluir" style="font-size:11px;padding:3px 8px;color:#c62828;border-color:#ef9a9a"><i class="fa-solid fa-trash"></i></button>
+            <div style="display:inline-flex;gap:4px;flex-wrap:wrap;justify-content:center;align-items:center">
+              ${btnEnviar}
+              <a class="btn btn-sm btn-outline" href="${h.arquivoUrl||'#'}" target="_blank" title="Abrir holerite (PDF original)" style="font-size:11px;padding:4px 8px"><i class="fa-solid fa-file-pdf"></i></a>
+              ${btnVerAssin}${btnDesv}
+              <button class="btn btn-sm btn-outline" onclick="excluirHoleriteImportado('${h.id}')" title="Excluir" style="font-size:11px;padding:4px 8px;color:#c62828;border-color:#ef9a9a"><i class="fa-solid fa-trash"></i></button>
+            </div>
           </td></tr>`;
       });
     });

@@ -19340,7 +19340,7 @@ function renderAprovacoes(){
   tbody.innerHTML=lista.map((s,idx)=>{
     const bg=idx%2?'#f9fafb':'#fff';
     // Selecionável p/ lote: só pendente/erro e só quem pode aprovar. #lote-aprovacoes
-    const selecionavel = podeAprovar && (s.status==='pendente' || s.status==='erro');
+    const selecionavel = _aprPodeAprovarStatus(s) || _aprPodeRefazerStatus(s);
     const dt=(s.criadoEm||'').substring(0,10).split('-').reverse().join('/');
     const sched=(s.scheduleDate||'').split('-').reverse().join('/');
     // Nome do colaborador clicavel → abre o cadastro (se o colaborador existe)
@@ -19414,12 +19414,21 @@ function renderAprovacoes(){
 // de tempo → um código autoriza o lote. Cada PIX mantém a trava atômica
 // anti-duplo-pagamento no worker. #lote-aprovacoes #autorizacao-master
 let _aprSelecionados = new Set();
+// Status que cada ação em lote aceita (+ a permissão exigida):
+//  • Aprovar/Recusar → pendente|erro        (precisa de pagamentosAprovar)
+//  • Refazer         → erro|recusado|estornado (precisa de pagamentosLancar)
+// Uma linha é selecionável se o usuário pode fazer AO MENOS uma ação nela.
+function _aprPodeAprovarStatus(s){
+  return !!getUserModules(Auth.currentUser).pagamentosAprovar && (s.status==='pendente'||s.status==='erro');
+}
+function _aprPodeRefazerStatus(s){
+  return !!getUserModules(Auth.currentUser).pagamentosLancar && (s.status==='erro'||s.status==='recusado'||s.status==='estornado');
+}
 function _aprListaSelecionavel(){
-  if(!getUserModules(Auth.currentUser).pagamentosAprovar) return [];
-  return (State.solicitacoes||[]).filter(s=> s.status==='pendente' || s.status==='erro');
+  return (State.solicitacoes||[]).filter(s=> _aprPodeAprovarStatus(s) || _aprPodeRefazerStatus(s));
 }
 function _aprSelecionadas(){
-  return (State.solicitacoes||[]).filter(s=>_aprSelecionados.has(s.id) && (s.status==='pendente'||s.status==='erro'));
+  return (State.solicitacoes||[]).filter(s=>_aprSelecionados.has(s.id) && (_aprPodeAprovarStatus(s)||_aprPodeRefazerStatus(s)));
 }
 function _aprToggleSel(id, checked){
   if(checked) _aprSelecionados.add(id); else _aprSelecionados.delete(id);
@@ -19435,15 +19444,21 @@ function _aprToggleAll(checked){
 }
 function _aprAtualizarLoteBar(){
   const bar=document.getElementById('aprovacoes-lote-bar'); if(!bar) return;
-  const mods=getUserModules(Auth.currentUser);
   // mantém no set só os ids ainda selecionáveis (status mudou / sumiu)
   const validos=new Set(_aprListaSelecionavel().map(s=>s.id));
   Array.from(_aprSelecionados).forEach(id=>{ if(!validos.has(id)) _aprSelecionados.delete(id); });
   const sel=_aprSelecionadas();
   const n=sel.length, total=sel.reduce((a,s)=>a+(s.valor||0),0);
-  bar.style.display = (mods.pagamentosAprovar && n>0) ? 'flex' : 'none';
+  bar.style.display = n>0 ? 'flex' : 'none';
   const cEl=document.getElementById('apr-lote-count'); if(cEl) cEl.textContent=n;
   const tEl=document.getElementById('apr-lote-total'); if(tEl) tEl.textContent=fmtMoney(total);
+  // Cada botão aparece só quando há item aplicável na seleção. #refazer-lote
+  const nAprov=sel.filter(_aprPodeAprovarStatus).length;
+  const nRefz =sel.filter(_aprPodeRefazerStatus).length;
+  const bAp=document.getElementById('btn-apr-lote-aprovar'); if(bAp) bAp.style.display=nAprov?'':'none';
+  const bRc=document.getElementById('btn-apr-lote-recusar'); if(bRc) bRc.style.display=nAprov?'':'none';
+  const bRf=document.getElementById('btn-apr-lote-refazer');
+  if(bRf){ bRf.style.display=nRefz?'':'none'; const rc=document.getElementById('apr-lote-refazer-n'); if(rc) rc.textContent=nRefz; }
   const all=document.getElementById('apr-check-all');
   if(all){
     const checks=document.querySelectorAll('.apr-row-check');
@@ -19454,8 +19469,8 @@ function _aprAtualizarLoteBar(){
 }
 function abrirAprovarLote(){
   if(!getUserModules(Auth.currentUser).pagamentosAprovar){ toast('Sem permissão para aprovar pagamentos.','error'); return; }
-  const sel=_aprSelecionadas();
-  if(!sel.length){ toast('Selecione ao menos um pagamento pendente.','warning'); return; }
+  const sel=_aprSelecionadas().filter(_aprPodeAprovarStatus);
+  if(!sel.length){ toast('Selecione ao menos um pagamento pendente ou com erro.','warning'); return; }
   const total=sel.reduce((a,s)=>a+(s.valor||0),0);
   document.getElementById('aprovar-lote-info').innerHTML=
     `<div style="font-weight:700;color:#00695C;font-size:15px">${sel.length} pagamento(s) selecionado(s)</div>
@@ -19470,7 +19485,7 @@ function abrirAprovarLote(){
 async function confirmarAprovarLote(){
   const code=(val('aprovar-lote-code')||'').replace(/\D/g,'');
   if(code.length!==6){ toast('Digite o código de 6 dígitos do app autenticador.','warning'); return; }
-  const sel=_aprSelecionadas();
+  const sel=_aprSelecionadas().filter(_aprPodeAprovarStatus);
   if(!sel.length){ toast('Nada selecionado.','warning'); return; }
   const btn=document.getElementById('btn-confirmar-aprovar-lote');
   btn.disabled=true; btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Processando...';
@@ -19515,8 +19530,8 @@ async function confirmarAprovarLote(){
 }
 async function recusarLote(){
   if(!getUserModules(Auth.currentUser).pagamentosAprovar){ toast('Sem permissão para recusar pagamentos.','error'); return; }
-  const sel=_aprSelecionadas();
-  if(!sel.length){ toast('Selecione ao menos um pagamento.','warning'); return; }
+  const sel=_aprSelecionadas().filter(_aprPodeAprovarStatus);
+  if(!sel.length){ toast('Selecione ao menos um pagamento pendente ou com erro.','warning'); return; }
   const total=sel.reduce((a,s)=>a+(s.valor||0),0);
   const motivo=prompt(`Recusar ${sel.length} pagamento(s) selecionado(s) — total ${fmtMoney(total)}?\n\nInforme o motivo (vale para TODOS):`);
   if(motivo===null) return;
@@ -19532,6 +19547,48 @@ async function recusarLote(){
     }catch(e){ fail++; }
   }
   toast(`${ok} recusado(s)${fail?` · ${fail} falhou`:''}.`, fail?'warning':'success');
+  if(State.currentSection==='aprovacoes') renderAprovacoes();
+}
+
+// Refaz em lote os selecionados que são refazíveis (erro/recusado/estornado):
+// cria uma NOVA solicitação PENDENTE para cada, com os mesmos dados. Pula quem
+// já tinha uma pendente no mesmo período ANTES do lote (não conta as criadas
+// agora, senão bloquearia 2 pagamentos legítimos da mesma pessoa/competência).
+// #refazer-lote
+async function refazerLote(){
+  if(!getUserModules(Auth.currentUser).pagamentosLancar){ toast('Sem permissão para lançar pagamentos.','error'); return; }
+  const sel=_aprSelecionadas().filter(_aprPodeRefazerStatus);
+  if(!sel.length){ toast('Selecione ao menos um lançamento com erro, recusado ou estornado para refazer.','warning'); return; }
+  const total=sel.reduce((a,s)=>a+(s.valor||0),0);
+  if(!confirm(`Refazer ${sel.length} lançamento(s) selecionado(s) — total ${fmtMoney(total)}?\n\nCria uma NOVA solicitação PENDENTE (mesma chave PIX) para cada um. Vão para "Aprovações" e o aprovador confirma com o 2FA.\n\nQuem já tiver uma pendente no mesmo período será pulado.`)) return;
+  // Snapshot dos pendentes que já existiam ANTES do lote (por colaborador+competência).
+  const pendPrevios=new Set((State.solicitacoes||[]).filter(s=>s.status==='pendente').map(s=>s.employeeId+'|'+(s.competencia||'')));
+  let ok=0, pulados=0, fail=0; const erros=[];
+  for(const orig of sel){
+    try{
+      if(!orig.pixKey || (orig.valor||0)<=0){ fail++; erros.push(`${orig.employeeNome||orig.id}: sem chave PIX/valor`); continue; }
+      if(pendPrevios.has(orig.employeeId+'|'+(orig.competencia||''))){ pulados++; continue; }
+      const dtOrig=(orig.criadoEm||'').substring(0,10).split('-').reverse().join('/');
+      const novo=await _criarSolicitacaoPagamento({
+        employeeId:    orig.employeeId,
+        employeeNome:  orig.employeeNome,
+        payrollId:     orig.payrollId||'',
+        valor:         orig.valor||0,
+        pixKey:        orig.pixKey,
+        keyType:       orig.keyType||'',
+        descricao:     `[RE-LANÇAMENTO de ${dtOrig} — ${orig.status}] ${orig.descricao||''}`.slice(0,500),
+        scheduleDate:  new Date().toISOString().substring(0,10),
+        competencia:   orig.competencia||'',
+        origem:        orig.origem||'avulso',
+      });
+      _aprSelecionados.delete(orig.id); ok++;
+      try{ Auth.log('PAGAMENTO_SOLICITADO',null,`RE-LANÇAMENTO(lote) ${orig.employeeNome||orig.id} | R$ ${(orig.valor||0).toFixed(2)} | nova ${novo.id} (original ${orig.id} / ${orig.status})`); }catch(_){}
+    }catch(e){ fail++; erros.push(`${orig.employeeNome||orig.id}: ${e.message||e}`); }
+  }
+  const partes=[`${ok} refeito(s)`];
+  if(pulados) partes.push(`${pulados} pulado(s) (já pendente)`);
+  if(fail) partes.push(`${fail} falhou`);
+  toast(partes.join(' · ')+'. Os novos ficam em "Pendentes" para aprovação.', fail?'warning':(ok?'success':'info'));
   if(State.currentSection==='aprovacoes') renderAprovacoes();
 }
 

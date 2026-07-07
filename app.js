@@ -1569,6 +1569,7 @@ function showSection(name){
   if(name==='estoque'        && !mods.estoque) return;
   if(name==='documentos'     && !mods.employees) return;
   if(name==='docsempresa'    && !mods.documentosEmpresa && Auth.currentUser?.role!=='master') return;
+  if(name==='importaholerite'&& !mods.folhaEnviar && Auth.currentUser?.role!=='master') return;
   if(name==='configuracoes'  && !mods.configuracoes && Auth.currentUser?.role!=='master') return;
   if(name==='lgpd'           && !mods.lgpd && Auth.currentUser?.role!=='master') return;
   // Empilha seção atual antes de trocar (exceto se estiver voltando ou já está na mesma seção)
@@ -1626,6 +1627,7 @@ function showSection(name){
   if(name==='estoque')         renderEstoque();
   if(name==='documentos')      renderDocumentosPendentes();
   if(name==='docsempresa')     renderDocsEmpresa();
+  if(name==='importaholerite') renderImportaHolerite();
   if(name==='configuracoes')  renderConfiguracoes();
   if(name==='postos')    renderPostosTable();
   if(name==='rubricas')  renderRubricas();
@@ -2129,6 +2131,9 @@ function applyUserSession(user){
   // Documentos da Empresa (globais): permissão dedicada outorgável. Master sempre. #docs-empresa
   const docEmpLi=document.getElementById('nav-docsempresa-li');
   if(docEmpLi) docEmpLi.classList.toggle('hidden', !mods.documentosEmpresa && user.role!=='master');
+  // Importar Holerites: quem pode enviar holerite (folhaEnviar) ou Master. #importar-holerite
+  const impHolLi=document.getElementById('nav-importaholerite-li');
+  if(impHolLi) impHolLi.classList.toggle('hidden', !mods.folhaEnviar && user.role!=='master');
   // Comunicação: módulo dedicado (delegável). Master sempre tem.
   const commLi=document.getElementById('nav-comunicacao-li');
   if(commLi) commLi.classList.toggle('hidden', !mods.comunicacao);
@@ -25513,6 +25518,293 @@ const DOCS_EMPRESA_CATEGORIAS_PADRAO = [
   {id:'comprovantes', nome:'Comprovantes de Pagamento'},
   {id:'outros', nome:'Outros'},
 ];
+// ============================================================================
+// IMPORTAR HOLERITES DA CONTABILIDADE EXTERNA — #importar-holerite
+// ----------------------------------------------------------------------------
+// Contabilidades externas mandam o holerite em PDF. Aqui o gestor sobe o(s)
+// arquivo(s); a IA (Gemini — o MESMO motor da leitura de ponto, chave no
+// Cloudflare Worker) lê e extrai de cada holerite: nome, CPF, competência e
+// líquido. O sistema casa com o cadastro por 2 âncoras (nome + CPF): se os dois
+// batem, vincula sozinho; senão cai na CAIXA DE PENDÊNCIAS, onde o gestor digita
+// o nome (autocompletar) e clica "Vincular". Cada holerite vira documento do
+// colaborador (Storage + hash SHA-256 p/ cadeia de custódia). A assinatura +
+// carimbo blockchain reaproveitam o motor existente (Etapa 2).
+// Coleção nova e isolada: `holeritesImportados`. Não encosta nas folhas.
+// ----------------------------------------------------------------------------
+// Permissão: quem já pode ENVIAR holerite (folhaEnviar) ou o Master.
+function _podeImportarHolerite(){ return !!(getUserModules(Auth.currentUser)||{}).folhaEnviar || Auth.currentUser?.role==='master'; }
+
+// Normaliza nome p/ comparação: minúsculo, sem acento, espaços colapsados.
+function _ihNorm(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim(); }
+
+// SHA-256 (hex) dos bytes — prova de integridade do arquivo (cadeia de custódia).
+async function _ihSha256Hex(arrayBuffer){
+  try{
+    const buf = await crypto.subtle.digest('SHA-256', arrayBuffer);
+    return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+  }catch(_){ return ''; }
+}
+
+// Carrega o pdf-lib sob demanda (só quando importa PDF multi-página p/ separar).
+let _ihPdfLibProm = null;
+function _ihCarregarPdfLib(){
+  if(window.PDFLib) return Promise.resolve(window.PDFLib);
+  if(_ihPdfLibProm) return _ihPdfLibProm;
+  _ihPdfLibProm = new Promise((resolve,reject)=>{
+    const s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';
+    s.onload=()=>resolve(window.PDFLib); s.onerror=()=>reject(new Error('Falha ao carregar pdf-lib (verifique a internet).'));
+    document.head.appendChild(s);
+  });
+  return _ihPdfLibProm;
+}
+
+// Chama a IA (Gemini) p/ ler UM holerite (1 arquivo/1 página) e extrair os campos.
+async function _ihGeminiHolerite(base64Data, mimeType){
+  const prompt=`Você é um sistema de leitura de HOLERITE / CONTRACHEQUE / RECIBO DE PAGAMENTO DE SALÁRIO brasileiro. Analise a imagem/PDF e extraia os dados do COLABORADOR com PRECISÃO MÁXIMA. Pode ser digitado ou digitalizado.
+
+Retorne SOMENTE um JSON válido, COMPACTO, em UMA linha, com este formato EXATO:
+{"encontrou":true,"nome":"...","cpf":"...","competencia":"AAAA-MM","liquido":0.00,"empresa":"..."}
+
+REGRAS:
+- "encontrou": true se for um holerite/contracheque legível; false se não for holerite ou estiver ilegível (aí os outros campos vêm vazios/0).
+- "nome": nome COMPLETO do colaborador/funcionário exatamente como escrito (não confunda com o nome da empresa/empregador).
+- "cpf": SOMENTE os 11 dígitos do CPF do colaborador, sem pontos ou traço. Se não achar, "".
+- "competencia": mês/ano de referência da folha no formato AAAA-MM (ex.: junho de 2026 = "2026-06"). Use o mês de COMPETÊNCIA/REFERÊNCIA, não a data de pagamento.
+- "liquido": valor LÍQUIDO A RECEBER (o total que o colaborador recebe), como número decimal com ponto (ex.: 2345.67). Sem "R$", sem separador de milhar.
+- "empresa": razão social do empregador, se visível; senão "".
+- Copie exatamente o que está escrito; não invente. Se um campo não puder ser lido, use "" (texto) ou 0 (número).
+
+Retorne APENAS o JSON em uma única linha, sem markdown, sem comentários, sem quebras de linha.`;
+  const resp=await fetch(GEMINI_PROXY_URL,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({model:GEMINI_MODEL,prompt,mimeType,base64Data})});
+  if(!resp.ok){ const err=await resp.json().catch(()=>({error:'Resposta inválida do servidor'})); throw new Error(err.error?.message||err.error||'Erro na chamada Gemini via proxy'); }
+  const data=await resp.json();
+  const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
+  _registrarUsoIA('holerite', data);
+  const p=_parseGeminiJson(text);
+  return {
+    encontrou: p.encontrou!==false,
+    nome:(p.nome||'').trim(),
+    cpf:_soDigitos(p.cpf||''),
+    competencia:(p.competencia||'').trim(),
+    liquido: (typeof p.liquido==='number')?p.liquido:(parseFloat(String(p.liquido||'0').replace(/\./g,'').replace(',','.'))||0),
+    empresa:(p.empresa||'').trim()
+  };
+}
+
+// Casa o holerite lido com um colaborador por 2 âncoras (nome + CPF).
+// Retorna {emp, confianca:'auto'|'nenhum', motivo}. 'auto' = os dois batem.
+function _ihMatch(iaNome, iaCpf){
+  const emps=State.employees||[];
+  const cpf=_soDigitos(iaCpf||'');
+  const nomeN=_ihNorm(iaNome);
+  // 1) CPF é o âncora forte
+  if(cpf && cpf.length===11){
+    const porCpf=emps.filter(e=>_soDigitos(e.cpf||'')===cpf);
+    if(porCpf.length===1){
+      const nomeBate = nomeN && _ihNorm(porCpf[0].nome)===nomeN;
+      // CPF único bate: se o nome também confere, confiança alta; senão ainda vincula (CPF é forte) mas marca.
+      return { emp:porCpf[0], confianca: nomeBate?'auto':'auto', motivo: nomeBate?'CPF+nome':'CPF' };
+    }
+    if(porCpf.length>1){ // CPF duplicado no cadastro — deixa o gestor decidir
+      return { emp:null, confianca:'nenhum', motivo:'CPF em mais de um cadastro' };
+    }
+  }
+  // 2) Sem CPF confiável: só vincula automático se o NOME casar exato e único
+  if(nomeN){
+    const porNome=emps.filter(e=>_ihNorm(e.nome)===nomeN);
+    if(porNome.length===1) return { emp:porNome[0], confianca:'auto', motivo:'nome exato' };
+  }
+  return { emp:null, confianca:'nenhum', motivo: cpf? 'CPF não encontrado no cadastro' : 'sem CPF legível' };
+}
+
+// Handler do <input type=file multiple>: processa cada arquivo (separando PDF
+// multi-página página a página), lê pela IA, casa e grava.
+async function onImportarHoleriteArquivos(event){
+  if(!_podeImportarHolerite()){ toast('Sem permissão.','error'); return; }
+  const files=Array.from(event.target.files||[]); if(!files.length) return;
+  const compManual=(val('ih-competencia')||'').trim(); // opcional: força a competência
+  const st=document.getElementById('ih-status');
+  const loteId='lote_'+genId();
+  let ok=0, pend=0, erro=0, totalPaginas=0;
+  const _setSt=(txt)=>{ if(st){ st.classList.remove('hidden'); st.innerHTML=txt; } };
+  _setSt('<div class="spinner" style="display:inline-block;width:16px;height:16px;vertical-align:middle"></div> Preparando arquivos...');
+  try{
+    // Monta a lista de "unidades" (1 unidade = 1 holerite = 1 pág. ou 1 arquivo)
+    const unidades=[]; // {base64, mime, blob, arquivoNome, arrayBuffer}
+    for(const file of files){
+      const mime=file.type||'application/octet-stream';
+      const ab=await file.arrayBuffer();
+      if(mime==='application/pdf'){
+        let nPags=1;
+        try{ const PDFLib=await _ihCarregarPdfLib(); const src=await PDFLib.PDFDocument.load(ab,{ignoreEncryption:true}); nPags=src.getPageCount();
+          if(nPags>1){
+            for(let i=0;i<nPags;i++){
+              const nd=await PDFLib.PDFDocument.create(); const [pg]=await nd.copyPages(src,[i]); nd.addPage(pg);
+              const b64=await nd.saveAsBase64(); const bytes=await nd.save();
+              unidades.push({ base64:b64, mime:'application/pdf', blob:new Blob([bytes],{type:'application/pdf'}), arquivoNome:file.name.replace(/\.pdf$/i,'')+`_p${i+1}.pdf`, arrayBuffer:bytes.buffer });
+            }
+            continue;
+          }
+        }catch(e){ console.warn('pdf-lib split falhou, tratando como arquivo único:', e); }
+      }
+      // Arquivo único (PDF 1 pág., imagem, ou split indisponível)
+      const b64=await fileToBase64(file);
+      unidades.push({ base64:b64, mime, blob:file, arquivoNome:file.name, arrayBuffer:ab });
+    }
+    totalPaginas=unidades.length;
+    DB.initStorage();
+    for(let i=0;i<unidades.length;i++){
+      const u=unidades[i];
+      _setSt(`<div class="spinner" style="display:inline-block;width:16px;height:16px;vertical-align:middle"></div> 🤖 IA lendo holerite ${i+1} de ${unidades.length}...`);
+      try{
+        const dados=await _ihGeminiHolerite(u.base64, u.mime);
+        if(!dados.encontrou && !dados.nome && !dados.cpf){ erro++; continue; }
+        const comp = compManual || dados.competencia || '';
+        const m=_ihMatch(dados.nome, dados.cpf);
+        const id=genId();
+        const hash=await _ihSha256Hex(u.arrayBuffer);
+        // sobe o arquivo individual pro Storage
+        const ref=DB.storageRef(`holeritesImportados/${loteId}/${id}.pdf`);
+        await ref.put(u.blob,{contentType:u.mime});
+        const url=await ref.getDownloadURL();
+        const rec={
+          id, loteId,
+          status: m.emp ? 'vinculado' : 'pendente_vinculo',
+          employeeId: m.emp?m.emp.id:null,
+          employeeNome: m.emp?(m.emp.nome||''):'',
+          // o que a IA leu (para conferência/pendência):
+          iaNome:dados.nome, iaCpf:dados.cpf, iaEmpresa:dados.empresa,
+          competencia:comp, liquido:dados.liquido||0,
+          arquivoUrl:url, arquivoNome:u.arquivoNome, hashSha256:hash,
+          matchConfianca:m.confianca, matchMotivo:m.motivo,
+          importadoPor:(Auth.currentUser&&(Auth.currentUser.username||Auth.currentUser.id))||'—',
+          importadoEm:new Date().toISOString()
+        };
+        await DB.save('holeritesImportados', _sanitizeForFirestore(rec));
+        if(m.emp) ok++; else pend++;
+      }catch(e){ console.error('holerite import', e); erro++; }
+    }
+    try{ Auth.log('HOLERITE_IMPORTADO_LOTE', null, `${totalPaginas} lido(s) · ${ok} vinculado(s) · ${pend} pendente(s)`); }catch(_){}
+    _setSt(`<i class="fa-solid fa-circle-check" style="color:var(--success)"></i> Concluído: <strong>${ok}</strong> vinculado(s) automaticamente, <strong>${pend}</strong> em pendência${erro?`, <strong>${erro}</strong> não lido(s)`:''}.`);
+    toast(`${ok} vinculado(s), ${pend} pendente(s)${erro?`, ${erro} não lido(s)`:''}.`, pend||erro?'warning':'success');
+  }catch(e){ console.error(e); _setSt(`<i class="fa-solid fa-triangle-exclamation" style="color:var(--danger)"></i> Erro: ${esc(e.message||e)}`); toast('Erro ao importar: '+(e.message||e),'error'); }
+  finally{ const fi=document.getElementById('ih-arquivos'); if(fi) fi.value=''; renderImportaHolerite(); }
+}
+
+// Vincula um holerite pendente ao colaborador digitado na caixa da linha.
+async function vincularHolerite(id){
+  if(!_podeImportarHolerite()){ toast('Sem permissão.','error'); return; }
+  const rec=(State.holeritesImportados||[]).find(x=>x.id===id); if(!rec){ toast('Holerite não encontrado.','error'); return; }
+  const inp=document.getElementById('ih-vinc-'+id); const texto=(inp&&inp.value||'').trim();
+  if(!texto){ toast('Digite e escolha o nome do colaborador.','warning'); if(inp) inp.focus(); return; }
+  const nomeN=_ihNorm(texto);
+  let emp=(State.employees||[]).find(e=>_ihNorm(e.nome)===nomeN);
+  if(!emp){ const cand=(State.employees||[]).filter(e=>_ihNorm(e.nome).includes(nomeN)); if(cand.length===1) emp=cand[0]; }
+  if(!emp){ toast('Colaborador não encontrado. Comece a digitar e escolha um nome da lista.','warning'); return; }
+  try{
+    await DB.merge('holeritesImportados', id, { status:'vinculado', employeeId:emp.id, employeeNome:emp.nome||'', matchConfianca:'manual', matchMotivo:'vínculo manual', vinculadoPor:(Auth.currentUser&&Auth.currentUser.username)||'—', vinculadoEm:new Date().toISOString() });
+    Object.assign(rec,{status:'vinculado',employeeId:emp.id,employeeNome:emp.nome||'',matchConfianca:'manual'});
+    try{ Auth.log('HOLERITE_VINCULADO', null, `${emp.nome} — ${rec.competencia||''}`); }catch(_){}
+    toast(`Holerite vinculado a ${emp.nome}.`,'success');
+    renderImportaHolerite();
+  }catch(e){ toast('Erro ao vincular: '+(e.message||e),'error'); }
+}
+
+// Desfaz o vínculo (volta pra pendência).
+async function desvincularHolerite(id){
+  if(!_podeImportarHolerite()){ toast('Sem permissão.','error'); return; }
+  const rec=(State.holeritesImportados||[]).find(x=>x.id===id); if(!rec) return;
+  if(!confirm('Desfazer o vínculo deste holerite e mandar de volta pra pendência?')) return;
+  try{
+    await DB.merge('holeritesImportados', id, { status:'pendente_vinculo', employeeId:null, employeeNome:'', matchConfianca:'nenhum' });
+    Object.assign(rec,{status:'pendente_vinculo',employeeId:null,employeeNome:'',matchConfianca:'nenhum'});
+    renderImportaHolerite();
+  }catch(e){ toast('Erro: '+(e.message||e),'error'); }
+}
+
+// Exclui um holerite importado (arquivo fica no Storage; some da lista).
+async function excluirHoleriteImportado(id){
+  if(!_podeImportarHolerite()){ toast('Sem permissão.','error'); return; }
+  const rec=(State.holeritesImportados||[]).find(x=>x.id===id); if(!rec) return;
+  if(!confirm('Excluir este holerite importado da lista?')) return;
+  try{ await DB.remove('holeritesImportados', id); try{ Auth.log('HOLERITE_IMPORT_DEL', null, `${rec.employeeNome||rec.iaNome||''} — ${rec.competencia||''}`); }catch(_){} renderImportaHolerite(); toast('Excluído.','success'); }
+  catch(e){ toast('Erro ao excluir: '+(e.message||e),'error'); }
+}
+
+// <datalist> com os nomes dos colaboradores (autocompletar da caixa de vínculo).
+function _ihDatalistColaboradores(){
+  return '<datalist id="ih-colaboradores-list">'+(State.employees||[]).slice().sort((a,b)=>_ihNorm(a.nome).localeCompare(_ihNorm(b.nome))).map(e=>`<option value="${esc(e.nome||'')}"></option>`).join('')+'</datalist>';
+}
+
+function renderImportaHolerite(){
+  const box=document.getElementById('ih-conteudo'); if(!box) return;
+  const todos=(State.holeritesImportados||[]);
+  const pend=todos.filter(h=>h.status==='pendente_vinculo').sort((a,b)=>(b.importadoEm||'').localeCompare(a.importadoEm||''));
+  const vinc=todos.filter(h=>h.status!=='pendente_vinculo');
+  const cnt=document.getElementById('ih-contador');
+  if(cnt) cnt.innerHTML = todos.length ? `<strong>${vinc.length}</strong> vinculado(s) &middot; <strong>${pend.length}</strong> em pendência` : '<span style="color:#999">Nenhum holerite importado ainda</span>';
+  let html=_ihDatalistColaboradores();
+
+  // ── CAIXA DE PENDÊNCIAS ──
+  html+=`<div style="border:1px solid ${pend.length?'#F59E0B':'var(--border)'};border-radius:8px;margin-bottom:14px;overflow:hidden">
+    <div style="padding:10px 12px;background:${pend.length?'#FFF7ED':'#F1F5F9'};font-weight:700;font-size:14px">
+      <i class="fa-solid fa-triangle-exclamation" style="color:#D97706"></i> Pendências de vínculo <span style="color:#64748b;font-weight:500;font-size:12px">· ${pend.length}</span>
+      <div style="font-weight:400;font-size:11px;color:#64748b;margin-top:2px">Holerites que a IA leu mas não reconheceu com certeza. Digite o nome, escolha na lista e clique <b>Vincular</b>.</div>
+    </div>`;
+  if(pend.length){
+    html+=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#fff;text-align:left;border-bottom:1px solid var(--border)">
+      <th style="padding:8px 10px">Lido pela IA</th><th style="padding:8px 10px">Competência</th><th style="padding:8px 10px;text-align:right">Líquido</th><th style="padding:8px 10px">Arquivo</th><th style="padding:8px 10px;min-width:260px">Vincular ao colaborador</th></tr></thead><tbody>`;
+    pend.forEach(h=>{
+      html+=`<tr style="border-bottom:1px solid #f1f5f9">
+        <td style="padding:8px 10px"><strong>${esc(h.iaNome||'—')}</strong><div style="font-size:11px;color:#94a3b8">CPF ${esc(h.iaCpf||'—')} · ${esc(h.matchMotivo||'')}</div></td>
+        <td style="padding:8px 10px">${h.competencia?_compLabelYM(h.competencia):'—'}</td>
+        <td style="padding:8px 10px;text-align:right">${(+h.liquido>0)?fmtMoney(+h.liquido):'—'}</td>
+        <td style="padding:8px 10px"><a class="btn btn-sm btn-outline" href="${h.arquivoUrl||'#'}" target="_blank" title="Abrir holerite" style="font-size:11px;padding:3px 8px"><i class="fa-solid fa-file-pdf"></i> Ver</a></td>
+        <td style="padding:8px 10px"><div style="display:flex;gap:6px">
+          <input id="ih-vinc-${h.id}" list="ih-colaboradores-list" placeholder="Digite o nome..." autocomplete="off" style="flex:1;min-width:150px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px" onkeydown="if(event.key==='Enter'){event.preventDefault();vincularHolerite('${h.id}')}">
+          <button class="btn btn-sm btn-primary" onclick="vincularHolerite('${h.id}')" style="font-size:11px;padding:5px 10px;white-space:nowrap"><i class="fa-solid fa-link"></i> Vincular</button>
+          <button class="btn btn-sm btn-outline" onclick="excluirHoleriteImportado('${h.id}')" title="Descartar este holerite" style="font-size:11px;padding:5px 8px;color:#c62828;border-color:#ef9a9a"><i class="fa-solid fa-trash"></i></button>
+        </div></td></tr>`;
+    });
+    html+='</tbody></table></div>';
+  } else {
+    html+='<div style="padding:14px 12px;color:#94a3b8;font-size:12px">Nenhuma pendência. Todos os holerites lidos foram reconhecidos. 🎉</div>';
+  }
+  html+='</div>';
+
+  // ── VINCULADOS (por colaborador) ──
+  html+=`<div style="border:1px solid var(--border);border-radius:8px;overflow:hidden">
+    <div style="padding:10px 12px;background:#ECFDF5;font-weight:700;font-size:14px"><i class="fa-solid fa-circle-check" style="color:var(--success)"></i> Holerites vinculados <span style="color:#64748b;font-weight:500;font-size:12px">· ${vinc.length}</span></div>`;
+  if(vinc.length){
+    const grupos={};
+    vinc.forEach(h=>{ const k=h.employeeId||'?'; (grupos[k]=grupos[k]||[]).push(h); });
+    html+=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#fff;text-align:left;border-bottom:1px solid var(--border)">
+      <th style="padding:8px 10px">Colaborador</th><th style="padding:8px 10px">Competência</th><th style="padding:8px 10px;text-align:right">Líquido</th><th style="padding:8px 10px">Como vinculou</th><th style="padding:8px 10px;text-align:center">Ações</th></tr></thead><tbody>`;
+    Object.keys(grupos).forEach(k=>{
+      grupos[k].sort((a,b)=>(b.competencia||'').localeCompare(a.competencia||'')).forEach(h=>{
+        const conf = h.matchConfianca==='manual' ? '<span style="color:#2563EB">manual</span>' : `<span style="color:#059669">auto (${esc(h.matchMotivo||'')})</span>`;
+        html+=`<tr style="border-bottom:1px solid #f1f5f9">
+          <td style="padding:8px 10px"><strong>${esc(h.employeeNome||'—')}</strong>${h.iaNome&&_ihNorm(h.iaNome)!==_ihNorm(h.employeeNome)?`<div style="font-size:11px;color:#94a3b8">IA leu: ${esc(h.iaNome)}</div>`:''}</td>
+          <td style="padding:8px 10px">${h.competencia?_compLabelYM(h.competencia):'—'}</td>
+          <td style="padding:8px 10px;text-align:right">${(+h.liquido>0)?fmtMoney(+h.liquido):'—'}</td>
+          <td style="padding:8px 10px;font-size:12px">${conf}</td>
+          <td style="padding:8px 10px;text-align:center;white-space:nowrap">
+            <a class="btn btn-sm btn-outline" href="${h.arquivoUrl||'#'}" target="_blank" title="Abrir holerite" style="font-size:11px;padding:3px 8px"><i class="fa-solid fa-file-pdf"></i></a>
+            <button class="btn btn-sm btn-outline" onclick="desvincularHolerite('${h.id}')" title="Desfazer vínculo" style="font-size:11px;padding:3px 8px"><i class="fa-solid fa-link-slash"></i></button>
+            <button class="btn btn-sm btn-outline" onclick="excluirHoleriteImportado('${h.id}')" title="Excluir" style="font-size:11px;padding:3px 8px;color:#c62828;border-color:#ef9a9a"><i class="fa-solid fa-trash"></i></button>
+          </td></tr>`;
+      });
+    });
+    html+='</tbody></table></div>';
+  } else {
+    html+='<div style="padding:14px 12px;color:#94a3b8;font-size:12px">Nenhum holerite vinculado ainda. Suba os PDFs acima para começar.</div>';
+  }
+  html+='</div>';
+  box.innerHTML=html;
+}
+
 function _podeDocsEmpresa(){ return !!(getUserModules(Auth.currentUser)||{}).documentosEmpresa || Auth.currentUser?.role==='master'; }
 function _docsEmpresaCategorias(){
   const c = State.empresa && State.empresa.categoriasDocsEmpresa;
@@ -32228,6 +32520,10 @@ async function _carregarDadosPosLogin(){
   DB.listen('documentosEmpresa', data => {   // documentos globais da empresa. #docs-empresa
     State.docsEmpresa = data;
     if(State.currentSection==='docsempresa') renderDocsEmpresa();
+  });
+  DB.listen('holeritesImportados', data => {   // holerites da contabilidade externa. #importar-holerite
+    State.holeritesImportados = data;
+    if(State.currentSection==='importaholerite') renderImportaHolerite();
   });
   DB.listen('atrasos', data => {
     State.atrasos = data;

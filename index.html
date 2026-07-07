@@ -240,6 +240,12 @@
               <span>Documentos da Empresa</span>
             </a>
           </li>
+          <li id="nav-importaholerite-li" class="hidden">
+            <a class="nav-link" id="nav-importaholerite" onclick="showSection('importaholerite')">
+              <i class="fa-solid fa-file-import"></i>
+              <span>Importar Holerites</span>
+            </a>
+          </li>
           <li id="nav-comunicacao-li" class="hidden">
             <a class="nav-link" id="nav-comunicacao" onclick="showSection('comunicacao')">
               <i class="fa-solid fa-comments"></i>
@@ -2638,6 +2644,37 @@
           </div>
         </div>
       </div>
+
+      <!-- Importar Holerites da contabilidade externa -->
+      <section id="section-importaholerite" class="section">
+        <div class="page-header">
+          <h2>Importar Holerites</h2>
+          <p>Recebeu os holerites da contabilidade em PDF? Suba aqui: a Inteligência Artificial lê cada holerite (nome, CPF, competência e líquido) e vincula automaticamente ao colaborador certo. O que não reconhecer com certeza cai na <strong>caixa de pendências</strong>, onde você digita o nome e clica em Vincular.</p>
+        </div>
+        <div class="card">
+          <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+            <div id="ih-contador" style="font-size:14px"></div>
+          </div>
+          <div class="card-body">
+            <div class="form-row" style="align-items:end">
+              <div class="form-group" style="grid-column:1 / -1">
+                <label>Arquivo(s) de holerite (PDF ou imagem) <span class="required">*</span></label>
+                <input type="file" id="ih-arquivos" accept="application/pdf,image/*" multiple onchange="onImportarHoleriteArquivos(event)">
+                <div style="font-size:11px;color:var(--text-muted);margin-top:4px"><i class="fa-solid fa-circle-info"></i> Pode subir vários arquivos de uma vez. Se um PDF tiver <strong>várias páginas</strong> (borderô com todos os colaboradores), o sistema separa página por página automaticamente.</div>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Forçar competência <span style="font-weight:400;color:var(--text-muted)">(opcional)</span></label>
+                <input type="month" id="ih-competencia">
+                <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Deixe em branco para a IA ler a competência de cada holerite. Preencha só se quiser fixar o mês/ano de todos.</div>
+              </div>
+            </div>
+            <div id="ih-status" class="hidden" style="font-size:13px;margin:6px 0 12px;padding:8px 10px;background:#F8FAFC;border:1px solid var(--border);border-radius:6px"></div>
+            <div id="ih-conteudo" style="margin-top:6px"></div>
+          </div>
+        </div>
+      </section>
 
       <!-- ===== ADIANTAMENTOS ===== -->
       <section id="section-adiantamentos" class="section">
@@ -7604,6 +7641,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260706c-tolerancia-inadimplencia"></script>
+  <script src="app.js?v=20260706d-importar-holerite"></script>
 </body>
 </html>

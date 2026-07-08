@@ -7161,6 +7161,30 @@
   </div>
 </div>
 
+<!-- ===== MODAL: RELANÇAR EM LOTE ===== -->
+<div class="modal-overlay hidden" id="modal-relancar-lote" onclick="closeModal('modal-relancar-lote', event)">
+  <div class="modal-dialog" style="max-width:520px;max-height:88vh;display:flex;flex-direction:column">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-arrows-rotate" style="color:#1565C0"></i> Relançar pagamentos em lote</h3>
+      <button class="modal-close" onclick="closeModal('modal-relancar-lote')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body" style="overflow-y:auto">
+      <div id="relancar-lote-resumo" style="background:#E3F2FD;border-radius:10px;padding:14px 16px;margin-bottom:14px"></div>
+      <div id="relancar-lote-lista" style="border:1px solid var(--border);border-radius:10px;max-height:38vh;overflow-y:auto;margin-bottom:14px"></div>
+      <div id="relancar-lote-avisos"></div>
+      <div style="background:#E8F5E9;border:1px solid #C8E6C9;border-radius:10px;padding:10px 14px;font-size:12px;color:#1B5E20">
+        <i class="fa-solid fa-circle-info"></i> Cria uma <strong>nova solicitação PENDENTE</strong> (mesma chave PIX) para cada um. Nada é pago agora — depois é só aprovar com o 2FA.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="btn-relancar-lote-cancelar" onclick="closeModal('modal-relancar-lote')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-confirmar-relancar-lote" onclick="confirmarRelancarLote()" style="background:#1565C0;border-color:#1565C0">
+        <i class="fa-solid fa-arrows-rotate"></i> Relançar todos
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== MODAL: COMUNICAR COLABORADOR ===== -->
 <div class="modal-overlay hidden" id="modal-comunicar" onclick="closeModal('modal-comunicar', event)">
   <div class="modal-dialog">
@@ -7642,6 +7666,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260707c-relancar"></script>
+  <script src="app.js?v=20260707d-relancar-modal"></script>
 </body>
 </html>

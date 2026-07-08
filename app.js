@@ -19555,11 +19555,14 @@ async function recusarLote(){
 // já tinha uma pendente no mesmo período ANTES do lote (não conta as criadas
 // agora, senão bloquearia 2 pagamentos legítimos da mesma pessoa/competência).
 // #refazer-lote
-async function refazerLote(){
+// Plano montado ao abrir o modal (o que vai relançar / pular / sem dados),
+// consumido por confirmarRelancarLote() ao clicar em "Relançar todos".
+let _relancarLotePlano=null;
+function refazerLote(){
   if(!getUserModules(Auth.currentUser).pagamentosLancar){ toast('Sem permissão para lançar pagamentos.','error'); return; }
   const sel=_aprSelecionadas().filter(_aprPodeRefazerStatus);
   if(!sel.length){ toast('Selecione ao menos um lançamento com erro, recusado ou estornado para relançar.','warning'); return; }
-  // Separa ANTES de confirmar: o que será refeito, o que será pulado (já tem
+  // Separa ANTES de confirmar: o que será relançado, o que será pulado (já tem
   // pendente no mesmo período) e o que não dá (sem chave PIX/valor). O snapshot
   // dos pendentes é de ANTES do lote, para não bloquear 2 pagamentos legítimos
   // da mesma pessoa/competência criados agora. #refazer-lote
@@ -19574,14 +19577,31 @@ async function refazerLote(){
     toast(`Nada a relançar: ${jaPend.length} já com pendente${semDados.length?` · ${semDados.length} sem chave PIX/valor`:''}.`,'warning');
     return;
   }
+  _relancarLotePlano={ refazer, jaPend, semDados };
   const totalRef=refazer.reduce((a,s)=>a+(s.valor||0),0);
-  const listaTxt=refazer.slice(0,15).map(s=>`• ${s.employeeNome||'—'} — ${fmtMoney(s.valor||0)}`).join('\n')
-    + (refazer.length>15?`\n… e mais ${refazer.length-15}`:'');
-  let msg=`RELANÇAR ${refazer.length} lançamento(s) — total ${fmtMoney(totalRef)}:\n\n${listaTxt}\n`;
-  if(jaPend.length)  msg+=`\n⚠️ ${jaPend.length} será(ão) PULADO(S) — já tem pendente no mesmo período.`;
-  if(semDados.length) msg+=`\n⚠️ ${semDados.length} sem chave PIX/valor — não dá pra relançar.`;
-  msg+=`\n\nCria uma NOVA solicitação PENDENTE (mesma chave PIX) para cada um. Depois é só aprovar com o 2FA.\n\nConfirmar?`;
-  if(!confirm(msg)) return;
+  document.getElementById('relancar-lote-resumo').innerHTML=
+    `<div style="font-weight:700;color:#0D47A1;font-size:15px"><i class="fa-solid fa-arrows-rotate"></i> ${refazer.length} lançamento(s) a relançar</div>
+     <div style="font-size:14px;margin-top:6px">Total: <strong>${fmtMoney(totalRef)}</strong></div>`;
+  document.getElementById('relancar-lote-lista').innerHTML=
+    refazer.map((s,i)=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:8px 12px;${i?'border-top:1px solid var(--border);':''}font-size:13px">
+        <span>${esc(s.employeeNome||'—')} <span style="color:#aaa;font-size:11px">(${s.status})</span></span>
+        <strong style="color:#00695C;white-space:nowrap">${fmtMoney(s.valor||0)}</strong>
+      </div>`).join('');
+  const avBox=(cor,bg,br,ico,txt)=>`<div style="background:${bg};border:1px solid ${br};border-radius:10px;padding:9px 13px;margin-bottom:10px;font-size:12px;color:${cor}"><i class="fa-solid ${ico}"></i> ${txt}</div>`;
+  let avisos='';
+  if(jaPend.length)  avisos+=avBox('#7C5500','#FFF8E1','#FFE082','fa-triangle-exclamation',`<strong>${jaPend.length}</strong> será(ão) <strong>pulado(s)</strong> — já tem pagamento pendente no mesmo período: ${jaPend.slice(0,6).map(s=>esc(s.employeeNome||'—')).join(', ')}${jaPend.length>6?` e mais ${jaPend.length-6}`:''}.`);
+  if(semDados.length) avisos+=avBox('#7f1d1d','#fee2e2','#fca5a5','fa-circle-xmark',`<strong>${semDados.length}</strong> sem chave PIX/valor — não dá pra relançar.`);
+  document.getElementById('relancar-lote-avisos').innerHTML=avisos;
+  const btn=document.getElementById('btn-confirmar-relancar-lote');
+  btn.disabled=false; btn.innerHTML='<i class="fa-solid fa-arrows-rotate"></i> Relançar todos';
+  document.getElementById('modal-relancar-lote').classList.remove('hidden');
+}
+async function confirmarRelancarLote(){
+  const plano=_relancarLotePlano;
+  if(!plano || !plano.refazer.length){ closeModal('modal-relancar-lote'); return; }
+  const { refazer, jaPend, semDados } = plano;
+  const btn=document.getElementById('btn-confirmar-relancar-lote');
+  btn.disabled=true; btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Relançando...';
   let ok=0, fail=0; const erros=[];
   for(const orig of refazer){
     try{
@@ -19602,6 +19622,8 @@ async function refazerLote(){
       try{ Auth.log('PAGAMENTO_SOLICITADO',null,`RE-LANÇAMENTO(lote) ${orig.employeeNome||orig.id} | R$ ${(orig.valor||0).toFixed(2)} | nova ${novo.id} (original ${orig.id} / ${orig.status})`); }catch(_){}
     }catch(e){ fail++; erros.push(`${orig.employeeNome||orig.id}: ${e.message||e}`); }
   }
+  _relancarLotePlano=null;
+  closeModal('modal-relancar-lote');
   const partes=[`${ok} relançado(s)`];
   if(jaPend.length)   partes.push(`${jaPend.length} pulado(s) (já pendente)`);
   if(semDados.length) partes.push(`${semDados.length} sem dados`);

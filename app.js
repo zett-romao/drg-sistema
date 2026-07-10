@@ -18253,6 +18253,37 @@ async function salvarCompensacaoSolo(){
   }catch(e){ toast('Erro ao salvar: '+(e.message||e),'error'); }
 }
 
+// Dia avulso em VÁRIAS datas de uma vez (colega cobrindo por X dias, e depois compensa).
+// Lista de datas montada pelo operador; o Salvar cria um override por data com as MESMAS
+// opções. Só no modo NOVO — editar mexe em um único dia. #dia-avulso-multi
+let _ovrEscDatas = [];
+function _ovrEscRenderChips(){
+  const box = document.getElementById('ovr-esc-datas-chips');
+  if(!box) return;
+  const arr = _ovrEscDatas.slice().sort();
+  box.innerHTML = arr.map(d =>
+    `<span style="display:inline-flex;align-items:center;gap:6px;background:#FFF3E0;border:1px solid #FFCC80;color:#E65100;border-radius:14px;padding:3px 10px;font-size:12px;font-weight:600">`+
+      `<i class="fa-solid fa-calendar-day"></i> ${_fmtDtBr(d)}`+
+      `<i class="fa-solid fa-xmark" style="cursor:pointer" title="Remover data" onclick="_ovrEscRemoveData('${d}')"></i>`+
+    `</span>`).join('');
+}
+function _ovrEscAddData(){
+  const d = val('ovr-esc-data');
+  if(!d){ toast('Escolha uma data primeiro.','warning'); return; }
+  if(!_ovrEscDatas.includes(d)) _ovrEscDatas.push(d);
+  setVal('ovr-esc-data','');   // limpa p/ escolher a próxima
+  _ovrEscRenderChips();
+}
+function _ovrEscRemoveData(d){
+  _ovrEscDatas = _ovrEscDatas.filter(x => x !== d);
+  _ovrEscRenderChips();
+}
+// Mostra a lista de datas só quando é lançamento novo (editar = 1 dia). #dia-avulso-multi
+function _ovrEscToggleMulti(novo){
+  const w = document.getElementById('ovr-esc-multi-wrap');
+  if(w) w.style.display = novo ? '' : 'none';
+}
+
 function abrirNovoOverrideEscala(){
   if(!_podeGerirFolgasEscala()){ toast('Seu perfil não tem permissão para incluir folgas / dia avulso / troca de escala.','error'); return; }
   const empId = _escalaEmpIdCtx();
@@ -18267,6 +18298,7 @@ function abrirNovoOverrideEscala(){
   setVal('ovr-esc-obs','');
   const _rem = document.getElementById('ovr-esc-remunerada'); if(_rem) _rem.checked = false;
   const _ben = document.getElementById('ovr-esc-paga-beneficios'); if(_ben) _ben.checked = false;
+  _ovrEscDatas = []; _ovrEscRenderChips(); _ovrEscToggleMulti(true);
   _ovrEscTipoChange();
   document.getElementById('modal-override-escala').classList.remove('hidden');
   // Hook do change para mostrar/esconder campos de horario quando vira folga
@@ -18295,6 +18327,7 @@ function abrirNovaFolga(){
   setVal('ovr-esc-obs','');
   const rem = document.getElementById('ovr-esc-remunerada'); if(rem) rem.checked = false;
   const ben = document.getElementById('ovr-esc-paga-beneficios'); if(ben) ben.checked = false;
+  _ovrEscDatas = []; _ovrEscRenderChips(); _ovrEscToggleMulti(true);
   _ovrEscTipoChange();
   document.getElementById('modal-override-escala').classList.remove('hidden');
   document.getElementById('ovr-esc-tipo').onchange = _ovrEscTipoChange;
@@ -18316,26 +18349,17 @@ function editarOverrideEscala(overrideId){
   setVal('ovr-esc-obs', o.observacao||'');
   const _remE = document.getElementById('ovr-esc-remunerada'); if(_remE) _remE.checked = !!o.remunerada;
   const _benE = document.getElementById('ovr-esc-paga-beneficios'); if(_benE) _benE.checked = !!o.pagaBeneficios;
+  _ovrEscDatas = []; _ovrEscRenderChips(); _ovrEscToggleMulti(false);   // editar mexe em UM dia
   _ovrEscTipoChange();
   document.getElementById('modal-override-escala').classList.remove('hidden');
   document.getElementById('ovr-esc-tipo').onchange = _ovrEscTipoChange;
 }
 
-async function salvarOverrideEscala(){
-  const empId = _escalaEmpIdCtx();
-  const emp = State.employees.find(e=>e.id===empId);
-  if(!emp){ toast('Colaborador não encontrado.','error'); return; }
-  const data = val('ovr-esc-data');
-  if(!data){ toast('Informe a data.','warning'); return; }
-  const ovrId = val('ovr-esc-id') || genId();
-  const ja = (emp.overridesHorario||[]).find(o => o.id===ovrId);
-  // Tambem checa duplicidade de data (uma so' override por dia)
-  const conflito = (emp.overridesHorario||[]).find(o => o.data===data && o.id !== ovrId);
-  if(conflito){ toast('Já existe um override para esta data — edite o existente.','error'); return; }
-  const quem = (Auth.currentUser && (Auth.currentUser.username||Auth.currentUser.id))||'—';
-  const tipo = val('ovr-esc-tipo')||'diferente';
-  const novo = {
-    id: ovrId,
+// Monta o objeto de override p/ UMA data com as opções atuais do modal. Preserva
+// id/criadoEm/criadoPorNome quando é edição de um existente. #dia-avulso-multi
+function _ovrEscBuildObj(data, tipo, quem, existente){
+  return {
+    id: (existente && existente.id) || genId(),
     data,
     tipo, // 'diferente' | 'folga'
     horarioEntrada:  tipo==='folga' ? '' : (val('ovr-esc-entrada')||''),
@@ -18345,17 +18369,59 @@ async function salvarOverrideEscala(){
     remunerada:      tipo==='folga' ? !!document.getElementById('ovr-esc-remunerada')?.checked : false,   // folga paga o dia (vs descontar). #folga-avulsa
     pagaBeneficios:  tipo==='folga' ? !!document.getElementById('ovr-esc-paga-beneficios')?.checked : false,  // VT/VR/VA do dia. #folga-avulsa
     observacao:      val('ovr-esc-obs')||'',
-    criadoEm:        ja ? ja.criadoEm : new Date().toISOString(),
-    criadoPorNome:   ja ? ja.criadoPorNome : quem,
+    criadoEm:        (existente && existente.criadoEm) || new Date().toISOString(),
+    criadoPorNome:   (existente && existente.criadoPorNome) || quem,
     updatedAt:       new Date().toISOString(),
   };
-  emp.overridesHorario = (emp.overridesHorario||[]).filter(o => o.id !== ovrId);
-  emp.overridesHorario.push(novo);
+}
+
+async function salvarOverrideEscala(){
+  const empId = _escalaEmpIdCtx();
+  const emp = State.employees.find(e=>e.id===empId);
+  if(!emp){ toast('Colaborador não encontrado.','error'); return; }
+  const ovrId = val('ovr-esc-id');   // vazio = novo (pode ser em várias datas); preenchido = edição de 1 dia
+  const tipo = val('ovr-esc-tipo')||'diferente';
+  const quem = (Auth.currentUser && (Auth.currentUser.username||Auth.currentUser.id))||'—';
+  // Datas a lançar. Edição = a data do campo (1 só). Novo = a lista acumulada + a data
+  // que ficou no campo sem ser adicionada (pra ninguém perder o dia por esquecer o botão).
+  let datas;
+  if(ovrId){
+    const d = val('ovr-esc-data');
+    if(!d){ toast('Informe a data.','warning'); return; }
+    datas = [d];
+  } else {
+    datas = _ovrEscDatas.slice();
+    const d = val('ovr-esc-data');
+    if(d && !datas.includes(d)) datas.push(d);
+    if(!datas.length){ toast('Informe ao menos uma data.','warning'); return; }
+  }
+  datas = [...new Set(datas)].sort();
+  emp.overridesHorario = emp.overridesHorario || [];
+  // Um override por dia: datas que já têm override (fora o que está sendo editado) são puladas.
+  const jaTem = {};
+  emp.overridesHorario.forEach(o => { if(o.id !== ovrId) jaTem[o.data] = true; });
+  const existente = ovrId ? emp.overridesHorario.find(o => o.id===ovrId) : null;
+  const criados = [], pulados = [];
+  datas.forEach(data => {
+    if(jaTem[data]){ pulados.push(data); return; }
+    criados.push(_ovrEscBuildObj(data, tipo, quem, existente));
+  });
+  if(!criados.length){
+    toast(pulados.length ? 'Todas as datas já tinham dia avulso — nada a lançar (edite o existente).' : 'Nada a salvar.','warning');
+    return;
+  }
+  const idsNovos = new Set(criados.map(o => o.id));
+  emp.overridesHorario = emp.overridesHorario.filter(o => o.id !== ovrId && !idsNovos.has(o.id));
+  criados.forEach(o => emp.overridesHorario.push(o));
   try{
     await DB.merge('employees', emp.id, { overridesHorario: emp.overridesHorario, updatedAt: new Date().toISOString() });
-    try{ Auth.log(ja?'ESCALA_OVR_EDIT':'ESCALA_OVR_NEW', null, `${emp.nome} | ${data} | ${tipo}`); }catch(_){}
+    try{ Auth.log(ovrId?'ESCALA_OVR_EDIT':'ESCALA_OVR_NEW', null, `${emp.nome} | ${datas.join(', ')} | ${tipo}`); }catch(_){}
+    _ovrEscDatas = [];
     closeModal('modal-override-escala');
-    toast(ja?'Dia avulso atualizado.':'Dia avulso cadastrado.','success');
+    let msg = ovrId ? 'Dia avulso atualizado.'
+                    : (criados.length>1 ? `${criados.length} dias avulsos cadastrados.` : 'Dia avulso cadastrado.');
+    if(pulados.length) msg += ` (${pulados.length} já existia${pulados.length>1?'m':''}, ignorada${pulados.length>1?'s':''}: ${pulados.map(_fmtDtBr).join(', ')})`;
+    toast(msg, pulados.length ? 'info' : 'success');
     renderHorariosTab(emp.id);
   }catch(e){
     toast('Erro ao salvar: '+(e.message||e),'error');

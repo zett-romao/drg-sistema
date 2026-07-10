@@ -9849,7 +9849,7 @@ function onPayrollEmployeeChange(){
     const noturno=emp.turnoNoturno&&escalaFamilia(escala)==='12x36';
     if(infoEl){
       infoEl.classList.remove('hidden');
-      infoEl.innerHTML=`<i class="fa-solid fa-circle-info"></i> <strong>${emp.nome}</strong> — Escala: <strong>${escalaLabel(escala)}</strong> — Status: ${statusBadge(emp.status||'ativo')}${noturno?' — <span style="color:#5C6BC0"><i class="fa-solid fa-moon"></i> Turno Noturno</span>':''}`;
+      infoEl.innerHTML=`<i class="fa-solid fa-circle-info"></i> <strong class="link-contrato" onclick="_alertaAbrirEmp('${emp.id}','tab-contrato')" title="Abrir o contrato de ${esc(emp.nome||'')}" style="color:#1565C0;cursor:pointer;text-decoration:underline;text-underline-offset:2px">${emp.nome} <i class="fa-solid fa-arrow-up-right-from-square" style="font-size:10px;opacity:.7"></i></strong> — Escala: <strong>${escalaLabel(escala)}</strong> — Status: ${statusBadge(emp.status||'ativo')}${noturno?' — <span style="color:#5C6BC0"><i class="fa-solid fa-moon"></i> Turno Noturno</span>':''}`;
     }
     // Mostrar/ocultar card adicional noturno
     const noturnoCard=document.getElementById('noturno-card');

@@ -399,6 +399,12 @@
               <span>Rubricas</span>
             </a>
           </li>
+          <li id="nav-relatorios-li" class="hidden">
+            <a class="nav-link" id="nav-relatorios" onclick="showSection('relatorios')">
+              <i class="fa-solid fa-file-lines"></i>
+              <span>Relatórios</span>
+            </a>
+          </li>
         </ul>
       </li>
 
@@ -2758,6 +2764,10 @@
         <div id="monitorfaltas-content" style="padding:20px"></div>
       </section>
 
+      <section id="section-relatorios" class="section">
+        <div id="relatorios-content" style="padding:20px"></div>
+      </section>
+
       <section id="section-lgpd" class="section">
         <div id="lgpd-content"></div>
       </section>
@@ -4137,6 +4147,33 @@
               <option value="EMAIL">E-mail</option>
               <option value="EVP">Chave aleatória</option>
             </select>
+          </div>
+        </div>
+        <div style="font-size:12px;font-weight:600;color:#334155;margin:6px 0 4px"><i class="fa-solid fa-building-columns" style="color:#1565C0"></i> Conta bancária (para comprovação / relatórios)</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Banco</label>
+            <input type="text" id="emp-banco" placeholder="Ex.: 341 - Itaú / Nubank" maxlength="60">
+          </div>
+          <div class="form-group">
+            <label>Tipo de conta</label>
+            <select id="emp-conta-tipo">
+              <option value="">— selecione —</option>
+              <option value="corrente">Conta corrente</option>
+              <option value="poupanca">Conta poupança</option>
+              <option value="pagamento">Conta pagamento / digital</option>
+              <option value="salario">Conta salário</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Agência</label>
+            <input type="text" id="emp-agencia" placeholder="Ex.: 0001" maxlength="15">
+          </div>
+          <div class="form-group">
+            <label>Conta (com dígito)</label>
+            <input type="text" id="emp-conta" placeholder="Ex.: 12345-6" maxlength="25">
           </div>
         </div>
       </div>
@@ -7732,6 +7769,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260710c-cobertura-colegas"></script>
+  <script src="app.js?v=20260710d-relatorios"></script>
 </body>
 </html>

@@ -1485,7 +1485,7 @@ const NAV_GROUPS = {
   ponto:       ['payroll','escalas','autorizacoes'],
   pagamentos:  ['pagamentos','adiantamentos','aprovacoes','recibos'],
   clt:         ['decimoterceiro','ferias','rescisao'],
-  operacao:    ['postos','contratos','contabilidade'],
+  operacao:    ['postos','contratos','contabilidade','relatorios'],
   sistema:     ['banco','users','configuracoes']
 };
 
@@ -1572,6 +1572,7 @@ function showSection(name){
   if(name==='importaholerite'&& !mods.folhaEnviar && Auth.currentUser?.role!=='master') return;
   if(name==='configuracoes'  && !mods.configuracoes && Auth.currentUser?.role!=='master') return;
   if(name==='lgpd'           && !mods.lgpd && Auth.currentUser?.role!=='master') return;
+  if(name==='relatorios'     && !mods.reports && Auth.currentUser?.role!=='master') return;
   // Empilha seção atual antes de trocar (exceto se estiver voltando ou já está na mesma seção)
   if(!_navigatingBack && State.currentSection && State.currentSection!==name){
     State.sectionHistory.push(State.currentSection);
@@ -1590,7 +1591,7 @@ function showSection(name){
   applyNavGroupsState(name);
   const titles={dashboard:'Dashboard',employees:'Colaboradores',payroll:'Folha de Ponto',escalas:'Escalas',
                 pagamentos:'Pagamentos',beneficios:'Benefícios',recibos:'Recibos Enviados',adiantamentos:'Adiantamentos',aprovacoes:'Aprovações de Pagamentos',decimoterceiro:'13º Salário',ferias:'Férias',rescisao:'Rescisões',
-                contabilidade:'Contabilidade',banco:'Banco de Dados',users:'Usuários & Acessos',postos:'Postos de Trabalho',rubricas:'Rubricas',contratos:'Contratos',comunicacao:'Comunicação',autorizacoes:'Autorizações de Ponto',monitorfaltas:'Monitor de Faltas',estoque:'Estoque / EPIs',documentos:'Documentos do Colaborador',docsempresa:'Documentos da Empresa',configuracoes:'Configurações',lgpd:'Conformidade LGPD'};
+                contabilidade:'Contabilidade',banco:'Banco de Dados',users:'Usuários & Acessos',postos:'Postos de Trabalho',rubricas:'Rubricas',contratos:'Contratos',comunicacao:'Comunicação',autorizacoes:'Autorizações de Ponto',monitorfaltas:'Monitor de Faltas',estoque:'Estoque / EPIs',documentos:'Documentos do Colaborador',docsempresa:'Documentos da Empresa',configuracoes:'Configurações',lgpd:'Conformidade LGPD',relatorios:'Relatórios'};
   document.getElementById('topbar-title').textContent=titles[name]||name;
   State.currentSection=name;
   if(name==='employees') setEmployeeFilter('ativo');   // abre sempre em ATIVOS (atalhos do dashboard sobrescrevem depois)
@@ -1628,6 +1629,7 @@ function showSection(name){
   if(name==='documentos')      renderDocumentosPendentes();
   if(name==='docsempresa')     renderDocsEmpresa();
   if(name==='importaholerite') renderImportaHolerite();
+  if(name==='relatorios')      renderRelatorios();
   if(name==='configuracoes')  renderConfiguracoes();
   if(name==='postos')    renderPostosTable();
   if(name==='rubricas')  renderRubricas();
@@ -2179,6 +2181,8 @@ function applyUserSession(user){
   if(contratosLi) contratosLi.classList.toggle('hidden', !mods.contratos);
   const estoqueLi=document.getElementById('nav-estoque-li');
   if(estoqueLi) estoqueLi.classList.toggle('hidden', !mods.estoque);
+  const relLi=document.getElementById('nav-relatorios-li');
+  if(relLi) relLi.classList.toggle('hidden', !mods.reports && user.role!=='master');
   const cfgLi=document.getElementById('nav-configuracoes-li');
   if(cfgLi) cfgLi.classList.toggle('hidden', !mods.configuracoes && user.role!=='master');
   const lgpdLi=document.getElementById('nav-lgpd-li');
@@ -3336,6 +3340,308 @@ ${eventos.length?`<table><thead><tr><th style="width:120px">Data/Hora</th><th>Ca
   win.document.write(html + '<scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt>');
   win.document.close();
   try{ Auth.log('LGPD_RELATORIO',Auth.currentUser.username,`${checks.length} verificações · ${eventos.length} eventos`); }catch(_){}
+}
+
+// ============================================================================
+// RELATÓRIOS — Pagamentos + Dossiê do Colaborador (conferência e processos)
+// Amarra tudo que o sistema já guarda (lotações/escalas/folgas/pagamentos/auditoria)
+// em relatórios imprimíveis. NÃO grava nada — é só leitura. #relatorios
+// ============================================================================
+function _relEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function _relContaTipoLabel(t){ return {corrente:'C. Corrente',poupanca:'Poupança',pagamento:'C. Pagamento',salario:'C. Salário'}[t]||''; }
+function _relOrigemLabel(o){
+  return {folha:'Salário (folha)',lote:'Salário (folha, lote)',adiantamento:'Adiantamento',avulso:'Pagamento avulso',
+    beneficio:'Benefício (VT/VR/VA)','beneficio-manual':'Benefício (manual)','beneficio-bp':'Boa Permanência (BP)',
+    'banco-he-vencida':'Horas extras (banco vencido)'}[o] || (o? o.charAt(0).toUpperCase()+o.slice(1):'Pagamento');
+}
+function _relStatusLabel(s){ return {pago:'Pago',pendente:'Pendente',aprovado:'Aprovado',recusado:'Recusado',cancelado:'Cancelado',erro:'Erro'}[s]||(s||'—'); }
+function _relFormaPagamento(s){
+  if(s.asaasTransferId) return 'PIX (Asaas)';
+  if(s.formaPgtoManual) return s.formaPgtoManual;
+  if(s.plataforma) return s.plataforma==='Dinheiro'?'Dinheiro':('Plataforma: '+s.plataforma);
+  if(s.formaPagamento) return s.formaPagamento;
+  return s.pixKey ? 'PIX' : '—';
+}
+function _relContaTexto(r){
+  const b=[r.banco, r.contaTipo?_relContaTipoLabel(r.contaTipo):'', r.agencia?('Ag. '+r.agencia):'', r.conta?('C/ '+r.conta):''].filter(Boolean).join(' · ');
+  const pix=(r.pix&&r.pix!=='—')?('PIX: '+r.pix):'';
+  return [b,pix].filter(Boolean).join(' — ') || '—';
+}
+// Coleta as linhas de pagamento conforme os filtros. #relatorios
+function _relColetaPagamentos(f){
+  const emps={}; (State.employees||[]).forEach(e=>emps[e.id]=e);
+  const de=f.de||'', ate=f.ate||'';
+  const rows=(State.solicitacoes||[]).filter(s=>{
+    if(!s) return false;
+    if(f.empId && s.employeeId!==f.empId) return false;
+    if(f.origem && s.origem!==f.origem) return false;
+    if(f.status==='pago' ? s.status!=='pago' : s.status==='cancelado') return false;   // "pagos" = só pagos; "todos" = tudo menos cancelado
+    const dt=(s.pagoEm||s.scheduleDate||s.criadoEm||'').slice(0,10);
+    if(de && dt<de) return false;
+    if(ate && dt>ate) return false;
+    return true;
+  }).map(s=>{
+    const emp=emps[s.employeeId]||{};
+    return { data:(s.pagoEm||s.scheduleDate||s.criadoEm||'').slice(0,10),
+      nome:s.employeeNome||emp.nome||'(removido)', matr:emp.registro?String(emp.registro).padStart(4,'0'):'—',
+      refere:_relOrigemLabel(s.origem)+(s.descricao?' — '+s.descricao:'')+(s.competencia?' ('+s.competencia+')':''),
+      valor:+s.valor||0, forma:_relFormaPagamento(s), pix:s.pixKey||emp.chavePix||'—',
+      banco:emp.banco||'', agencia:emp.agencia||'', conta:emp.conta||'', contaTipo:emp.contaTipo||'',
+      status:s.status||'', aprovadoPor:s.aprovadoPorNome||'' };
+  });
+  rows.sort((a,b)=> (a.data<b.data?1:a.data>b.data?-1:0) || a.nome.localeCompare(b.nome));
+  return rows;
+}
+function _relEmpOptions(selId, incluirTodos){
+  const ativos=(State.employees||[]).slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+  const opts=ativos.map(e=>`<option value="${e.id}"${e.id===selId?' selected':''}>${_relEsc(e.nome)}${e.registro?` (${String(e.registro).padStart(4,'0')})`:''}${(e.status||'ativo')!=='ativo'?' — inativo':''}</option>`).join('');
+  return (incluirTodos?`<option value="">— Todos os colaboradores —</option>`:`<option value="">— selecione —</option>`)+opts;
+}
+function _relHojeISO(){ return new Date().toISOString().slice(0,10); }
+function _relInicioAnoISO(){ return new Date().getFullYear()+'-01-01'; }
+
+function renderRelatorios(){
+  const box=document.getElementById('relatorios-content'); if(!box) return;
+  box.innerHTML=`
+    <div class="page-header"><div><h2><i class="fa-solid fa-file-lines"></i> Relatórios</h2>
+      <p>Documentos consolidados para conferência, prestação de contas e processos.</p></div></div>
+
+    <div class="card" style="margin-bottom:18px">
+      <div class="card-header"><h3><i class="fa-solid fa-money-check-dollar" style="color:#1B5E20"></i> Relatório de Pagamentos</h3></div>
+      <div class="card-body">
+        <div class="form-row" style="flex-wrap:wrap;gap:10px">
+          <div class="form-group" style="min-width:230px"><label>Colaborador</label><select id="rel-emp">${_relEmpOptions('',true)}</select></div>
+          <div class="form-group" style="max-width:150px"><label>De</label><input type="date" id="rel-de" value="${_relInicioAnoISO()}"></div>
+          <div class="form-group" style="max-width:150px"><label>Até</label><input type="date" id="rel-ate" value="${_relHojeISO()}"></div>
+          <div class="form-group" style="min-width:190px"><label>A que se refere</label>
+            <select id="rel-origem">
+              <option value="">— Todos os tipos —</option>
+              <option value="folha">Salário (folha)</option>
+              <option value="adiantamento">Adiantamento</option>
+              <option value="beneficio">Benefício (VT/VR/VA)</option>
+              <option value="beneficio-bp">Boa Permanência (BP)</option>
+              <option value="banco-he-vencida">Horas extras</option>
+              <option value="avulso">Pagamento avulso</option>
+            </select>
+          </div>
+          <div class="form-group" style="max-width:170px"><label>Situação</label>
+            <select id="rel-status"><option value="pago">Só pagamentos feitos</option><option value="todos">Todos (inclui pendentes)</option></select>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 12px">
+          <button class="btn btn-outline" onclick="_relRenderPreviewPagamentos()"><i class="fa-solid fa-magnifying-glass"></i> Atualizar prévia</button>
+          <button class="btn btn-primary" style="background:#1B5E20;border-color:#1B5E20" onclick="gerarRelatorioPagamentos()"><i class="fa-solid fa-print"></i> Imprimir / Salvar PDF</button>
+          <button class="btn btn-outline" onclick="exportarCsvPagamentos()"><i class="fa-solid fa-file-csv"></i> Exportar planilha (CSV)</button>
+        </div>
+        <div id="rel-pag-preview"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h3><i class="fa-solid fa-user-tie" style="color:#5C6BC0"></i> Dossiê do Colaborador (histórico completo)</h3></div>
+      <div class="card-body">
+        <div class="info-banner" style="background:#EEF2FF;border-color:#C7D2FE;color:#3730A3;margin-bottom:12px">
+          <i class="fa-solid fa-circle-info"></i> Reúne num único documento: dados cadastrais, conta bancária, linha do tempo de postos/funções/escalas/salários, todas as folgas/dias avulsos/trocas/coberturas, férias, atestados/abonos, pagamentos e a trilha de auditoria (quem alterou o quê). Ideal para anexar em processos.
+        </div>
+        <div class="form-row" style="align-items:flex-end;flex-wrap:wrap;gap:10px">
+          <div class="form-group" style="min-width:260px"><label>Colaborador</label><select id="rel-dossie-emp">${_relEmpOptions('',false)}</select></div>
+          <button class="btn btn-primary" style="background:#5C6BC0;border-color:#5C6BC0" onclick="gerarDossieColaborador()"><i class="fa-solid fa-file-arrow-down"></i> Gerar dossiê (PDF)</button>
+        </div>
+      </div>
+    </div>`;
+  _relRenderPreviewPagamentos();
+}
+
+function _relLerFiltros(){
+  return { empId:val('rel-emp'), de:val('rel-de'), ate:val('rel-ate'), origem:val('rel-origem'), status:val('rel-status')||'pago' };
+}
+function _relRenderPreviewPagamentos(){
+  const el=document.getElementById('rel-pag-preview'); if(!el) return;
+  const rows=_relColetaPagamentos(_relLerFiltros());
+  const total=rows.reduce((s,r)=>s+r.valor,0);
+  if(!rows.length){ el.innerHTML='<div class="empty-state small"><i class="fa-solid fa-receipt"></i><p>Nenhum pagamento no filtro selecionado.</p></div>'; return; }
+  const body=rows.slice(0,400).map(r=>`<tr>
+    <td style="white-space:nowrap">${formatDateBr(r.data)||'—'}</td>
+    <td><small style="color:#94a3b8;font-weight:700">${r.matr}</small> ${_relEsc(r.nome)}</td>
+    <td>${_relEsc(r.refere)}</td>
+    <td style="text-align:right;white-space:nowrap;font-weight:700">${fmtMoney(r.valor)}</td>
+    <td>${_relEsc(r.forma)}</td>
+    <td style="font-size:11px">${_relEsc(_relContaTexto(r))}</td>
+    <td style="white-space:nowrap">${_relStatusLabel(r.status)}</td></tr>`).join('');
+  el.innerHTML=`<div style="font-size:12px;color:#475569;margin-bottom:6px"><strong>${rows.length}</strong> pagamento(s) · Total <strong style="color:#1B5E20">${fmtMoney(total)}</strong>${rows.length>400?' <span style="color:#c62828">(mostrando 400; imprima para ver tudo)</span>':''}</div>
+    <div style="overflow-x:auto"><table class="report-table" style="font-size:12px;min-width:900px">
+      <thead><tr><th>Data</th><th>Colaborador</th><th>Refere-se a</th><th style="text-align:right">Valor</th><th>Forma</th><th>Conta / PIX</th><th>Situação</th></tr></thead>
+      <tbody>${body}</tbody></table></div>`;
+}
+
+// Cabeçalho de empresa (logo + nome + CNPJ) para os relatórios impressos. #relatorios
+function _relCabecalhoEmpresa(titulo, sub){
+  const logo=_e('logoUrl'), nome=_e('nomeEmpresa')||'Empresa', cnpj=_e('cnpj');
+  return `<div style="display:flex;align-items:center;gap:14px;border-bottom:2px solid #1a3a6b;padding-bottom:10px;margin-bottom:12px">
+    ${logo?`<img src="${_relEsc(logo)}" style="height:52px;max-width:150px;object-fit:contain;background:#fff;border-radius:6px">`:''}
+    <div><div style="font-size:17px;font-weight:800;color:#1a3a6b">${_relEsc(nome)}</div>
+      ${cnpj?`<div style="font-size:11px;color:#555">CNPJ ${_relEsc(cnpj)}</div>`:''}
+      <div style="font-size:14px;color:#111;margin-top:2px">${_relEsc(titulo)}</div>
+      ${sub?`<div style="font-size:11px;color:#666">${_relEsc(sub)}</div>`:''}</div></div>`;
+}
+function _relImprimir(titulo, bodyHtml){
+  const html=`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${_relEsc(titulo)}</title>
+  <style>body{font-family:Arial,sans-serif;padding:18px;color:#212529;font-size:12px}
+  h2{color:#1a3a6b;font-size:13px;border-bottom:1px solid #cbd5e1;padding-bottom:3px;margin:16px 0 6px}
+  table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:6px}
+  th,td{border:1px solid #cbd5e1;padding:4px 6px;text-align:left;vertical-align:top}
+  th{background:#1a3a6b;color:#fff}tr:nth-child(even) td{background:#f6f8fb}
+  .tot td{font-weight:800;background:#eef2ff}.muted{color:#64748b}.r{text-align:right}
+  @media print{body{padding:6px}}</style></head><body>${bodyHtml}
+  <p style="margin-top:16px;font-size:10px;color:#888">Documento gerado pelo DRG-Kronos em ${new Date().toLocaleString('pt-BR')} por ${_relEsc((Auth.currentUser&&Auth.currentUser.username)||'—')}.</p>
+  </body></html>`;
+  const win=window.open('','_blank','width=980,height=800');
+  if(!win){ toast('Permita pop-ups para gerar o relatório.','error'); return; }
+  win.document.write(html+'<scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt>');
+  win.document.close();
+}
+
+function gerarRelatorioPagamentos(){
+  const f=_relLerFiltros();
+  const rows=_relColetaPagamentos(f);
+  if(!rows.length){ toast('Nenhum pagamento no filtro selecionado.','info'); return; }
+  const total=rows.reduce((s,r)=>s+r.valor,0);
+  const emp=f.empId?(State.employees||[]).find(e=>e.id===f.empId):null;
+  const sub=`Período: ${f.de?formatDateBr(f.de):'início'} a ${f.ate?formatDateBr(f.ate):'hoje'} · ${f.status==='pago'?'Pagamentos feitos':'Todos os lançamentos'}${emp?` · Colaborador: ${emp.nome}`:''}`;
+  // Agrupa por tipo (a que se refere) para o resumo.
+  const porTipo={}; rows.forEach(r=>{ const k=r.refere.replace(/ \(.*\)$/,'').replace(/ — .*$/,''); porTipo[k]=(porTipo[k]||0)+r.valor; });
+  const resumo=Object.entries(porTipo).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr><td>${_relEsc(k)}</td><td class="r">${fmtMoney(v)}</td></tr>`).join('');
+  const body=rows.map(r=>`<tr>
+    <td style="white-space:nowrap">${formatDateBr(r.data)||'—'}</td>
+    <td>${_relEsc(r.nome)}${r.matr!=='—'?` <span class="muted">(${r.matr})</span>`:''}</td>
+    <td>${_relEsc(r.refere)}</td>
+    <td class="r" style="white-space:nowrap">${fmtMoney(r.valor)}</td>
+    <td>${_relEsc(r.forma)}</td>
+    <td style="font-size:10px">${_relEsc(_relContaTexto(r))}</td>
+    <td>${_relStatusLabel(r.status)}</td>
+    <td style="font-size:10px">${_relEsc(r.aprovadoPor||'—')}</td></tr>`).join('');
+  const bodyHtml=_relCabecalhoEmpresa('Relatório de Pagamentos', sub)+
+    `<h2>Resumo por tipo</h2><table style="max-width:420px"><thead><tr><th>Refere-se a</th><th class="r">Total</th></tr></thead><tbody>${resumo}
+      <tr class="tot"><td>TOTAL GERAL (${rows.length} pagamento(s))</td><td class="r">${fmtMoney(total)}</td></tr></tbody></table>
+     <h2>Detalhamento</h2>
+     <table><thead><tr><th>Data</th><th>Colaborador</th><th>Refere-se a</th><th class="r">Valor</th><th>Forma</th><th>Conta / PIX</th><th>Situação</th><th>Autorizado por</th></tr></thead>
+      <tbody>${body}<tr class="tot"><td colspan="3">TOTAL</td><td class="r">${fmtMoney(total)}</td><td colspan="4"></td></tr></tbody></table>`;
+  _relImprimir('Relatório de Pagamentos', bodyHtml);
+  try{ Auth.log('REL_PAGAMENTOS', Auth.currentUser?.username, `${rows.length} pagamentos · ${fmtMoney(total)}${emp?` · ${emp.nome}`:''}`); }catch(_){}
+}
+
+function exportarCsvPagamentos(){
+  const rows=_relColetaPagamentos(_relLerFiltros());
+  if(!rows.length){ toast('Nenhum pagamento no filtro selecionado.','info'); return; }
+  const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  const head=['Data','Matrícula','Colaborador','Refere-se a','Valor','Forma','Banco','Tipo de conta','Agência','Conta','Chave PIX','Situação','Autorizado por'];
+  const linhas=rows.map(r=>[formatDateBr(r.data)||'', r.matr, r.nome, r.refere, String(r.valor).replace('.',','), r.forma,
+    r.banco, _relContaTipoLabel(r.contaTipo), r.agencia, r.conta, r.pix, _relStatusLabel(r.status), r.aprovadoPor].map(q).join(';'));
+  const csv='﻿'+[head.map(q).join(';'), ...linhas].join('\r\n');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download=`pagamentos_${_relHojeISO()}.csv`; document.body.appendChild(a); a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  try{ Auth.log('REL_PAGAMENTOS_CSV', Auth.currentUser?.username, `${rows.length} linhas`); }catch(_){}
+}
+
+// ── Dossiê do Colaborador ────────────────────────────────────────────────
+function _relTipoAvulsoLabel(o){
+  if(o.coberturaColegas) return 'Cobertura entre colegas';
+  if(o.trocaPlantao) return 'Troca de plantão';
+  if(o.compensacaoSolo) return 'Compensação (deslocar dia)';
+  if(o.tipo==='folga') return o.remunerada?'Folga (paga)':'Folga (descontada)';
+  return 'Horário diferente';
+}
+function gerarDossieColaborador(){
+  const empId=val('rel-dossie-emp');
+  if(!empId){ toast('Selecione um colaborador.','warning'); return; }
+  const emp=(State.employees||[]).find(e=>e.id===empId);
+  if(!emp){ toast('Colaborador não encontrado.','error'); return; }
+  const linha=(rot,val)=>`<tr><td style="width:200px;color:#475569;font-weight:600">${rot}</td><td>${_relEsc(val||'—')}</td></tr>`;
+  // 1) Identificação
+  const ident=`<h2>Identificação</h2><table style="max-width:640px"><tbody>
+    ${linha('Nome', emp.nome)}
+    ${linha('Matrícula', emp.registro?String(emp.registro).padStart(4,'0'):'')}
+    ${linha('CPF', emp.cpf)}${linha('RG', emp.rg)}
+    ${linha('CTPS', [emp.ctpsNumero,emp.ctpsSerie].filter(Boolean).join(' / '))}
+    ${linha('PIS/PASEP', emp.pis)}
+    ${linha('Nascimento', emp.dataNascimento?formatDateBr(emp.dataNascimento):'')}
+    ${linha('Admissão', emp.dataAdmissao?formatDateBr(emp.dataAdmissao):'')}
+    ${emp.dataDemissao?linha('Demissão', formatDateBr(emp.dataDemissao)):''}
+    ${linha('Cargo / função', emp.cargo||emp.funcao)}
+    ${linha('Posto atual', emp.posto)}
+    ${linha('Escala atual', (typeof escalaLabel==='function'?escalaLabel(emp.escala||''):emp.escala))}
+    ${linha('Salário base', emp.salarioBase!=null?fmtMoney(emp.salarioBase):'')}
+    ${linha('Situação', (emp.status||'ativo'))}
+  </tbody></table>`;
+  // 2) Conta bancária
+  const banco=`<h2>Conta bancária</h2><table style="max-width:640px"><tbody>
+    ${linha('Banco', emp.banco)}
+    ${linha('Tipo de conta', _relContaTipoLabel(emp.contaTipo)||emp.contaTipo)}
+    ${linha('Agência', emp.agencia)}
+    ${linha('Conta', emp.conta)}
+    ${linha('Chave PIX', emp.chavePix)}
+    ${linha('Tipo da chave', emp.chavePixTipo)}
+  </tbody></table>`;
+  // 3) Linha do tempo de lotação (posto/função/escala/salário/benefícios)
+  const hl=(emp.historicoLotacao||[]).slice().sort((a,b)=>(a.dataInicio||'').localeCompare(b.dataInicio||''));
+  const lotHtml=hl.length?`<h2>Linha do tempo — postos, funções, escalas e salários</h2>
+    <table><thead><tr><th>A partir de</th><th>Posto</th><th>Função</th><th>Escala</th><th>Turno</th><th>Horário</th><th class="r">Salário</th><th>Adicionais</th><th>Benefícios (VT·VR·VA)</th></tr></thead><tbody>
+    ${hl.map(h=>{ const adic=[h.insalubridade?`Insal. ${h.insalubridade}%`:'',h.acumuloFuncao?'Acúmulo +20%':''].filter(Boolean).join(' · ')||'—';
+      const _bn=v=>(v!=null&&v!==''&&!isNaN(parseFloat(v)))?fmtMoney(v):'—';
+      return `<tr><td style="white-space:nowrap">${formatDateBr(h.dataInicio)}</td><td>${_relEsc(h.posto)||'—'}</td><td>${_relEsc(h.cargo)||'—'}</td>
+        <td>${_relEsc(h.escala)||'—'}</td><td>${h.turnoNoturno?'Noturno':'Diurno'}</td>
+        <td style="white-space:nowrap">${h.horarioEntrada||'—'}–${h.horarioSaida||'—'}</td>
+        <td class="r">${fmtMoney(h.salarioBase||0)}</td><td style="font-size:10px">${_relEsc(adic)}</td>
+        <td style="font-size:10px;white-space:nowrap">VT ${_bn(h.valorDiarioVt)} · VR ${_bn(h.valorDiarioVr)} · VA ${_bn(h.valorMensalVa)}</td></tr>`;
+    }).join('')}</tbody></table>`:'<h2>Linha do tempo — postos, funções, escalas e salários</h2><p class="muted">Sem transferências registradas (mantém a lotação de admissão).</p>';
+  // 4) Períodos de mudança de escala
+  const pe=(emp.historicoEscalas||[]).slice().sort((a,b)=>(a.de||'').localeCompare(b.de||''));
+  const escHtml=pe.length?`<h2>Períodos de mudança de escala/horário</h2>
+    <table><thead><tr><th>De</th><th>Até</th><th>Escala</th><th>Horário</th><th>Observação</th><th>Lançado por</th></tr></thead><tbody>
+    ${pe.map(p=>`<tr><td>${formatDateBr(p.de)}</td><td>${p.ate?formatDateBr(p.ate):'—'}</td><td>${_relEsc(p.escala)||'—'}</td>
+      <td style="white-space:nowrap">${p.horarioEntrada||'—'}–${p.horarioSaida||'—'}</td><td style="font-size:10px">${_relEsc(p.observacao)||'—'}</td><td style="font-size:10px">${_relEsc(p.criadoPorNome)||'—'}</td></tr>`).join('')}
+    </tbody></table>`:'';
+  // 5) Dias avulsos / folgas / trocas / coberturas
+  const ov=(emp.overridesHorario||[]).slice().sort((a,b)=>(a.data||'').localeCompare(b.data||''));
+  const ovHtml=ov.length?`<h2>Folgas, dias avulsos, trocas e coberturas</h2>
+    <table><thead><tr><th>Data</th><th>Tipo</th><th>Detalhe</th><th>Pagamento</th><th>Observação</th><th>Lançado por</th></tr></thead><tbody>
+    ${ov.map(o=>{ const det=o.tipo==='folga'?'Folga':`Trabalho ${o.horarioEntrada||'—'}–${o.horarioSaida||'—'}`;
+      const pg=o.tipo==='folga'?(o.remunerada?'Folga paga':'Dia descontado')+(o.pagaBeneficios?' · c/ benefícios':''):'Dia de trabalho';
+      return `<tr><td style="white-space:nowrap">${formatDateBr(o.data)}</td><td>${_relEsc(_relTipoAvulsoLabel(o))}</td><td>${_relEsc(det)}</td><td style="font-size:10px">${_relEsc(pg)}</td><td style="font-size:10px">${_relEsc(o.observacao)||'—'}</td><td style="font-size:10px">${_relEsc(o.criadoPorNome)||'—'}</td></tr>`;
+    }).join('')}</tbody></table>`:'';
+  // 6) Férias
+  const fer=(emp.ferias||[]).slice().sort((a,b)=>(a.dataInicio||'').localeCompare(b.dataInicio||''));
+  const ferHtml=fer.length?`<h2>Férias</h2><table><thead><tr><th>Início</th><th>Fim</th><th>Dias</th><th>Tipo</th><th>Pago</th><th>Observação</th></tr></thead><tbody>
+    ${fer.map(f=>`<tr><td>${formatDateBr(f.dataInicio)}</td><td>${f.dataFim?formatDateBr(f.dataFim):'—'}</td><td>${f.dias||'—'}</td><td>${_relEsc(f.tipo)||'Férias'}</td><td>${f.pago?('Sim'+(f.pagoEm?' ('+formatDateBr(String(f.pagoEm).slice(0,10))+')':'')):'Não'}</td><td style="font-size:10px">${_relEsc(f.observacao)||'—'}</td></tr>`).join('')}
+    </tbody></table>`:'';
+  // 7) Atestados / abonos
+  const ates=(State.atestados||[]).filter(a=>a && a.employeeId===emp.id).slice().sort((a,b)=>(a.dataInicio||'').localeCompare(b.dataInicio||''));
+  const atesHtml=ates.length?`<h2>Atestados e abonos</h2><table><thead><tr><th>Início</th><th>Fim/Duração</th><th>Tipo</th><th>Situação</th><th>Motivo</th></tr></thead><tbody>
+    ${ates.map(a=>{ const dur=a.tipo==='horas'?`${a.horas||'—'}h`:(a.dataFim&&a.dataFim!==a.dataInicio?formatDateBr(a.dataFim):`${a.dias||1} dia(s)`);
+      return `<tr><td>${formatDateBr(a.dataInicio)}</td><td>${_relEsc(dur)}</td><td>${_relEsc(a.tipo)||'—'}</td><td>${_relEsc(a.status)||'—'}</td><td style="font-size:10px">${_relEsc(a.motivo||a.observacao)||'—'}</td></tr>`;
+    }).join('')}</tbody></table>`:'';
+  // 8) Pagamentos do colaborador
+  const pags=_relColetaPagamentos({empId:emp.id, status:'todos'});
+  const totPag=pags.filter(p=>p.status==='pago').reduce((s,p)=>s+p.valor,0);
+  const pagHtml=pags.length?`<h2>Pagamentos (${pags.length}) — total pago ${fmtMoney(totPag)}</h2>
+    <table><thead><tr><th>Data</th><th>Refere-se a</th><th class="r">Valor</th><th>Forma</th><th>Conta / PIX</th><th>Situação</th></tr></thead><tbody>
+    ${pags.map(r=>`<tr><td style="white-space:nowrap">${formatDateBr(r.data)||'—'}</td><td>${_relEsc(r.refere)}</td><td class="r">${fmtMoney(r.valor)}</td><td>${_relEsc(r.forma)}</td><td style="font-size:10px">${_relEsc(_relContaTexto(r))}</td><td>${_relStatusLabel(r.status)}</td></tr>`).join('')}
+    </tbody></table>`:'';
+  // 9) Trilha de auditoria (registros que mencionam o colaborador)
+  const nomeLow=(emp.nome||'').toLowerCase();
+  const trilha=(Auth.accessLog||[]).filter(e=> nomeLow && (e.details||'').toLowerCase().includes(nomeLow)).slice(0,300);
+  const trilhaHtml=trilha.length?`<h2>Trilha de auditoria (quem alterou o quê)</h2>
+    <table><thead><tr><th>Data/Hora</th><th>Ação</th><th>Usuário</th><th>Detalhe</th></tr></thead><tbody>
+    ${trilha.map(e=>`<tr><td style="white-space:nowrap">${fmtDateTime(e.timestamp)}</td><td style="font-size:10px">${_relEsc(e.type)}</td><td>${_relEsc(e.username)||'—'}</td><td style="font-size:10px">${_relEsc(e.details)||'—'}</td></tr>`).join('')}
+    </tbody></table><p class="muted" style="font-size:10px">Filtro por menção ao nome do colaborador nos registros de auditoria (últimos meses disponíveis).</p>`:'';
+
+  const bodyHtml=_relCabecalhoEmpresa('Dossiê do Colaborador', `${emp.nome}${emp.registro?` · Matrícula ${String(emp.registro).padStart(4,'0')}`:''}`)+
+    ident+banco+lotHtml+escHtml+ovHtml+ferHtml+atesHtml+pagHtml+trilhaHtml+
+    `<p style="margin-top:14px;font-size:10px;color:#666">Documentos com assinatura eletrônica (termos, férias, holerites) possuem hash SHA-256 e carimbo do tempo em blockchain (OpenTimestamps), verificáveis no próprio sistema.</p>`;
+  _relImprimir('Dossiê — '+emp.nome, bodyHtml);
+  try{ Auth.log('REL_DOSSIE', Auth.currentUser?.username, emp.nome); }catch(_){}
 }
 
 function renderUsersTable(){
@@ -8600,6 +8906,8 @@ function openEmployeeModal(id=null){
     setVal('emp-vt-dia',emp.valorDiarioVt||''); setVal('emp-vr-dia',emp.valorDiarioVr||'');
     setVal('emp-va-mensal',emp.valorMensalVa||''); setVal('emp-pix',emp.chavePix||'');
     setVal('emp-pix-tipo',emp.chavePixTipo||'');
+    setVal('emp-banco',emp.banco||''); setVal('emp-agencia',emp.agencia||'');
+    setVal('emp-conta',emp.conta||''); setVal('emp-conta-tipo',emp.contaTipo||'');
     onVtFreqChange();
     onVrFreqChange();
     onTipoTransporteChange();
@@ -8689,7 +8997,7 @@ function openEmployeeModal(id=null){
     setVal('emp-registro', String(nextNum).padStart(4,'0'));
     ['emp-id','emp-nome','emp-rg','emp-cpf','emp-titulo','emp-pis','emp-ctps-numero','emp-ctps-serie',
      'emp-nascimento','emp-email','emp-celular','emp-cep','emp-endereco','emp-numero','emp-complemento',
-     'emp-bairro','emp-cidade','emp-vt-dia','emp-vr-dia','emp-va-mensal','emp-pix','emp-pix-tipo','emp-tipo-transporte',
+     'emp-bairro','emp-cidade','emp-vt-dia','emp-vr-dia','emp-va-mensal','emp-pix','emp-pix-tipo','emp-banco','emp-agencia','emp-conta','emp-conta-tipo','emp-tipo-transporte',
      'emp-data-admissao','emp-data-demissao','emp-horario-entrada','emp-horario-saida',
      'emp-horario-ref-ini','emp-horario-ref-fim',
      'emp-salario-base','emp-posto','emp-setor','emp-exame-data','emp-exame-prazo','emp-exame-prazo-custom','emp-exame-vencimento',
@@ -9047,6 +9355,7 @@ async function saveEmployee(){
     valorMensalVa:numVal('emp-va-mensal'),
     chavePix:val('emp-pix'),
     chavePixTipo:val('emp-pix-tipo') || (val('emp-pix') ? detectPixKeyType(val('emp-pix')) : ''),
+    banco:val('emp-banco'), agencia:val('emp-agencia'), conta:val('emp-conta'), contaTipo:val('emp-conta-tipo'),
     // Contrato & Trabalho
     dataAdmissao:val('emp-data-admissao'),
     dataDemissao:demissao,

@@ -3441,10 +3441,10 @@ function renderRelatorios(){
       <div class="card-header"><h3><i class="fa-solid fa-calendar-check" style="color:#B45309"></i> Fechamento mensal de pagamentos (todos os colaboradores)</h3></div>
       <div class="card-body">
         <div class="info-banner" style="background:#FFFBEB;border-color:#FDE68A;color:#92400E;margin-bottom:12px">
-          <i class="fa-solid fa-circle-info"></i> Consolida <strong>tudo que foi pago no mês</strong> (pela data do pagamento), um total por colaborador e por tipo — para conferência de fechamento.
+          <i class="fa-solid fa-circle-info"></i> Consolida <strong>tudo que foi pago na competência</strong> (período 26→25, pela data do pagamento), um total por colaborador e por tipo — para conferência de fechamento.
         </div>
         <div class="form-row" style="align-items:flex-end;flex-wrap:wrap;gap:10px">
-          <div class="form-group" style="max-width:170px"><label>Mês</label><select id="fech-mes">${Array.from({length:12},(_,i)=>i+1).map(m=>`<option value="${m}"${m===currentMes()?' selected':''}>${MESES[m]}</option>`).join('')}</select></div>
+          <div class="form-group" style="max-width:190px"><label>Competência (mês)</label><select id="fech-mes">${Array.from({length:12},(_,i)=>i+1).map(m=>`<option value="${m}"${m===currentMes()?' selected':''}>${MESES[m]}</option>`).join('')}</select></div>
           <div class="form-group" style="max-width:130px"><label>Ano</label><select id="fech-ano">${[currentAno()-2,currentAno()-1,currentAno(),currentAno()+1].map(a=>`<option value="${a}"${a===currentAno()?' selected':''}>${a}</option>`).join('')}</select></div>
           <button class="btn btn-primary" style="background:#B45309;border-color:#B45309" onclick="gerarFechamentoMensal()"><i class="fa-solid fa-print"></i> Gerar fechamento (PDF)</button>
         </div>
@@ -3567,16 +3567,18 @@ function _relBucket(origem){
 }
 function gerarFechamentoMensal(){
   const mes=+val('fech-mes')||currentMes(), ano=+val('fech-ano')||currentAno();
-  const zp=n=>String(n).padStart(2,'0');
-  const pref=`${ano}-${zp(mes)}`;   // pagamentos cuja DATA cai neste mês de calendário
   const emps={}; (State.employees||[]).forEach(e=>emps[e.id]=e);
   const COLS=['Salário','Adiantamento','Benefícios','BP','Horas extras','Avulso','Outros'];
   const porEmp={};   // empId → { nome, matr, buckets{}, total }
   const totCol={}; COLS.forEach(c=>totCol[c]=0); let totGeral=0;
   (State.solicitacoes||[]).forEach(s=>{
     if(!s || s.status!=='pago') return;   // fechamento = o que foi efetivamente pago
-    const dt=(s.pagoEm||s.scheduleDate||'').slice(0,7);
-    if(dt!==pref) return;
+    // Competência 26→25 pela DATA do pagamento (parse LOCAL p/ não errar por fuso). #competencia-26-25
+    const ds=(s.pagoEm||s.scheduleDate||'').slice(0,10);
+    const p=ds.split('-').map(Number);
+    if(p.length!==3 || !p[0]) return;
+    const comp=_competenciaDe(new Date(p[0], p[1]-1, p[2]));
+    if(comp.mes!==mes || comp.ano!==ano) return;
     const emp=emps[s.employeeId]||{};
     const key=s.employeeId||('_'+(s.employeeNome||'?'));
     if(!porEmp[key]) porEmp[key]={ nome:s.employeeNome||emp.nome||'(removido)', matr:emp.registro?String(emp.registro).padStart(4,'0'):'—', buckets:{}, total:0 };
@@ -3585,7 +3587,7 @@ function gerarFechamentoMensal(){
     porEmp[key].total+=v; totCol[b]+=v; totGeral+=v;
   });
   const linhas=Object.values(porEmp).sort((a,b)=>a.nome.localeCompare(b.nome));
-  if(!linhas.length){ toast(`Nenhum pagamento pago em ${MESES[mes]}/${ano}.`,'info'); return; }
+  if(!linhas.length){ toast(`Nenhum pagamento na competência ${MESES[mes]}/${ano}.`,'info'); return; }
   // Só mostra colunas que tiveram valor (enxuga o quadro).
   const colsUsadas=COLS.filter(c=>totCol[c]>0);
   const body=linhas.map(l=>`<tr>
@@ -3593,7 +3595,7 @@ function gerarFechamentoMensal(){
     ${colsUsadas.map(c=>`<td class="r">${l.buckets[c]?fmtMoney(l.buckets[c]):'—'}</td>`).join('')}
     <td class="r" style="font-weight:800">${fmtMoney(l.total)}</td></tr>`).join('');
   const foot=`<tr class="tot"><td>TOTAL (${linhas.length} colaborador(es))</td>${colsUsadas.map(c=>`<td class="r">${fmtMoney(totCol[c])}</td>`).join('')}<td class="r">${fmtMoney(totGeral)}</td></tr>`;
-  const bodyHtml=_relCabecalhoEmpresa('Fechamento Mensal de Pagamentos', `Pagamentos realizados em ${MESES[mes]}/${ano} (pela data do pagamento)`)+
+  const bodyHtml=_relCabecalhoEmpresa('Fechamento Mensal de Pagamentos', `Competência ${MESES[mes]}/${ano} (período 26→25, pela data do pagamento)`)+
     `<table><thead><tr><th>Colaborador</th>${colsUsadas.map(c=>`<th class="r">${c}</th>`).join('')}<th class="r">Total</th></tr></thead>
      <tbody>${body}${foot}</tbody></table>
      <p class="muted" style="font-size:10px">Considera apenas pagamentos com situação "Pago". Adiantamentos, benefícios e salário aparecem em colunas separadas.</p>`;

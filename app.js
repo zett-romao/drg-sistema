@@ -3638,6 +3638,11 @@ function renderDashboard(){
     }).catch(()=>{});
   }
   const mes=currentMes(), ano=currentAno();
+  // Faltas já conferidas desta competência (p/ o card "Faltas Registradas" esconder quem
+  // já foi averiguado). Carrega uma vez por competência e re-renderiza quando chega. #faltas-conferido
+  if(_frKey!==_frCompKey(mes,ano)){
+    _frCarregar(mes,ano).then(()=>{ if(State.currentSection==='dashboard') renderDashboard(); }).catch(()=>{});
+  }
   const payThisMonth=State.payrolls.filter(p=>p.mes==mes&&p.ano==ano);
   const totalEsp     =payThisMonth.reduce((s,p)=>s+(p.remuneracao||0),0);
   const totalLiqFinal=payThisMonth.reduce((s,p)=>s+(p.totalLiquidoFinal||p.remuneracao||0),0);
@@ -27794,6 +27799,48 @@ function _abrirRevisaoColab(empId, payrollId, mes, ano){
 // FALTAS REGISTRADAS — card do dashboard + lista + ir p/ a folha
 // ============================================
 
+// Faltas já CONFERIDAS pelo operador (some do card até surgir falta NOVA). Espelha o
+// "✔ Validado" do Monitor de Faltas: o card é um ESTADO (quem tem falta em aberto), não
+// uma caixa de entrada — antes só saía quando a folha FECHAVA. Aplicar a folha / clicar
+// "Conferido" grava aqui o nº de faltas conferido; se depois surgir falta a mais, volta.
+// Persistido em configuracoes/faltasrevisadas_{ano}_{mes} = { revisados:{empId:{qtd,por,em}} }
+// — sempre gravável, sem regra Firestore nova. #faltas-conferido
+let _frKey = null, _frRevisados = {};
+function _frCompKey(mes, ano){ return `${ano}_${String(mes).padStart(2,'0')}`; }
+async function _frCarregar(mes, ano, force){
+  const k = _frCompKey(mes, ano);
+  if(!force && _frKey===k) return;
+  try{ const d = await DB.getDoc('configuracoes','faltasrevisadas_'+k); _frRevisados = (d&&d.revisados)||{}; }
+  catch(_){ _frRevisados = {}; }
+  _frKey = k;
+}
+async function _frMarcar(empId, mes, ano, qtd){
+  const k = _frCompKey(mes, ano);
+  if(_frKey!==k) await _frCarregar(mes, ano, true);
+  _frRevisados[empId] = { qtd, por:(Auth.currentUser&&(Auth.currentUser.nome||Auth.currentUser.username))||'—', em:new Date().toISOString() };
+  await DB.saveDoc('configuracoes','faltasrevisadas_'+k, { revisados:_frRevisados, updatedAt:new Date().toISOString() }, true);
+}
+// true = já conferido nesse nº de faltas (ou mais) → não mostra. Só vale se o cache
+// carregado for da MESMA competência (senão não filtra, pra não usar dado de outro mês).
+function _faltaConferida(empId, mes, ano, qtd){
+  if(_frKey!==_frCompKey(mes, ano)) return false;
+  const r = _frRevisados[empId];
+  return !!(r && (+r.qtd||0) >= qtd);
+}
+
+// Clicar "✔ Conferido" na lista: marca as faltas como revisadas e tira da lista/card,
+// sem tocar na folha (a falta continua lá — o colaborador faltou mesmo). #faltas-conferido
+async function _faltaConferir(empId, mes, ano, qtd){
+  try{
+    await _frMarcar(empId, mes, ano, qtd);
+    const emp = State.employees.find(e=>e.id===empId);
+    Auth.log && Auth.log('FALTA_CONFERIDA', null, `${emp?emp.nome:empId} — ${MESES[mes]}/${ano} (${qtd} falta(s))`);
+    toast(`Faltas de ${emp?emp.nome:''} conferidas — saíram da lista.`,'success');
+    await openFaltasList();
+    try{ renderDashboard(); }catch(_){}
+  }catch(e){ toast('Erro: '+(e.message||e),'error'); }
+}
+
 // Lista de colaboradores com falta injustificada no mês (mesma apuração da folha,
 // para os números baterem). Respeita o escopo de postos do supervisor. #card-faltas
 function _getFaltasList(mes, ano){
@@ -27820,15 +27867,18 @@ function _getFaltasList(mes, ano){
     if(!emp || emp.isentoPonto) return;        // isento (CLT Art. 62) não tem ponto/falta
     if(!_empNoEscopo(emp)) return;             // respeita o escopo de postos do supervisor
     const ap = _apuracaoPontoTotais(emp, p);
-    if(ap.faltaQtd > 0) list.push({ emp, payroll:p, qtd: ap.faltaQtd, min: ap.faltaMin||0 });
+    if(ap.faltaQtd <= 0) return;
+    if(_faltaConferida(p.employeeId, mes, ano, ap.faltaQtd)) return;   // já conferido → some (volta só se surgir falta nova). #faltas-conferido
+    list.push({ emp, payroll:p, qtd: ap.faltaQtd, min: ap.faltaMin||0 });
   });
   list.sort((a,b) => b.qtd - a.qtd || (a.emp.nome||'').localeCompare(b.emp.nome||''));
   return list;
 }
 
 // Abre o modal com a lista de colaboradores com faltas (clique no nome → folha de ponto)
-function openFaltasList(){
+async function openFaltasList(){
   const mes = currentMes(), ano = currentAno();
+  await _frCarregar(mes, ano);   // faltas já conferidas (some da lista). #faltas-conferido
   const lista = _getFaltasList(mes, ano);
   const totalDias = lista.reduce((s,l)=>s+l.qtd, 0);
   document.getElementById('faltas-list-info').innerHTML =
@@ -27865,9 +27915,12 @@ function openFaltasList(){
         <strong style="color:#c62828;font-size:16px">${l.qtd}</strong>
         <br><small style="color:var(--text-muted)">dia(s)</small>
       </td>
-      <td style="padding:8px 10px;text-align:center;border-bottom:1px solid #EEF2F7">
+      <td style="padding:8px 10px;text-align:center;border-bottom:1px solid #EEF2F7;white-space:nowrap">
         <button class="btn btn-primary" style="font-size:12px;padding:5px 12px;background:#c62828" onclick="event.stopPropagation();_abrirFolhaColab('${l.emp.id}','${l.payroll.id}',${mes},${ano})">
           <i class="fa-solid fa-magnifying-glass"></i> Ver folha
+        </button>
+        <button class="btn btn-outline" style="font-size:12px;padding:5px 12px;margin-left:6px;border-color:#1B5E20;color:#1B5E20" title="Já averiguei estas faltas — tirar da lista (não mexe na folha)" onclick="event.stopPropagation();_faltaConferir('${l.emp.id}',${mes},${ano},${l.qtd})">
+          <i class="fa-solid fa-check"></i> Conferido
         </button>
       </td>
     </tr>`;
@@ -28545,6 +28598,18 @@ async function applyPontoManual(){
   }catch(e){ console.warn('persistir encargos no aplicar', e); }
   renderAtrasosFolha();
   closeModal('modal-ponto-manual');
+  // Aplicar a folha JÁ É a averiguação → marca as faltas como conferidas p/ o colaborador
+  // sumir do card "Faltas Registradas" (volta só se surgir falta nova). Espelha o
+  // "✔ Validado" do Monitor. Marca com o MESMO nº que o card calcula (_apuracaoPontoTotais
+  // sobre o registro fresco), não com o contador local, pra não reaparecer na hora. #faltas-conferido
+  try{
+    if(empId){
+      const _pf = (State.payrolls||[]).find(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);
+      const _empF = State.employees.find(e=>e.id===empId);
+      const _fq = (_pf&&_empF) ? (_apuracaoPontoTotais(_empF,_pf).faltaQtd||0) : 0;
+      if(_fq>0) await _frMarcar(empId, mes, ano, _fq);
+    }
+  }catch(_){}
   // Atualiza o dashboard (card "Faltas Registradas") com o nº de faltas já sincronizado. #falta-monitor-sync
   try{ renderDashboard(); }catch(_){}
   toast(`Aplicado: ${diasTrabalhados} dias trabalhados / ${faltas} falta(s)${totalHEmin>0?' / '+minutesToStr(totalHEmin)+' HE':''}${atrasosDoPonto.length>0?` / ${atrasosDoPonto.length} atraso(s) lançado(s) automaticamente`:''}.`);

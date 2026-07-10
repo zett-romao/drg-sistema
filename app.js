@@ -3437,6 +3437,20 @@ function renderRelatorios(){
       </div>
     </div>
 
+    <div class="card" style="margin-bottom:18px">
+      <div class="card-header"><h3><i class="fa-solid fa-calendar-check" style="color:#B45309"></i> Fechamento mensal de pagamentos (todos os colaboradores)</h3></div>
+      <div class="card-body">
+        <div class="info-banner" style="background:#FFFBEB;border-color:#FDE68A;color:#92400E;margin-bottom:12px">
+          <i class="fa-solid fa-circle-info"></i> Consolida <strong>tudo que foi pago no mês</strong> (pela data do pagamento), um total por colaborador e por tipo — para conferência de fechamento.
+        </div>
+        <div class="form-row" style="align-items:flex-end;flex-wrap:wrap;gap:10px">
+          <div class="form-group" style="max-width:170px"><label>Mês</label><select id="fech-mes">${Array.from({length:12},(_,i)=>i+1).map(m=>`<option value="${m}"${m===currentMes()?' selected':''}>${MESES[m]}</option>`).join('')}</select></div>
+          <div class="form-group" style="max-width:130px"><label>Ano</label><select id="fech-ano">${[currentAno()-2,currentAno()-1,currentAno(),currentAno()+1].map(a=>`<option value="${a}"${a===currentAno()?' selected':''}>${a}</option>`).join('')}</select></div>
+          <button class="btn btn-primary" style="background:#B45309;border-color:#B45309" onclick="gerarFechamentoMensal()"><i class="fa-solid fa-print"></i> Gerar fechamento (PDF)</button>
+        </div>
+      </div>
+    </div>
+
     <div class="card">
       <div class="card-header"><h3><i class="fa-solid fa-user-tie" style="color:#5C6BC0"></i> Dossiê do Colaborador (histórico completo)</h3></div>
       <div class="card-body">
@@ -3545,6 +3559,48 @@ function exportarCsvPagamentos(){
   try{ Auth.log('REL_PAGAMENTOS_CSV', Auth.currentUser?.username, `${rows.length} linhas`); }catch(_){}
 }
 
+// ── Fechamento mensal (todos os colaboradores, pivô por tipo) ─────────────
+// Coluna (bucket) de cada pagamento pela origem. #relatorios
+function _relBucket(origem){
+  return {folha:'Salário',lote:'Salário',adiantamento:'Adiantamento',beneficio:'Benefícios','beneficio-manual':'Benefícios',
+    'beneficio-bp':'BP','banco-he-vencida':'Horas extras',avulso:'Avulso'}[origem] || 'Outros';
+}
+function gerarFechamentoMensal(){
+  const mes=+val('fech-mes')||currentMes(), ano=+val('fech-ano')||currentAno();
+  const zp=n=>String(n).padStart(2,'0');
+  const pref=`${ano}-${zp(mes)}`;   // pagamentos cuja DATA cai neste mês de calendário
+  const emps={}; (State.employees||[]).forEach(e=>emps[e.id]=e);
+  const COLS=['Salário','Adiantamento','Benefícios','BP','Horas extras','Avulso','Outros'];
+  const porEmp={};   // empId → { nome, matr, buckets{}, total }
+  const totCol={}; COLS.forEach(c=>totCol[c]=0); let totGeral=0;
+  (State.solicitacoes||[]).forEach(s=>{
+    if(!s || s.status!=='pago') return;   // fechamento = o que foi efetivamente pago
+    const dt=(s.pagoEm||s.scheduleDate||'').slice(0,7);
+    if(dt!==pref) return;
+    const emp=emps[s.employeeId]||{};
+    const key=s.employeeId||('_'+(s.employeeNome||'?'));
+    if(!porEmp[key]) porEmp[key]={ nome:s.employeeNome||emp.nome||'(removido)', matr:emp.registro?String(emp.registro).padStart(4,'0'):'—', buckets:{}, total:0 };
+    const b=_relBucket(s.origem), v=+s.valor||0;
+    porEmp[key].buckets[b]=(porEmp[key].buckets[b]||0)+v;
+    porEmp[key].total+=v; totCol[b]+=v; totGeral+=v;
+  });
+  const linhas=Object.values(porEmp).sort((a,b)=>a.nome.localeCompare(b.nome));
+  if(!linhas.length){ toast(`Nenhum pagamento pago em ${MESES[mes]}/${ano}.`,'info'); return; }
+  // Só mostra colunas que tiveram valor (enxuga o quadro).
+  const colsUsadas=COLS.filter(c=>totCol[c]>0);
+  const body=linhas.map(l=>`<tr>
+    <td>${_relEsc(l.nome)}${l.matr!=='—'?` <span class="muted">(${l.matr})</span>`:''}</td>
+    ${colsUsadas.map(c=>`<td class="r">${l.buckets[c]?fmtMoney(l.buckets[c]):'—'}</td>`).join('')}
+    <td class="r" style="font-weight:800">${fmtMoney(l.total)}</td></tr>`).join('');
+  const foot=`<tr class="tot"><td>TOTAL (${linhas.length} colaborador(es))</td>${colsUsadas.map(c=>`<td class="r">${fmtMoney(totCol[c])}</td>`).join('')}<td class="r">${fmtMoney(totGeral)}</td></tr>`;
+  const bodyHtml=_relCabecalhoEmpresa('Fechamento Mensal de Pagamentos', `Pagamentos realizados em ${MESES[mes]}/${ano} (pela data do pagamento)`)+
+    `<table><thead><tr><th>Colaborador</th>${colsUsadas.map(c=>`<th class="r">${c}</th>`).join('')}<th class="r">Total</th></tr></thead>
+     <tbody>${body}${foot}</tbody></table>
+     <p class="muted" style="font-size:10px">Considera apenas pagamentos com situação "Pago". Adiantamentos, benefícios e salário aparecem em colunas separadas.</p>`;
+  _relImprimir(`Fechamento ${MESES[mes]}/${ano}`, bodyHtml);
+  try{ Auth.log('REL_FECHAMENTO', Auth.currentUser?.username, `${MESES[mes]}/${ano} · ${linhas.length} colab · ${fmtMoney(totGeral)}`); }catch(_){}
+}
+
 // ── Dossiê do Colaborador ────────────────────────────────────────────────
 function _relTipoAvulsoLabel(o){
   if(o.coberturaColegas) return 'Cobertura entre colegas';
@@ -3553,8 +3609,14 @@ function _relTipoAvulsoLabel(o){
   if(o.tipo==='folga') return o.remunerada?'Folga (paga)':'Folga (descontada)';
   return 'Horário diferente';
 }
-function gerarDossieColaborador(){
-  const empId=val('rel-dossie-emp');
+// Atalho a partir do cadastro do colaborador (modal-employee): usa o emp-id em foco.
+function _dossieDoCadastro(){
+  const id=val('emp-id');
+  if(!id){ toast('Salve o colaborador primeiro para gerar o dossiê.','warning'); return; }
+  gerarDossieColaborador(id);
+}
+function gerarDossieColaborador(empIdArg){
+  const empId=empIdArg||val('rel-dossie-emp');
   if(!empId){ toast('Selecione um colaborador.','warning'); return; }
   const emp=(State.employees||[]).find(e=>e.id===empId);
   if(!emp){ toast('Colaborador não encontrado.','error'); return; }

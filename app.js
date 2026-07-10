@@ -18011,6 +18011,7 @@ function _overridesListaHtml(emp){
             ${ehFolga ? `<span style="background:${o.remunerada?'#1B5E20':'#90a4ae'};color:#fff;padding:1px 8px;border-radius:9px;font-size:10px;font-weight:700;margin-left:4px">${o.remunerada?'💰 REMUNERADA':'NÃO REMUNERADA (desconta o dia)'}</span>` : ''}
             ${ehFolga && o.pagaBeneficios ? `<span style="background:#1565C0;color:#fff;padding:1px 8px;border-radius:9px;font-size:10px;font-weight:700;margin-left:4px">🎫 c/ benefícios</span>` : ''}
             ${o.compensacaoSolo ? `<span style="background:#00897B;color:#fff;padding:1px 8px;border-radius:9px;font-size:10px;font-weight:700;margin-left:4px">↔ compensação</span>` : ''}
+            ${o.coberturaColegas ? `<span style="background:#6D28D9;color:#fff;padding:1px 8px;border-radius:9px;font-size:10px;font-weight:700;margin-left:4px">🤝 cobertura</span>` : ''}
           </div>
           ${!ehFolga ? `<div style="font-size:11px;color:#64748b;margin-top:3px">
             <strong>Entrada:</strong> ${o.horarioEntrada||'—'} ·
@@ -18547,6 +18548,140 @@ async function salvarTrocaPlantao(){
     const _pm=document.getElementById('modal-ponto-manual');
     if(_pm && !_pm.classList.contains('hidden')){ const pe=val('payroll-employee'); if(pe===A.id||pe===B.id) _renderAjustesEscalaPonto(pe); }
   }catch(e){ toast('Erro ao salvar a troca: '+(e.message||e),'error'); }
+}
+
+// ── Cobertura entre colegas (vários dias + compensação) ──────────────────
+// Um colega cobre o outro por X dias; depois o titular retribui. Espelha a "Troca de
+// plantão" mas com LISTAS de datas e em modelo NET ZERO (folga REMUNERADA, sem desconto;
+// trabalho com o horário do titular do dia, sem HE) — igual à Compensação solo. A
+// compensação é opcional (pode lançar depois). #cobertura-colegas
+let _cobDatasCov = [], _cobDatasComp = [];
+function _cobRenderChips(){
+  const rend = (arr, elId, remFn, cor, borda) => {
+    const box = document.getElementById(elId); if(!box) return;
+    box.innerHTML = arr.slice().sort().map(d =>
+      `<span style="display:inline-flex;align-items:center;gap:6px;background:${cor};border:1px solid ${borda};color:#4C1D95;border-radius:14px;padding:3px 10px;font-size:12px;font-weight:600">`+
+        `<i class="fa-solid fa-calendar-day"></i> ${_fmtDtBr(d)}`+
+        `<i class="fa-solid fa-xmark" style="cursor:pointer" title="Remover data" onclick="${remFn}('${d}')"></i>`+
+      `</span>`).join('');
+  };
+  rend(_cobDatasCov,  'cob-cov-chips',  '_cobRemoveCov',  '#EDE9FE', '#C4B5FD');
+  rend(_cobDatasComp, 'cob-comp-chips', '_cobRemoveComp', '#D1FAE5', '#6EE7B7');
+}
+function _cobAddCov(){
+  const d = val('cob-cov-data'); if(!d){ toast('Escolha uma data primeiro.','warning'); return; }
+  if(!_cobDatasCov.includes(d)) _cobDatasCov.push(d);
+  setVal('cob-cov-data',''); _cobRenderChips(); _cobResumo();
+}
+function _cobRemoveCov(d){ _cobDatasCov = _cobDatasCov.filter(x=>x!==d); _cobRenderChips(); _cobResumo(); }
+function _cobAddComp(){
+  const d = val('cob-comp-data'); if(!d){ toast('Escolha uma data primeiro.','warning'); return; }
+  if(!_cobDatasComp.includes(d)) _cobDatasComp.push(d);
+  setVal('cob-comp-data',''); _cobRenderChips(); _cobResumo();
+}
+function _cobRemoveComp(d){ _cobDatasComp = _cobDatasComp.filter(x=>x!==d); _cobRenderChips(); _cobResumo(); }
+
+function abrirCobertura(empIdPre){
+  if(!_podeGerirFolgasEscala()){ toast('Seu perfil não tem permissão para incluir folgas / dia avulso / troca de escala.','error'); return; }
+  const ativos = (State.employees||[]).filter(e=>(e.status||'ativo')==='ativo')
+    .sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+  const opts = ativos.map(e=>`<option value="${e.id}">${e.nome}${e.registro?` (${String(e.registro).padStart(4,'0')})`:''}</option>`).join('');
+  const selA=document.getElementById('cob-a'), selB=document.getElementById('cob-b');
+  selA.innerHTML = `<option value="">— selecione —</option>`+opts;
+  selB.innerHTML = `<option value="">— selecione —</option>`+opts;
+  selA.value = (empIdPre || _escalaEmpIdCtx() || '');
+  setVal('cob-b',''); setVal('cob-cov-data',''); setVal('cob-comp-data',''); setVal('cob-obs','');
+  _cobDatasCov = []; _cobDatasComp = [];
+  selA.onchange=_cobResumo; selB.onchange=_cobResumo;
+  _cobRenderChips(); _cobResumo();
+  document.getElementById('modal-cobertura').classList.remove('hidden');
+}
+
+function _cobResumo(){
+  const A=(State.employees||[]).find(e=>e.id===val('cob-a'));
+  const B=(State.employees||[]).find(e=>e.id===val('cob-b'));
+  const nA = A?((A.nome||'').split(' ')[0]):'Colaborador 1';
+  const nB = B?((B.nome||'').split(' ')[0]):'Colaborador 2';
+  // Rótulos dos títulos das seções
+  const set=(id,txt)=>{ const el=document.getElementById(id); if(el) el.textContent=txt; };
+  set('cob-lbl-a',nA); set('cob-lbl-b',nB); set('cob-lbl-a2',nA); set('cob-lbl-b2',nB);
+  const el=document.getElementById('cob-resumo'); if(!el) return;
+  if(!A||!B){ el.innerHTML='<span style="color:#888"><i class="fa-solid fa-arrow-up"></i> Selecione os dois colaboradores e adicione ao menos um dia de cobertura.</span>'; return; }
+  if(A.id===B.id){ el.innerHTML='<span style="color:#C62828">Selecione colaboradores diferentes.</span>'; return; }
+  const F='<span style="color:#7e22ce;font-weight:700">FOLGA paga</span>', T='<span style="color:#1B5E20;font-weight:700">TRABALHA</span>';
+  const cov=_cobDatasCov.slice().sort().map(_fmtDtBr), comp=_cobDatasComp.slice().sort().map(_fmtDtBr);
+  const covTxt = cov.length?cov.join(', '):'—';
+  const compTxt = comp.length?comp.join(', '):'—';
+  el.innerHTML =
+    `<div><i class="fa-solid fa-user" style="color:#6D28D9"></i> <strong>${nA}</strong>: ${F} em ${covTxt}`+(comp.length?` &middot; ${T} em ${compTxt}`:'')+`</div>`+
+    `<div><i class="fa-solid fa-user" style="color:#6D28D9"></i> <strong>${nB}</strong>: ${T} em ${covTxt}`+(comp.length?` &middot; ${F} em ${compTxt}`:'')+`</div>`+
+    (comp.length?'':`<div style="font-size:11px;color:#888;margin-top:4px"><i class="fa-solid fa-circle-info"></i> Sem dias de compensação — você pode lançá-los depois.</div>`);
+}
+
+async function salvarCobertura(){
+  if(!_podeGerirFolgasEscala()){ toast('Sem permissão.','error'); return; }
+  const A=(State.employees||[]).find(e=>e.id===val('cob-a'));
+  const B=(State.employees||[]).find(e=>e.id===val('cob-b'));
+  if(!A||!B){ toast('Selecione os dois colaboradores.','warning'); return; }
+  if(A.id===B.id){ toast('Selecione colaboradores diferentes.','warning'); return; }
+  // Inclui a data que ficou no campo sem apertar "Adicionar" (pra ninguém perder o dia).
+  const cov = _cobDatasCov.slice(); { const d=val('cob-cov-data'); if(d && !cov.includes(d)) cov.push(d); }
+  const comp = _cobDatasComp.slice(); { const d=val('cob-comp-data'); if(d && !comp.includes(d)) comp.push(d); }
+  const covU=[...new Set(cov)].sort(), compU=[...new Set(comp)].sort();
+  if(!covU.length){ toast('Adicione ao menos um dia de cobertura.','warning'); return; }
+  const cruz = covU.filter(d=>compU.includes(d));
+  if(cruz.length){ toast('A mesma data está na cobertura E na compensação: '+cruz.map(_fmtDtBr).join(', '),'error'); return; }
+  const obs=(val('cob-obs')||'').trim();
+  const quem=(Auth.currentUser&&(Auth.currentUser.username||Auth.currentUser.id))||'—';
+  const nowISO=new Date().toISOString();
+  const parId=genId();
+  const nA=(A.nome||'').split(' ')[0], nB=(B.nome||'').split(' ')[0];
+  const obsBase = obs || `Cobertura entre colegas: ${nA} ↔ ${nB}`;
+  // Monta os lançamentos NET ZERO:
+  //  cobertura dCov (dia do A): A folga PAGA / B trabalha com o horário de A
+  //  compensação dComp (dia do B): B folga PAGA / A trabalha com o horário de B
+  const lancamentos=[];
+  covU.forEach(d=>{
+    lancamentos.push({ emp:A, data:d, tipo:'folga',     hor:null });
+    lancamentos.push({ emp:B, data:d, tipo:'diferente', hor:_horarioPlantaoDia(A, d) });
+  });
+  compU.forEach(d=>{
+    lancamentos.push({ emp:B, data:d, tipo:'folga',     hor:null });
+    lancamentos.push({ emp:A, data:d, tipo:'diferente', hor:_horarioPlantaoDia(B, d) });
+  });
+  // Conflitos com dias avulsos já existentes.
+  const conflitos=[];
+  for(const l of lancamentos){
+    const ja=(l.emp.overridesHorario||[]).find(o=>o.data===l.data);
+    if(ja) conflitos.push(`${l.emp.nome} em ${_fmtDtBr(l.data)}`);
+  }
+  if(conflitos.length && !confirm(`Já existe dia avulso em:\n• ${conflitos.join('\n• ')}\n\nSubstituir pelos lançamentos da cobertura?`)) return;
+  for(const l of lancamentos){
+    const novo={
+      id: genId(), data:l.data, tipo:l.tipo,
+      horarioEntrada: l.hor?l.hor.entrada:'', horarioSaida: l.hor?l.hor.saida:'',
+      horarioRefIni:  l.hor?l.hor.refIni:'',  horarioRefFim: l.hor?l.hor.refFim:'',
+      remunerada: l.tipo==='folga' ? true : false,   // folga PAGA (net zero — ninguém perde). #cobertura-colegas
+      pagaBeneficios: false,
+      observacao: obsBase, criadoEm: nowISO, criadoPorNome: quem, updatedAt: nowISO,
+      coberturaColegas: parId,
+    };
+    l.emp.overridesHorario=(l.emp.overridesHorario||[]).filter(o=>o.data!==l.data);
+    l.emp.overridesHorario.push(novo);
+  }
+  try{
+    await DB.merge('employees', A.id, { overridesHorario:A.overridesHorario, updatedAt:nowISO });
+    await DB.merge('employees', B.id, { overridesHorario:B.overridesHorario, updatedAt:nowISO });
+    try{ Auth.log('COBERTURA_COLEGAS', null, `${A.nome} ↔ ${B.nome} | cobertura ${covU.join(',')}${compU.length?' | comp '+compU.join(','):''}`); }catch(_){}
+    _cobDatasCov=[]; _cobDatasComp=[];
+    closeModal('modal-cobertura');
+    const nDias = covU.length + compU.length;
+    toast(`Cobertura registrada: ${covU.length} dia(s) de cobertura${compU.length?` + ${compU.length} de compensação`:''} (${lancamentos.length} lançamentos). Folgas pagas, sem falta nem HE.`,'success');
+    const cur=_escalaEmpIdCtx();
+    if(cur===A.id||cur===B.id) renderHorariosTab(cur);
+    const _pm=document.getElementById('modal-ponto-manual');
+    if(_pm && !_pm.classList.contains('hidden')){ const pe=val('payroll-employee'); if(pe===A.id||pe===B.id) _renderAjustesEscalaPonto(pe); }
+  }catch(e){ toast('Erro ao salvar a cobertura: '+(e.message||e),'error'); }
 }
 
 // Mini-modal flutuante reutilizavel (igual ao de stats)

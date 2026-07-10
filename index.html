@@ -4033,6 +4033,7 @@
               <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;background:#1B5E20;color:#fff;border-color:#1B5E20" onclick="abrirNovaFolga()"><i class="fa-solid fa-mug-hot"></i> Adicionar folga</button>
               <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;background:#00897B;color:#fff;border-color:#00897B" onclick="abrirCompensacaoSolo()" title="Ela trocou de dia só ela mesma: não veio num dia (vira folga paga) e trabalhou em outro (vira dia de trabalho). Sem falta nem hora extra."><i class="fa-solid fa-arrow-right-arrow-left"></i> Compensação solo</button>
               <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;background:#6D28D9;color:#fff;border-color:#6D28D9" onclick="abrirTrocaPlantao()"><i class="fa-solid fa-right-left"></i> Troca de plantão</button>
+              <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;background:#7C3AED;color:#fff;border-color:#7C3AED" onclick="abrirCobertura()" title="Um colega cobre o outro por vários dias e depois recebe a folga de volta. Folgas pagas, sem falta nem hora extra."><i class="fa-solid fa-handshake-angle"></i> Cobertura (vários dias)</button>
               <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;background:#E65100;color:#fff;border-color:#E65100" onclick="abrirNovoOverrideEscala()"><i class="fa-solid fa-plus"></i> Novo dia avulso</button>
             </div>
           </div>
@@ -5862,6 +5863,7 @@
             <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;background:#1B5E20;color:#fff;border-color:#1B5E20" onclick="abrirNovaFolga()"><i class="fa-solid fa-mug-hot"></i> Adicionar folga</button>
             <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;background:#00897B;color:#fff;border-color:#00897B" onclick="abrirCompensacaoSolo()" title="Ela trocou de dia só ela mesma: não veio num dia (vira folga paga) e trabalhou em outro (vira dia de trabalho). Sem falta nem hora extra."><i class="fa-solid fa-arrow-right-arrow-left"></i> Compensação solo</button>
             <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;background:#6D28D9;color:#fff;border-color:#6D28D9" onclick="abrirTrocaPlantao()"><i class="fa-solid fa-right-left"></i> Troca de plantão</button>
+            <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;background:#7C3AED;color:#fff;border-color:#7C3AED" onclick="abrirCobertura()" title="Um colega cobre o outro por vários dias e depois recebe a folga de volta. Folgas pagas, sem falta nem hora extra."><i class="fa-solid fa-handshake-angle"></i> Cobertura (vários dias)</button>
             <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;background:#E65100;color:#fff;border-color:#E65100" onclick="abrirNovoOverrideEscala()"><i class="fa-solid fa-plus"></i> Novo dia avulso</button>
           </div>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">
@@ -7612,6 +7614,65 @@
   </div>
 </div>
 
+<!-- ===== COBERTURA ENTRE COLEGAS (vários dias + compensação) ===== -->
+<div class="modal-overlay hidden" id="modal-cobertura" onclick="closeModal('modal-cobertura', event)">
+  <div class="modal-dialog">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-handshake-angle" style="color:#6D28D9"></i> Cobertura entre colegas (vários dias)</h3>
+      <button class="modal-close" onclick="closeModal('modal-cobertura')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="info-banner" style="background:#F5F3FF;border-color:#DDD6FE;color:#5B21B6;margin-bottom:12px">
+        <i class="fa-solid fa-circle-info"></i>
+        Um colega <strong>cobre</strong> o outro por vários dias e depois recebe a <strong>folga de volta</strong>. As folgas entram como <strong>pagas</strong> (sem falta nem desconto) e quem cobre <strong>trabalha com o horário do titular do dia</strong> (sem hora extra). A compensação pode ser lançada agora ou depois.
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Colaborador 1 — titular <span class="required">*</span></label>
+          <select id="cob-a"></select>
+          <div style="font-size:11px;color:#888;margin-top:2px">Quem é coberto primeiro (vai <strong>folgar</strong> nos dias de cobertura).</div>
+        </div>
+        <div class="form-group">
+          <label>Colaborador 2 — quem cobre <span class="required">*</span></label>
+          <select id="cob-b"></select>
+          <div style="font-size:11px;color:#888;margin-top:2px">Quem <strong>trabalha</strong> no lugar nos dias de cobertura.</div>
+        </div>
+      </div>
+
+      <div style="border:1px solid #DDD6FE;background:#FAF9FF;border-radius:8px;padding:10px 12px;margin-bottom:10px">
+        <div style="font-size:13px;font-weight:700;color:#5B21B6;margin-bottom:6px"><i class="fa-solid fa-user-clock"></i> Dias de cobertura — <span id="cob-lbl-b">Colaborador 2</span> cobre <span id="cob-lbl-a">Colaborador 1</span></div>
+        <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+          <div class="form-group" style="margin:0"><label style="font-size:12px">Data</label><input type="date" id="cob-cov-data"></div>
+          <button type="button" class="btn btn-outline" style="font-size:12px;padding:6px 10px" onclick="_cobAddCov()"><i class="fa-solid fa-plus"></i> Adicionar</button>
+        </div>
+        <div id="cob-cov-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"></div>
+      </div>
+
+      <div style="border:1px solid #C7EDE6;background:#F3FBF9;border-radius:8px;padding:10px 12px;margin-bottom:10px">
+        <div style="font-size:13px;font-weight:700;color:#00695C;margin-bottom:6px"><i class="fa-solid fa-rotate-left"></i> Dias de compensação (opcional) — <span id="cob-lbl-a2">Colaborador 1</span> retribui <span id="cob-lbl-b2">Colaborador 2</span></div>
+        <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+          <div class="form-group" style="margin:0"><label style="font-size:12px">Data</label><input type="date" id="cob-comp-data"></div>
+          <button type="button" class="btn btn-outline" style="font-size:12px;padding:6px 10px" onclick="_cobAddComp()"><i class="fa-solid fa-plus"></i> Adicionar</button>
+        </div>
+        <div id="cob-comp-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"></div>
+        <div style="font-size:11px;color:#888;margin-top:6px">Pode deixar vazio agora e lançar a compensação depois, quando combinarem os dias de volta.</div>
+      </div>
+
+      <div id="cob-resumo" style="background:#FAFAFA;border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:13px;line-height:1.7;margin:4px 0 12px"></div>
+      <div class="form-row">
+        <div class="form-group" style="grid-column:1 / -1">
+          <label>Motivo / observação</label>
+          <input type="text" id="cob-obs" maxlength="200" placeholder="Ex.: Cobertura acordada entre as colaboradoras">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-cobertura')">Cancelar</button>
+      <button class="btn btn-primary" style="background:#6D28D9;border-color:#6D28D9" onclick="salvarCobertura()"><i class="fa-solid fa-floppy-disk"></i> Lançar cobertura</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
@@ -7671,6 +7732,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260710b-dia-avulso-multi"></script>
+  <script src="app.js?v=20260710c-cobertura-colegas"></script>
 </body>
 </html>

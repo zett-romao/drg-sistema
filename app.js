@@ -27565,6 +27565,20 @@ function _detectHEDivergencia(realDay, expectedDay){
       if(d > HE_TOLERANCIA_BATIDA_MIN) out.motivos.push(`Almoço ${d}min mais curto`);
     }
   }
+  // 🔒 INTERVALO NÃO REGISTRADO (campo em branco) num dia que previa refeição.
+  // Sem isto a hora do almoço SOME: `_liqMin` conta o dia inteiro como trabalho
+  // (intervalo vazio = 0min de descanso), mas a detecção não enxergava nada —
+  // então `_heMinDia` devolvia 0 mesmo com o gestor APROVANDO, e o dia nem chegava
+  // à revisão. Foi o caso do Victor (12/07: 12h04 trabalhadas, HE 1h04 evaporada).
+  // Agora vira PENDÊNCIA: não paga sozinho (a regra "batida esquecida não paga"
+  // continua de pé — quem decide é o gestor), mas nada desaparece. #intervalo-vazio
+  if(!realDay.intIni && !realDay.intFim && expectedDay.intIni && expectedDay.intFim){
+    const expDur = _calcIntervaloMin(expectedDay.intIni, expectedDay.intFim, expectedDay.entrada, expectedDay.saida);
+    if(expDur > 0){
+      out.totalMin += expDur;
+      out.motivos.push(`Intervalo não registrado (${expDur}min previstos) — confirmar se trabalhou o almoço`);
+    }
+  }
   // Súmula 366 TST: total > 10min/dia → precisa de revisão; senão CLT permite ignorar
   out.precisaRevisao = out.totalMin > HE_TOLERANCIA_DIA_MIN;
   return out;
@@ -27703,7 +27717,14 @@ function _intervaloCrossesMidnight(intIni, intFim, entrada, saida){
 // antes dos 60min). Difere de "não bateu intervalo" (campo vazio = presume descanso) e de
 // quem trabalha sozinho (semRefeicao, pago via naoRendMin auto). #ref-detectada
 function _almocoSuprimidoDetectadoMin(d, exp, emp){
-  if(!d || !d.intIni || !d.intFim || !d.entrada || !d.saida) return 0;   // precisa dos DOIS pontos do intervalo + jornada batida
+  if(!d || !d.entrada || !d.saida) return 0;                              // sem jornada batida não há o que apurar
+  // 🔒 Intervalo EM BRANCO também conta como supressão DETECTADA (antes exigia as
+  // duas batidas, e o campo vazio virava um buraco: a folha contava o dia inteiro
+  // como trabalho e a hora do almoço não chegava a lugar nenhum — caso do Victor).
+  // Continua NÃO pagando sozinho: isto só cria a PENDÊNCIA; quem libera é o gestor
+  // na revisão de HE (a proteção contra "esqueci de bater" segue de pé). #intervalo-vazio
+  const _semIntervaloBatido = !d.intIni && !d.intFim;
+  if(!_semIntervaloBatido && (!d.intIni || !d.intFim)) return 0;          // meia batida (só ida ou só volta): não dá pra apurar
   if(emp && emp.semRefeicao) return 0;                                    // trabalha sozinho já recebe automático
   if(!exp || exp.tipo==='folga' || !exp.entrada) return 0;
   let mbE = timeToMinutes(exp.saida)-timeToMinutes(exp.entrada); if(mbE<=0) mbE+=24*60;

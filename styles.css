@@ -44,6 +44,15 @@ html, body {
   font-size: 14px;
   line-height: 1.5;
 }
+/* 🔒 GUARDA DE ESTOURO (padrão da família DRG): nada faz a página rolar pro lado
+   no celular. É `clip`, NÃO `hidden` — hidden torna o body um container de scroll
+   e mata todo `position:sticky` que deveria grudar na viewport. O hidden fica só
+   de rede pra navegador velho (iOS <16) que não conhece clip.
+   As tabelas largas continuam rolando dentro do próprio wrapper (overflow-x:auto). */
+html, body { overflow-x: hidden; max-width: 100%; }
+@supports (overflow-x: clip) {
+  html, body { overflow-x: clip; }
+}
 
 a { cursor: pointer; text-decoration: none; }
 button { cursor: pointer; font-family: inherit; }

@@ -569,7 +569,7 @@ try{ window.__APP_BOOTED = true; }catch(_){}
 // ─── VERSÃO DO APP DO COLABORADOR ─────────────────────────────────────────────
 // Bumpe SEMPRE em conjunto com o CACHE do ponto-sw.js e o ?v= do firebase-config.
 // Formato: AA.MM.DD + letra (a, b, c...) — alinhado com o nome do cache.
-const PONTO_VERSION = '26.07.14b';
+const PONTO_VERSION = '26.07.14c';
 // Exibe a versão no rodapé (script roda após o DOM, então o elemento já existe)
 (function _setVersionTag(){
   const t = document.getElementById('app-version-tag');
@@ -642,7 +642,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=45').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=46').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -1491,29 +1491,27 @@ function _ehDiaDeFolga(emp, dataObj){
   if((ds===0 || ds===6) && _usaFdsLivreResolvePonto(escalaEfetiva)) return false;
   if(escala.indexOf('5X2')===0)               return ds===0 || ds===6;
   if(escala==='6X1A' || escala==='6X1C')      return ds===0;
-  if(escala==='6X1B')                         return false; // todos os dias
-  if(escala==='6X1ALT'){
-    // Alternado: a primeira folga (sab ou dom) e' definida no cadastro.
-    // Quem trabalha sab/dom, no fim de semana seguinte folga no outro dia.
-    if(ds !== 0 && ds !== 6) return false;
-    const primeira = (emp.alternadaPrimeiraFolga||'sab').toLowerCase(); // 'sab' ou 'dom'
-    const adm = emp.dataAdmissao ? new Date(emp.dataAdmissao + 'T00:00:00') : null;
-    if(!adm || isNaN(adm.getTime())) return false;
-    // Pega a sexta-feira da semana de admissao para usar como ancora
-    const ancoraSex = new Date(adm.getTime());
-    ancoraSex.setDate(adm.getDate() - ((adm.getDay() + 2) % 7)); // volta ate sex
-    // Conta numero de semanas inteiras entre ancora e a data atual
-    const msSemana = 7*86400000;
-    const diasDiff = Math.floor((dataObj.getTime() - ancoraSex.getTime())/msSemana);
-    // Semana par (incluindo 0) = mesmo dia da "primeira folga"
-    const folgaHojeSab = (primeira === 'sab') ? (diasDiff % 2 === 0) : (diasDiff % 2 !== 0);
-    if(ds === 6 &&  folgaHojeSab) return true;
-    if(ds === 0 && !folgaHojeSab) return true;
-    return false;
-  }
-  if(escala==='12X36'){
-    // 12x36: paridade trabalha/folga — MESMA regra do gestor (_ciclo12x36EhTrabalho),
-    // honrando os Períodos de mudança (troca de turno/escala reancora no 1º dia). #troca-turno-12x36
+  // ⚠️ 6x1B e 6x1 ALTERNADO (todas as variantes): o app NÃO decide folga.
+  // O gestor mudou essas duas para CICLO DESLIZANTE 6x1 (`_ehFolga6x1Ciclo`: 6 dias de
+  // trabalho + 1 de folga, ancorado na ÚLTIMA FOLGA CONHECIDA — foi o fix #fix-6x1alt-12dias,
+  // porque a alternância sáb↔dom gerava até 12 dias seguidos de trabalho). A âncora vive na
+  // coleção `escalas`, que é **staff-only** nas regras do Firestore — o app do colaborador NÃO
+  // PODE lê-la. Reproduzir a regra antiga aqui era pior que não decidir: o app dizia "você está
+  // de folga" num sábado que o gestor considera TRABALHO e, com a janela de batida, a batida
+  // nasceria PENDENTE indevidamente (e travaria o fechamento da competência).
+  // Falha SEGURA: sem folga no app → nunca bloqueia, nunca gera pendência falsa. Se ele bater
+  // num dia que era folga de verdade, o gestor (fonte da verdade) trata como folga trabalhada =
+  // HE pendente, que é o comportamento correto.
+  // ⏳ CONSERTO DEFINITIVO (precisa de decisão do dono): gravar a âncora no CADASTRO
+  // (`emp.folga6x1Ref` — campo que o `_anchor6x1Folga` já lê PRIMEIRO, mas ninguém escreve),
+  // porque `employees` o app já lê. Aí o ciclo fica idêntico nos dois, sem regra nova. #motor-unico
+  if(escala==='6X1B' || escala.indexOf('6X1ALT')===0) return false;
+  // 12x36 — TODAS as variantes (12x36, 12x36-07-19, 12x36-19-07, 12x36-06-18, 12x36-18-06).
+  // Era `escala==='12X36'` (match exato): as variantes FIXAS, que são as realmente usadas,
+  // NUNCA entravam no ciclo → o app dizia "trabalha" no dia de folga do plantonista. O app tem
+  // a MESMA âncora do gestor aqui (ciclo12x36Inicio + Períodos de mudança), então dá pra acertar.
+  // #troca-turno-12x36 #motor-unico
+  if(escala.indexOf('12X36')===0){
     const t = _ehTrabalho12x36Ponto(emp, dataObj);
     if(t === true)  return false;  // dia de trabalho → não é folga
     if(t === false) return true;   // dia de folga

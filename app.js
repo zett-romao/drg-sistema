@@ -14298,7 +14298,9 @@ function renderColabDashboard(){
     try{ heAprovMin=_apuracaoPontoTotais(emp,p).extraMin||0; }catch(_){}
     (Array.isArray(p.pontoManualDias)?p.pontoManualDias:[]).forEach(pd=>{
       if(!pd||!pd.dia||!pd.entrada||!pd.saida) return;
-      let detec; try{ detec=_detectHEDivergencia({dia:pd.dia,diaSem:pd.diaSem,entrada:pd.entrada,saida:pd.saida,intIni:pd.intIni,intFim:pd.intFim,heReview:pd.heReview}, _getExpectedDay(emp,mes,ano,pd.dia)); }catch(_){ detec=null; }
+      // passa o dia INTEIRO (não um subset): os marcadores `_pendenteAutorizacao` precisam
+      // chegar ao detector, senão a batida fora da janela não conta como pendência. #janela-batida
+      let detec; try{ detec=_detectHEDivergencia(pd, _getExpectedDay(emp,mes,ano,pd.dia)); }catch(_){ detec=null; }
       if(detec && detec.precisaRevisao){ const st=pd.heReview&&pd.heReview.status; if(st!=='aprovado' && st!=='recusado') hePendDias++; }
     });
   }
@@ -15072,8 +15074,11 @@ async function fecharPeriodo(){
   const mes=parseInt(val('payroll-mes')||currentMes());
   const ano=parseInt(val('payroll-ano')||currentAno());
   const key=_periodoKey(mes,ano);
-  const qtd=State.payrolls.filter(p=>p.mes==mes&&p.ano==ano&&p.status!=='fechada').length;
+  const abertas=State.payrolls.filter(p=>p.mes==mes&&p.ano==ano&&p.status!=='fechada');
+  const qtd=abertas.length;
   if(qtd===0){ toast(`Nenhuma folha aberta em ${MESES[mes]}/${ano}.`,'warning'); return; }
+  const _bloq=_fechamentoBloqueadoHE(abertas);        // pendência de HE trava o fechamento. #janela-batida
+  if(_bloq.length){ _avisaFechamentoBloqueado(_bloq); return; }
   if(!confirm(`Fechar ${qtd} folha(s) de ${MESES[mes]}/${ano}?\n\nApós o fechamento as folhas ficam bloqueadas para edição. Você poderá reabrir individualmente se necessário.`)) return;
   await _executarFechamentoPeriodo(mes,ano,key,State.confFolha?.[key]||{},false);
 }
@@ -15365,6 +15370,8 @@ async function fecharFolhaPorId(payrollId){
   if(p.status==='fechada'){ toast('Esta folha já está fechada.','warning'); return; }
   const emp=State.employees.find(e=>e.id===p.employeeId);
   const nome=emp?.nome||p.employeeNome||'colaborador';
+  const _bloq=_fechamentoBloqueadoHE([p]);            // pendência de HE trava o fechamento. #janela-batida
+  if(_bloq.length){ _avisaFechamentoBloqueado(_bloq); return; }
   if(!confirm(`Fechar a folha de ${nome} — ${MESES[p.mes]}/${p.ano}?\n\nA folha ficará bloqueada para edição. Você poderá reabrir se necessário.`)) return;
   try{
     const agora=new Date().toISOString();
@@ -16068,6 +16075,8 @@ async function fecharFolhaIndividual(){
   const p=State.payrolls.find(r=>r.employeeId===empId&&r.mes==mes&&r.ano==ano);
   if(!p){ toast('Salve o lançamento antes de fechar.','error'); return; }
   if(p.status==='fechada'){ toast('Esta folha já está fechada.','warning'); return; }
+  const _bloq=_fechamentoBloqueadoHE([p]);            // pendência de HE trava o fechamento. #janela-batida
+  if(_bloq.length){ _avisaFechamentoBloqueado(_bloq); return; }
   if(!confirm(`Fechar a folha de ${emp.nome} — ${MESES[mes]}/${ano}?\n\nA folha ficará bloqueada para edição. Você poderá reabrir se necessário.`)) return;
   try{
     const agora=new Date().toISOString();
@@ -27507,8 +27516,39 @@ function _getExpectedDayComp(emp, compMes, compAno, dia){
   return _getExpectedDay(emp, r.mes, r.ano, r.dia);
 }
 
-// Detecta divergência de um dia real vs esperado. Retorna motivos + total minutos de excesso.
+// 🔒 JANELA DE BATIDA (dono 2026-07-14) — batida registrada FORA da janela [entrada−5min,
+// saída+5min] nasce marcada `<slot>_pendenteAutorizacao` no app do colaborador. Ela SEMPRE
+// existe no cartão (nada some), mas o dia PRECISA de decisão de quem tem `aprovaHE`: enquanto
+// o heReview estiver pendente, `_heMinDia` usa o previsto → a batida não gera minuto nenhum.
+// Este wrapper força a revisão mesmo quando o excedente cabe na tolerância de 10min/dia —
+// o dono quer que a batida antecipada/convocada seja SEMPRE autorizada por alguém competente.
+// A lógica de detecção (travada) fica intacta em _detectHEDivergenciaBase. #janela-batida
+const _PENDENTE_SLOT_LABEL = { entrada:'Entrada', intIni:'Início do intervalo', intFim:'Fim do intervalo', saida:'Saída' };
+function _batidasPendentesDia(realDay){
+  if(!realDay) return [];
+  return ['entrada','intIni','intFim','saida']
+    .filter(s => realDay[s+'_pendenteAutorizacao'] && realDay[s])
+    .map(s => {
+      const mot = (realDay[s+'_motivoFora']==='heConvocada')
+        ? `convocado p/ HE: ${realDay[s+'_motivoPedido'] || 'sem motivo informado'}`
+        : 'fora da janela de batida';
+      return `⏳ ${_PENDENTE_SLOT_LABEL[s]} ${realDay[s]} pendente de autorização — ${mot}`;
+    });
+}
 function _detectHEDivergencia(realDay, expectedDay){
+  const out = _detectHEDivergenciaBase(realDay, expectedDay);
+  if(!realDay || !expectedDay) return out;
+  if(expectedDay.preAdmissao || expectedDay.posDemissao) return out;  // fora do vínculo: não gera nada. #pos-demissao
+  const pend = _batidasPendentesDia(realDay);
+  if(pend.length){
+    pend.forEach(m => out.motivos.push(m));
+    out.precisaRevisao = true;
+  }
+  return out;
+}
+
+// Detecta divergência de um dia real vs esperado. Retorna motivos + total minutos de excesso.
+function _detectHEDivergenciaBase(realDay, expectedDay){
   const out = { totalMin:0, motivos:[], precisaRevisao:false };
   if(!realDay || !expectedDay) return out;
   if(!realDay.entrada || !realDay.saida) return out; // sem ponto real, nada a detectar
@@ -27647,7 +27687,10 @@ function _heMinDia(realDay, expectedDay, minContratados){
   // NÃO contam — nem que tenham sido aprovadas numa sessão antiga. Sem isso,
   // a folha pagava HE "fantasma" desalinhada com a revisão (que filtra a
   // tolerância). Acima do limite, vale a decisão do gestor (aprovado/recusada).
-  const detec = _detectHEDivergencia(realDay, expectedDay);
+  // 🔒 Usa a detecção BASE de propósito: o wrapper força revisão quando há batida fora da
+  // janela (#janela-batida), e isso NÃO pode furar a tolerância de 10min/dia — aprovar uma
+  // batida antecipada de 8min continua pagando ZERO (Súmula 366, regra travada).
+  const detec = _detectHEDivergenciaBase(realDay, expectedDay);
   if(!detec.precisaRevisao) return 0;
   return aprovado ? excesso : 0;
 }
@@ -28273,6 +28316,42 @@ function _findNextPendentePayroll(mes, ano, excludeEmpId){
     if(_payrollTemPendente(p)) return p;
   }
   return null;
+}
+
+// 🔒 FECHAMENTO BLOQUEADO COM PENDÊNCIA (dono 2026-07-14): a folha NÃO fecha enquanto houver
+// dia esperando decisão de quem tem `aprovaHE` — inclusive as batidas fora da janela
+// (`_pendenteAutorizacao`). O dono escolheu explicitamente bloquear em vez de recusar por
+// decurso de prazo: a hora extra é decidida por gente, nunca por omissão. #janela-batida
+function _hePendentesFolha(p){
+  const emp = State.employees.find(e => e.id === p?.employeeId);
+  if(!p || !emp || emp.isentoPonto || !Array.isArray(p.pontoManualDias)) return [];
+  const dias = [];
+  p.pontoManualDias.forEach(d => {
+    if(!d || !d.dia) return;
+    let exp; try{ exp = _getExpectedDayComp(emp, p.mes, p.ano, d.dia); }catch(_){ return; }
+    if(!exp) return;
+    let detec; try{ detec = _detectHEDivergencia(d, exp); }catch(_){ return; }
+    const st = d.heReview?.status;
+    if(detec.precisaRevisao && st !== 'aprovado' && st !== 'recusado') dias.push(d.dia);
+  });
+  return dias;
+}
+// Retorna [] quando pode fechar; senão a lista {nome, dias} que está travando.
+function _fechamentoBloqueadoHE(payrolls){
+  const bloq = [];
+  (payrolls||[]).forEach(p => {
+    const dias = _hePendentesFolha(p);
+    if(!dias.length) return;
+    const emp = State.employees.find(e => e.id === p.employeeId);
+    bloq.push({ nome: emp?.nome || p.employeeNome || '—', dias });
+  });
+  return bloq;
+}
+function _avisaFechamentoBloqueado(bloq){
+  const lista = bloq.slice(0,12).map(b => `• ${b.nome} — dia(s) ${b.dias.join(', ')}`).join('\n');
+  const resto = bloq.length > 12 ? `\n… e mais ${bloq.length-12} colaborador(es).` : '';
+  alert(`🔒 Fechamento bloqueado — há batida/hora extra PENDENTE de autorização:\n\n${lista}${resto}\n\n` +
+        `Aprove ou recuse cada pendência (Dashboard → "Pendentes de Revisar HE") e feche de novo.`);
 }
 
 // Constrói a lista detalhada de colaboradores com HE pendente acima da tolerância CLT

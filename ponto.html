@@ -569,7 +569,7 @@ try{ window.__APP_BOOTED = true; }catch(_){}
 // ─── VERSÃO DO APP DO COLABORADOR ─────────────────────────────────────────────
 // Bumpe SEMPRE em conjunto com o CACHE do ponto-sw.js e o ?v= do firebase-config.
 // Formato: AA.MM.DD + letra (a, b, c...) — alinhado com o nome do cache.
-const PONTO_VERSION = '26.07.14a';
+const PONTO_VERSION = '26.07.14b';
 // Exibe a versão no rodapé (script roda após o DOM, então o elemento já existe)
 (function _setVersionTag(){
   const t = document.getElementById('app-version-tag');
@@ -642,7 +642,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=44').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=45').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -1043,6 +1043,75 @@ function _modeloFdsHorarioPonto(escala){
   return { entrada:w.entrada||'', saida:w.saida||'', intIni:w.intIni||'', intFim:w.intFim||'' };
 }
 
+// 🔒 MOTOR ÚNICO — espelho EXATO de ESCALA_HORARIOS_DEFAULT / _escalaFixa / _escalaHorariosDia
+// do gestor (app.js). O app do colaborador NÃO pode ter horário próprio: com a JANELA DE BATIDA
+// (#janela-batida) qualquer divergência de horário vira batida bloqueada na hora errada — e o app
+// tinha uma cópia simplificada que lia o horário do CADASTRO mesmo nas escalas do sistema (que
+// cravam o horário e ignoram o cadastro). É a mesma classe de bug de 20/06 (sábado bloqueado).
+// Ponte até o escala-engine.js compartilhado (Frente 2). Mexeu no gestor → mexe aqui. #motor-unico
+const ESCALA_HORARIOS_DEFAULT_PONTO = {
+  '5x2A':  { entrada:'08:00', saida:'18:00' },
+  '5x2B':  { entrada:'07:00', saida:'17:00' },
+  '6x1A':  { entrada:'07:00', saida:'16:00' },
+  '6x1B':  { entrada:'08:00', saida:'16:20' },
+  '6x1C':  { entrada:'08:00', saida:'17:00' },
+  '12x36': { entrada:'07:00', saida:'19:00' },
+  '12x36-07-19': { entrada:'07:00', saida:'19:00' },
+  '12x36-06-18': { entrada:'06:00', saida:'18:00' },
+  '12x36-19-07': { entrada:'19:00', saida:'07:00' },
+  '12x36-18-06': { entrada:'18:00', saida:'06:00' },
+  '6x1ALT-0900-1720': { entrada:'09:00', saida:'17:20', intIni:'12:00', intFim:'13:00' },
+  '6x1ALT-0800-1620': { entrada:'08:00', saida:'16:20', intIni:'12:00', intFim:'13:00' },
+  '6x1ALT-0800-1700-S16': { entrada:'08:00', saida:'17:00', intIni:'12:00', intFim:'13:00' },
+  '6x1ALT-0700-1600-S11': { entrada:'07:00', saida:'16:00', intIni:'12:00', intFim:'13:00' },
+  '6x1LIV-0800-1700-S16': { entrada:'08:00', saida:'17:00', intIni:'12:00', intFim:'13:00' },
+  '6x1LIV-0800-1700-S12': { entrada:'08:00', saida:'17:00', intIni:'12:00', intFim:'13:00' },
+  '6x1LIV-0700-1600-S11': { entrada:'07:00', saida:'16:00', intIni:'12:00', intFim:'13:00' },
+  '6x1LIV-0900-1720': { entrada:'09:00', saida:'17:20', intIni:'12:00', intFim:'13:00' },
+  '5x2LIV-0730-1630-S15': { entrada:'07:30', saida:'16:30', intIni:'12:00', intFim:'13:00' }
+};
+function _escala12x36NoturnaPonto(escala){ return escala==='12x36-19-07' || escala==='12x36-18-06'; }
+function _escalaFixaPonto(escala){
+  return typeof escala==='string' && (escala.startsWith('12x36-') || escala==='6x1ALT-0900-1720' || escala==='6x1ALT-0800-1620'
+    || escala==='6x1ALT-0800-1700-S16' || escala==='6x1ALT-0700-1600-S11' || escala==='6x1LIV-0800-1700-S16'
+    || escala==='6x1LIV-0800-1700-S12' || escala==='6x1LIV-0700-1600-S11' || escala==='6x1LIV-0900-1720'
+    || escala==='5x2LIV-0730-1630-S15');
+}
+// Escalas que resolvem o dia do fim de semana pelas BATIDAS (sáb OU dom) — espelha
+// _usaFdsLivreResolve do gestor. Nesses dias o fds NÃO é folga: é dia POSSÍVEL de trabalho.
+function _ehFdsOpcionalPonto(escala){ return typeof escala==='string' && escala.startsWith('5x2LIV'); }
+function _ehFds6x1LivrePonto(escala){ return (typeof escala==='string' && escala.startsWith('6x1LIV')) || !!_modeloFdsLivrePonto(escala); }
+function _usaFdsLivreResolvePonto(escala){ return _ehFds6x1LivrePonto(escala) || _ehFdsOpcionalPonto(escala); }
+// Horários do dia p/ escalas do SISTEMA (não personalizadas) — espelha _escalaHorariosDia.
+function _horariosEscalaDiaPonto(fonte, e, escala, diaSem){
+  const def  = ESCALA_HORARIOS_DEFAULT_PONTO[escala] || ESCALA_HORARIOS_DEFAULT_PONTO['5x2A'];
+  const fixa = _escalaFixaPonto(escala);
+  const noturno = !!(fonte.turnoNoturno || e.turnoNoturno) || _escala12x36NoturnaPonto(escala);
+  const hEnt = fonte.horarioEntrada || e.horarioEntrada || '';
+  const hSai = fonte.horarioSaida   || e.horarioSaida   || '';
+  const hRefI= fonte.horarioRefIni  || e.horarioRefIni  || '';
+  const hRefF= fonte.horarioRefFim  || e.horarioRefFim  || '';
+  // Escala do sistema com horário FIXO ignora o cadastro (a escala define a jornada).
+  let entrada = fixa ? def.entrada : (hEnt || def.entrada);
+  let saida   = fixa ? def.saida   : (hSai || def.saida);
+  let intIni, intFim;
+  if(e.semRefeicao){ intIni=''; intFim=''; }
+  else if(hRefI && hRefF){ intIni=hRefI; intFim=hRefF; }
+  else if(fixa){ intIni=def.intIni||''; intFim=def.intFim||''; }
+  else if(noturno){ intIni='00:00'; intFim='01:00'; }
+  else { intIni='12:00'; intFim='13:00'; }
+  if(escala==='12x36' && noturno && !hEnt){ entrada='19:00'; saida='07:00'; }
+  // Dias diferenciados que fazem parte da DEFINIÇÃO da escala (valem mesmo com horário próprio):
+  if(diaSem===5 && (escala==='5x2A' || escala==='5x2B')) saida='16:00';                       // sexta curta
+  if(diaSem===6 && escala==='6x1A'){ saida='11:00'; intIni=''; intFim=''; }                   // sáb 07–11
+  if(diaSem===6 && escala==='6x1C'){ saida='12:00'; intIni=''; intFim=''; }                   // sáb 08–12
+  if((diaSem===0||diaSem===6) && (escala==='6x1ALT-0800-1700-S16' || escala==='6x1LIV-0800-1700-S16')) saida='16:00';
+  if((diaSem===0||diaSem===6) && escala==='6x1LIV-0800-1700-S12'){ saida='12:00'; intIni=''; intFim=''; }
+  if((diaSem===0||diaSem===6) && escala==='5x2LIV-0730-1630-S15'){ entrada='07:00'; saida='15:00'; intIni='12:00'; intFim='13:00'; }
+  if((diaSem===0||diaSem===6) && (escala==='6x1ALT-0700-1600-S11' || escala==='6x1LIV-0700-1600-S11')){ saida='11:00'; intIni=''; intFim=''; }
+  return { entrada, saida, intIni, intFim };
+}
+
 async function carregarPayroll() {
   // Usa a competência da jornada atual (turno noturno cruza meia-noite) — o ponto
   // do dia 26+ cai na competência do mês seguinte (fechamento no dia 25).
@@ -1311,6 +1380,15 @@ function _jornadaHoje(emp){
     const _dowJ = _hoje.getDay();
     // FDS Livre custom no fim de semana → usa o horário do dia de fds (sáb OU dom). #escala-custom-fdslivre
     if(_modeloFdsLivrePonto(escala) && (_dowJ===0 || _dowJ===6)){
+      // 🔒 Fim de semana por DURAÇÃO (horário livre, `fdsDuracaoMin`): o dia NÃO tem horário
+      // previsto — vale pela duração (regra travada 02/07). O gestor devolve entrada/saída
+      // VAZIAS aqui (_getExpectedDay #fds-duracao); o app tem que devolver igual, senão a
+      // JANELA DE BATIDA barraria quem chega cedo num dia de horário livre — divergência de
+      // motor, que é justamente o que a regra do motor único proíbe. #janela-batida
+      const _durFds = +(_modJ.fdsDuracaoMin) || 0;
+      if(_durFds > 0){
+        return { folga:false, entrada:'', saida:'', intIni:'', intFim:'', duracaoMinFds:_durFds };
+      }
       const h = _modeloFdsHorarioPonto(escala) || {};
       return { folga:false, entrada: h.entrada||'', saida: h.saida||'',
                intIni: e.semRefeicao ? '' : (h.intIni||''), intFim: e.semRefeicao ? '' : (h.intFim||'') };
@@ -1320,18 +1398,11 @@ function _jornadaHoje(emp){
     return { folga:false, entrada: md.entrada||'', saida: md.saida||'',
              intIni: e.semRefeicao ? '' : (md.intIni||''), intFim: e.semRefeicao ? '' : (md.intFim||'') };
   }
+  // Escalas do SISTEMA: horário vem do motor portado do gestor (escala fixa ignora o
+  // cadastro; sexta/sábado curtos; fds do 5x2LIV é 07:00–15:00). #motor-unico #janela-batida
   const diaSem = new Date().getDay();   // 0=Dom ... 6=Sáb
-  let entrada = fonte.horarioEntrada || e.horarioEntrada || '';
-  let saida   = fonte.horarioSaida   || e.horarioSaida   || '';
-  let intIni  = e.semRefeicao ? '' : (fonte.horarioRefIni || e.horarioRefIni || '');
-  let intFim  = e.semRefeicao ? '' : (fonte.horarioRefFim || e.horarioRefFim || '');
-  // Variantes com dia CURTO sem refeição (mesmas regras do gestor):
-  if(diaSem===6 && escala==='6x1A'){ saida='11:00'; intIni=''; intFim=''; }        // sáb 07–11 (4h)
-  if(diaSem===6 && escala==='6x1C'){ saida='12:00'; intIni=''; intFim=''; }        // sáb 08–12 (4h)
-  if((diaSem===0||diaSem===6) && (escala==='6x1ALT-0700-1600-S11'||escala==='6x1LIV-0700-1600-S11')){ saida='11:00'; intIni=''; intFim=''; }
-  if((diaSem===0||diaSem===6) && (escala==='6x1ALT-0800-1700-S16'||escala==='6x1LIV-0800-1700-S16')){ saida='16:00'; }  // 8h, mantém almoço
-  if(diaSem===5 && (escala==='5x2A'||escala==='5x2B')){ saida='16:00'; }            // sexta curta, mantém almoço
-  return { folga:false, entrada, saida, intIni, intFim };
+  const h = _horariosEscalaDiaPonto(fonte, e, escala, diaSem);
+  return { folga:false, entrada:h.entrada, saida:h.saida, intIni:h.intIni, intFim:h.intFim };
 }
 
 // "Tem refeição hoje?" — decide se o ponto PEDE as batidas de intervalo. Regras:
@@ -1412,6 +1483,12 @@ function _ehDiaDeFolga(emp, dataObj){
   const escala = (escalaEfetiva || '').toString().toUpperCase();
   const ds = dataObj.getDay(); // 0=dom .. 6=sab
   if(!escala) return false;
+  // 🔒 FDS LIVRE / FDS OPCIONAL (6x1LIV, 5x2LIV): sáb E dom são dias POSSÍVEIS de trabalho —
+  // quem resolve é a batida (o outro dia vira folga sozinho na folha). O gestor pensa assim
+  // (_usaFdsLivreResolve). Sem isto o app chamaria o sábado dela de "folga" e, com a janela
+  // de batida, a batida nasceria PENDENTE toda semana — e ainda travaria o fechamento.
+  // É o bug de 20/06 (sábado bloqueado) de volta pela porta dos fundos. #janela-batida
+  if((ds===0 || ds===6) && _usaFdsLivreResolvePonto(escalaEfetiva)) return false;
   if(escala.indexOf('5X2')===0)               return ds===0 || ds===6;
   if(escala==='6X1A' || escala==='6X1C')      return ds===0;
   if(escala==='6X1B')                         return false; // todos os dias

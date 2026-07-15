@@ -7781,6 +7781,35 @@
 <!-- ===== TOAST ===== -->
 <div id="toast-container"></div>
 
+<!-- FAB + modal: assistente de dúvidas com IA (Gemini) — "Explicar isto". #ajuda-ia -->
+<button id="fab-ajuda-ia" onclick="abrirAjudaIA()" title="Tirar dúvida / explicar esta tela com IA" style="display:none;position:fixed;bottom:20px;right:20px;z-index:99990;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#1565C0,#1e88e5);color:#fff;border:none;box-shadow:0 4px 14px rgba(0,0,0,.3);cursor:pointer;font-size:22px;align-items:center;justify-content:center">
+  <i class="fa-solid fa-wand-magic-sparkles"></i>
+</button>
+<div class="modal-overlay hidden" id="modal-ajuda-ia" onclick="fecharAjudaIA(event)">
+  <div class="modal-dialog" style="max-width:640px">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-wand-magic-sparkles" style="color:#1565C0"></i> Tirar dúvida — Assistente do Kronos</h3>
+      <button class="modal-close" onclick="fecharAjudaIA()"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="info-banner" style="background:#E3F2FD;color:#0D47A1">
+        <i class="fa-solid fa-circle-info"></i>
+        <span>Capturei a tela que você está vendo. Descreva o que parece errado ou o que quer entender — a IA explica com as <strong>regras do Kronos</strong> (competência 26→25, avulsos, tolerância, escalas…).</span>
+      </div>
+      <div id="ajuda-captura" style="text-align:center;margin-bottom:10px"></div>
+      <div class="form-group">
+        <label>Sua dúvida</label>
+        <textarea id="ajuda-pergunta" rows="2" placeholder="Ex.: por que apareceu 300min de excesso no dia 29?"></textarea>
+      </div>
+      <div id="ajuda-resposta" style="display:none;background:#F8FAFC;border:1px solid var(--border);border-radius:8px;padding:14px;font-size:13px;line-height:1.55;max-height:340px;overflow:auto"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="fecharAjudaIA()">Fechar</button>
+      <button class="btn btn-primary" id="ajuda-perguntar" onclick="perguntarAjudaIA()"><i class="fa-solid fa-paper-plane"></i> Perguntar</button>
+    </div>
+  </div>
+</div>
+
 <!-- Banner "Nova versao disponivel" (mesmo padrao do app do colaborador) -->
 <div id="banner-nova-versao" style="display:none;position:fixed;top:0;left:0;right:0;background:linear-gradient(90deg,#1e40af,#2563eb);color:#fff;padding:10px 14px;text-align:center;z-index:99999;box-shadow:0 2px 8px rgba(0,0,0,.25);font-size:13px;font-weight:600">
   🎉 Nova versão do sistema disponível!
@@ -7837,6 +7866,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260715f-suspensao-rules"></script>
+  <script src="app.js?v=20260715g-ajuda-ia"></script>
 </body>
 </html>

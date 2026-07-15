@@ -1856,6 +1856,7 @@ async function doLogin(event){
       return;
     }
     document.getElementById('login-screen').classList.add('hidden');
+    { const _f=document.getElementById('fab-ajuda-ia'); if(_f) _f.style.display='flex'; }  // #ajuda-ia
     setVal('login-username',''); setVal('login-password','');
     errorEl.classList.add('hidden');
     applyUserSession(user);
@@ -21024,6 +21025,109 @@ async function _registrarUsoIA(tipo, geminiData){
   }catch(e){ console.warn('Falha ao registrar uso de IA:', e); }
 }
 
+// ============================================================================
+// ASSISTENTE DE DÚVIDAS COM IA — "Explicar isto". #ajuda-ia
+// Tira um PRINT da tela que o operador está vendo (html2canvas) e manda pro mesmo
+// proxy Gemini do Importar Holerites, com um system-prompt carregado das REGRAS do
+// Kronos. É o que fez a resposta do David funcionar: contexto visual + regras do
+// domínio. 🔒 IA do Kronos = Gemini (nunca Claude). O proxy EXIGE base64Data —
+// por isso mandamos sempre o print (ou um pixel de fallback).
+// ============================================================================
+const AJUDA_IA_CEREBRO = `Você é o assistente especialista do DRG-Kronos, um sistema brasileiro de FOLHA DE PAGAMENTO e PONTO ELETRÔNICO. Quem pergunta é o GESTOR/operador do RH, olhando uma tela do sistema — a IMAGEM em anexo é o print exato dessa tela.
+
+Seu trabalho: explicar em português claro e direto por que a tela mostra aquilo, SEMPRE distinguindo "isto é comportamento ESPERADO por causa da regra X" de "isto parece ERRO de cadastro/dado — confira Y". Cite a regra concreta. Seja conciso e prático. Se os dados da tela não bastarem, diga o que falta olhar. NÃO invente números que não estão na tela.
+
+REGRAS DO KRONOS QUE VOCÊ CONHECE:
+- COMPETÊNCIA 26→25: a folha de um mês vai do dia 26 do mês anterior ao dia 25 do mês atual (ex.: "Julho" = 26/06 a 25/07). Por isso dias 26–31 aparecem com data do mês anterior.
+- DIAS AVULSOS: um dia avulso cadastrado VENCE a escala normal — a jornada esperada daquele dia vem do avulso, não da escala. Se um "excesso"/divergência não fizer sentido, quase sempre é um avulso com horário curto no cadastro (bloco "Dias avulsos").
+- TOLERÂNCIA (Súmula 366 TST / CLT Art. 58): até 5 min por batida e 10 min/dia são ignorados automaticamente. Acima disso conta a TOTALIDADE do tempo e vira pendência de decisão do gestor (revisar HE).
+- HORA EXTRA só vira HE com aprovação do gestor. Trabalho em dia de FOLGA = toda a jornada é HE e precisa de decisão.
+- ESCALAS: 5x2 (folga sáb/dom), 12x36 (12h trabalho / 36h descanso; fim de semana definido pela DURAÇÃO do turno; refeição de 60min conta como descanso).
+- JANELA DE BATIDA: a batida no app só é livre na janela [entrada −5min, saída +5min]. Fora dela o colaborador pede autorização e o supervisor libera ANTES.
+- ATESTADO abona o dia (não é falta). FÉRIAS, AFASTAMENTO INSS, LICENÇA, DSR, FERIADO = justificados, nunca falta.
+- ADICIONAL NOTURNO: 22h–05h, hora reduzida (52min30s) salvo CCT com hora cheia.
+- ADIANTAMENTO quinzenal: só é lançado se o colaborador cumpre o prazo mínimo de casa (contado da admissão) ou é isento.
+- FALTA INJUSTIFICADA derruba o DSR da semana; FALTA JUSTIFICADA não.
+- SUSPENSÃO disciplinar lança uma saída automática no ponto (descontada, não remunerada): 1º dia a partir do horário informado, dias seguintes o dia cheio; teto de 30 dias (Art. 474 CLT).
+- FOLHA é única por competência por colaborador; a demissão fecha a folha na data. NADA conta antes da ADMISSÃO nem depois da DEMISSÃO.
+
+Se parecer um bug de verdade (não explicável por regra), diga isso claramente e sugira o que conferir. Responda em texto corrido curto (pode usar tópicos), sem markdown pesado.`;
+
+// 1x1 PNG transparente — fallback caso o print falhe (o proxy exige base64Data).
+const _AJUDA_PIXEL = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+let _ajudaCapturaB64 = '';
+
+// Escolhe o alvo do print: o modal aberto no topo (o que o usuário olha), senão a tela.
+function _ajudaAlvo(){
+  const abertos=[...document.querySelectorAll('.modal-overlay:not(.hidden)')].filter(m=>m.id!=='modal-ajuda-ia');
+  if(abertos.length){ const top=abertos[abertos.length-1]; return top.querySelector('.modal-dialog')||top; }
+  return document.querySelector('.main-content')||document.querySelector('.app-container')||document.body;
+}
+
+async function abrirAjudaIA(){
+  if(!Auth.currentUser){ toast('Faça login primeiro.','info'); return; }
+  const modal=document.getElementById('modal-ajuda-ia');
+  const capEl=document.getElementById('ajuda-captura');
+  const respEl=document.getElementById('ajuda-resposta');
+  if(respEl){ respEl.style.display='none'; respEl.innerHTML=''; }
+  setVal('ajuda-pergunta','');
+  _ajudaCapturaB64='';
+  if(capEl) capEl.innerHTML='<div style="font-size:12px;color:#888"><i class="fa-solid fa-spinner fa-spin"></i> Capturando a tela...</div>';
+  const fab=document.getElementById('fab-ajuda-ia'); if(fab) fab.style.visibility='hidden';
+  try{
+    const alvo=_ajudaAlvo();
+    const opts={ scale:1, logging:false, useCORS:true, backgroundColor:'#ffffff' };
+    if(alvo===document.body){ opts.width=window.innerWidth; opts.height=window.innerHeight; opts.x=window.scrollX; opts.y=window.scrollY; }
+    const canvas=await html2canvas(alvo, opts);
+    const dataUrl=canvas.toDataURL('image/png');
+    _ajudaCapturaB64=dataUrl.split(',')[1]||'';
+    if(capEl) capEl.innerHTML=`<img src="${dataUrl}" alt="captura da tela" style="max-width:100%;max-height:180px;border:1px solid var(--border);border-radius:8px">
+      <div style="font-size:11px;color:#888;margin-top:4px"><i class="fa-solid fa-camera"></i> Tela capturada — a IA vai analisar isto.</div>`;
+  }catch(e){
+    console.warn('captura ajuda IA falhou', e);
+    _ajudaCapturaB64=_AJUDA_PIXEL;
+    if(capEl) capEl.innerHTML='<div style="font-size:12px;color:#E65100"><i class="fa-solid fa-triangle-exclamation"></i> Não consegui capturar a tela — descreva o que você vê que eu ainda tento explicar.</div>';
+  }finally{
+    if(fab) fab.style.visibility='';
+  }
+  modal.classList.remove('hidden');
+  if(fab) fab.style.display='none';   // some enquanto o modal está aberto (evita sobrepor os botões)
+}
+
+// Fecha o assistente e restaura o botão flutuante (só se logado).
+function fecharAjudaIA(ev){
+  closeModal('modal-ajuda-ia', ev);
+  if(document.getElementById('modal-ajuda-ia').classList.contains('hidden')){
+    const f=document.getElementById('fab-ajuda-ia'); if(f && Auth.currentUser) f.style.display='flex';
+  }
+}
+
+async function perguntarAjudaIA(){
+  const perg=(val('ajuda-pergunta')||'').trim();
+  const respEl=document.getElementById('ajuda-resposta');
+  const btn=document.getElementById('ajuda-perguntar');
+  const pergunta = perg || 'Explique o que esta tela está mostrando e se há algo que eu deveria conferir.';
+  const b64=_ajudaCapturaB64||_AJUDA_PIXEL;
+  setBtnLoading(btn,true,'');
+  if(respEl){ respEl.style.display='block'; respEl.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Analisando com as regras do Kronos...'; }
+  try{
+    const prompt = `${AJUDA_IA_CEREBRO}\n\nPERGUNTA DO GESTOR: ${pergunta}`;
+    const resp=await fetch(GEMINI_PROXY_URL, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ model:GEMINI_MODEL, prompt, mimeType:'image/png', base64Data:b64 })
+    });
+    if(!resp.ok){ const err=await resp.json().catch(()=>({})); throw new Error(err.error?.message||err.error||'Erro na chamada da IA'); }
+    const data=await resp.json();
+    const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'Não consegui gerar uma resposta. Tente reformular a pergunta.';
+    _registrarUsoIA('ajuda', data);
+    if(respEl) respEl.innerHTML=esc(text).replace(/\n/g,'<br>');
+  }catch(e){
+    if(respEl) respEl.innerHTML=`<span style="color:#c62828"><i class="fa-solid fa-triangle-exclamation"></i> ${esc(e.message||'Erro ao consultar a IA')}. Tente de novo.</span>`;
+  }finally{
+    setBtnLoading(btn,false,'<i class="fa-solid fa-paper-plane"></i> Perguntar');
+  }
+}
+
 // Faz o parse do JSON devolvido pelo Gemini, tolerando erros comuns do
 // modelo: cercas markdown, vírgula faltando entre objetos/strings do array,
 // vírgula sobrando antes de } ou ], comentários de bloco.
@@ -33751,6 +33855,7 @@ async function init(){
   if(sessionUser && fbUser && !fbUser.isAnonymous){
     Auth.currentUser = sessionUser;
     document.getElementById('login-screen').classList.add('hidden');
+    { const _f=document.getElementById('fab-ajuda-ia'); if(_f) _f.style.display='flex'; }  // #ajuda-ia
     await _aplicarTenantDoToken();   // MT-2: no reload, tenant vem do token (não da URL/localStorage). #multitenant
     const ok = await _carregarDadosPosLogin();
     if(!ok) return; // licença bloqueou ou erro de Firestore — mensagem já exibida

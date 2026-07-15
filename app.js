@@ -13538,6 +13538,8 @@ async function aplicarSuspensao(){
       assunto, corpo, tipo:'suspensao',
       anexoUrl, anexoNome, anexoTipo, anexoHash, mensagemHash,
       motivoDisciplina:motivo, diasSuspensao:dias, artigoCLT:artigo, disciplinaId:discId,
+      modoAplicacao:modo, dataSuspensao:data, horarioSaida:hora,
+      assinadaEm:'',                 // preenchido quando o colaborador assinar no app (modo digital)
       origemUserId:quemId, origemUserNome:quem, criadoEm:agora, lida:false,
     };
     try{ await DB.save('comunicacoes', _sanitizeForFirestore(msg)); }catch(err){ console.error('msg suspensao', err); }

@@ -313,6 +313,11 @@
     🧾 <span id="banner-holimp-count">0</span> holerite(s) para você conferir e assinar — clique para abrir
   </div>
 
+  <!-- Banner: Suspensão disciplinar para tomar ciência e assinar. #suspensao-modulo -->
+  <div id="banner-suspensao" style="display:none;background:linear-gradient(90deg,#FFCDD2 0%,#EF9A9A 100%);padding:12px 16px;cursor:pointer;border-bottom:2px solid #c62828;text-align:center;font-weight:600;color:#7f1d1d;font-size:14px" onclick="abrirInboxSuspensao()">
+    ⛔ <span id="banner-suspensao-count">0</span> suspensão(ões) para você tomar ciência e assinar — clique para abrir
+  </div>
+
   <!-- Banner: batidas aguardando aprovação do supervisor (aparece quando há). #ponto-provisorio -->
   <div id="banner-autz-pendente" style="display:none;background:linear-gradient(90deg,#FFE0B2 0%,#FFCC80 100%);padding:12px 16px;border-bottom:2px solid #E65100;text-align:center;font-weight:600;color:#E65100;font-size:14px">
     ⏳ <span id="banner-autz-count">0</span> batida(s) aguardando aprovação do supervisor
@@ -569,7 +574,7 @@ try{ window.__APP_BOOTED = true; }catch(_){}
 // ─── VERSÃO DO APP DO COLABORADOR ─────────────────────────────────────────────
 // Bumpe SEMPRE em conjunto com o CACHE do ponto-sw.js e o ?v= do firebase-config.
 // Formato: AA.MM.DD + letra (a, b, c...) — alinhado com o nome do cache.
-const PONTO_VERSION = '26.07.15b';
+const PONTO_VERSION = '26.07.15c';
 // Exibe a versão no rodapé (script roda após o DOM, então o elemento já existe)
 (function _setVersionTag(){
   const t = document.getElementById('app-version-tag');
@@ -642,7 +647,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=48').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=49').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -835,6 +840,8 @@ async function carregarHome() {
   _carregarInboxTermos().catch(e => console.warn('checar termos lgpd', e));   // termos LGPD a assinar. #lgpd-termo
   _carregarInboxFerias().catch(e => console.warn('checar termos ferias', e));   // comunicações de férias a assinar. #ferias-sign
   _carregarInboxHolImp().catch(e => console.warn('checar holerites importados', e));   // holerites da contabilidade a assinar. #importar-holerite
+  _carregarInboxSuspensao().catch(e => console.warn('checar suspensões', e));   // suspensões disciplinares a assinar. #suspensao-modulo
+  _carregarDiasSuspensos().catch(e => console.warn('checar dias suspensos', e));   // dias que travam a batida. #suspensao-modulo
   // Poll leve a cada 60s — apita quando chega comunicação nova com o app aberto. #som-avisos
   if(!window._msgPollTimer) window._msgPollTimer = setInterval(()=>{ _checarMensagensNovas().catch(()=>{}); }, 60*1000);
 }
@@ -1906,6 +1913,13 @@ async function baterPonto() {
   const dia  = j.dia;
   const dsem = new Date(j.ano, j.mes-1, j.dia).getDay();
 
+  // 🔒 SUSPENSÃO — trava a batida no dia suspenso (evita saída normal conflitando
+  // com a suspensão lançada pelo gestor). A saída já foi registrada no ponto. #suspensao-modulo
+  if(_diasSuspensos.has(`${mes}-${ano}-${dia}`)){
+    alert('⛔ Você está SUSPENSO neste dia.\n\nA batida está bloqueada — a saída já foi registrada pela gestão. Em caso de dúvida, fale com seu supervisor.');
+    renderBotao(); return;
+  }
+
   // 🔒 JANELA DE BATIDA — AUTORIZAÇÃO PRÉVIA (dono 2026-07-15). A batida só é LIVRE dentro da
   // janela [entrada − 5min, saída + 5min]. Fora dela a batida NÃO acontece direto: o colaborador
   // pede autorização e o SUPERVISOR libera ANTES (supervisor.html grava a batida na folha —
@@ -2822,6 +2836,131 @@ function _construirHtmlHolImpAssinado(rec, hash, assinadoEm){
 </body></html>`;
 }
 
+// ===========================================================================
+// SUSPENSÃO DISCIPLINAR — ciência + assinatura por PIN no app. #suspensao-modulo
+// A saída no ponto já foi lançada pelo gestor (ato do empregador). Aqui o
+// colaborador toma ciência e assina — a assinatura vira o Recibo de Recebimento.
+// Só entra aqui a suspensão aplicada em modo DIGITAL (documento físico não).
+// ===========================================================================
+let _suspInboxCache = [], _confCurrentSusp = null;
+
+async function _carregarInboxSuspensao(){
+  if(!currentEmp) return;
+  try{
+    const snap = await dbCol('comunicacoes').where('employeeId','==', currentEmp.id).get();
+    const items=[];
+    snap.forEach(doc=>{
+      const m={id:doc.id, ...doc.data()};
+      if(m.tipo==='suspensao' && m.modoAplicacao==='digital' && !m.assinadaEm) items.push(m);
+    });
+    items.sort((a,b)=>(b.criadoEm||'').localeCompare(a.criadoEm||''));
+    _suspInboxCache=items;
+    _atualizarBannerSuspensao();
+  }catch(e){ console.error('inbox suspensão:', e); }
+}
+
+function _atualizarBannerSuspensao(){
+  const b=document.getElementById('banner-suspensao'), c=document.getElementById('banner-suspensao-count');
+  if(!b||!c) return;
+  if(_suspInboxCache.length>0){ c.textContent=_suspInboxCache.length; b.style.display='block'; } else b.style.display='none';
+}
+
+// Conjunto de dias (competência+dia) em que o colaborador está suspenso — usado
+// pra TRAVAR a batida no dia (evita saída normal conflitando com a suspensão).
+// Lê da coleção `saidas` (tipo suspensão). Se o acesso for negado, degrada em
+// silêncio: a trava não age, mas o desconto lançado pelo gestor continua valendo.
+let _diasSuspensos = new Set();
+async function _carregarDiasSuspensos(){
+  if(!currentEmp) return;
+  try{
+    const snap = await dbCol('saidas').where('employeeId','==', currentEmp.id).get();
+    const set = new Set();
+    snap.forEach(doc=>{ const s=doc.data(); if(s && s.tipo==='suspensao') set.add(`${s.mes}-${s.ano}-${s.dia}`); });
+    _diasSuspensos = set;
+  }catch(e){ console.warn('dias suspensos:', e); }
+}
+
+function abrirInboxSuspensao(){
+  document.getElementById('modal-susp-inbox')?.remove();
+  const linhas = _suspInboxCache.length ? _suspInboxCache.map(m=>{
+    const dtBr=(m.dataSuspensao||'').split('-').reverse().join('/');
+    return `<div onclick="abrirSuspensaoCiencia('${m.id}')" style="padding:14px 16px;border-bottom:1px solid #eee;cursor:pointer;display:flex;justify-content:space-between;align-items:center;background:#fff">
+      <div><div style="font-weight:700;color:#7f1d1d;font-size:14px">Suspensão · ${m.diasSuspensao||1} dia(s)</div>
+      <div style="font-size:11px;color:#888;margin-top:2px">${dtBr?('A partir de '+dtBr+' · '):''}Toque para ler e assinar</div></div><i style="color:#9E9E9E;font-size:18px">›</i></div>`;
+  }).join('') : '<div style="padding:20px;text-align:center;color:#999">Nenhuma suspensão pendente.</div>';
+  document.body.insertAdjacentHTML('beforeend', `<div id="modal-susp-inbox" style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9998;display:flex;align-items:flex-end;justify-content:center">
+    <div style="background:#fff;width:100%;max-width:520px;max-height:88vh;border-radius:16px 16px 0 0;display:flex;flex-direction:column;overflow:hidden">
+      <div style="background:#c62828;color:#fff;padding:14px 16px;font-weight:700;font-size:15px;display:flex;justify-content:space-between;align-items:center">⛔ Suspensões p/ assinar
+        <button onclick="document.getElementById('modal-susp-inbox').remove()" style="background:none;border:none;color:#fff;font-size:20px;cursor:pointer">✕</button></div>
+      <div style="overflow-y:auto;flex:1">${linhas}</div></div></div>`);
+}
+
+function abrirSuspensaoCiencia(id){
+  document.getElementById('modal-susp-inbox')?.remove();
+  const m=_suspInboxCache.find(x=>x.id===id); if(!m){ alert('Suspensão não encontrada.'); return; }
+  _confCurrentSusp=m; _confMode='suspensao';
+  const dtBr=(m.dataSuspensao||'').split('-').reverse().join('/');
+  const anexo = m.anexoUrl ? `<a href="${m.anexoUrl}" target="_blank" style="display:block;text-align:center;background:#1565C0;color:#fff;padding:10px;border-radius:10px;text-decoration:none;font-weight:700;margin:8px 0">📄 Abrir documento da suspensão</a>` : '';
+  document.getElementById('modal-susp-ver')?.remove();
+  document.body.insertAdjacentHTML('beforeend', `<div id="modal-susp-ver" style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px">
+    <div style="background:#fff;width:100%;max-width:560px;max-height:92vh;border-radius:14px;display:flex;flex-direction:column;overflow:hidden">
+      <div style="background:#c62828;color:#fff;padding:14px 16px;font-weight:700;font-size:15px;display:flex;justify-content:space-between;align-items:center">⛔ Suspensão disciplinar
+        <button onclick="fecharSuspensaoCiencia()" style="background:none;border:none;color:#fff;font-size:20px;cursor:pointer">✕</button></div>
+      <div style="padding:16px;overflow-y:auto;flex:1;font-size:13px;color:#374151;line-height:1.5">
+        <p style="margin:0 0 8px"><strong>Duração:</strong> ${m.diasSuspensao||1} dia(s)${dtBr?` · a partir de ${dtBr}`:''}${m.horarioSaida?` (saída às ${m.horarioSaida})`:''}</p>
+        ${m.motivoDisciplina?`<p style="margin:0 0 8px"><strong>Motivo:</strong> ${(m.motivoDisciplina||'').replace(/</g,'&lt;')}</p>`:''}
+        ${m.artigoCLT?`<p style="margin:0 0 8px"><strong>Fundamento:</strong> ${(m.artigoCLT||'').replace(/</g,'&lt;')}</p>`:''}
+        ${anexo}
+        <div style="background:#fef2f2;border:1px solid #f1b0b0;border-radius:8px;padding:10px;margin-top:10px;font-size:12px;color:#7f1d1d">
+          Ao assinar com seu PIN você declara <strong>ciência</strong> desta suspensão. A assinatura registra data, IP e dispositivo (prova de recebimento). <strong>Assinar é ciência — não é concordância com o mérito.</strong>
+        </div>
+      </div>
+      <div style="padding:12px 16px;border-top:1px solid #eee;display:flex;gap:8px">
+        <button onclick="fecharSuspensaoCiencia()" style="flex:1;background:#9E9E9E;color:#fff;border:none;padding:12px;border-radius:10px;font-weight:700;cursor:pointer">Fechar</button>
+        <button onclick="assinarSuspensao()" style="flex:2;background:#c62828;color:#fff;border:none;padding:12px;border-radius:10px;font-weight:700;cursor:pointer">Ciente — assinar com PIN</button>
+      </div></div></div>`);
+}
+
+function fecharSuspensaoCiencia(){
+  document.getElementById('modal-susp-ver')?.remove();
+  _confCurrentSusp=null; _confMode='folha';
+  _carregarInboxSuspensao();
+}
+
+function assinarSuspensao(){
+  const err=document.getElementById('pin-assinatura-erro'); if(err) err.style.display='none';
+  const inp=document.getElementById('pin-assinatura-input'); if(inp) inp.value='';
+  document.getElementById('modal-pin-assinatura').style.display='flex';
+  setTimeout(()=>document.getElementById('pin-assinatura-input')?.focus(),100);
+}
+
+// HTML self-contained do Recibo de Recebimento da suspensão (prova de ciência).
+function _construirHtmlSuspensaoAssinada(m, hash, assinadoEm){
+  const dt=currentEmp||{};
+  const dtAssin=new Date(assinadoEm).toLocaleString('pt-BR');
+  const dtBr=(m.dataSuspensao||'').split('-').reverse().join('/');
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Recibo de Recebimento — Suspensão — ${dt.nome||''}</title>
+<style>body{font-family:Arial,sans-serif;padding:24px;max-width:820px;margin:0 auto;color:#212529;font-size:13px}
+.box{margin-top:20px;background:#FFFDE7;border:2px solid #FFE082;border-radius:8px;padding:14px;font-size:11px;color:#5D4037}
+.box .label{font-weight:700;color:#E65100;font-size:12px;margin-bottom:6px}
+.hash{font-family:monospace;font-size:10px;word-break:break-all;background:#fff;padding:6px;border-radius:4px;border:1px solid #FFE082;margin-top:4px}
+@media print{.botoes{display:none}}</style></head><body>
+<h2 style="color:#c62828">Suspensão Disciplinar — Recibo de Recebimento</h2>
+<p><strong>Duração:</strong> ${m.diasSuspensao||1} dia(s)${dtBr?` · a partir de ${dtBr}`:''}${m.horarioSaida?` (saída às ${m.horarioSaida})`:''}</p>
+${m.motivoDisciplina?`<p><strong>Motivo:</strong> ${(m.motivoDisciplina||'')}</p>`:''}
+${m.artigoCLT?`<p><strong>Fundamento:</strong> ${(m.artigoCLT||'')}</p>`:''}
+<div class="box">
+  <div class="label">🔐 Assinatura Eletrônica Simples — MP 2.200-2/2001 — CIÊNCIA</div>
+  <div><strong>Ciente por:</strong> ${dt.nome||'—'} (CPF ${dt.cpf||'—'})</div>
+  <div><strong>Data/hora:</strong> ${dtAssin}</div>
+  <div><strong>Hash SHA-256 (ato + PIN + IP + dispositivo + timestamp):</strong></div>
+  <div class="hash">${hash}</div>
+  <div style="margin-top:6px;font-size:10px;color:#666;font-style:italic">Assinatura de CIÊNCIA do recebimento da medida disciplinar. Não implica concordância com o mérito.</div>
+</div>
+<div class="botoes" style="text-align:center;margin:18px 0"><button onclick="window.print()">🖨️ Imprimir</button></div>
+</body></html>`;
+}
+
 // HTML self-contained do HOLERITE ASSINADO = recibo (gravado pelo gestor) + caixa de assinatura.
 function _construirHtmlHoleriteAssinado(p, reciboHtml, hash, assinadoEm){
   const dt = currentEmp || {};
@@ -3295,6 +3434,27 @@ async function confirmarAssinatura(){
       fecharModalPin();
       fecharConferenciaHolerite();
       alert('✅ Holerite assinado com sucesso!\n\nHash: ' + hash.substring(0,16) + '...\n\nObrigado pela conferência.');
+      return;
+    }
+    // --- SUSPENSÃO: assina CIÊNCIA do ato disciplinar (comunicacoes + disciplina). #suspensao-modulo ---
+    if(_confMode === 'suspensao'){
+      const m = _confCurrentSusp || {};
+      const conteudo = m.mensagemHash || m.disciplinaId || m.id;   // liga a assinatura ao ato exato
+      const hashInput = `${conteudo}|${pinHash}|${ip}|${ua}|${fingerprint}|${ts}`;
+      const hash = await _sha256(hashInput);
+      const htmlRender = _construirHtmlSuspensaoAssinada(m, hash, ts);
+      const assinatura = { hash, pinHash, ip, userAgent: ua, deviceFingerprint: fingerprint, htmlRender, assinadoEm: ts, tipo:'ciencia' };
+      // Marca a mensagem como assinada (sai do inbox) e carimba o ato disciplinar
+      try{ await dbCol('comunicacoes').doc(m.id).set({ assinadaEm: ts, lida:true, lidaEm: ts }, { merge:true }); }catch(_){}
+      if(m.disciplinaId){
+        try{ await dbCol('disciplina').doc(m.disciplinaId).set({ assinaturaPendente:false, assinaturaRecebimento: assinatura, reciboRecebidoEm: ts, visualizadoEm: ts }, { merge:true }); }catch(_){}
+      }
+      m.assinadaEm = ts;
+      fecharModalPin();
+      fecharSuspensaoCiencia();
+      _suspInboxCache = _suspInboxCache.filter(x=>x.id!==m.id);
+      _atualizarBannerSuspensao();
+      alert('✅ Ciência da suspensão registrada!\n\nHash: ' + hash.substring(0,16) + '...\n\nAssinar é ciência do recebimento — não é concordância com o mérito. Obrigado.');
       return;
     }
     // --- HOLERITE IMPORTADO (contabilidade externa): assina sobre o hash do PDF. #importar-holerite ---

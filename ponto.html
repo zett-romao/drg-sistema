@@ -459,8 +459,8 @@
     <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px;margin-bottom:14px;text-align:left;font-size:12px">
       <div style="color:#64748b;margin-bottom:3px">Batida solicitada:</div>
       <div style="font-weight:700;color:#1e293b"><span id="espera-tipo">—</span> às <span id="espera-hora">—</span></div>
-      <div style="color:#64748b;margin-top:6px">Tempo restante:</div>
-      <div style="font-weight:700;color:#E65100;font-family:Consolas,monospace;font-size:18px"><span id="espera-timer">15:00</span></div>
+      <div style="color:#64748b;margin-top:6px">Aguardando há:</div>
+      <div style="font-weight:700;color:#1976D2;font-family:Consolas,monospace;font-size:18px"><span id="espera-timer">00:00</span></div>
     </div>
     <button id="espera-cancelar" style="width:100%;padding:11px;background:#fee2e2;color:#c62828;border:1px solid #fca5a5;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer">Cancelar pedido</button>
   </div>
@@ -569,7 +569,7 @@ try{ window.__APP_BOOTED = true; }catch(_){}
 // ─── VERSÃO DO APP DO COLABORADOR ─────────────────────────────────────────────
 // Bumpe SEMPRE em conjunto com o CACHE do ponto-sw.js e o ?v= do firebase-config.
 // Formato: AA.MM.DD + letra (a, b, c...) — alinhado com o nome do cache.
-const PONTO_VERSION = '26.07.15a';
+const PONTO_VERSION = '26.07.15b';
 // Exibe a versão no rodapé (script roda após o DOM, então o elemento já existe)
 (function _setVersionTag(){
   const t = document.getElementById('app-version-tag');
@@ -642,7 +642,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=47').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=48').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -1818,7 +1818,10 @@ async function solicitarAutorizacao(prox, hora, analise, comp){
 
 // Mostra a tela de espera com listener realtime. Resolve com:
 //  data (objeto autorizacao) → autorizada → o app continua e bate o ponto
-//  null                       → recusada, cancelada ou expirada
+//  null                       → recusada ou cancelada pelo colaborador
+// 🔒 NÃO EXPIRA por tempo (dono 2026-07-15): o pedido fica aberto até o supervisor
+// ANALISAR (autorizar/recusar). O cronômetro só MOSTRA há quanto tempo aguarda —
+// nada fecha sozinho. O colaborador ainda pode desistir ("Cancelar pedido"). #janela-batida
 function mostrarTelaEspera(docId, prox, hora){
   return new Promise((resolve) => {
     const ov = document.getElementById('espera-overlay');
@@ -1826,11 +1829,11 @@ function mostrarTelaEspera(docId, prox, hora){
     document.getElementById('espera-tipo').textContent = nomes[prox] || prox;
     document.getElementById('espera-hora').textContent = hora;
     const timerEl = document.getElementById('espera-timer');
-    timerEl.textContent = '15:00';
+    timerEl.textContent = '00:00';
     ov.style.display = 'flex';
 
-    // Validade (15 min a partir de agora)
-    const validadeAte = Date.now() + 15*60*1000;
+    // Cronômetro CRESCENTE — informa há quanto tempo aguarda; NÃO expira o pedido.
+    const inicio = Date.now();
     let timerInterval = null;
     let unsub = null;
     const fechar = (resultado) => {
@@ -1841,21 +1844,11 @@ function mostrarTelaEspera(docId, prox, hora){
       resolve(resultado);
     };
 
-    // Timer regressivo
     timerInterval = setInterval(() => {
-      const restante = Math.max(0, Math.floor((validadeAte - Date.now())/1000));
-      const min = Math.floor(restante/60);
-      const seg = restante % 60;
+      const decorrido = Math.floor((Date.now() - inicio)/1000);
+      const min = Math.floor(decorrido/60);
+      const seg = decorrido % 60;
       timerEl.textContent = `${String(min).padStart(2,'0')}:${String(seg).padStart(2,'0')}`;
-      if(restante === 0){
-        // tenta marcar como expirada no banco (silencioso)
-        dbCol('autorizacoesPonto').doc(docId).update({
-          status: 'expirada',
-          expiradoEm: new Date().toISOString()
-        }).catch(()=>{});
-        toast('⏱ Tempo esgotado. Solicite novamente se necessário.','warning');
-        fechar(null);
-      }
     }, 1000);
 
     // Listener realtime — reage assim que supervisor autoriza/recusa

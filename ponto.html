@@ -569,7 +569,7 @@ try{ window.__APP_BOOTED = true; }catch(_){}
 // ─── VERSÃO DO APP DO COLABORADOR ─────────────────────────────────────────────
 // Bumpe SEMPRE em conjunto com o CACHE do ponto-sw.js e o ?v= do firebase-config.
 // Formato: AA.MM.DD + letra (a, b, c...) — alinhado com o nome do cache.
-const PONTO_VERSION = '26.07.14c';
+const PONTO_VERSION = '26.07.15a';
 // Exibe a versão no rodapé (script roda após o DOM, então o elemento já existe)
 (function _setVersionTag(){
   const t = document.getElementById('app-version-tag');
@@ -642,7 +642,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=46').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=47').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -1658,50 +1658,34 @@ function analisarHorario(prox, now){
   // Sem horario cadastrado → trava desligada para essa batida
   if(!esp) return { tipo:'ok' };
 
-  // REGRA (2026-06-19): a batida que gera MAIS trabalho é HORA EXTRA e precisa da
-  // aprovação do supervisor → fica PENDENTE (não entra na folha até liberar). A que
-  // gera MENOS trabalho (ATRASO) registra NORMAL e é apurada/descontada na folha pela
-  // Súmula 366 (soma > 10min/dia desconta o total). Tolerância de 5min por batida.
-  //   entrada ANTES do previsto = HE ; entrada DEPOIS = atraso (chegou tarde)
-  //   saída   DEPOIS do previsto = HE ; saída  ANTES   = atraso (saiu cedo)
-  // #regra-ponto-he-atraso
   const diff = atualMin - timeToMin(esp);   // + = depois do previsto
 
-  // 🔒 JANELA DE BATIDA (dono 2026-07-14 — DESTRAVOU a "batida automática" de 28/06).
-  // A batida só é livre dentro da janela [entrada − 5min, saída + 5min]. Fora dela:
-  //   • ANTES da entrada  → o ponto NÃO bate sozinho: avisa que ainda não é hora e mostra
-  //     a contagem regressiva. Quem foi CONVOCADO para hora extra tem a escotilha "bater
-  //     assim mesmo" (motivo obrigatório) — a batida É registrada, marcada PENDENTE.
-  //   • DEPOIS da saída   → bate, mas avisa: o excedente fica PENDENTE de aprovação.
-  // Pendente = a batida existe no cartão (nunca some) mas NÃO conta minuto até alguém com
-  // aprovaHE liberar. Ninguém trabalha sem registro. #janela-batida
+  // 🔒 JANELA DE BATIDA — AUTORIZAÇÃO PRÉVIA (dono 2026-07-15).
+  // A batida só é LIVRE dentro da janela [entrada − 5min, saída + 5min]. Fora dela a batida
+  // NÃO acontece direto — o supervisor libera ANTES (fluxo autorizacoesPonto → tela de espera
+  // → supervisor.html grava a batida na folha). Vale p/ TODAS as escalas.
+  //   • ENTRADA antes de −5min → "ainda não é seu horário; aguarde OU peça autorização"
+  //     (quem foi convocado a começar mais cedo pede e o supervisor libera — ninguém sem registro).
+  //   • SAÍDA além de +5min    → "peça autorização ao supervisor para a hora extra".
+  //   • ATRASO (entrada tarde) e SAÍDA ANTECIPADA caem DENTRO da janela → batem normal (Súmula 366).
+  // A tolerância de 10min/dia [[tolerancia-minutos]] continua valendo na CONTAGEM de HE na folha;
+  // aqui ela não se aplica — o controle é de ACESSO (quando pode registrar). #janela-batida
   if(prox === 'entrada' && diff < -TOLERANCIA_MIN){
     const liberaEm = minToTime(timeToMin(esp) - TOLERANCIA_MIN);
     return { tipo:'antesDaJanela', esperado:esp, diff, liberaEm,
-      msg:`Sua entrada está prevista para ${esp}. O ponto libera às ${liberaEm}.` };
+      msg:`Ainda não é seu horário. Sua entrada está prevista para ${esp} (o ponto libera às ${liberaEm}). Se você foi convocado para hora extra, peça autorização ao supervisor.` };
   }
-
-  const ehHoraExtra = (prox === 'entrada') ? (diff < 0) : (diff > 0);
-  // HE só conta acima da tolerância DIÁRIA de 10min (Súmula 366 TST) — resíduo ≤10min/dia
-  // NÃO é extra. Antes olhava só os 5min/batida → +6min virava HE indevida (mesma regra do
-  // gestor: _detectHEDivergencia precisaRevisao = totalMin > 10). #tolerancia-he
-  if(ehHoraExtra && Math.abs(diff) > TOLERANCIA_MIN && _somatoriaDivergenciaDia(prox, atualMin) > TOLERANCIA_DIA_MIN){
+  if(prox === 'saida' && diff > TOLERANCIA_MIN){
     return { tipo:'horaExtra', esperado:esp, diff,
-      msg:`Você está ${Math.abs(diff)} min ${prox==='entrada'?'antes da entrada prevista':'além da sua saída prevista'} (${esp}). A batida vai ser registrada, mas o excedente fica PENDENTE de aprovação do supervisor/gestor — só conta na folha depois de liberado.` };
+      msg:`Você está ${diff} min além da sua saída prevista (${esp}). Para registrar hora extra, peça autorização ao supervisor — ele libera e a batida entra na folha.` };
   }
-  // Passou dos 5min mas a soma do dia ainda cabe na tolerância legal de 10min/dia:
-  // registra normal e apenas INFORMA que não vira hora extra. #janela-batida
-  if(ehHoraExtra && Math.abs(diff) > TOLERANCIA_MIN){
-    return { tipo:'ok', esperado:esp, diff, avisoTolerancia:Math.abs(diff) };
-  }
-  // Atraso (entrada tarde / saída cedo) ou dentro da tolerância → registra NORMAL.
+  // Dentro da janela: entrada (na hora / atrasada) e saída (antecipada / até +5min) → registra NORMAL.
   return { tipo:'ok', esperado:esp, diff };
 }
 
 // Mostra a mensagem de bloqueio/aviso. Retorna:
-//  null                      = colaborador desistiu (ou vai aguardar a janela abrir)
-//  {acao:'confirmar'}        = bate ciente de que fica PENDENTE (saída tarde / folga / intervalo longo)
-//  {acao:'heConvocada', motivo} = bate ANTES da janela por convocação de HE (motivo obrigatório)
+//  null                    = colaborador desistiu (aguardar / não pedir)
+//  {acao:'solicitar'}      = quer pedir AUTORIZAÇÃO ao supervisor (batida entra na folha só após liberar)
 // Para 'descansoInsuficiente' (CLT), so' tem botao "Entendi" — nao existe batida que
 // registre menos de 1h de intervalo. #janela-batida
 function mostrarBloqueio(prox, hora, analise){
@@ -1712,7 +1696,7 @@ function mostrarBloqueio(prox, hora, analise){
     if(analise.tipo==='descansoInsuficiente'){ icone='⏳'; titulo='Aguarde mais um pouco'; }
     else if(analise.tipo==='antesDaJanela')  { icone='⏳'; titulo='Ainda não é hora de bater'; }
     else if(analise.tipo==='folga')          { icone='🛌'; titulo='Você está de folga hoje'; }
-    else if(analise.tipo==='horaExtra')      { icone='⏱️'; titulo='Vai ficar pendente de aprovação'; }
+    else if(analise.tipo==='horaExtra')      { icone='⏱️'; titulo='Hora extra — precisa de autorização'; }
     document.getElementById('aviso-icone').textContent  = icone;
     document.getElementById('aviso-titulo').textContent = titulo;
     msgEl.textContent = analise.msg;
@@ -1726,34 +1710,30 @@ function mostrarBloqueio(prox, hora, analise){
     const btnOk = document.getElementById('aviso-confirmar');
     const btnCancel = document.getElementById('aviso-cancelar');
     const antes  = (analise.tipo === 'antesDaJanela');
-    const podeBater = (analise.tipo === 'foraJanela' || analise.tipo === 'folga' || analise.tipo === 'horaExtra');
+    // Fora da janela (antes da entrada / saída em HE / folga) → oferece PEDIR AUTORIZAÇÃO ao supervisor.
+    const podeSolicitar = (analise.tipo === 'antesDaJanela' || analise.tipo === 'foraJanela'
+                        || analise.tipo === 'folga' || analise.tipo === 'horaExtra');
     let tick = null;
 
     if(antes){
-      // Contagem regressiva até a janela abrir. Quando abrir, some sozinha e libera a batida.
-      btnOk.innerHTML = '⏱️ Fui convocado p/ hora extra — bater assim mesmo';
-      btnOk.style.background = '#EF6C00';
-      btnCancel.style.display = '';
-      btnCancel.textContent = 'Vou aguardar';
+      // Contagem regressiva até a janela abrir — se o cara só chegou cedo e vai esperar.
+      // Quem foi convocado para HE usa o botão "pedir autorização". #janela-batida
       const alvoMin = timeToMin(analise.liberaEm);
       const pinta = () => {
         const n = new Date();
         const falta = alvoMin - (n.getHours()*60 + n.getMinutes());
-        if(falta <= 0){
-          fechar(null);
-          toast('✅ Já pode bater o ponto.','success');
-          return;
-        }
+        if(falta <= 0){ fechar(null); toast('✅ Já pode bater o ponto.','success'); return; }
         const h = Math.floor(falta/60), m = falta % 60;
-        msgEl.textContent = `${analise.msg} Faltam ${h?h+'h ':''}${m}min — aguarde.`;
+        msgEl.textContent = `${analise.msg} (faltam ${h?h+'h ':''}${m}min para o seu horário).`;
       };
       pinta();
       tick = setInterval(pinta, 20000);
-    } else if(podeBater){
-      btnOk.innerHTML = '⏳ Bater — fica pendente de aprovação';
+    }
+    if(podeSolicitar){
+      btnOk.innerHTML = '📨 Pedir autorização ao supervisor';
       btnOk.style.background = '#1976D2';
       btnCancel.style.display = '';
-      btnCancel.textContent = 'Cancelar';
+      btnCancel.textContent = antes ? 'Vou aguardar' : 'Cancelar';
     } else {
       // Caso descansoInsuficiente: bloqueio total, so' Entendi
       btnOk.textContent = 'Entendi';
@@ -1782,18 +1762,7 @@ function mostrarBloqueio(prox, hora, analise){
       resolve(resultado);
     };
 
-    btnOk.onclick = () => {
-      if(antes){
-        // Escotilha da HE convocada: registra a batida ANTES da janela, com motivo
-        // obrigatório, marcada como pendente. Sem isso, quem é chamado mais cedo
-        // trabalharia SEM REGISTRO — o pior cenário possível. #janela-batida
-        const m = (prompt('Você está batendo antes do horário previsto.\n\nPor que foi convocado para hora extra? (obrigatório)') || '').trim();
-        if(!m){ toast('Informe o motivo para registrar a batida antecipada.','warning'); return; }
-        fechar({ acao:'heConvocada', motivo:m });
-        return;
-      }
-      fechar(podeBater ? { acao:'confirmar' } : null);
-    };
+    btnOk.onclick = () => fechar(podeSolicitar ? { acao:'solicitar' } : null);
     btnCancel.onclick = () => fechar(null);
   });
 }
@@ -1820,7 +1789,10 @@ async function solicitarAutorizacao(prox, hora, analise, comp){
     horarioPrevisto: analise.esperado || '',
     horarioReal: hora,
     diferencaMinutos: analise.diff || 0,
-    tipoBloqueio: analise.tipo,               // 'foraJanela' | 'folga'
+    // 'antesDaJanela' (entrada convocada mais cedo) E 'horaExtra' (saída estendida) são HORA
+    // EXTRA → o supervisor, ao liberar, já aprova a HE (`_gravarBatidaNaFolha` olha 'horaExtra').
+    // 'folga' fica como folga (a HE de folga trabalhada é detectada/aprovada na folha). #janela-batida
+    tipoBloqueio: (analise.tipo === 'antesDaJanela') ? 'horaExtra' : analise.tipo,
     ehFolga: analise.tipo === 'folga',
     motivo: motivoUsuario,
     status: 'pendente',                       // 'pendente'|'autorizada'|'recusada'|'cancelada'
@@ -1941,35 +1913,37 @@ async function baterPonto() {
   const dia  = j.dia;
   const dsem = new Date(j.ano, j.mes-1, j.dia).getDay();
 
-  // Disciplina de horário — TRAVA: bloqueia a batida fora da janela permitida.
-  // Quando aplicavel, oferece "Solicitar autorizacao" ao supervisor; ao receber
-  // o ok, marca a batida com info da autorizacao para auditoria.
-  const analise = analisarHorario(prox, now);
-  let autorizacao = null; // (legado) batida liberada pelo supervisor — não usado no fluxo automático
-  let foraHorario = false, motivoFora = '', pendente = false, motivoPedido = '';
-  // 🔒 JANELA DE BATIDA (dono 2026-07-14 — DESTRAVOU a "batida automática" de 28/06):
+  // 🔒 JANELA DE BATIDA — AUTORIZAÇÃO PRÉVIA (dono 2026-07-15). A batida só é LIVRE dentro da
+  // janela [entrada − 5min, saída + 5min]. Fora dela a batida NÃO acontece direto: o colaborador
+  // pede autorização e o SUPERVISOR libera ANTES (supervisor.html grava a batida na folha —
+  // aqui o app NÃO grava). Vale p/ todas as escalas. #janela-batida
   //   • descansoInsuficiente → não registra (CLT Art. 71, intervalo mínimo de 1h).
-  //   • antesDaJanela        → só bate pela escotilha da HE convocada (motivo obrigatório).
-  //   • horaExtra / folga    → bate com AVISO e nasce PENDENTE de aprovação.
-  //   • foraJanela           → bate com aviso (intervalo longo = atraso, não é HE).
-  // Batida pendente aparece no cartão marcada "⏳ pendente" e conta ZERO minuto até quem tem
-  // aprovaHE liberar. Nada some — o registro sempre existe. #janela-batida
+  //   • antesDaJanela / horaExtra / folga / foraJanela → pede autorização → tela de espera.
+  const analise = analisarHorario(prox, now);
   if(analise.tipo === 'descansoInsuficiente'){
     await mostrarBloqueio(prox, hora, analise);   // CLT: só "Entendi", não registra intervalo curto
     renderBotao(); return;
   }
-  if(analise.tipo === 'antesDaJanela'){
+  if(analise.tipo && analise.tipo !== 'ok'){
     const r = await mostrarBloqueio(prox, hora, analise);
-    if(!r || r.acao !== 'heConvocada'){ renderBotao(); return; }   // aguardou / desistiu
-    foraHorario = true; motivoFora = 'heConvocada'; pendente = true; motivoPedido = r.motivo || '';
-  } else if(analise.tipo && analise.tipo !== 'ok'){
-    const r = await mostrarBloqueio(prox, hora, analise);
-    if(!r){ renderBotao(); return; }               // desistiu de bater
-    foraHorario = true;
-    motivoFora = analise.tipo;                     // 'folga' | 'horaExtra' | 'foraJanela'
-    pendente = (analise.tipo === 'folga' || analise.tipo === 'horaExtra');
+    if(!r || r.acao !== 'solicitar'){ renderBotao(); return; }   // aguardou / desistiu
+    // Geo p/ o pedido (o supervisor grava a batida na folha com essa geolocalização).
+    const _geoPedido = await getGeolocalizacao();
+    const comp = { dia, mes, ano, diaSem: dsem, geo: _geoPedido };
+    const docId = await solicitarAutorizacao(prox, hora, analise, comp);
+    if(!docId){ renderBotao(); return; }
+    const resultado = await mostrarTelaEspera(docId, prox, hora);
+    if(resultado){
+      // Supervisor autorizou e JÁ gravou a batida na folha — recarrega e atualiza a UI.
+      await carregarPayroll();
+      renderHoje(); renderBotao();
+    } else {
+      renderBotao();   // recusado / expirado / cancelado — nada gravado
+    }
+    return;
   }
 
+  // Dentro da janela → registra normal (fluxo abaixo).
   const btn = document.getElementById('punch-btn');
   btn.disabled  = true;
   btn.innerHTML = '<span class="punch-btn-icon">📍</span><span class="punch-btn-text">Obtendo localização...</span>';
@@ -1992,27 +1966,8 @@ async function baterPonto() {
     dayEntry[prox + '_origem'] = 'app';
     // Salva coordenadas junto com o registro
     if (geo) dayEntry[prox + '_geo'] = geo;
-    // Se a batida foi liberada pelo supervisor, marca para auditoria
-    if(foraHorario){
-      // Batida fora do previsto (folga / hora extra / intervalo longo) — registra AUTOMÁTICA
-      // e marca p/ auditoria; a HE/excesso é apurada e aprovada NA FOLHA (pagamento). #batida-automatica
-      dayEntry[prox + '_foraHorario'] = true;
-      dayEntry[prox + '_motivoFora']  = motivoFora;   // 'heConvocada' | 'folga' | 'horaExtra' | 'foraJanela'
-      // ⏳ PENDENTE: o dia cai na fila de HE do gestor/supervisor. A batida aparece no cartão
-      // marcada e NÃO gera minuto até quem tem aprovaHE liberar. Nada some. #janela-batida
-      if(pendente){
-        dayEntry[prox + '_pendenteAutorizacao'] = true;
-        dayEntry[prox + '_pendenteEm']          = new Date().toISOString();
-        if(motivoPedido) dayEntry[prox + '_motivoPedido'] = motivoPedido;
-      }
-    } else if(autorizacao){   // legado (aprovação via supervisor) — mantido por compat
-      dayEntry[prox + '_foraHorario'] = true;
-      dayEntry[prox + '_autorizadoPorId']   = autorizacao.autorizadoPorId   || '';
-      dayEntry[prox + '_autorizadoPorNome'] = autorizacao.autorizadoPorNome || '';
-      dayEntry[prox + '_autorizadoEm']      = autorizacao.autorizadoEm      || '';
-      dayEntry[prox + '_autorizacaoId']     = autorizacao.id                || '';
-      dayEntry[prox + '_motivoPedido']      = autorizacao.motivo            || '';
-    }
+    // Batida DENTRO da janela (na hora / atraso / saída antecipada até +5min) — registro normal.
+    // Batida FORA da janela não passa por aqui: vai pelo fluxo de autorização (supervisor grava). #janela-batida
 
     // Prepara record — grava APENAS os campos do app de ponto.
     // Campos da folha (salário, faltas, VT, etc.) são do sistema do gestor e não devem ser tocados.
@@ -2046,19 +2001,10 @@ async function baterPonto() {
 
     const nomes = { entrada:'Entrada', intIni:'Início do intervalo', intFim:'Fim do intervalo', saida:'Saída' };
     const geoMsg = geo ? ` · 📍 ${geo.acc}m de precisão` : ' · 📍 sem localização';
-    // A batida SEMPRE é confirmada. Quando nasce fora da janela, o colaborador é avisado de
-    // que ela ficou PENDENTE de aprovação (deixou de ser procedimento silencioso). #janela-batida
     toast(_online
       ? `✅ ${nomes[prox]} registrada às ${hora}${geoMsg}`
       : `✅ ${nomes[prox]} registrada às ${hora} · 📴 offline — vai sincronizar quando a internet voltar`,
       'success');
-    if(pendente){
-      toast('⏳ Registrada, mas PENDENTE: o excedente só conta na folha depois que o supervisor/gestor autorizar.','warning');
-    } else if(analise.avisoTolerancia){
-      // Passou dos 5min da janela, mas cabe na tolerância legal de 10min/dia (Súmula 366):
-      // registra normal e NÃO vira hora extra — dizer isso evita a expectativa errada.
-      toast(`ℹ️ ${analise.avisoTolerancia} min fora do previsto — dentro da tolerância legal de 10 min/dia, não gera hora extra.`,'');
-    }
     renderHoje();
     renderBotao();
 

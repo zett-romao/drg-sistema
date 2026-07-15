@@ -21163,9 +21163,12 @@ async function _ajudaChamarIA(prompt, mime, b64){
   const claudeUrl=(conf.claudeProxyUrl||'').trim();
   if(conf.provider==='claude' && claudeUrl){
     try{
+      // O pixel de fallback (quando o print falha) o Claude rejeita como imagem —
+      // aí manda texto puro (o Claude aceita; o proxy omite a imagem sozinho).
+      const semImg = (!b64 || b64===_AJUDA_PIXEL);
       const resp=await fetch(claudeUrl, {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({ model:(conf.claudeModel||'claude-sonnet-5').trim(), prompt, mimeType:mime, base64Data:b64 })
+        body:JSON.stringify({ model:(conf.claudeModel||'claude-sonnet-4-5').trim(), prompt, mimeType:semImg?'':mime, base64Data:semImg?'':b64 })
       });
       if(resp.ok){
         const data=await resp.json();

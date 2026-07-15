@@ -18493,7 +18493,12 @@ async function renderDisciplinaTab(empId){
             <span style="background:${cor};color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:.5px">${lbl}</span>
             ${d.tipo==='suspensao' && d.diasSuspensao ? `<span style="margin-left:6px;font-size:11px;color:${cor};font-weight:600">${d.diasSuspensao} dia(s)</span>` : ''}
           </div>
-          <span style="font-size:11px;color:#666">${fmtDt(d.criadoEm)}</span>
+          ${(d.tipo==='suspensao' && d.dataSuspensao)
+            ? `<div style="text-align:right;line-height:1.35">
+                 <div style="font-size:11px;color:#c62828;font-weight:700">⛔ Ato: ${(d.dataSuspensao||'').split('-').reverse().join('/')}${d.horarioSaida?' às '+d.horarioSaida:''}</div>
+                 <div style="font-size:10px;color:#94a3b8">registrado em ${fmtDt(d.criadoEm)}</div>
+               </div>`
+            : `<span style="font-size:11px;color:#666">${fmtDt(d.criadoEm)}</span>`}
         </div>
         ${anulHtml}
         ${d.motivo ? `<div style="font-size:12px;color:#333;margin:6px 0;line-height:1.5;${styleAnul}"><strong>Motivo:</strong> ${(d.motivo||'').replace(/</g,'&lt;')}</div>` : ''}

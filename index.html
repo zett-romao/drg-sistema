@@ -795,7 +795,7 @@
                 <div class="form-row">
                   <div class="form-group">
                     <label>Colaborador <span class="required">*</span></label>
-                    <select id="payroll-employee" onchange="onPayrollEmployeeChange()">
+                    <select id="payroll-employee" onchange="onPayrollColabPicked()">
                       <option value="">— Selecione o colaborador —</option>
                     </select>
                   </div>
@@ -819,6 +819,12 @@
                   <div class="form-group form-group-sm">
                     <label>Ano <span class="required">*</span></label>
                     <input type="number" id="payroll-ano" value="2025" min="2020" max="2100" onchange="onPayrollPeriodoChange()" disabled>
+                  </div>
+                  <div class="form-group form-group-sm" style="flex:0 0 auto">
+                    <label>&nbsp;</label>
+                    <button type="button" id="btn-payroll-buscar" class="btn" onclick="onPayrollBuscar()" title="Carrega a folha do colaborador selecionado no período escolhido" style="background:var(--primary);color:#fff;border:none;white-space:nowrap;height:40px;padding:0 18px;font-weight:600">
+                      <i class="fa-solid fa-magnifying-glass"></i> Buscar
+                    </button>
                   </div>
                 </div>
                 <!-- Checkbox: liberar dropdowns Mês/Ano pra navegar entre competências. -->
@@ -7770,6 +7776,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260715a-autorizacao-previa"></script>
+  <script src="app.js?v=20260715b-folha-busca"></script>
 </body>
 </html>

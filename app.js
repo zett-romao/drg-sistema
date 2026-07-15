@@ -9592,10 +9592,39 @@ function _populatePayrollEmployees(){
     });
 }
 
-// Troca do filtro de posto / checkbox de demitidos: repopula a lista e
-// atualiza o formulário
+// Troca do filtro de posto / checkbox de demitidos: SÓ repopula a lista de
+// colaboradores. É o POSTO que define quais nomes aparecem (posto vazio = todos),
+// e nunca o contrário. A folha só carrega quando o usuário clica em "Buscar" —
+// não recarrega sozinho aqui. #folha-posto-colab-independentes (pedido dono 15/07)
 function onPayrollPostoFilterChange(){
   _populatePayrollEmployees();
+  _payrollMarcarBuscaPendente(); // sinaliza que precisa clicar em Buscar de novo
+}
+
+// Escolha do colaborador no dropdown: NÃO carrega a folha na hora (pedido do dono
+// 15/07). Só marca a busca como pendente e destaca o botão Buscar. Se limpar a
+// seleção, o próximo Buscar zera a tela.
+function onPayrollColabPicked(){
+  _payrollMarcarBuscaPendente();
+}
+
+// Realça o botão Buscar quando há uma seleção ainda não buscada.
+function _payrollMarcarBuscaPendente(){
+  const btn=document.getElementById('btn-payroll-buscar');
+  if(btn) btn.style.boxShadow='0 0 0 3px rgba(21,101,192,.35)';
+}
+
+// Clique no botão Buscar: aí sim carrega a folha do colaborador selecionado no
+// período atual (reaproveita onPayrollEmployeeChange, o carregador de sempre).
+function onPayrollBuscar(){
+  const btn=document.getElementById('btn-payroll-buscar');
+  if(btn) btn.style.boxShadow='';
+  if(!val('payroll-employee')){
+    // Buscar sem colaborador escolhido: limpa a tela (deixa pronta pra nova busca)
+    onPayrollEmployeeChange();
+    toast('Escolha um colaborador (ou um posto pra filtrar a lista) e clique em Buscar.','info');
+    return;
+  }
   onPayrollEmployeeChange();
 }
 

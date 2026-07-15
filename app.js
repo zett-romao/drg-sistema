@@ -21011,15 +21011,18 @@ const ESCALA_RULES = {
 // o Painel de Recursos. Fire-and-forget — nunca atrapalha a análise.
 async function _registrarUsoIA(tipo, geminiData){
   try{
-    const um=(geminiData&&geminiData.usageMetadata)||{};
+    const um=(geminiData&&geminiData.usageMetadata)||{};   // formato Gemini
+    const an=(geminiData&&geminiData.usage)||{};           // formato Anthropic (Claude)
+    const promptTokens = um.promptTokenCount || an.input_tokens || 0;
+    const outputTokens = um.candidatesTokenCount || an.output_tokens || 0;
     await DB.save('usoIA', {
       id: genId(),
       ts: new Date().toISOString(),
       tipo: tipo,
-      model: GEMINI_MODEL,
-      promptTokens: um.promptTokenCount||0,
-      outputTokens: um.candidatesTokenCount||0,
-      totalTokens: um.totalTokenCount||0,
+      model: (geminiData&&geminiData.model) || (tipo&&tipo.indexOf('claude')>=0 ? 'claude' : GEMINI_MODEL),
+      promptTokens,
+      outputTokens,
+      totalTokens: um.totalTokenCount || (promptTokens+outputTokens) || 0,
       usuario: (Auth.currentUser&&(Auth.currentUser.username||Auth.currentUser.nome))||''
     });
   }catch(e){ console.warn('Falha ao registrar uso de IA:', e); }

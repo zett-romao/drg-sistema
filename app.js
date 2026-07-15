@@ -969,6 +969,7 @@ async function renderPainelRecursos(){
   // Uso de IA — busca a coleção usoIA sob demanda
   let usoIA=[];
   try { usoIA=await DB.getAll('usoIA'); } catch(e){ console.warn('Painel: usoIA',e); }
+  let iaConf={}; try{ iaConf=await _ajudaCarregarConf(true)||{}; }catch(_){}
   const mesAtual=new Date().toISOString().substring(0,7);
   const doMes=usoIA.filter(u=>(u.ts||'').substring(0,7)===mesAtual);
   const sum=(arr,k)=>arr.reduce((s,u)=>s+(u[k]||0),0);
@@ -983,6 +984,15 @@ async function renderPainelRecursos(){
       ${box('Análises (total)', usoIA.length, `${nFmt(sum(usoIA,'totalTokens'))} tokens acumulados`, '#9333EA')}
     </div>
     <div style="font-size:10px;color:#94A3B8;margin-bottom:16px">O custo é uma <strong>estimativa</strong> (Gemini 2.5 Flash &approx; US$ ${IA_PRECO.inUSDporM}/mi tokens de entrada e US$ ${IA_PRECO.outUSDporM}/mi de saída; dólar a R$ ${IA_PRECO.usdBrl}). No nível gratuito do Gemini o custo real é R$ 0 — use como referência de volume. Preço e fatura reais ficam em ai.google.dev.</div>
+    <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:10px 12px;margin-bottom:16px">
+      <div style="font-weight:700;font-size:12px;color:#1E293B;margin-bottom:4px"><i class="fa-solid fa-wand-magic-sparkles" style="color:#7e22ce"></i> Ajuda "Explicar isto" — provedor de IA <span style="font-weight:500;color:${iaConf.claudeProxyUrl?'#7e22ce':'#6A1B9A'}">(usando ${iaConf.claudeProxyUrl?'Claude':'Gemini'})</span></div>
+      <div style="font-size:11px;color:#64748B;margin-bottom:8px">Por padrão a ajuda usa o <strong>Gemini</strong>. Cole a URL do seu <strong>proxy Claude</strong> (worker com a ANTHROPIC_API_KEY e a origem do Kronos liberada) pra ela usar Claude — caindo no Gemini sozinha se o Claude falhar. Deixe vazio pra usar só Gemini.</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <input id="cfg-claude-proxy" type="text" placeholder="https://seu-proxy-claude.workers.dev" value="${esc(iaConf.claudeProxyUrl||'')}" style="flex:1;min-width:220px;padding:7px 9px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px">
+        <input id="cfg-claude-model" type="text" placeholder="claude-sonnet-5" value="${esc(iaConf.claudeModel||'')}" style="width:150px;padding:7px 9px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px">
+        <button class="btn btn-sm btn-primary" onclick="_salvarProxyClaudeAjuda()" style="font-size:12px"><i class="fa-solid fa-floppy-disk"></i> Salvar</button>
+      </div>
+    </div>
     <div style="font-weight:700;font-size:13px;color:#1E293B;margin-bottom:6px"><i class="fa-solid fa-database" style="color:#1565C0"></i> Volume de dados</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
       ${box('Colaboradores', emps.length, `${ativos} ativo(s)`, '#1565C0')}
@@ -21095,6 +21105,60 @@ async function abrirAjudaIA(){
 // Fecha o assistente (o botão vive no topbar, não precisa restaurar nada).
 function fecharAjudaIA(ev){ closeModal('modal-ajuda-ia', ev); }
 
+// Config da ajuda (proxy Claude OPCIONAL) — lida sob demanda e cacheada.
+// Guardada em configuracoes/iaAjuda: { claudeProxyUrl, claudeModel }. Enquanto
+// vazio, a ajuda usa Gemini. Você liga o Claude só preenchendo isso — sem deploy.
+let _ajudaIAConf = null;
+async function _ajudaCarregarConf(force){
+  if(_ajudaIAConf && !force) return _ajudaIAConf;
+  try{ _ajudaIAConf = (await DB.getDoc('configuracoes','iaAjuda')) || {}; }
+  catch(_){ _ajudaIAConf = {}; }
+  return _ajudaIAConf;
+}
+
+// Salva o proxy Claude (do Painel de Recursos). Vazio = volta pro Gemini.
+async function _salvarProxyClaudeAjuda(){
+  const url=(val('cfg-claude-proxy')||'').trim();
+  const model=(val('cfg-claude-model')||'').trim();
+  try{
+    await DB.saveDoc('configuracoes','iaAjuda',{ claudeProxyUrl:url, claudeModel:model, updatedAt:new Date().toISOString() }, true);
+    _ajudaIAConf={ claudeProxyUrl:url, claudeModel:model };
+    toast(url?'Ajuda vai usar Claude (com fallback pro Gemini).':'Ajuda usando Gemini.','success');
+  }catch(e){ toast('Erro ao salvar: '+(e.message||e),'error'); }
+}
+
+// HÍBRIDO: tenta Claude se houver proxy configurado; senão (ou se falhar) cai no
+// Gemini. Retorna {text, data, provider}. Cliente tolerante a formatos de resposta.
+async function _ajudaChamarIA(prompt, mime, b64){
+  const conf=await _ajudaCarregarConf();
+  const claudeUrl=(conf.claudeProxyUrl||'').trim();
+  if(claudeUrl){
+    try{
+      const resp=await fetch(claudeUrl, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ model:(conf.claudeModel||'claude-sonnet-5').trim(), prompt, mimeType:mime, base64Data:b64 })
+      });
+      if(resp.ok){
+        const data=await resp.json();
+        const text=data.content?.[0]?.text
+          || data.candidates?.[0]?.content?.parts?.[0]?.text
+          || data.text || data.output || data.message || '';
+        if(text) return { text, data, provider:'claude' };
+      }
+      console.warn('proxy Claude sem texto — caindo no Gemini');
+    }catch(e){ console.warn('proxy Claude falhou — caindo no Gemini', e); }
+  }
+  // Padrão / fallback: Gemini
+  const resp=await fetch(GEMINI_PROXY_URL, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ model:GEMINI_MODEL, prompt, mimeType:mime, base64Data:b64 })
+  });
+  if(!resp.ok){ const err=await resp.json().catch(()=>({})); throw new Error(err.error?.message||err.error||'Erro na chamada da IA'); }
+  const data=await resp.json();
+  const text=data.candidates?.[0]?.content?.parts?.[0]?.text || 'Não consegui gerar uma resposta. Tente reformular a pergunta.';
+  return { text, data, provider:'gemini' };
+}
+
 async function perguntarAjudaIA(){
   const perg=(val('ajuda-pergunta')||'').trim();
   const respEl=document.getElementById('ajuda-resposta');
@@ -21105,15 +21169,12 @@ async function perguntarAjudaIA(){
   if(respEl){ respEl.style.display='block'; respEl.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Analisando com as regras do Kronos...'; }
   try{
     const prompt = `${AJUDA_IA_CEREBRO}\n\nPERGUNTA DO GESTOR: ${pergunta}`;
-    const resp=await fetch(GEMINI_PROXY_URL, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ model:GEMINI_MODEL, prompt, mimeType:'image/png', base64Data:b64 })
-    });
-    if(!resp.ok){ const err=await resp.json().catch(()=>({})); throw new Error(err.error?.message||err.error||'Erro na chamada da IA'); }
-    const data=await resp.json();
-    const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'Não consegui gerar uma resposta. Tente reformular a pergunta.';
-    _registrarUsoIA('ajuda', data);
-    if(respEl) respEl.innerHTML=esc(text).replace(/\n/g,'<br>');
+    const r = await _ajudaChamarIA(prompt, 'image/png', b64);
+    _registrarUsoIA('ajuda-'+r.provider, r.data);
+    const selo = r.provider==='claude'
+      ? '<span style="font-size:10px;color:#7e22ce;font-weight:700">✦ Claude</span>'
+      : '<span style="font-size:10px;color:#6A1B9A;font-weight:700">✦ Gemini</span>';
+    if(respEl) respEl.innerHTML = esc(r.text).replace(/\n/g,'<br>') + `<div style="margin-top:8px;text-align:right">${selo}</div>`;
   }catch(e){
     if(respEl) respEl.innerHTML=`<span style="color:#c62828"><i class="fa-solid fa-triangle-exclamation"></i> ${esc(e.message||'Erro ao consultar a IA')}. Tente de novo.</span>`;
   }finally{

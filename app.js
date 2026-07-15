@@ -13176,7 +13176,10 @@ function _saidaMinutos(saida, emp){
   // regular" no sábado curto (08–12 sem almoço): saiu 10h dava 6h em vez de 2h. #saida-dia-horario
   let exp=null;
   if(emp && saida.dia && saida.mes && saida.ano){
-    try{ exp=_getExpectedDay(emp, saida.mes, saida.ano, saida.dia); }catch(_){}
+    // COMPETÊNCIA-aware: saida.mes/ano é a competência (26→25) e saida.dia pode ser
+    // 26–31 (mês anterior). _getExpectedDayComp faz o _compRealDate antes de olhar a
+    // escala — senão dias 26–31 pegavam a jornada do MÊS ERRADO. #saida-comp-real
+    try{ exp=_getExpectedDayComp(emp, saida.mes, saida.ano, saida.dia); }catch(_){}
   }
   const trabDia = !!(exp && exp.tipo!=='folga' && exp.entrada);
   const fimStr = saida.horarioRetorno ? saida.horarioRetorno
@@ -13245,6 +13248,7 @@ function renderSaidasFolha(){
   if(!arr.length){ lista.innerHTML=''; return; }
   lista.innerHTML=arr.map(s=>{
     const m=_saidaMinutos(s, emp);
+    const ehSusp=s.tipo==='suspensao';
     const horario=s.horarioSaida
       ? `${s.horarioSaida} → ${s.horarioRetorno||'saída regular'}`
       : '';
@@ -13254,12 +13258,21 @@ function renderSaidasFolha(){
     const arq=s.arquivoUrl
       ? `<a href="${s.arquivoUrl}" target="_blank" title="Ver documento"><i class="fa-solid fa-paperclip" style="color:#1565C0"></i></a>`
       : '';
-    return `<div style="display:flex;align-items:center;gap:8px;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;margin-bottom:5px">
-      <i class="fa-solid fa-person-walking-arrow-right" style="color:#E65100"></i>
-      <span style="flex:1">Dia ${String(s.dia||'?').padStart(2,'0')} · ${minutesToStr(m)}${horario?` <small style="color:#888">${horario}</small>`:''}${s.motivo?' — '+s.motivo:''}${s.justificada?' <span style="color:#1565C0;font-size:10px">(justificada)</span>':''}</span>
+    const tag=ehSusp
+      ? '<span style="background:#c62828;color:#fff;font-size:9px;font-weight:700;padding:1px 6px;border-radius:4px;letter-spacing:.4px">SUSPENSÃO</span>'
+      : '';
+    // Saída de suspensão está atrelada a um ato disciplinar (cadeia de custódia) —
+    // não deve ser editada como saída comum (o editor normal não guarda o vínculo).
+    const btnEditar=ehSusp ? '' : `<button class="btn-icon" onclick="openSaidaModal('${s.id}')" title="Editar"><i class="fa-solid fa-pen" style="color:#1565C0"></i></button>`;
+    const icone=ehSusp
+      ? '<i class="fa-solid fa-ban" style="color:#c62828"></i>'
+      : '<i class="fa-solid fa-person-walking-arrow-right" style="color:#E65100"></i>';
+    return `<div style="display:flex;align-items:center;gap:8px;font-size:12px;padding:5px 8px;border:1px solid ${ehSusp?'#f1b0b0':'var(--border)'};background:${ehSusp?'#fef2f2':'transparent'};border-radius:6px;margin-bottom:5px">
+      ${icone}
+      <span style="flex:1">Dia ${String(s.dia||'?').padStart(2,'0')} · ${minutesToStr(m)}${horario?` <small style="color:#888">${horario}</small>`:''}${s.motivo?' — '+s.motivo:''}${s.justificada&&!ehSusp?' <span style="color:#1565C0;font-size:10px">(justificada)</span>':''} ${tag}</span>
       ${arq}
       ${badge}
-      <button class="btn-icon" onclick="openSaidaModal('${s.id}')" title="Editar"><i class="fa-solid fa-pen" style="color:#1565C0"></i></button>
+      ${btnEditar}
       <button class="btn-icon" onclick="confirmDeleteSaida('${s.id}')" title="Excluir"><i class="fa-solid fa-trash" style="color:#C62828"></i></button>
     </div>`;
   }).join('');
@@ -13361,6 +13374,232 @@ function confirmDeleteSaida(id){
     toast('Saída excluída.','warning');
   };
   document.getElementById('modal-confirm').classList.remove('hidden');
+}
+
+// ============================================
+// SUSPENSÃO DISCIPLINAR  #suspensao-modulo
+// ============================================
+// Módulo exclusivo: registra o ato disciplinar (mesma cadeia de custódia da aba
+// Disciplina — SHA-256 + Recibo de Envio) E lança a saída AUTOMÁTICA no ponto.
+// O 1º dia conta a partir do horário informado (meio do expediente); os dias
+// seguintes, o dia cheio (saída = entrada esperada). Suspensão é NÃO remunerada:
+// as saídas entram abonada:false (descontam da folha). Regras travadas pelo dono
+// 15/07/2026: desconta / a saída vale na hora que aplica (ato do empregador) /
+// teto de 30 dias corridos (Art. 474 CLT).
+
+// Dias EFETIVOS da suspensão (pula folgas), com o horário de saída de cada um:
+// 1º dia = horário informado; demais = entrada esperada do dia (dia cheio).
+function _suspDiasEfetivos(emp, dataISO, horaSaida, qtdDias){
+  const out=[];
+  if(!emp || !dataISO) return out;
+  const p=dataISO.split('-').map(n=>parseInt(n,10));
+  if(p.length<3 || p.some(isNaN)) return out;
+  const base=new Date(p[0], p[1]-1, p[2]);
+  for(let k=0;k<qtdDias;k++){
+    const dt=new Date(base.getFullYear(), base.getMonth(), base.getDate()+k);
+    const comp=_competenciaDe(dt);
+    const dia=dt.getDate();
+    let exp=null;
+    // competência-aware (mesma base do _saidaMinutos): comp.mes/ano + dia 26–31 → dia real
+    try{ exp=_getExpectedDayComp(emp, comp.mes, comp.ano, dia); }catch(_){}
+    // Folga / sem jornada prevista → não desconta (não havia trabalho a perder)
+    if(!exp || exp.tipo==='folga' || !exp.entrada) continue;
+    const hs=(k===0 && horaSaida) ? horaSaida : exp.entrada;
+    out.push({ mes:comp.mes, ano:comp.ano, dia, horarioSaida:hs, primeiro:(k===0) });
+  }
+  return out;
+}
+
+// Total de minutos que a suspensão vai descontar (soma dos dias efetivos).
+function _suspMinutosTotais(emp, dataISO, horaSaida, qtdDias){
+  let tot=0;
+  _suspDiasEfetivos(emp, dataISO, horaSaida, qtdDias).forEach(d=>{
+    tot += _saidaMinutos({horarioSaida:d.horarioSaida, horarioRetorno:'', dia:d.dia, mes:d.mes, ano:d.ano}, emp);
+  });
+  return tot;
+}
+
+// Abre o modal de suspensão para um colaborador (a partir da aba Disciplina).
+function abrirSuspensao(empId){
+  const emp=State.employees.find(e=>e.id===empId);
+  if(!emp){ toast('Colaborador não encontrado.','error'); return; }
+  setVal('susp-emp-id', empId);
+  document.getElementById('susp-emp-nome').textContent=emp.nome||'—';
+  const hoje=new Date();
+  setVal('susp-data', `${hoje.getFullYear()}-${String(hoje.getMonth()+1).padStart(2,'0')}-${String(hoje.getDate()).padStart(2,'0')}`);
+  setVal('susp-hora-saida','');
+  setVal('susp-dias','1');
+  setVal('susp-motivo','');
+  setVal('susp-artigo','');
+  const rDoc=document.getElementById('susp-modo-doc'); if(rDoc) rDoc.checked=true;
+  const rDig=document.getElementById('susp-modo-digital'); if(rDig) rDig.checked=false;
+  const fi=document.getElementById('susp-arquivo'); if(fi) fi.value='';
+  _suspOnModoChange();
+  _suspRecalcInfo();
+  document.getElementById('modal-suspensao').classList.remove('hidden');
+}
+
+// Mostra/oculta o campo de anexo conforme o modo escolhido.
+function _suspOnModoChange(){
+  const modo=(document.querySelector('input[name="susp-modo"]:checked')||{}).value||'documento';
+  const row=document.getElementById('susp-arquivo-row');
+  if(row) row.style.display=(modo==='documento') ? '' : 'none';
+}
+
+// Preview ao vivo: quantos dias efetivos e quanto tempo será descontado.
+function _suspRecalcInfo(){
+  const info=document.getElementById('susp-info'); if(!info) return;
+  const emp=State.employees.find(e=>e.id===val('susp-emp-id'));
+  const data=val('susp-data'), hora=val('susp-hora-saida');
+  let dias=parseInt(val('susp-dias'))||1;
+  if(dias>30){ dias=30; setVal('susp-dias','30'); }
+  if(dias<1){ dias=1; setVal('susp-dias','1'); }
+  if(!emp || !data){ info.textContent=''; return; }
+  const efetivos=_suspDiasEfetivos(emp, data, hora, dias);
+  if(!efetivos.length){ info.innerHTML='<span style="color:#888">Nenhum dia de trabalho previsto no intervalo (folgas?) — nada a descontar.</span>'; return; }
+  const min=_suspMinutosTotais(emp, data, hora, dias);
+  const parcial=efetivos[0] && efetivos[0].primeiro && hora;
+  info.innerHTML=`<i class="fa-solid fa-clock"></i> <strong>${efetivos.length} dia(s)</strong> efetivo(s) de suspensão · desconto estimado de <strong>${minutesToStr(min)}</strong>${parcial?` (1º dia a partir de ${hora})`:''}.`;
+}
+
+// Aplica a suspensão: grava disciplina + auditoria + recibo + mensagem no app +
+// as saídas automáticas no ponto (descontadas). #suspensao-modulo
+async function aplicarSuspensao(){
+  const empId=val('susp-emp-id');
+  const emp=State.employees.find(e=>e.id===empId);
+  if(!emp){ toast('Colaborador não definido.','error'); return; }
+  const data=val('susp-data'), hora=val('susp-hora-saida');
+  const dias=parseInt(val('susp-dias'))||1;
+  const motivo=(val('susp-motivo')||'').trim();
+  const artigo=(val('susp-artigo')||'').trim();
+  const modo=(document.querySelector('input[name="susp-modo"]:checked')||{}).value||'documento';
+  const fi=document.getElementById('susp-arquivo');
+  const file=fi && fi.files && fi.files[0] ? fi.files[0] : null;
+
+  if(!data){ toast('Informe a data da suspensão.','error'); return; }
+  if(!hora){ toast('Informe o horário da saída.','error'); return; }
+  if(!motivo){ toast('Descreva o motivo da suspensão.','error'); return; }
+  if(dias<1){ toast('Duração mínima de 1 dia.','error'); return; }
+  // #trava-30-dias — Art. 474 CLT: passar de 30 dias corridos vira rescisão injustificada
+  if(dias>30){ toast('Art. 474 CLT: a suspensão não pode passar de 30 dias corridos — acima disso o contrato é rescindido (dispensa injustificada). Reduza a duração.','error'); return; }
+  if(modo==='documento' && !file){ toast('No modo "documento" é obrigatório anexar o termo assinado.','error'); return; }
+  if(file && file.size > 10*1024*1024){ toast('Anexo grande demais (máx. 10 MB).','error'); return; }
+
+  const efetivos=_suspDiasEfetivos(emp, data, hora, dias);
+  if(!efetivos.length){ toast('Nenhum dia de trabalho previsto no intervalo — confira a data (folgas?).','error'); return; }
+
+  const btn=document.getElementById('susp-aplicar');
+  setBtnLoading(btn,true,'');
+  try{
+    const quem=(Auth.currentUser && (Auth.currentUser.username||Auth.currentUser.id))||'—';
+    const quemId=(Auth.currentUser && Auth.currentUser.id)||'';
+    const agora=new Date().toISOString();
+    const discId=genId();
+    const dataBr=data.split('-').reverse().join('/');
+
+    // 1) Anexo (modo documento) → hash + upload (cadeia de custódia começa aqui)
+    let anexoUrl='', anexoNome='', anexoTipo='', anexoHash='';
+    if(file){
+      try{ anexoHash=await _sha256Hex(file); }
+      catch(e){ console.error('sha256', e); toast('Erro ao calcular hash do anexo.','error'); setBtnLoading(btn,false,''); return; }
+      const ext=(file.name.split('.').pop()||'bin').toLowerCase();
+      const refId=Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+      const ref=DB.storageRef(`disciplina/${refId}.${ext}`);
+      await ref.put(file);
+      anexoUrl=await ref.getDownloadURL(); anexoNome=file.name; anexoTipo=file.type||'';
+    }
+
+    // 2) Hash do conjunto
+    let mensagemHash='';
+    try{ mensagemHash=await _sha256Hex(JSON.stringify({tipo:'suspensao', motivo, artigo, data, hora, dias, anexoHash, employeeId:empId, employeeNome:emp.nome||'', origemUserId:quemId, criadoEm:agora})); }catch(_){}
+
+    // 3) Recibo de Envio (HTML no Storage)
+    const assunto='Suspensão disciplinar';
+    const corpo=`Fica aplicada suspensão disciplinar de ${dias} dia(s), a partir de ${dataBr}${hora?` (saída às ${hora})`:''}. Motivo: ${motivo}${artigo?` Fundamento: ${artigo}.`:''}`;
+    let reciboUrl='';
+    try{
+      const reciboHtml=_gerarReciboEnvioHTML({
+        discId, tipo:'suspensao', empNome:emp.nome||'',
+        empMatricula:(emp.registro?String(emp.registro).padStart(4,'0'):'—'),
+        empCpf:emp.cpf||'—', empCargo:emp.cargo||'—', empPosto:emp.posto||'—',
+        assunto, corpo, motivoDisc:motivo, diasSusp:dias, artigoCLT:artigo,
+        anexoNome, anexoHash, anexoUrl, mensagemHash,
+        autorNome:quem, empresa:_e('nomeEmpresa'), criadoEm:agora, comunicacaoId:'',
+      });
+      const blob=new Blob([reciboHtml], {type:'text/html;charset=utf-8'});
+      const refR=DB.storageRef(`disciplina/recibos/envio-${discId}.html`);
+      await refR.put(blob); reciboUrl=await refR.getDownloadURL();
+    }catch(err){ console.error('recibo suspensao', err); }
+
+    // 4) Mensagem/aviso no app (ciência) — ligada ao ato disciplinar
+    const msgId=genId();
+    const msg={
+      id:msgId, employeeId:empId, employeeNome:emp.nome||'',
+      assunto, corpo, tipo:'suspensao',
+      anexoUrl, anexoNome, anexoTipo, anexoHash, mensagemHash,
+      motivoDisciplina:motivo, diasSuspensao:dias, artigoCLT:artigo, disciplinaId:discId,
+      origemUserId:quemId, origemUserNome:quem, criadoEm:agora, lida:false,
+    };
+    try{ await DB.save('comunicacoes', _sanitizeForFirestore(msg)); }catch(err){ console.error('msg suspensao', err); }
+
+    // 5) Registro em `disciplina` + snapshot de auditoria
+    const disc={
+      id:discId, employeeId:empId, employeeNome:emp.nome||'',
+      tipo:'suspensao', motivo, diasSuspensao:dias, artigoCLT:artigo,
+      dataSuspensao:data, horarioSaida:hora, modoAplicacao:modo,
+      assinaturaPendente:(modo==='digital'),
+      anexoUrl, anexoNome, anexoTipo, anexoHash, mensagemHash,
+      comunicacaoId:msgId, reciboEnvioUrl:reciboUrl, reciboRecebimentoUrl:'',
+      criadoEm:agora, criadoPorId:quemId, criadoPorNome:quem, visualizadoEm:'',
+    };
+    try{ await DB.save('disciplina', _sanitizeForFirestore(disc)); }catch(err){ console.error('disciplina suspensao', err); }
+    try{
+      await DB.save('auditoria_disciplina', _sanitizeForFirestore({
+        id:genId(), disciplinaId:discId, employeeId:empId, tipo:'suspensao',
+        snapshot:disc, anexoHash, mensagemHash, criadoEm:agora,
+        criadoPorId:quemId, criadoPorNome:quem, evento:'ENVIO',
+      }));
+    }catch(err){ console.error('auditoria suspensao', err); }
+
+    // 6) Saída AUTOMÁTICA no ponto — 1 doc por dia efetivo (desconta; não abonada)
+    const arqUrlSaida=anexoUrl||reciboUrl;
+    const arqNomeSaida=anexoNome||(reciboUrl?'Recibo de Envio (suspensão)':'');
+    let nSaidas=0;
+    for(const d of efetivos){
+      const sid=genId();
+      const sdoc={
+        id:sid, employeeId:empId, mes:d.mes, ano:d.ano, dia:d.dia,
+        horarioSaida:d.horarioSaida, horarioRetorno:'',
+        motivo:`Suspensão disciplinar${motivo?' — '+motivo:''}`,
+        justificada:true, abonada:false, tipo:'suspensao', disciplinaId:discId,
+        arquivoUrl:arqUrlSaida, arquivoNome:arqNomeSaida,
+        createdAt:agora, updatedAt:agora,
+      };
+      try{
+        await DB.save('saidas', _sanitizeForFirestore(sdoc));
+        State.saidas=State.saidas||[];
+        if(!State.saidas.some(x=>x.id===sid)) State.saidas.push(sdoc); // upsert otimista; o listener reconcilia
+        nSaidas++;
+      }catch(err){ console.error('saida suspensao', err); }
+    }
+
+    try{ Auth.log('SUSPENSAO_APLICADA', null, `${emp.nome||''} — ${dias} dia(s), ${nSaidas} saída(s) no ponto — Hash: ${(mensagemHash||'').substring(0,16)}...`); }catch(_){}
+
+    closeModal('modal-suspensao');
+    toast(`Suspensão aplicada: ${dias} dia(s) · ${nSaidas} saída(s) lançada(s) no ponto (descontadas).`, 'success');
+
+    const em=document.getElementById('modal-employee');
+    if(em && !em.classList.contains('hidden') && val('emp-id')===empId){
+      try{ renderDisciplinaTab(empId); }catch(_){}
+    }
+    if(val('payroll-employee')===empId){
+      try{ renderSaidasFolha(); recalculate(); }catch(_){}
+    }
+  }catch(e){
+    toast('Erro ao aplicar suspensão: '+(e?.message||e),'error');
+  }finally{
+    setBtnLoading(btn,false,'<i class="fa-solid fa-ban"></i> Aplicar suspensão');
+  }
 }
 
 // ============================================
@@ -18210,9 +18449,14 @@ async function renderDisciplinaTab(empId){
         <strong style="font-size:13px">Atos disciplinares (${ativas.length}${totAnul?` · ${totAnul} anulado(s)`:''})</strong>
         <div style="font-size:11px;color:#888;margin-top:2px">${totAdv} advertência(s) · ${totSus} suspensão(ões) vigentes</div>
       </div>
-      <button class="btn btn-sm btn-primary" onclick="_abrirNovaDisciplinaParaColaborador('${empId}')" style="font-size:12px">
-        <i class="fa-solid fa-gavel"></i> Nova advertência/suspensão
-      </button>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn btn-sm btn-primary" onclick="_abrirNovaDisciplinaParaColaborador('${empId}')" style="font-size:12px">
+          <i class="fa-solid fa-gavel"></i> Nova advertência
+        </button>
+        <button class="btn btn-sm" onclick="abrirSuspensao('${empId}')" style="font-size:12px;background:#c62828;color:#fff;border:none" title="Suspensão disciplinar: registra o ato E lança a saída automática no ponto (descontada)">
+          <i class="fa-solid fa-ban"></i> Suspender
+        </button>
+      </div>
     </div>`;
   if(!lista.length){
     html += `<div class="empty-state small"><i class="fa-solid fa-folder-open"></i><p>Sem atos disciplinares registrados</p></div>`;

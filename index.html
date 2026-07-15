@@ -5774,6 +5774,67 @@
   </div>
 </div>
 
+<!-- ===== MODAL: SUSPENSÃO DISCIPLINAR ===== -->
+<!-- Módulo exclusivo: registra o ato disciplinar (cadeia de custódia) E lança
+     a saída automática no ponto a partir do horário informado. #suspensao-modulo -->
+<div class="modal-overlay hidden" id="modal-suspensao" onclick="closeModal('modal-suspensao', event)">
+  <div class="modal-dialog" style="max-width:520px">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-ban" style="color:#c62828"></i> Suspensão disciplinar — <span id="susp-emp-nome"></span></h3>
+      <button class="modal-close" onclick="closeModal('modal-suspensao')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="susp-emp-id">
+      <div class="info-banner" style="background:#fee2e2;color:#7f1d1d">
+        <i class="fa-solid fa-circle-info"></i>
+        <span>Ao aplicar, o sistema <strong>registra a saída do colaborador no ponto</strong> a partir do horário informado (suspensão é <strong>não remunerada</strong> — o tempo é descontado) e arquiva o ato disciplinar com hash. A suspensão é <strong>ato do empregador</strong>: a saída vale já; a assinatura do colaborador é ciência.</span>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Data da suspensão</label>
+          <input type="date" id="susp-data" onchange="_suspRecalcInfo()">
+        </div>
+        <div class="form-group form-group-sm">
+          <label>Horário da saída</label>
+          <input type="time" id="susp-hora-saida" onchange="_suspRecalcInfo()">
+        </div>
+        <div class="form-group form-group-sm">
+          <label>Duração (dias)</label>
+          <input type="number" id="susp-dias" min="1" max="30" value="1" onchange="_suspRecalcInfo()">
+        </div>
+      </div>
+      <div id="susp-info" style="font-size:12px;color:#c62828;margin:-4px 0 10px;min-height:16px"></div>
+      <div class="form-group">
+        <label>Motivo da suspensão <span class="required">*</span></label>
+        <textarea id="susp-motivo" rows="2" placeholder="Descreva a conduta que motivou a medida disciplinar..."></textarea>
+      </div>
+      <div class="form-group">
+        <label>Fundamento / Artigo CLT <small style="color:#888">(opcional)</small></label>
+        <input type="text" id="susp-artigo" placeholder="Ex.: Art. 482 CLT — ato de indisciplina / insubordinação">
+      </div>
+      <div class="form-group">
+        <label>Como aplicar</label>
+        <div class="checkbox-group" style="align-items:flex-start;gap:6px">
+          <input type="radio" name="susp-modo" id="susp-modo-doc" value="documento" checked onchange="_suspOnModoChange()" style="margin-top:3px">
+          <label for="susp-modo-doc" style="cursor:pointer;flex:1"><i class="fa-solid fa-paperclip" style="color:#1565C0"></i> <strong>Subir documento assinado</strong> — anexo o PDF/foto do termo de suspensão assinado (SHA-256 + Recibo de Envio).</label>
+        </div>
+        <div class="checkbox-group" style="align-items:flex-start;gap:6px;margin-top:6px">
+          <input type="radio" name="susp-modo" id="susp-modo-digital" value="digital" onchange="_suspOnModoChange()" style="margin-top:3px">
+          <label for="susp-modo-digital" style="cursor:pointer;flex:1"><i class="fa-solid fa-signature" style="color:#7e22ce"></i> <strong>Aplicar digitalmente no app</strong> — cai na caixa do colaborador no app de ponto para ele assinar com PIN (a assinatura vira a prova).</label>
+        </div>
+      </div>
+      <div class="form-group" id="susp-arquivo-row">
+        <label><i class="fa-solid fa-paperclip"></i> Documento da suspensão <small style="color:#888">(PDF ou foto do termo assinado)</small></label>
+        <input type="file" id="susp-arquivo" accept=".pdf,image/jpeg,image/png,image/webp">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-suspensao')">Cancelar</button>
+      <button class="btn btn-primary" id="susp-aplicar" onclick="aplicarSuspensao()" style="background:#c62828;border-color:#c62828"><i class="fa-solid fa-ban"></i> Aplicar suspensão</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== MODAL: ATRASO ===== -->
 <div class="modal-overlay hidden" id="modal-atraso" onclick="closeModal('modal-atraso', event)">
   <div class="modal-dialog" style="max-width:460px">
@@ -7776,6 +7837,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260715b-folha-busca"></script>
+  <script src="app.js?v=20260715c-suspensao"></script>
 </body>
 </html>

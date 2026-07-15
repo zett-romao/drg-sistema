@@ -1856,7 +1856,6 @@ async function doLogin(event){
       return;
     }
     document.getElementById('login-screen').classList.add('hidden');
-    { const _f=document.getElementById('fab-ajuda-ia'); if(_f) _f.style.display='flex'; }  // #ajuda-ia
     setVal('login-username',''); setVal('login-password','');
     errorEl.classList.add('hidden');
     applyUserSession(user);
@@ -21073,7 +21072,7 @@ async function abrirAjudaIA(){
   setVal('ajuda-pergunta','');
   _ajudaCapturaB64='';
   if(capEl) capEl.innerHTML='<div style="font-size:12px;color:#888"><i class="fa-solid fa-spinner fa-spin"></i> Capturando a tela...</div>';
-  const fab=document.getElementById('fab-ajuda-ia'); if(fab) fab.style.visibility='hidden';
+  const fab=document.getElementById('btn-ajuda-ia'); if(fab) fab.style.visibility='hidden';   // some do print
   try{
     const alvo=_ajudaAlvo();
     const opts={ scale:1, logging:false, useCORS:true, backgroundColor:'#ffffff' };
@@ -21091,16 +21090,10 @@ async function abrirAjudaIA(){
     if(fab) fab.style.visibility='';
   }
   modal.classList.remove('hidden');
-  if(fab) fab.style.display='none';   // some enquanto o modal está aberto (evita sobrepor os botões)
 }
 
-// Fecha o assistente e restaura o botão flutuante (só se logado).
-function fecharAjudaIA(ev){
-  closeModal('modal-ajuda-ia', ev);
-  if(document.getElementById('modal-ajuda-ia').classList.contains('hidden')){
-    const f=document.getElementById('fab-ajuda-ia'); if(f && Auth.currentUser) f.style.display='flex';
-  }
-}
+// Fecha o assistente (o botão vive no topbar, não precisa restaurar nada).
+function fecharAjudaIA(ev){ closeModal('modal-ajuda-ia', ev); }
 
 async function perguntarAjudaIA(){
   const perg=(val('ajuda-pergunta')||'').trim();
@@ -33855,7 +33848,6 @@ async function init(){
   if(sessionUser && fbUser && !fbUser.isAnonymous){
     Auth.currentUser = sessionUser;
     document.getElementById('login-screen').classList.add('hidden');
-    { const _f=document.getElementById('fab-ajuda-ia'); if(_f) _f.style.display='flex'; }  // #ajuda-ia
     await _aplicarTenantDoToken();   // MT-2: no reload, tenant vem do token (não da URL/localStorage). #multitenant
     const ok = await _carregarDadosPosLogin();
     if(!ok) return; // licença bloqueou ou erro de Firestore — mensagem já exibida

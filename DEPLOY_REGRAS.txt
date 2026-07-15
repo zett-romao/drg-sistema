@@ -52,11 +52,12 @@ service cloud.firestore {
     }
 
     // comunicações (broadcast): todos leem; colaborador só altera reações/lida
+    // (+assinadaEm: carimba a ciência da suspensão assinada no app). #suspensao-modulo
     match /comunicacoes/{id} {
       allow read:           if rAuthed();
       allow create, delete: if rStaff();
       allow update:         if rStaff() || (rColab()
-                              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reacoes','lida','lidaEm']));
+                              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reacoes','lida','lidaEm','assinadaEm']));
     }
 
     // pagamentos: colaborador lê os próprios; só staff grava
@@ -141,15 +142,35 @@ service cloud.firestore {
                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','assinadoEm','assinatura']));
     }
 
+    // saídas (inclui a saída lançada pela SUSPENSÃO): colaborador LÊ as PRÓPRIAS
+    // (pra travar a batida no dia suspenso); só staff grava. #suspensao-modulo
+    match /saidas/{id} {
+      allow read:                if rStaff() || (rColab() && resource.data.employeeId == request.auth.token.empId);
+      allow create, update, delete: if rStaff();
+    }
+    // disciplina (advertência/suspensão): colaborador LÊ as PRÓPRIAS e ASSINA a
+    // CIÊNCIA (só os campos de visualização/assinatura — não toca motivo/hash);
+    // staff cria/edita/apaga o resto. #suspensao-modulo
+    match /disciplina/{id} {
+      allow read:           if rStaff() || (rColab() && resource.data.employeeId == request.auth.token.empId);
+      allow create, delete: if rStaff();
+      allow update:         if rStaff() || (rColab()
+                              && resource.data.employeeId == request.auth.token.empId
+                              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+                                   ['visualizadoEm','assinaturaPendente','assinaturaRecebimento','reciboRecebidoEm']));
+    }
+
     // demais coleções de GESTÃO (escalas, cct, postos, ferias, rescisoes,
-    // decimoTerceiro, bancoHoras, contratos, disciplina, rubricas, perfis,
-    // saidas, atrasos, usoIA, operator, config...) — SÓ staff DA RAIZ (revendedor).
+    // decimoTerceiro, bancoHoras, contratos, rubricas, perfis, atrasos, usoIA,
+    // operator, config...) — SÓ staff DA RAIZ (revendedor). 'saidas'/'disciplina'
+    // saíram daqui (têm regra própria acima, com leitura do colaborador dono).
     // 'tenants' SAIU daqui (MT-3). MT-4: rStaff() barra token COM tenantId — um
     // cliente NÃO alcança operator/* (lista/cobranças) nem dados da raiz.
     match /{col}/{id} {
       allow read, write: if rStaff()
         && !(col in ['mfa','users','tenants','payrolls','documentos','atestados','comunicacoes',
-                     'solicitacoesPagamento','autorizacoesPonto','holeritesEnviados','accessLog','employees']);
+                     'solicitacoesPagamento','autorizacoesPonto','holeritesEnviados','accessLog','employees',
+                     'saidas','disciplina']);
     }
     match /{col}/{id}/{rest=**} {
       allow read, write: if rStaff() && col != 'mfa' && col != 'users' && col != 'tenants';
@@ -201,7 +222,7 @@ service cloud.firestore {
         allow read:           if meuTenant(t) && authed();
         allow create, delete: if meuTenant(t) && isStaff();
         allow update:         if meuTenant(t) && (isStaff() || (isColab()
-                                && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reacoes','lida','lidaEm'])));
+                                && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reacoes','lida','lidaEm','assinadaEm'])));
       }
       match /solicitacoesPagamento/{id} {
         allow read:  if meuTenant(t) && (isStaff() || (isColab() && resource.data.employeeId == request.auth.token.empId));
@@ -253,15 +274,32 @@ service cloud.firestore {
                          && resource.data.employeeId == request.auth.token.empId
                          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','assinadoEm','assinatura'])));
       }
+      // saídas (inclui a saída da SUSPENSÃO): colab do tenant LÊ as PRÓPRIAS. #suspensao-modulo
+      match /saidas/{id} {
+        allow read:                if meuTenant(t) && (isStaff() || (isColab() && resource.data.employeeId == request.auth.token.empId));
+        allow create, update, delete: if meuTenant(t) && isStaff();
+      }
+      // disciplina: colab do tenant LÊ as PRÓPRIAS e ASSINA a ciência (só campos de
+      // visualização/assinatura); staff cria/edita o resto. #suspensao-modulo
+      match /disciplina/{id} {
+        allow read:           if meuTenant(t) && (isStaff() || (isColab() && resource.data.employeeId == request.auth.token.empId));
+        allow create, delete: if meuTenant(t) && isStaff();
+        allow update:         if meuTenant(t) && (isStaff() || (isColab()
+                                && resource.data.employeeId == request.auth.token.empId
+                                && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+                                     ['visualizadoEm','assinaturaPendente','assinaturaRecebimento','reciboRecebidoEm'])));
+      }
       // só-servidor dentro do tenant
       match /mfa/{d}          { allow read, write: if false; }
       match /users/{d}        { allow read, write: if false; }
       match /users/{d}/{r=**} { allow read, write: if false; }
-      // demais coleções de gestão do tenant — só staff DO tenant
+      // demais coleções de gestão do tenant — só staff DO tenant ('saidas'/'disciplina'
+      // saíram daqui, têm regra própria acima com leitura do colaborador dono).
       match /{col}/{id} {
         allow read, write: if meuTenant(t) && isStaff()
           && !(col in ['mfa','users','payrolls','documentos','atestados','comunicacoes',
-                       'solicitacoesPagamento','autorizacoesPonto','holeritesEnviados','accessLog','employees']);
+                       'solicitacoesPagamento','autorizacoesPonto','holeritesEnviados','accessLog','employees',
+                       'saidas','disciplina']);
       }
       match /{col}/{id}/{rest=**} {
         allow read, write: if meuTenant(t) && isStaff() && col != 'mfa' && col != 'users';

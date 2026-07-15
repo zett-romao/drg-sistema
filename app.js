@@ -13504,7 +13504,10 @@ async function aplicarSuspensao(){
       catch(e){ console.error('sha256', e); toast('Erro ao calcular hash do anexo.','error'); setBtnLoading(btn,false,''); return; }
       const ext=(file.name.split('.').pop()||'bin').toLowerCase();
       const refId=Date.now().toString(36)+Math.random().toString(36).slice(2,8);
-      const ref=DB.storageRef(`disciplina/${refId}.${ext}`);
+      // Sobe em comunicacoes/* (Storage: leitura por qualquer autenticado) — assim o
+      // colaborador consegue abrir o documento da suspensão no app. disciplina/* é
+      // só-staff no Storage. Espelha o anexo da advertência. #suspensao-modulo
+      const ref=DB.storageRef(`comunicacoes/${refId}.${ext}`);
       await ref.put(file);
       anexoUrl=await ref.getDownloadURL(); anexoNome=file.name; anexoTipo=file.type||'';
     }

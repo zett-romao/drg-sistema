@@ -29614,9 +29614,14 @@ async function saveHEReview(){
     const updatedPayroll = State.payrolls.find(p => p.id === updated.id);
     const sameStillPending = _payrollTemPendente(updatedPayroll);
     if(sameStillPending){
-      // Reabre o painel automaticamente para revisar os dias restantes
-      toast('✓ Revisão salva — este colaborador ainda tem dias pendentes. Reabrindo painel...', 'info');
-      setTimeout(() => openHEReview(), 500);
+      // 🔒 SALVAR REVISÃO = aplicar na folha e FECHAR. Nunca reabrir sozinho.
+      // Antes o painel se reabria em 500ms quando sobrava pendência — e voltava mostrando
+      // OS MESMOS dias que o gestor acabara de decidir (o painel lista todo dia com
+      // divergência, não só os pendentes). Lia como "não salvou" e, se a pendência que
+      // sobrou fosse uma refeição deixada em "Pendente" (o default), o ciclo não tinha
+      // saída: salvar → reabre → salvar → reabre. Quem decide quando revisar o resto é o
+      // gestor, não a tela. O aviso informa; não sequestra. #revisao-fecha-e-fica-fechada
+      toast('✓ Revisão salva e aplicada na folha. Este colaborador ainda tem dia(s) pendente(s) — reabra a revisão quando quiser decidir o resto.', 'info');
       return;
     }
     // Próximo colaborador com pendentes (só sugere se não está dentro do fluxo de Ponto Manual)

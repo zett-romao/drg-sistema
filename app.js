@@ -27772,7 +27772,17 @@ function _overrideAvulsoEm(emp, ymd){
 // do dia de trabalho (4 campos; vazio = sem aquele marco, ex.: sem almoço). Quem não tem
 // período passa DIRETO pelo base — zero mudança de comportamento. Vale no motor único
 // (Monitor de Faltas, folha, projeções). #periodo-aplica
+// 🔒 Carimba no dia esperado os fatos do COLABORADOR de que a regra de intervalo
+// precisa (hoje: semRefeicao). O expectedDay já circula por TODO o motor de HE — sem
+// este carimbo cada função teria que receber `emp` de novo, e bastava UM callsite
+// esquecer pra regra de refeição decidir errado, em silêncio, só pra um colaborador.
+// Fato do colaborador viaja junto do dia esperado. #intervalo-dono-unico
 function _getExpectedDay(emp, mes, ano, dia, ignoreAdmissao){
+  const _exp = _getExpectedDayResolve(emp, mes, ano, dia, ignoreAdmissao);
+  if(_exp && emp) _exp.semRefeicao = !!emp.semRefeicao;
+  return _exp;
+}
+function _getExpectedDayResolve(emp, mes, ano, dia, ignoreAdmissao){
   if(!emp) return _getExpectedDayBase(emp, mes, ano, dia, ignoreAdmissao);
   const _ymdP = `${ano}-${String(mes).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
   if(_overrideAvulsoEm(emp, _ymdP)) return _getExpectedDayBase(emp, mes, ano, dia, ignoreAdmissao);  // avulso vence o período
@@ -27980,8 +27990,68 @@ function _getExpectedDayComp(emp, compMes, compAno, dia){
   return _getExpectedDay(emp, r.mes, r.ano, r.dia);
 }
 
+// Converte uma janela HH:MM→HH:MM em minutos absolutos ancorados no início do turno
+// (refIni). Resolve os dois jeitos de cruzar meia-noite: a própria janela virar o dia
+// (23:30→00:30) e a janela cair depois da virada do turno (turno 22:00→06:00 com
+// almoço 01:00→02:00). Sem esta âncora a sobreposição dá negativa e o intervalo some.
+function _janelaAbs(ini, fim, refIni){
+  if(!ini || !fim) return null;
+  let a = timeToMinutes(ini), b = timeToMinutes(fim);
+  if(b < a) b += 24*60;                       // a janela cruza a meia-noite
+  if(a < refIni){ a += 24*60; b += 24*60; }   // a janela é depois da virada do turno
+  return [a, b];
+}
+
+// 🔒 MINUTOS DE INTERVALO DEVIDOS no dia — fonte ÚNICA da regra de refeição.
+// Só é devido o trecho do intervalo contratual que a jornada REALMENTE cobriu.
+// Sem esta sobreposição, quem saía 11:59 (almoço contratual 12:00→13:00) recebia
+// "almoço suprimido 1h00min" de um almoço que nunca começou — e a mesma hora fantasma
+// ainda inflava a HE. A jornada tem que ENCOSTAR na janela pra haver o que suprimir.
+// Cobertura parcial conta proporcional ao trecho coberto. #ref-sobreposicao
+// ⚠️ NÃO zere isto para semRefeicao. Quem trabalha sozinho também TEM intervalo devido —
+// ele só é pago automático (naoRendMin) em vez de virar pendência do gestor. Zerar aqui
+// devolvia a hora do almoço pra base da HE: um semRefeicao em 08:00→18:00 sem intervalo
+// recebia 120min de HE (60 reais + 60 do almoço) E 60min de refeição automática — o
+// pagamento em dobro voltando pela porta dos fundos. O guard de semRefeicao mora no
+// _almocoSuprimidoDetectadoMin (a PENDÊNCIA), não aqui (a BASE). #intervalo-dono-unico
+function _intervaloDevidoMin(d, exp, emp){
+  if(!d || !d.entrada || !d.saida) return 0;
+  if(!exp || exp.tipo === 'folga' || !exp.entrada) return 0;
+  const jIni = timeToMinutes(d.entrada);
+  let   jFim = timeToMinutes(d.saida);
+  if(jFim <= jIni) jFim += 24*60;
+  const jan = _janelaAbs(exp.intIni, exp.intFim, jIni);
+  if(jan){
+    // Janela contratual explícita → devido = o quanto dela a jornada cobriu.
+    return Math.max(0, Math.min(jFim, jan[1]) - Math.max(jIni, jan[0]));
+  }
+  // Sem janela explícita (plantão 12x36: a refeição flutua dentro do turno) — Art. 71
+  // CLT: jornada > 6h exige 1h de intervalo, independente da escala. #plantao-refeicao
+  return (jFim - jIni) > 360 ? 60 : 0;
+}
+
+// Minutos de intervalo EFETIVAMENTE fora da jornada de trabalho. Quem não bateu (ou
+// encurtou) o intervalo tem os minutos devidos creditados aqui assim mesmo — porque
+// eles vão ser pagos como refeição não rendida (Art. 71 §4º), não como HE. É isto que
+// impede a MESMA hora de almoço de ser paga duas vezes. #intervalo-dono-unico
+function _intervaloEfetivoMin(d, exp, emp){
+  const real = _calcIntervaloMin(d && d.intIni, d && d.intFim, d && d.entrada, d && d.saida);
+  return Math.max(real, _intervaloDevidoMin(d, exp, emp));
+}
+
+// 🔒 EXCESSO LÍQUIDO do dia (minutos) sobre a jornada esperada — base ÚNICA da HE.
+// Usa o intervalo EFETIVO (não o batido), então a hora do almoço trabalhado nunca
+// entra aqui: ela é da refeição não rendida. Negativo = atraso. #intervalo-dono-unico
+function _excessoLiqDia(realDay, expectedDay, minContratados, emp){
+  if(!realDay || !realDay.entrada || !realDay.saida) return 0;
+  const realLiqNorm = Math.max(0, _presencaMin(realDay) - _intervaloEfetivoMin(realDay, expectedDay, emp));
+  const baseLiq = (expectedDay && expectedDay.entrada && expectedDay.saida)
+    ? _liqMin(expectedDay) : (+minContratados || 0);
+  return (realLiqNorm - baseLiq) - ((expectedDay && expectedDay.heGraceMin) || 0);
+}
+
 // Detecta divergência de um dia real vs esperado. Retorna motivos + total minutos de excesso.
-function _detectHEDivergencia(realDay, expectedDay){
+function _detectHEDivergencia(realDay, expectedDay, emp){
   const out = { totalMin:0, motivos:[], precisaRevisao:false };
   if(!realDay || !expectedDay) return out;
   if(!realDay.entrada || !realDay.saida) return out; // sem ponto real, nada a detectar
@@ -28028,32 +28098,24 @@ function _detectHEDivergencia(realDay, expectedDay){
     out.totalMin += d;
     if(d > HE_TOLERANCIA_BATIDA_MIN) out.motivos.push(`Saiu ${d}min depois`);
   }
-  // Almoço encurtado (real menor que esperado)
-  if(realDay.intIni && realDay.intFim && expectedDay.intIni && expectedDay.intFim){
-    const realDur = _calcIntervaloMin(realDay.intIni, realDay.intFim, realDay.entrada, realDay.saida);
-    const expDur  = _calcIntervaloMin(expectedDay.intIni, expectedDay.intFim, expectedDay.entrada, expectedDay.saida);
-    if(realDur < expDur){
-      const d = expDur - realDur;
-      out.totalMin += d;
-      if(d > HE_TOLERANCIA_BATIDA_MIN) out.motivos.push(`Almoço ${d}min mais curto`);
-    }
-  }
-  // 🔒 INTERVALO NÃO REGISTRADO (campo em branco) num dia que previa refeição.
-  // Sem isto a hora do almoço SOME: `_liqMin` conta o dia inteiro como trabalho
-  // (intervalo vazio = 0min de descanso), mas a detecção não enxergava nada —
-  // então `_heMinDia` devolvia 0 mesmo com o gestor APROVANDO, e o dia nem chegava
-  // à revisão. Foi o caso do Victor (12/07: 12h04 trabalhadas, HE 1h04 evaporada).
-  // Agora vira PENDÊNCIA: não paga sozinho (a regra "batida esquecida não paga"
-  // continua de pé — quem decide é o gestor), mas nada desaparece. #intervalo-vazio
-  if(!realDay.intIni && !realDay.intFim && expectedDay.intIni && expectedDay.intFim){
-    const expDur = _calcIntervaloMin(expectedDay.intIni, expectedDay.intFim, expectedDay.entrada, expectedDay.saida);
-    if(expDur > 0){
-      out.totalMin += expDur;
-      out.motivos.push(`Intervalo não registrado (${expDur}min previstos) — confirmar se trabalhou o almoço`);
-    }
-  }
+  // 🔒 O INTERVALO NÃO É ASSUNTO DESTA FUNÇÃO. Almoço suprimido/encurtado/não batido é
+  // indenização do Art. 71 §4º CLT (hora cheia + 50%) e tem dono ÚNICO:
+  // _intervaloDevidoMin → refExtra. Antes daqui saíam os ramos "Almoço Xmin mais curto"
+  // e "Intervalo não registrado" (#intervalo-vazio, caso do Victor) — e aí UMA hora de
+  // almoço trabalhado virava DUAS pendências sobre o MESMO fato (heReview + refExtra):
+  // aprovar as duas pagava a mesma hora a 50% E a 150%; aprovar só a refeição deixava a
+  // folha imprimindo "HE não autorizada · 1h00min" pra sempre (Deraldo, 10/07). A hora do
+  // almoço não some mais por isso: _heMinDia agora usa o intervalo EFETIVO e o
+  // _almocoSuprimidoDetectadoMin cria a pendência de refeição. #intervalo-dono-unico
+  //
+  // TETO: não existe HE a aprovar além do excesso LÍQUIDO do dia. Sem isto um dia de 4h09
+  // trabalhadas (Deraldo 15/07, saiu 11:59) imprimia "HE não autorizada · 1h10min" só
+  // porque entrou 10min antes — a folha contradizia o _heMinDia, que devolvia 0. #he-teto-liquido
+  const _exc = _excessoLiqDia(realDay, expectedDay, null, emp);
+  out.totalMin = Math.min(out.totalMin, Math.max(0, _exc));
   // Súmula 366 TST: total > 10min/dia → precisa de revisão; senão CLT permite ignorar
   out.precisaRevisao = out.totalMin > HE_TOLERANCIA_DIA_MIN;
+  if(!out.precisaRevisao) out.motivos = [];   // motivo sem pendência = ruído na folha
   return out;
 }
 
@@ -28093,10 +28155,15 @@ function _effectiveMinLiq(realDay, expectedDay, contratosMin){
 // HE (em minutos) de UM dia — fonte única da regra por dia. Respeita a aprovação
 // (heReview) e trata trabalho em dia de FOLGA: nesse caso a jornada INTEIRA é
 // hora extra (não desconta jornada nenhuma, pois o dia era de descanso).
-function _heMinDia(realDay, expectedDay, minContratados){
+function _heMinDia(realDay, expectedDay, minContratados, emp){
   if(!realDay || !realDay.entrada || !realDay.saida) return 0;
   if(expectedDay?.preAdmissao) return 0; // antes da admissão não gera HE
-  const realLiq = _liqMin(realDay);
+  // 🔒 Líquido NORMALIZADO: o intervalo DEVIDO é sempre creditado como descanso, mesmo
+  // que o colaborador não tenha batido — esses minutos são refeição não rendida (Art. 71
+  // §4º), NÃO hora extra. Sem isto um 08:00→18:00 sem intervalo batido virava 120min de HE
+  // (60 reais de saída depois + 60 do almoço) e a refeição ainda pagava os mesmos 60 de
+  // novo: a mesma hora saía duas vezes da folha. #intervalo-dono-unico
+  const realLiq = Math.max(0, _presencaMin(realDay) - _intervaloEfetivoMin(realDay, expectedDay, emp));
   const aprovado = (realDay.heReview?.status === 'aprovado');
   // Fim de semana por DURAÇÃO (horário livre): HE = o que passou da duração exigida (ex.: 4h),
   // acima da tolerância diária; só paga se aprovado. Sem comparar horário. #fds-duracao
@@ -28111,16 +28178,15 @@ function _heMinDia(realDay, expectedDay, minContratados){
   }
   // Dia de trabalho: HE = excesso sobre a jornada esperada (ou mínimo contratual
   // se a escala não tiver horário projetado nesse dia). Só conta se aprovada.
-  const baseLiq = (expectedDay.entrada && expectedDay.saida) ? _liqMin(expectedDay) : minContratados;
   // heGraceMin: tolerância da escala (ex.: fds 5x2LIV até 15:30) — só vira HE o que
   // passar dela; até a tolerância é jornada normal. #fds-opcional-1530
-  const excesso = (realLiq - baseLiq) - (expectedDay.heGraceMin || 0);
+  const excesso = _excessoLiqDia(realDay, expectedDay, minContratados, emp);
   if(excesso <= 0) return 0;
   // Súmula 366 TST: divergências dentro da tolerância (≤5min/batida e ≤10min/dia)
   // NÃO contam — nem que tenham sido aprovadas numa sessão antiga. Sem isso,
   // a folha pagava HE "fantasma" desalinhada com a revisão (que filtra a
   // tolerância). Acima do limite, vale a decisão do gestor (aprovado/recusada).
-  const detec = _detectHEDivergencia(realDay, expectedDay);
+  const detec = _detectHEDivergencia(realDay, expectedDay, emp);
   if(!detec.precisaRevisao) return 0;
   return aprovado ? excesso : 0;
 }
@@ -28141,7 +28207,7 @@ function _heMinFromDias(emp, mes, ano, dias){
   dias.forEach(d => {
     if(!d || !d.entrada || !d.saida) return;
     const expectedDay = _getExpectedDayComp(emp, mes, ano, d.dia);
-    total += _heMinDia(d, expectedDay, minContratados);
+    total += _heMinDia(d, expectedDay, minContratados, emp);
   });
   return total;
 }
@@ -28198,15 +28264,16 @@ function _almocoSuprimidoDetectadoMin(d, exp, emp){
   // na revisão de HE (a proteção contra "esqueci de bater" segue de pé). #intervalo-vazio
   const _semIntervaloBatido = !d.intIni && !d.intFim;
   if(!_semIntervaloBatido && (!d.intIni || !d.intFim)) return 0;          // meia batida (só ida ou só volta): não dá pra apurar
-  if(emp && emp.semRefeicao) return 0;                                    // trabalha sozinho já recebe automático
-  if(!exp || exp.tipo==='folga' || !exp.entrada) return 0;
-  let mbE = timeToMinutes(exp.saida)-timeToMinutes(exp.entrada); if(mbE<=0) mbE+=24*60;
-  let contratualIntMin = _calcIntervaloMin(exp.intIni, exp.intFim, exp.entrada, exp.saida);
-  const is12x36 = escalaFamilia((emp&&emp.escala)||'5x2A')==='12x36';
-  if(((emp&&emp.semRefeicao)||is12x36) && contratualIntMin===0 && mbE>360) contratualIntMin = 60;
-  if(contratualIntMin<=0) return 0;
+  // Quem trabalha sozinho já recebe o almoço automático (naoRendMin) — nada a autorizar.
+  // O guard vive AQUI (pendência) e não no _intervaloDevidoMin (base de cálculo da HE).
+  const _semRef = emp ? !!emp.semRefeicao : !!(exp && exp.semRefeicao);
+  if(_semRef) return 0;
+  // 🔒 Devido = SÓ o trecho do intervalo contratual que a jornada cobriu. Quem saiu
+  // 11:59 com almoço 12:00→13:00 não tem almoço a suprimir. #ref-sobreposicao
+  const devido = _intervaloDevidoMin(d, exp, emp);
+  if(devido <= 0) return 0;
   const realInt = _calcIntervaloMin(d.intIni, d.intFim, d.entrada, d.saida);
-  const falta = contratualIntMin - realInt;
+  const falta = devido - realInt;
   return falta > HE_TOLERANCIA_DIA_MIN ? falta : 0;
 }
 
@@ -30090,7 +30157,7 @@ function printFolhaPonto(isPreview=false){
       const _detHE=_detectHEDivergencia(_bat, exp);
       if(_detHE.precisaRevisao && _detHE.totalMin>0){
         const _hrSt=(pontodia.heReview&&pontodia.heReview.status)||'';
-        const _heTxt=`${_hrSt==='recusada'?'HE recusada':'HE não autorizada'} · ${minutesToStr(_detHE.totalMin)}`;
+        const _heTxt=`${_hrSt==='recusado'?'HE recusada':'HE não autorizada'} · ${minutesToStr(_detHE.totalMin)}`;
         obsdia = obsdia ? (obsdia+' · '+_heTxt) : _heTxt;
       }
     }
@@ -30496,7 +30563,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
       const _detHE=_detectHEDivergencia(_bat, exp);
       if(_detHE.precisaRevisao && _detHE.totalMin>0){
         const _hrSt=(pontodia.heReview&&pontodia.heReview.status)||'';
-        const _heTxt=`${_hrSt==='recusada'?'HE recusada':'HE não autorizada'} · ${minutesToStr(_detHE.totalMin)}`;
+        const _heTxt=`${_hrSt==='recusado'?'HE recusada':'HE não autorizada'} · ${minutesToStr(_detHE.totalMin)}`;
         obsdia = obsdia ? (obsdia+' · '+_heTxt) : _heTxt;
       }
     }

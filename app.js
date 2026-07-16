@@ -11025,7 +11025,22 @@ async function corrigirFolhasDuplicadas(){
   (State.payrolls||[]).forEach(p=>{ if(p&&p.employeeId){ const k=`${p.employeeId}|${p.ano}|${p.mes}`; (porChave[k]=porChave[k]||[]).push(p); } });
   const temBatida=d=>!!(d&&(d.entrada||d.saida));
   const diasDe=p=>Array.isArray(p.pontoManualDias)?p.pontoManualDias.filter(temBatida).length:0;
-  const score=p=>(p.status==='fechada'?1e13:0)+(p.adiantamentoPagoExterno?1e12:0)+diasDe(p)*1e6+((Date.parse(p.updatedAt||p.createdAt)||0)/1e3);
+  const _ehDet=p=>String(p.id||'').startsWith('pay_');
+  // 🔒 Cada critério numa FAIXA que o de baixo não alcança. O score antigo somava
+  // `diasDe*1e6` com `updatedAt/1e3`: 1 dia de ponto = 1e6 e 1 dia de recência = 8.6e4,
+  // então ~12 dias de recência valiam 1 dia de ponto e os dois critérios brigavam de
+  // igual pra igual — a MESMA duplicata elegia folhas diferentes conforme o DIA em que
+  // se rodasse a correção.
+  // E faltava o critério decisivo: **id determinístico**. Sem ele o FANTASMA podia virar
+  // "principal" e a folha pay_ legítima ia pro aRemover — apagada. Como toda escrita nova
+  // aponta pro pay_ (#folha-fantasma-proibida), a próxima batida recriaria a folha e a
+  // duplicata voltaria: a correção nunca convergia. O pay_ é o destino canônico, e os dias
+  // das cópias são juntados nele — nada se perde por preferi-lo. #folha-id-deterministico
+  const score=p=>(p.status==='fechada'?1e18:0)          // folha fechada nunca é descartada
+                +(p.adiantamentoPagoExterno?1e16:0)     // adiantamento pago fora do sistema
+                +(_ehDet(p)?1e14:0)                     // id canônico pay_{emp}_{ano}_{mes}
+                +diasDe(p)*1e9                          // mais dias batidos (1 dia >> qualquer recência)
+                +((Date.parse(p.updatedAt||p.createdAt)||0)/1e3);   // desempate final: mais recente
   const nomeReg=p=>{ const e=(State.employees||[]).find(x=>x.id===p.employeeId)||{}; return `${e.nome||p.employeeId} (Matr ${e.registro?String(e.registro).padStart(4,'0'):'—'})`; };
   // Junta na folha principal os dias COM batida das cópias que faltam nela (não sobrescreve).
   const juntarDias=(principal, outras)=>{
@@ -11038,6 +11053,22 @@ async function corrigirFolhasDuplicadas(){
       if(!atual || !temBatida(atual)){ porDia.set(k, d); add++; }   // só preenche dia vazio/ausente na principal
     }));
     return { dias:[...porDia.values()].sort((a,b)=>(+a.dia)-(+b.dia)), add };
+  };
+  // Carrega na principal os campos que ela NÃO TEM e alguma cópia tem. Preferir o id
+  // determinístico não pode custar dado: se uma folha legada rica perder a disputa pra uma
+  // pay_ mais magra, os valores dela vêm junto. Só preenche chave AUSENTE — nunca
+  // sobrescreve valor existente, nem "corrige" zero pra não inventar lançamento.
+  // No caso comum é no-op: fantasma só tem id/employeeId/mes/ano/pontoManualDias/datas.
+  const _NAO_COPIAR=new Set(['id','employeeId','mes','ano','pontoManualDias','updatedAt','createdAt']);
+  const juntarCampos=(principal, outras)=>{
+    const campos={}; let n=0;
+    outras.forEach(p=>Object.keys(p||{}).forEach(k=>{
+      if(_NAO_COPIAR.has(k) || (k in principal) || (k in campos)) return;
+      const v=p[k];
+      if(v===undefined || v===null || v==='') return;
+      campos[k]=v; n++;
+    }));
+    return { campos, n };
   };
   const aRemover=[]; const aMesclar=[]; const corrigeTxt=[]; const manualTxt=[]; let nCasos=0;
   Object.values(porChave).forEach(arr=>{
@@ -11054,13 +11085,20 @@ async function corrigirFolhasDuplicadas(){
       return;
     }
     nCasos++;
-    if(copiasComPonto.length){
-      const j=juntarDias(principal, copias);
-      aMesclar.push({...principal, pontoManualDias:j.dias, diasTrabalhados:j.dias.filter(d=>d.entrada&&d.saida).length, updatedAt:new Date().toISOString()});
-      corrigeTxt.push(`• ${nomeReg(principal)} — ${comp}: ${dist.length} folhas [${diasArr.join(', ')}] → junta na principal (${diasDe(principal)}${j.add?` + ${j.add}`:''} dias) e remove ${copias.length} cópia(s)`);
-    } else {
-      corrigeTxt.push(`• ${nomeReg(principal)} — ${comp}: ${dist.length} folhas [${diasArr.join(', ')}] → mantém a de ${diasDe(principal)} dia(s), remove ${copias.length} cópia(s) vazia(s)`);
+    // Rótulo honesto do que se mantém e do que morre: FANTASMA (id aleatório, nasceu do
+    // bug do supervisor) vs canônica (pay_) vs legada (id antigo, anterior ao padrão).
+    const _rot=p=> _ehDet(p) ? 'canônica' : (p.diasTrabalhados===undefined && p.remuneracao===undefined ? 'FANTASMA' : 'legada');
+    const _desc=p=>`${_rot(p)} ${diasDe(p)}d`;
+    const nFant=copias.filter(p=>_rot(p)==='FANTASMA').length;
+    const j=juntarDias(principal, copias);
+    const jc=juntarCampos(principal, copias);
+    if(j.add || jc.n || principal.diasTrabalhados===undefined){
+      aMesclar.push({...principal, ...jc.campos, pontoManualDias:j.dias,
+        diasTrabalhados:j.dias.filter(d=>d.entrada&&d.saida).length, updatedAt:new Date().toISOString()});
     }
+    corrigeTxt.push(`• ${nomeReg(principal)} — ${comp}: mantém a ${_rot(principal)} (${principal.id})`
+      + ` com ${diasDe(principal)}${j.add?`+${j.add}`:''} dia(s)${jc.n?` e +${jc.n} campo(s) recuperado(s)`:''}`
+      + ` · remove ${copias.length} cópia(s) [${copias.map(_desc).join(', ')}]${nFant?` · ${nFant} FANTASMA`:''}`);
     aRemover.push(...copias);
   });
   if(!nCasos && !manualTxt.length){ toast('Nenhuma folha duplicada encontrada. 🎉','success'); return; }

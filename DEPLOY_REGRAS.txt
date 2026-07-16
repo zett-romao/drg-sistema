@@ -16,6 +16,21 @@ service cloud.firestore {
     function rColab()   { return isColab() && isRoot(); }
     function rStaff()   { return isStaff() && isRoot(); }
 
+    // 🔒 FOLHA FANTASMA NÃO PODE EXISTIR — trava de SERVIDOR (nenhum cliente burla).
+    // Folha NOVA só nasce com id determinístico pay_{employeeId}_{ano}_{mes2}: 1 colaborador
+    // + 1 competência = 1 documento. Antes o allow create passava direto pra rStaff() sem
+    // olhar o id, e por isso a gravação com id aleatório do supervisor.html nunca foi barrada
+    // — nascia folha sem diasTrabalhados/remuneracao ("undefined dias / R$ 0,00").
+    // Vale SÓ no create: folhas legadas (id antigo) já existem e continuam atualizáveis.
+    function folhaIdDet(id) {
+      return request.resource.data.keys().hasAll(['employeeId','mes','ano'])
+          && id == 'pay_' + string(request.resource.data.employeeId) + '_'
+                 + string(request.resource.data.ano) + '_'
+                 + (string(request.resource.data.mes).size() == 1
+                      ? '0' + string(request.resource.data.mes)
+                      : string(request.resource.data.mes));
+    }
+
     // só-servidor (Worker bypassa via conta de serviço)
     match /mfa/{d}            { allow read, write: if false; }
     match /users/{d}          { allow read, write: if false; }
@@ -24,9 +39,9 @@ service cloud.firestore {
     // folha: staff total; colaborador lê/cria/atualiza só a PRÓPRIA, e só campos de ponto/conferência
     match /payrolls/{id} {
       allow read:   if rStaff() || (rColab() && resource.data.employeeId == request.auth.token.empId);
-      allow create: if rStaff() || (rColab()
+      allow create: if folhaIdDet(id) && (rStaff() || (rColab()
                        && request.resource.data.employeeId == request.auth.token.empId
-                       && request.resource.data.keys().hasOnly(['id','employeeId','mes','ano','pontoManualDias','updatedAt','createdAt']));
+                       && request.resource.data.keys().hasOnly(['id','employeeId','mes','ano','pontoManualDias','updatedAt','createdAt'])));
       allow update: if rStaff() || (rColab()
                        && resource.data.employeeId == request.auth.token.empId
                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
@@ -187,7 +202,8 @@ service cloud.firestore {
 
       match /payrolls/{id} {
         allow read:   if meuTenant(t) && (isStaff() || (isColab() && resource.data.employeeId == request.auth.token.empId));
-        allow create: if meuTenant(t) && (isStaff() || (isColab()
+        // 🔒 folhaIdDet: folha nova só com id determinístico. Ver o helper no topo. #folha-fantasma-proibida
+        allow create: if meuTenant(t) && folhaIdDet(id) && (isStaff() || (isColab()
                          && request.resource.data.employeeId == request.auth.token.empId
                          && request.resource.data.keys().hasOnly(['id','employeeId','mes','ano','pontoManualDias','updatedAt','createdAt'])));
         allow update: if meuTenant(t) && (isStaff() || (isColab()

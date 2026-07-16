@@ -1,0 +1,13 @@
+Este repo NÃO usa Jekyll — é um app estático (HTML/JS puro). Sem _config.yml,
+sem layouts, sem front matter em lugar nenhum.
+
+Este arquivo faz o GitHub Pages PULAR o Jekyll e publicar os arquivos como estão.
+
+Por quê: em 2026-07-16 o "pages build and deployment" falhou no passo "Build with
+Jekyll" (run 29539778274, commit d356d7f) e o deploy não subiu — o botão novo não
+aparecia no ar e parecia cache do navegador. O Jekyll não agregava nada aqui e
+ainda mordia: ele interpreta {{ }} e {% %} como template (o app.js é cheio de
+template literal `${...}` e de chaves) e trata arquivos iniciados com _ como
+especiais. Publicar direto é mais rápido e remove essa classe inteira de falha.
+
+Se um dia este projeto for usar Jekyll de verdade, apague este arquivo.

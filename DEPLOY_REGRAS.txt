@@ -187,7 +187,16 @@ service cloud.firestore {
                      'solicitacoesPagamento','autorizacoesPonto','holeritesEnviados','accessLog','employees',
                      'saidas','disciplina']);
     }
-    match /{col}/{id}/{rest=**} {
+    // 🔒 SUBCOLEÇÕES — e SÓ subcoleções. Era `/{col}/{id}/{rest=**}`, mas em
+    // rules_version='2' o wildcard recursivo casa ZERO ou mais segmentos: aquilo casava o
+    // PRÓPRIO documento `/payrolls/xxx`. E como regra do Firestore é OR entre os `match`,
+    // ela CONCEDIA write e anulava a lista de exclusão logo acima — que virava decoração.
+    // Estragos reais: (a) folha fantasma passava mesmo com folhaIdDet no create;
+    // (b) staff podia UPDATE/DELETE em accessLog, que tem `allow update, delete: if false`
+    // justamente pra auditoria ser append-only. As 13 coleções da lista têm regra própria
+    // (conferido), então cada uma volta a obedecer só a sua. #folha-fantasma-proibida
+    // 4 segmentos mínimos = doc de subcoleção; nunca o doc pai.
+    match /{col}/{id}/{sub}/{subid}/{rest=**} {
       allow read, write: if rStaff() && col != 'mfa' && col != 'users' && col != 'tenants';
     }
 
@@ -317,7 +326,10 @@ service cloud.firestore {
                        'solicitacoesPagamento','autorizacoesPonto','holeritesEnviados','accessLog','employees',
                        'saidas','disciplina']);
       }
-      match /{col}/{id}/{rest=**} {
+      // 🔒 SUBCOLEÇÕES — e SÓ subcoleções. Mesmo furo do bloco raiz: `{rest=**}` casa zero
+      // segmentos em rules_version='2', então isto casava `/tenants/{t}/payrolls/xxx` e,
+      // por OR, concedia write anulando a exclusão acima. #folha-fantasma-proibida
+      match /{col}/{id}/{sub}/{subid}/{rest=**} {
         allow read, write: if meuTenant(t) && isStaff() && col != 'mfa' && col != 'users';
       }
     }

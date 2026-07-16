@@ -2712,8 +2712,10 @@
               <input type="date" id="adiant-schedule-date" onchange="_adiantScheduleChanged()" title="Deixe vazio para pagar hoje. Com uma data futura, o PIX é aprovado agora (2FA) e o banco (Asaas) solta o pagamento na data escolhida." style="font-weight:600;padding:4px 8px;border:1px solid #cbd5e1;border-radius:6px">
               <button class="btn btn-primary btn-sm" onclick="pagarAdiantamentosLote()"><i class="fa-solid fa-money-bill-transfer"></i> Pagar selecionados</button>
               <button class="btn btn-sm" onclick="marcarPagoExternoLote()" style="background:#00695C;color:#fff;border:none"><i class="fa-solid fa-circle-check"></i> Pago fora selecionados</button>
-              <button class="btn btn-sm" onclick="corrigirFolhasDuplicadas()" style="background:#6A1B9A;color:#fff;border:none" title="Corrigir folhas duplicadas (todos os meses): varre TODAS as competências e corrige folhas duplicadas (mesmo colaborador com 2+ folhas no mesmo mês). Mantém a mais completa, remove as cópias, NÃO apaga o colaborador. Casos com ponto em 2 folhas ficam para revisão manual. Mostra preview antes."><i class="fa-solid fa-wand-magic-sparkles"></i> Corrigir duplicadas</button>
-              <button class="btn btn-sm" onclick="restaurarColabsApagados()" style="background:#1565C0;color:#fff;border:none" title="Restaurar colaboradores apagados: recupera colaboradores apagados por engano a partir de um arquivo de BACKUP (JSON). Só ADICIONA de volta quem sumiu — não altera nada do que existe hoje."><i class="fa-solid fa-rotate-left"></i> Restaurar apagados</button>
+              <!-- "Corrigir duplicadas" e "Restaurar apagados" saíram daqui → Configurações ▸
+                   Manutenção. Nenhum dos dois tem a ver com adiantamento: varrem TODAS as
+                   competências e mexem em folha/colaborador. Estavam aqui só por acidente de
+                   história (corrigirFolhasDuplicadas termina chamando renderAdiantamentos). -->
               <span id="adiant-schedule-hint" style="font-size:11px;color:#1565C0;font-weight:600;flex-basis:100%"></span>
             </div>
           </div>
@@ -2785,6 +2787,22 @@
           <h2>Configurações</h2>
           <p>Dados da empresa exibidos no sistema e nos documentos impressos</p>
         </div>
+        <!-- Ferramentas de MANUTENÇÃO. Vieram de Adiantamentos, onde ninguém as acharia e
+             onde não faziam sentido nenhum (varrem todas as competências e mexem em
+             folha/colaborador). Ambas são de varredura global e mostram preview antes de
+             agir — por isso vivem juntas e longe da operação do dia a dia. -->
+        <div class="card" style="max-width:680px;margin-bottom:18px">
+          <div class="card-header">
+            <h3><i class="fa-solid fa-screwdriver-wrench" style="color:#6A1B9A"></i> Manutenção</h3>
+          </div>
+          <p style="font-size:12px;color:#64748b;margin:0 0 12px">Ferramentas de varredura global. As duas mostram um <strong>preview</strong> e só agem depois que você confirmar.</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-sm" onclick="corrigirFolhasDuplicadas()" style="background:#6A1B9A;color:#fff;border:none" title="Corrigir folhas duplicadas (todos os meses): varre TODAS as competências e corrige folhas duplicadas (mesmo colaborador com 2+ folhas no mesmo mês). Mantém a folha canônica (id pay_), junta nela os dias das cópias, remove as cópias. NÃO apaga o colaborador. Folha fechada com cópia que tem ponto fica para revisão manual. Mostra preview antes."><i class="fa-solid fa-wand-magic-sparkles"></i> Corrigir folhas duplicadas</button>
+            <button class="btn btn-sm" onclick="restaurarColabsApagados()" style="background:#1565C0;color:#fff;border:none" title="Restaurar colaboradores apagados: recupera colaboradores apagados por engano a partir de um arquivo de BACKUP (JSON). Só ADICIONA de volta quem sumiu — não altera nada do que existe hoje."><i class="fa-solid fa-rotate-left"></i> Restaurar colaboradores apagados</button>
+          </div>
+          <p style="font-size:11px;color:#94a3b8;margin:10px 0 0">Duplicadas: mantém a folha de id canônico <code>pay_{colaborador}_{ano}_{mês}</code>, junta nela os dias das cópias e remove o resto. Folha fechada nunca é descartada.</p>
+        </div>
+
         <div class="card" style="max-width:680px;margin-bottom:18px">
           <div class="card-header">
             <h3><i class="fa-solid fa-link" style="color:#1565C0"></i> Links de Acesso</h3>
@@ -7873,6 +7891,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260716e-dedup-converge"></script>
+  <script src="app.js?v=20260716f-manutencao"></script>
 </body>
 </html>

@@ -11123,6 +11123,11 @@ async function corrigirFolhasDuplicadas(){
   }
   Auth.log('PAYROLL_DEDUP', null, `Folhas duplicadas: ${nCasos} caso(s), ${okM} mescladas, ${okR} removidas; ${manualTxt.length} p/ conferência manual`);
   toast(`Pronto: ${nCasos} caso(s) corrigido(s) (${okR} cópia(s) removida(s))${err?` · ${err} erro(s)`:''}.${manualTxt.length?` ${manualTxt.length} caso(s) de folha fechada p/ conferir.`:''}`, 'success');
+  // A varredura mexe em FOLHA, não em adiantamento: repinta o que de fato mudou. O
+  // renderAdiantamentos era resquício de quando o botão morava lá (hoje em
+  // Configurações ▸ Manutenção) — fica só porque a tela pode estar aberta.
+  try{ if(typeof renderDashboard==='function') renderDashboard(); }catch(_){}
+  try{ if(typeof renderPayrollHistory==='function' && val('payroll-employee')) renderPayrollHistory(val('payroll-employee')); }catch(_){}
   if(typeof renderAdiantamentos==='function') renderAdiantamentos();
 }
 // Lupa: filtra a lista por nome / matrícula / setor / posto (ignora acento).

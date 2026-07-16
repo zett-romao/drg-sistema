@@ -6169,7 +6169,10 @@ function _apuracaoPontoTotais(emp, p){
     // HE = SÓ a AUTORIZADA — mesma fonte (_heMinDia) que o pagamento usa; HE não
     // aprovada na revisão não entra na apuração. Atraso/ref.não rendida seguem pelo déficit. #he-autorizada-folha
     if(temBatida){ out.extraMin += _heMinDia({...(_bat||{}), heReview: pd.heReview}, exp, _MCa); }
-    if(!ehFolga&&temBatida){ const _ir=_calcIntervaloMin(intIni,intFim,entrada,saida); const delta=(is12x36||_usaFdsLivreResolve(emp.escala))?((minLiq+_ir)-(prevMin+contratualIntMin)):(minLiq-prevMin); if(delta<0&&Math.abs(delta)>HE_TOLERANCIA_DIA_MIN){ out.atrasoMin+=-delta; } const _nr=Math.max(0,contratualIntMin-_ir); out.naoRendMin+=(_nr>HE_TOLERANCIA_DIA_MIN?_nr:0); }   /* ref. não rendida só conta acima da tolerância 10min/dia (Súmula 366). #ref-tolerancia */
+    /* Suspensão NÃO é atraso: o dia suspenso é descontado pelo módulo Saídas (_saidaTotais),
+       que sabe pular folga e respeitar o teto de 30 dias (Art. 474). Sem este guard a folha
+       descontava o MESMO dia duas vezes — como atraso e como saída não abonada. #susp-ponto */
+    if(!ehFolga&&temBatida){ const _ir=_calcIntervaloMin(intIni,intFim,entrada,saida); const delta=(is12x36||_usaFdsLivreResolve(emp.escala))?((minLiq+_ir)-(prevMin+contratualIntMin)):(minLiq-prevMin); if(delta<0&&Math.abs(delta)>HE_TOLERANCIA_DIA_MIN&&!_diaSuspenso(emp.id,mes,ano,d)){ out.atrasoMin+=-delta; } const _nr=Math.max(0,contratualIntMin-_ir); out.naoRendMin+=(_nr>HE_TOLERANCIA_DIA_MIN?_nr:0); }   /* ref. não rendida só conta acima da tolerância 10min/dia (Súmula 366). #ref-tolerancia */
     else if(!ehFolga&&!temBatida&&temPonto&&_diaEmBrancoEhFalta(emp,cd.mes,cd.ano,d,isWknd,is12x36)){ out.faltaMin+=prevMin; out.faltaQtd++; }
     out.trabMin+=(minLiq>0?minLiq:0); out.prevMin+=prevMin;
     // Dia TRABALHADO (com batida) em que se cumpriu menos de 50% da jornada prevista —
@@ -19793,6 +19796,16 @@ async function enviarComunicacao(){
   if(_comuCorpoVazio()){ toast('Escreva a mensagem.','warning'); return; }
   const corpo=_comuGetCorpo();
   const tipo=(val('comu-tipo')||'normal').toLowerCase();
+  // 🔒 SUSPENSÃO SÓ PELO BOTÃO "Suspender" (aplicarSuspensao). Este caminho criava
+  // `disciplina` + `comunicacoes` SEM dataSuspensao/horarioSaida e SEM gravar em `saidas`
+  // — ou seja, uma suspensão que não trava batida, não lança saída no ponto e NÃO
+  // DESCONTA. Suspensão fantasma: existe no dossiê e não existe na folha. Caminho único
+  // agora, porque quem determina a suspensão é o lançamento — e lançamento sem efeito é
+  // pior que lançamento nenhum. #susp-caminho-unico
+  if(tipo==='suspensao'){
+    toast('Suspensão não se registra por aqui — use o botão "Suspender" na aba Disciplina. Só por lá a hora do ato lança a saída no ponto, trava a batida e desconta na folha.','error');
+    return;
+  }
   const ehDisciplina = (tipo==='advertencia' || tipo==='suspensao');
   const fi=document.getElementById('comu-anexo');
   const file=fi && fi.files && fi.files[0] ? fi.files[0] : null;
@@ -28414,12 +28427,53 @@ async function openPontoManual(){
       });
     });
   }
+  // 🔒 Suspensão disciplinar: a hora do ato vira a saída do dia. Vem depois do preenchimento
+  // pelo payroll salvo justamente pra respeitar batida existente. #susp-ponto
+  try{ _aplicarSuspensoesNaGrade(empId, mes, ano); }catch(e){ console.warn('suspensao na grade', e); }
   // Mostrar resumo
   document.getElementById('ponto-manual-resumo').style.display='flex';
   calcResumoManual();
   document.getElementById('modal-ponto-manual').classList.remove('hidden');
   // Painel "Ajustes de escala" — mesma fonte de dados da aba Horários. #ajuste-escala-ponto
   try{ _renderAjustesEscalaPonto(val('payroll-employee')); }catch(_){}
+}
+
+// 🔒 SUSPENSÃO DISCIPLINAR × PONTO — dono único do fato: a coleção `saidas`.
+// Quem determina a suspensão é o LANÇAMENTO no cadastro, não a visualização/aceite do
+// colaborador (o `visualizadoEm` é rótulo de rastreabilidade, nunca condição de efeito).
+// A hora do ato É a saída daquele dia no ponto: o colaborador foi mandado embora às 10:00,
+// não tem como bater a saída. Isto é DERIVADO na leitura, não gravado em pontoManualDias:
+//  - `saidas` já é dono do fato E do desconto (_saidaTotais sabe pular folga, respeitar o
+//    teto de 30 dias do Art. 474 e abater a refeição) — gravar também no ponto criaria uma
+//    2ª fonte pra mesma verdade, que é como nasceu o pagamento em dobro do intervalo;
+//  - vale RETROATIVO: suspensão já aplicada aparece sozinha, sem migration;
+//  - não cria folha fantasma numa competência que ainda nem existe.
+// #susp-ponto
+function _suspensaoDoDia(empId, mes, ano, dia){
+  if(!empId || !dia) return null;
+  return (State.saidas||[]).find(s => s && s.tipo==='suspensao' && s.employeeId===empId
+    && s.mes==mes && s.ano==ano && s.dia==dia) || null;
+}
+// O dia está coberto por suspensão? Usado pra o ATRASO pular o dia: quem desconta a
+// suspensão é o `saidas` (_saidaTotais). Sem este guard a folha descontaria DUAS vezes —
+// uma como atraso do ponto, outra como saída não abonada. #susp-ponto
+function _diaSuspenso(empId, mes, ano, dia){
+  return !!_suspensaoDoDia(empId, mes, ano, dia);
+}
+// Preenche a saída dos dias suspensos na grade do Ponto Manual. NUNCA sobrescreve batida
+// existente — se o colaborador bateu, a batida dele é a verdade. #susp-ponto
+function _aplicarSuspensoesNaGrade(empId, mes, ano){
+  (State.saidas||[]).forEach(s=>{
+    if(!s || s.tipo!=='suspensao' || s.employeeId!==empId || s.mes!=mes || s.ano!=ano) return;
+    if(!s.horarioSaida) return;
+    const card=document.querySelector(`#ponto-manual-grid [data-dia="${s.dia}"]`);
+    if(!card) return;
+    const saiEl=card.querySelector('.pm-saida');
+    if(!saiEl || saiEl.value) return;                 // já tem batida → não mexe
+    saiEl.value=s.horarioSaida;
+    saiEl.dataset.origem='suspensao';
+    try{ _updatePontoOrigemMarker(saiEl); }catch(_){}
+  });
 }
 
 function _getPontoManualCards(){
@@ -28447,6 +28501,15 @@ function _updatePontoOrigemMarker(input){
   if(existing) existing.remove();
   if(!input.value) return;
   const origem = input.dataset.origem;
+  if(origem === 'suspensao'){
+    const mark = document.createElement('span');
+    mark.className = 'pm-origem-mark';
+    mark.title = 'Saída lançada automaticamente pela SUSPENSÃO DISCIPLINAR (hora do ato). O desconto vem pelo módulo Saídas — não conta como atraso.';
+    mark.textContent = '⛔';
+    mark.style.cssText = 'font-size:11px;margin-left:4px;vertical-align:middle';
+    parent.appendChild(mark);
+    return;
+  }
   if(origem === 'manual'){
     const mark = document.createElement('span');
     mark.className = 'pm-origem-mark';
@@ -28735,7 +28798,8 @@ function calcResumoManual(){
         let _atrasoDiaBadge=0;
         if(expectedDay && expectedDay.tipo!=='folga' && expectedDay.entrada && expectedDay.saida){
           const faltaDia = (is12x36||_usaFdsLivreResolve(emp.escala)) ? (_presencaMin(expectedDay)-_presencaMin(realDay)) : (_liqMin(expectedDay)-effLiq);
-          if(faltaDia>HE_TOLERANCIA_DIA_MIN){ totalAtrasoMin+=faltaDia; _atrasoDiaBadge=Math.round(faltaDia); }
+          // Suspensão não vira atraso nem badge — o desconto é do módulo Saídas. #susp-ponto
+          if(faltaDia>HE_TOLERANCIA_DIA_MIN && !_diaSuspenso(emp&&emp.id, mes, ano, dia)){ totalAtrasoMin+=faltaDia; _atrasoDiaBadge=Math.round(faltaDia); }
         }
         _updateAtrasoBadge(card, _atrasoDiaBadge);   // aviso visual por dia (>10min). #atraso-badge-manual
         const detec=_detectHEDivergencia(realDay,expectedDay);
@@ -30118,7 +30182,9 @@ function printFolhaPonto(isPreview=false){
       // Plantão 12x36: jornada sem horário fixo, com 60min de refeição DENTRO → atraso
       // pela PRESENÇA (jornada cumprida), não pelo líquido, senão fazer o almoço viraria atraso. #plantao-refeicao
       const delta = (is12x36||_usaFdsLivreResolve(emp.escala)) ? ((minLiq+realIntMin)-(prevMin+contratualIntMin)) : (minLiq - prevMin);
-      if(delta < 0 && Math.abs(delta) > HE_TOLERANCIA_DIA_MIN) atrasoMin = -delta;   // atraso = déficit acima da tolerância (Súmula 366)
+      // Suspensão NÃO é atraso: quem desconta o dia suspenso é o módulo Saídas
+      // (_saidaTotais). Sem este guard a folha descontava 2x o mesmo dia. #susp-ponto
+      if(delta < 0 && Math.abs(delta) > HE_TOLERANCIA_DIA_MIN && !_diaSuspenso(emp.id, mes, ano, d)) atrasoMin = -delta;   // atraso = déficit acima da tolerância (Súmula 366)
       const _nrShort = Math.max(0, contratualIntMin - realIntMin);
       naoRendMin = (_nrShort > HE_TOLERANCIA_DIA_MIN) ? _nrShort : 0;   // tolerância 10min/dia (Súmula 366) — resíduo de poucos min não conta. #ref-tolerancia
     } else if(!ehFolga && !temBatida && _diaEmBrancoEhFalta(emp,cd.mes,cd.ano,d,isWknd,is12x36)){
@@ -30522,7 +30588,9 @@ function _buildFolhaHtmlFromRecord(emp, p){
     if(temBatida) extraMin = _heMinDia({..._bat, heReview: pontodia.heReview}, exp, _MC);
     if(!ehFolga && temBatida){
       const delta = minLiq - prevMin;
-      if(delta < 0 && Math.abs(delta) > HE_TOLERANCIA_DIA_MIN) atrasoMin = -delta;   // atraso = déficit acima da tolerância (Súmula 366)
+      // Suspensão NÃO é atraso: quem desconta o dia suspenso é o módulo Saídas
+      // (_saidaTotais). Sem este guard a folha descontava 2x o mesmo dia. #susp-ponto
+      if(delta < 0 && Math.abs(delta) > HE_TOLERANCIA_DIA_MIN && !_diaSuspenso(emp.id, mes, ano, d)) atrasoMin = -delta;   // atraso = déficit acima da tolerância (Súmula 366)
       // Refeição não rendida = intervalo contratual − intervalo realmente tirado
       const realIntMin = _calcIntervaloMin(intIni,intFim,entrada,saida);
       const _nrShort = Math.max(0, contratualIntMin - realIntMin);

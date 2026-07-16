@@ -66,6 +66,17 @@
   .card-meta{display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;color:#475569;margin-top:6px;background:#f8fafc;padding:9px;border-radius:8px}
   .card-meta strong{color:#1e293b;display:block;font-size:14px;font-weight:700}
   .card-meta small{font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;font-weight:600}
+  /* Dia inteiro do pedido — o supervisor decide vendo o dia, nunca a batida solta. #autz-dia-inteiro */
+  .card-dia{margin-top:7px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden}
+  .card-dia-head{background:#f1f5f9;padding:6px 9px;font-size:12px;font-weight:700;color:#334155}
+  .dia-tab{width:100%;border-collapse:collapse;font-size:12px}
+  .dia-tab th{font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:#94a3b8;font-weight:600;padding:4px 9px;text-align:left}
+  .dia-tab td{padding:4px 9px;border-top:1px solid #f1f5f9}
+  .dia-lbl{color:#64748b;white-space:nowrap}
+  .dia-real{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .dia-prev{color:#94a3b8;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .dia-nota{font-size:11px;font-weight:600}
+  @media(max-width:520px){ .dia-tab{font-size:11px} .dia-tab td,.dia-tab th{padding:4px 6px} .dia-nota{font-size:10px} }
   .card-motivo{margin-top:7px;background:#fffbeb;border:1px solid #fde68a;border-radius:7px;padding:7px 9px;font-size:12px;color:#713f12;line-height:1.45}
   .card-motivo strong{color:#92400e}
   .card-tempo{font-size:11px;color:#64748b;margin-top:7px}
@@ -604,6 +615,9 @@ function iniciarListenerPedidos(){
       // Ordena: mais antigos primeiro (FIFO)
       pedidos.sort((a,b)=>(a.tentativaEm||'').localeCompare(b.tentativaEm||''));
       renderPedidos();
+      // Pinta já (sem travar o listener) e repinta com o dia inteiro assim que as folhas
+      // chegam. Se a leitura falhar, o card fica sem o bloco — nunca sem o pedido. #autz-dia-inteiro
+      _carregarDiasDosPedidos().then(renderPedidos).catch(()=>{});
       _renderSomBtn();
       if(_avisoNovidade(pedidos.map(p=>p.id))) _tocarBip();   // bip em PEDIDO novo. #som-avisos
     }, err => {
@@ -700,6 +714,87 @@ function _diffLabelSup(tipoBatida, diff){
   return maisTrab ? `−${a} min (saiu antes)` : `−${a} min adiantado`;
 }
 
+// ─── DIA INTEIRO DO PEDIDO ─────────────────────────────────────────────────
+// 🔒 O supervisor decide vendo o DIA, nunca a batida solta. Sem isto o card mostrava
+// só "Fim do intervalo 19:00 · previsto 13:06 · +354min" — e não dava pra saber se a
+// pessoa bateu a entrada, se bateu o início do almoço, nem se já saiu. Decidir assim é
+// decidir no escuro (caso Edivania 15/07: pediu fim do intervalo dizendo que esqueceu a
+// ENTRADA do almoço — a correção certa depende de quais batidas existem). #autz-dia-inteiro
+const TIPOS_BATIDA = ['entrada','intIni','intFim','saida'];
+let _diasCache = {};                       // `${empId}_${mes}_${ano}` → pontoManualDias[]
+const _diaKey = (e,m,a) => `${e}_${m}_${a}`;
+
+// Busca as folhas das competências dos pedidos pendentes (1 leitura por colaborador/comp).
+// As batidas do pedido AINDA NÃO estão na folha (só entram ao autorizar), então o que
+// aparece aqui é o que já foi batido/autorizado antes — exatamente o contexto que falta.
+async function _carregarDiasDosPedidos(){
+  const chaves = {};
+  pedidos.forEach(p => {
+    if(!p.employeeId || !p.mesComp || !p.anoComp) return;
+    chaves[_diaKey(p.employeeId, p.mesComp, p.anoComp)] = p;
+  });
+  const faltando = Object.keys(chaves).filter(k => !(k in _diasCache));
+  await Promise.all(faltando.map(async k => {
+    const p = chaves[k];
+    try{
+      const snap = await dbCol('payrolls')
+        .where('employeeId','==',p.employeeId).where('mes','==',p.mesComp).where('ano','==',p.anoComp).get();
+      _diasCache[k] = snap.empty ? [] : ((_pickPayrollDoc(snap.docs).pontoManualDias)||[]);
+    }catch(e){ console.warn('dias do pedido', e); _diasCache[k] = []; }   // degrada: card sem o bloco, nunca quebra
+  }));
+}
+
+function _diaDoPedido(p){
+  const arr = _diasCache[_diaKey(p.employeeId, p.mesComp, p.anoComp)];
+  if(!Array.isArray(arr)) return null;
+  return arr.find(d => d.dia === p.diaBatida) || {};
+}
+
+const _DIAS_SEM = ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'];
+function _dataDoPedido(p){
+  if(!p.mesComp || !p.anoComp || !p.diaBatida) return '';
+  const r = _compRealSup(p.mesComp, p.anoComp, p.diaBatida);
+  const dt = new Date(r.ano, r.mes-1, r.dia);
+  const dd = String(r.dia).padStart(2,'0'), mm = String(r.mes).padStart(2,'0');
+  return `${_DIAS_SEM[dt.getDay()]||''}, ${dd}/${mm}/${r.ano}`;
+}
+
+// Tabela das 4 batidas do dia: real × previsto. Marca a que está sendo pedida (←),
+// as que faltam (—) e as que têm OUTRO pedido pendente no mesmo dia.
+function _blocoDiaInteiro(p, emp){
+  const dia = _diaDoPedido(p);
+  if(!dia) return '';   // sem cache (erro de leitura) → não inventa; some o bloco
+  const outros = {};
+  pedidos.forEach(x => {
+    if(x.id===p.id || x.employeeId!==p.employeeId) return;
+    if(x.diaBatida!==p.diaBatida || x.mesComp!==p.mesComp || x.anoComp!==p.anoComp) return;
+    outros[x.tipoBatida] = x.horarioReal || '';
+  });
+  const linhas = TIPOS_BATIDA.map(t => {
+    const ehEste  = (t === p.tipoBatida);
+    const prev    = _previstoDoDiaSup(emp, p.mesComp, p.anoComp, p.diaBatida, t) || '';
+    const real    = ehEste ? (p.horarioReal||'') : (dia[t] || '');
+    let nota = '', cor = '#1e293b';
+    if(ehEste){ nota = '← este pedido'; cor = '#1976D2'; }
+    else if(outros[t]){ nota = '⏳ outro pedido pendente'; cor = '#E65100'; }
+    else if(!real && prev){ nota = '⚠ não batido'; cor = '#c62828'; }
+    return `<tr${ehEste?' style="background:#e3f2fd"':''}>
+      <td class="dia-lbl">${NOMES_BATIDA[t]}</td>
+      <td class="dia-real" style="color:${cor}">${real || (outros[t] ? outros[t] : '—')}</td>
+      <td class="dia-prev">${prev || '—'}</td>
+      <td class="dia-nota" style="color:${cor}">${nota}</td>
+    </tr>`;
+  }).join('');
+  return `
+    <div class="card-dia">
+      <div class="card-dia-head">📅 ${_dataDoPedido(p)}</div>
+      <table class="dia-tab">
+        <tr><th></th><th>Batido</th><th>Previsto</th><th></th></tr>
+        ${linhas}
+      </table>
+    </div>`;
+}
+
 function _cardPedido(p){
   const ehFolga = p.tipoBloqueio === 'folga' || p.ehFolga;
   const nomeBat = NOMES_BATIDA[p.tipoBatida] || p.tipoBatida;
@@ -748,6 +843,7 @@ function _cardPedido(p){
           <strong style="color:${diffCor}">${diffTxt}</strong>
         </div>` : ''}
       </div>
+      ${_blocoDiaInteiro(p, _empSup)}
       ${motivoBox}
       <div class="card-tempo">⏱ Solicitado ${fmtMinAtras(p.tentativaEm)}</div>
       <div class="card-actions">
@@ -792,6 +888,7 @@ async function _gravarBatidaNaFolha(p, horarioEfetivo){
     id:docId, employeeId:empId, mes, ano, pontoManualDias:dias,
     updatedAt:new Date().toISOString(), createdAt
   }, { merge:true });
+  delete _diasCache[_diaKey(empId, mes, ano)];   // a folha mudou → o bloco do dia recarrega. #autz-dia-inteiro
 }
 
 async function autorizarPedido(pedidoId){

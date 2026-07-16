@@ -86,6 +86,7 @@ const DB = {
   async save(col, record) {
     const ref = this.col(col); if (!ref) return;
     _dbAssertWrite(col);
+    if (col === 'payrolls') _assertPayrollId(record, 'DB.save');   // 🔒 #folha-fantasma-proibida
     await ref.doc(record.id).set(record);
   },
 
@@ -93,6 +94,7 @@ const DB = {
   async merge(col, id, data) {
     const ref = this.col(col); if (!ref) return;
     _dbAssertWrite(col);
+    if (col === 'payrolls') _assertPayrollId({ ...data, id }, 'DB.merge');   // 🔒 #folha-fantasma-proibida
     await ref.doc(id).set(data, {merge: true});
   },
 
@@ -151,13 +153,17 @@ const DB = {
 
       if (emp.length + pay.length + usr.length === 0) return false;
 
-      const tasks = [
-        ...emp.map(r => this.save('employees', r)),
-        ...pay.map(r => this.save('payrolls',  r)),
-        ...usr.map(r => this.save('users',     r)),
-        ...log.slice(0, 200).map(r => this.save('accessLog', r))
-      ];
-      await Promise.all(tasks);
+      // Migração localStorage→Firestore: ids vêm do snapshot local, não são inventados
+      // agora. Folha com id antigo passa e é contada. #folha-fantasma-proibida
+      await _comRestauracaoDeFolhas(async () => {
+        const tasks = [
+          ...emp.map(r => this.save('employees', r)),
+          ...pay.map(r => this.save('payrolls',  r)),
+          ...usr.map(r => this.save('users',     r)),
+          ...log.slice(0, 200).map(r => this.save('accessLog', r))
+        ];
+        await Promise.all(tasks);
+      });
 
       ['drg_employees','drg_payrolls','drg_users','drg_access_log'].forEach(k =>
         localStorage.removeItem(k)
@@ -3880,12 +3886,17 @@ function importDatabase(event){
         try {
           // `users` NÃO é restaurado por backup — é coleção só-servidor,
           // gerida pelo Worker (criação/edição via /usuarios/*).
-          const tasks=[
-            ...backup.employees.map(r=>DB.save('employees',r)),
-            ...backup.payrolls.map(r=>DB.save('payrolls',r)),
-            ...(backup.accessLog||[]).slice(0,200).map(r=>DB.save('accessLog',r))
-          ];
-          await Promise.all(tasks);
+          // Restauração de snapshot: os ids vêm do arquivo. Folha com id antigo (fora do
+          // padrão pay_) passa e é CONTADA — restaurar backup velho é a única porta que
+          // reintroduz fantasma. #folha-fantasma-proibida
+          await _comRestauracaoDeFolhas(async () => {
+            const tasks=[
+              ...backup.employees.map(r=>DB.save('employees',r)),
+              ...backup.payrolls.map(r=>DB.save('payrolls',r)),
+              ...(backup.accessLog||[]).slice(0,200).map(r=>DB.save('accessLog',r))
+            ];
+            await Promise.all(tasks);
+          });
           closeModal('modal-confirm');
           Auth.log('BACKUP_IMPORT',null,file.name);
           toast(`Importado: ${empCount} colaboradores, ${payCount} lançamentos.`);
@@ -4240,7 +4251,7 @@ function renderDashboard(){
       return `<div class="recent-item">
         <div class="recent-avatar">${initials(emp.nome)}</div>
         <div><div class="recent-name">${emp.nome}</div>
-             <div class="recent-period">${MESES[p.mes]}/${p.ano} — ${p.diasTrabalhados}d / ${totalFaltas} falta(s)</div></div>
+             <div class="recent-period">${MESES[p.mes]}/${p.ano} — ${p.diasTrabalhados||0}d / ${totalFaltas} falta(s)</div></div>
         <div class="recent-value">${fmtMoney(p.remuneracao)}</div>
       </div>`;
     }).join('');
@@ -14617,7 +14628,7 @@ function renderPayrollHistory(empId){
     return `<div class="history-item" onclick="loadPayrollRecord('${p.id}')">
       <div class="history-period">${MESES[p.mes].substr(0,3)}/${p.ano}</div>
       <div class="history-info">
-        <div class="h-name">${p.diasTrabalhados} dias / ${totalFaltas} falta(s)</div>
+        <div class="h-name">${p.diasTrabalhados||0} dias / ${totalFaltas} falta(s)</div>
         <div class="h-sub">Remun.: ${fmtMoney(p.remuneracao)}</div>
       </div>
       <div class="history-actions">
@@ -33485,6 +33496,58 @@ function _dbAssertWrite(col){
   if(!mod || !Auth.currentUser || canEditModule(mod)) return;
   toast('Seu perfil é somente de visualização — esta alteração não é permitida.','error');
   const err=new Error('view-only'); err._viewOnly=true; throw err;
+}
+
+// 🔒 FOLHA FANTASMA NÃO PODE EXISTIR — trava central, no caminho de escrita.
+// Toda folha DEVE ter id determinístico `pay_{employeeId}_{ano}_{mes2}` (_payrollId), pra
+// que 1 colaborador + 1 competência = 1 documento, sempre. Folha com id aleatório nasce
+// SEM `diasTrabalhados`/`remuneracao` (o criador só grava batidas) e vira a linha
+// "undefined dias / 0 falta(s) — R$ 0,00" no histórico; pior, ela concorre com a folha
+// legítima e pode até VENCER na hora de escolher qual ler.
+// Isto é uma ASSERTION, não um saneamento: quem chamar errado QUEBRA, alto e na hora, em
+// vez de corromper o banco em silêncio. Só assim a regra para de depender de cada
+// callsite lembrar dela. #folha-id-deterministico #folha-fantasma-proibida
+// Compatibilidade: folhas ANTIGAS com id genId continuam válidas e graváveis — são achadas
+// por employeeId+mes+ano. A trava só barra a CRIAÇÃO de id novo fora do padrão, e por isso
+// exige que o id de um doc não-`pay_` já exista no State (i.e. veio do banco, não do nada).
+function _assertPayrollId(record, origem){
+  if(!record || !record.id) throw new Error(`[folha] gravação sem id (${origem})`);
+  const id = String(record.id);
+  if(id.startsWith('pay_')){
+    // Id determinístico: confere que bate com o próprio conteúdo do doc (pega troca de
+    // employeeId/competência num spread mal feito, que geraria folha no lugar errado).
+    if(record.employeeId && record.mes && record.ano){
+      const esperado = _payrollId(record.employeeId, record.mes, record.ano);
+      if(id !== esperado)
+        throw new Error(`[folha] id não bate com a competência do doc (${origem}): ${id} ≠ ${esperado}`);
+    }
+    return;
+  }
+  // Restauração de snapshot (import de backup / migração localStorage→Firestore): os ids
+  // vêm de um arquivo, não são inventados agora. Barrar aqui quebraria restaurar folha
+  // legada legítima (o State ainda está vazio nessa hora). Passa, mas CONTA — restaurar
+  // um backup antigo é a única porta que reintroduz fantasma, e o operador tem que saber.
+  if(_restaurandoFolhas){ _folhasLegadasVistas.push(id); return; }
+  // Não-`pay_` fora de restauração: só é aceito se JÁ existe (folha legada sendo editada).
+  // Id aleatório novo = fantasma nascendo. Quebra aqui.
+  const jaExiste = (State.payrolls||[]).some(p => p && p.id === id);
+  if(!jaExiste)
+    throw new Error(`[folha] tentativa de criar folha FANTASMA (${origem}): id "${id}" não é `
+      + `pay_{emp}_{ano}_{mes} e não existe no banco. Use _payrollId(employeeId, mes, ano).`);
+}
+// Janela de restauração — ver _assertPayrollId. Sempre reposta no finally de quem abre.
+let _restaurandoFolhas = false;
+let _folhasLegadasVistas = [];
+async function _comRestauracaoDeFolhas(fn){
+  _restaurandoFolhas = true; _folhasLegadasVistas = [];
+  try { return await fn(); }
+  finally {
+    _restaurandoFolhas = false;
+    if(_folhasLegadasVistas.length){
+      console.warn('[folha] restauradas '+_folhasLegadasVistas.length+' folha(s) com id fora do padrão pay_:', _folhasLegadasVistas);
+      try{ toast(`⚠️ ${_folhasLegadasVistas.length} folha(s) restaurada(s) com id antigo (fora do padrão). Rode a conferência de folhas duplicadas.`, 'warning'); }catch(_){}
+    }
+  }
 }
 
 function openPerfilModal(id=null){

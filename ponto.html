@@ -994,7 +994,11 @@ function _payrollScore(p){
   const diasComBatida=dias.filter(d=>d&&(d.entrada||d.saida||d.intIni||d.intFim)).length;
   const valores=['valeTransporte','valeRefeicao','adiantamentoValor','adiantamento','insalubridade','acumuloFuncao','horasExtrasTotal']
     .reduce((s,k)=>s+(+p[k]>0?1:0),0);
-  return (p.status==='fechada'?100000:0) + dias.length*1000 + diasComBatida*10 + valores;
+  // Desempate por id DETERMINÍSTICO: com duas folhas empatadas na mesma competência, a
+  // `pay_` é a legítima. Sem este +1 (que só o app.js tinha), o app do colaborador podia
+  // eleger o FANTASMA e passar a gravar TODA batida dele lá dentro. #folha-id-deterministico
+  const ehDet = String(p.id||'').startsWith('pay_') ? 1 : 0;
+  return (p.status==='fechada'?100000:0) + dias.length*1000 + diasComBatida*10 + valores*2 + ehDet;
 }
 
 function _pickPayrollDoc(docs){

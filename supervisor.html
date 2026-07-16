@@ -293,13 +293,36 @@ const NOMES_BATIDA = {
   saida:   'Saída'
 };
 
+// 🔒 Id DETERMINÍSTICO de folha: 1 colaborador + 1 competência = 1 documento, sempre.
+// Mesmo helper de app.js:_payrollId e ponto.html:_payrollIdDet. #folha-id-deterministico
+function _payrollIdDet(employeeId, mes, ano){ return `pay_${employeeId}_${ano}_${String(mes).padStart(2,'0')}`; }
+
+// 🔒 FOLHA FANTASMA NÃO PODE EXISTIR. Esta tela grava em `payrolls` DIRETO (dbCol...set),
+// sem passar pelo DB.save do app.js — então a trava central de lá não a cobre. Assertion
+// local: folha NOVA só nasce com id determinístico. Folha legada (id antigo) segue
+// gravável, porque nesse caso o id veio do banco (snap não vazio), não do nada.
+// Quebra alto e na hora em vez de corromper o banco em silêncio. #folha-fantasma-proibida
+function _assertFolhaIdSup(docId, empId, mes, ano, veioDoBanco){
+  if(!docId) throw new Error('[folha] gravação sem id');
+  if(veioDoBanco) return;                                  // id lido do próprio Firestore
+  const esperado = _payrollIdDet(empId, mes, ano);
+  if(docId !== esperado)
+    throw new Error(`[folha] tentativa de criar folha FANTASMA: "${docId}" ≠ "${esperado}". `
+      + 'Folha nova SEMPRE com _payrollIdDet(employeeId, mes, ano).');
+}
+
 function _payrollScore(p){
   if(!p) return -1;
   const dias=Array.isArray(p.pontoManualDias)?p.pontoManualDias:[];
   const diasComBatida=dias.filter(d=>d&&(d.entrada||d.saida||d.intIni||d.intFim)).length;
   const valores=['valeTransporte','valeRefeicao','adiantamentoValor','adiantamento','insalubridade','acumuloFuncao','horasExtrasTotal']
     .reduce((s,k)=>s+(+p[k]>0?1:0),0);
-  return (p.status==='fechada'?100000:0) + dias.length*1000 + diasComBatida*10 + valores;
+  // Desempate por id DETERMINÍSTICO: com duas folhas empatadas na mesma competência, a
+  // `pay_` é a legítima. Sem este +1 (que só o app.js tinha), esta tela podia eleger o
+  // FANTASMA e as três telas do sistema divergirem sobre qual é a folha do mês.
+  // #folha-id-deterministico
+  const ehDet = String(p.id||'').startsWith('pay_') ? 1 : 0;
+  return (p.status==='fechada'?100000:0) + dias.length*1000 + diasComBatida*10 + valores*2 + ehDet;
 }
 
 function _pickPayrollDoc(docs){
@@ -863,9 +886,16 @@ async function _gravarBatidaNaFolha(p, horarioEfetivo){
     throw new Error('pedido antigo sem competência/dia — recuse e peça novo');
   const snap = await dbCol('payrolls')
     .where('employeeId','==',empId).where('mes','==',mes).where('ano','==',ano).get();
-  let docId, dias, createdAt;
-  if(!snap.empty){ const folha=_pickPayrollDoc(snap.docs); docId=folha.id; dias=[...((folha.pontoManualDias)||[])]; createdAt=folha.createdAt||new Date().toISOString(); }
-  else { docId = Date.now().toString(36)+Math.random().toString(36).slice(2,8); dias=[]; createdAt=new Date().toISOString(); }
+  let docId, dias, createdAt, _veioDoBanco=false;
+  if(!snap.empty){ const folha=_pickPayrollDoc(snap.docs); docId=folha.id; dias=[...((folha.pontoManualDias)||[])]; createdAt=folha.createdAt||new Date().toISOString(); _veioDoBanco=true; }
+  // 🔒 FOLHA NOVA SEMPRE COM ID DETERMINÍSTICO. Aqui nascia a folha FANTASMA: era
+  // `Date.now().toString(36)+Math.random()…` (o genId inline), então autorizar a 1ª batida
+  // de uma competência que ainda não tinha folha criava um doc com id aleatório, SEM
+  // diasTrabalhados/remuneracao — a linha "undefined dias / 0 falta(s) — R$ 0,00" do
+  // histórico. E ela passava a concorrer com a folha pay_ legítima, podendo até vencer no
+  // _pickPayrollDoc. O fluxo equivalente do gestor (app.js _autzRegistrarEResolver) já
+  // usava _payrollId; a correção nunca tinha sido portada pra cá. #folha-id-deterministico
+  else { docId = _payrollIdDet(empId, mes, ano); dias=[]; createdAt=new Date().toISOString(); }
   let entry = dias.find(d => d.dia === dia);
   if(!entry){ entry = { dia, diaSem: (p.diaSem!=null?p.diaSem:new Date(ano,mes-1,dia).getDay()), entrada:'', saida:'', intIni:'', intFim:'' }; dias.push(entry); }
   entry[tp] = horarioEfetivo;
@@ -884,6 +914,7 @@ async function _gravarBatidaNaFolha(p, horarioEfetivo){
       aprovadoPor: currentUser.username || '', aprovadoEm: new Date().toISOString(),
       recusadoPor:null, recusadoEm:null };
   }
+  _assertFolhaIdSup(docId, empId, mes, ano, _veioDoBanco);   // 🔒 #folha-fantasma-proibida
   await dbCol('payrolls').doc(docId).set({
     id:docId, employeeId:empId, mes, ano, pontoManualDias:dias,
     updatedAt:new Date().toISOString(), createdAt

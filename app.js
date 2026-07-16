@@ -11130,6 +11130,70 @@ async function corrigirFolhasDuplicadas(){
   try{ if(typeof renderPayrollHistory==='function' && val('payroll-employee')) renderPayrollHistory(val('payroll-employee')); }catch(_){}
   if(typeof renderAdiantamentos==='function') renderAdiantamentos();
 }
+// ─── FOLHAS NUNCA APURADAS ─────────────────────────────────────────────────
+// 🔒 NÃO CALCULA NADA — só ACHA e LEVA. Correção de folha é manual, colaborador por
+// colaborador ([[feedback_payroll_correcao_manual]]: "existem outras nuances que precisam
+// ser observadas"). Esta ferramenta só resolve a parte chata: descobrir QUEM está assim.
+//
+// O que é uma folha nunca apurada: tem batidas em `pontoManualDias`, mas nunca teve
+// `diasTrabalhados`/`remuneracao` calculados — aparece como "undefined dias / R$ 0,00" no
+// histórico. Nasceram do bug do supervisor.html (folha criada ao autorizar a 1ª batida do
+// mês, com só 7 campos), corrigido em 495f3f4. Não é dado perdido: é folha que ninguém
+// abriu e aplicou ainda. Um "Aplicar na Folha" resolve cada uma.
+//
+// ⚠️ Por que NÃO preencho `diasTrabalhados` em lote (dá, é mecânico): a folha passaria a
+// mostrar "20 dias / R$ 0,00" — PARECE apurada e o dinheiro segue zero. Trocaria um
+// undefined honesto por um número que mente sobre o estado. E `remuneracao` sai de
+// numVal('payroll-remuneracao'), o campo do form: calcular em lote = reimplementar a folha
+// (salário, benefícios, descontos) fora da tela — exatamente o que a regra do dono barra.
+// #folha-fantasma-proibida
+function _folhasNuncaApuradas(){
+  const porComp = {};
+  (State.payrolls||[]).forEach(p=>{ if(p&&p.employeeId) (porComp[`${p.employeeId}|${p.ano}|${p.mes}`] ||= []).push(p); });
+  const out = [];
+  Object.values(porComp).forEach(arr=>{
+    // Duplicadas são assunto do "Corrigir folhas duplicadas" — não se pisa nos dois.
+    if(arr.length > 1) return;
+    const p = arr[0];
+    if(p.diasTrabalhados !== undefined) return;              // já apurada
+    const dias = Array.isArray(p.pontoManualDias) ? p.pontoManualDias : [];
+    const bat  = dias.filter(d=>d && (d.entrada||d.saida)).length;
+    const emp  = (State.employees||[]).find(e=>e.id===p.employeeId);
+    if(!emp) return;                                          // colaborador apagado: outro assunto
+    out.push({ p, emp, bat, comp:`${MESES[p.mes]}/${p.ano}` });
+  });
+  return out.sort((a,b)=> (a.p.ano-b.p.ano) || (a.p.mes-b.p.mes) || (a.emp.nome||'').localeCompare(b.emp.nome||''));
+}
+
+async function listarFolhasNaoApuradas(){
+  if(!(getUserModules(Auth.currentUser).payroll || Auth.currentUser?.role==='master')){
+    toast('Você não tem permissão para isso.','error'); return;
+  }
+  const box = document.getElementById('manut-nao-apuradas');
+  if(!box) return;
+  box.innerHTML = '<span style="font-size:12px;color:#64748b">Lendo as folhas do banco…</span>';
+  try{ State.payrolls = await DB.getAll('payrolls'); }catch(e){ console.warn('nao-apuradas', e); }
+  const lista = _folhasNuncaApuradas();
+  if(!lista.length){
+    box.innerHTML = '<span style="font-size:12px;color:#2E7D32;font-weight:600">✅ Nenhuma folha por apurar. Tudo em dia.</span>';
+    return;
+  }
+  box.innerHTML = `
+    <div style="font-size:12px;color:#B71C1C;font-weight:700;margin-bottom:6px">${lista.length} folha(s) com batidas, nunca apurada(s)</div>
+    <div style="font-size:11px;color:#64748b;margin-bottom:8px">Abra cada uma e clique <strong>Aplicar na Folha</strong>. O cálculo é o da tela — nada aqui é automático.</div>
+    <div style="display:flex;flex-direction:column;gap:5px">
+      ${lista.map(x=>`
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;border:1px solid #e2e8f0;border-radius:7px;padding:6px 9px">
+          <span style="flex:1;min-width:160px;font-size:12px"><strong>${esc(x.emp.nome||'—')}</strong>
+            <span style="color:#94a3b8">· Matr ${x.emp.registro?String(x.emp.registro).padStart(4,'0'):'—'}</span></span>
+          <span style="font-size:12px;color:#475569;white-space:nowrap">${x.comp}</span>
+          <span style="font-size:11px;color:#94a3b8;white-space:nowrap">${x.bat} dia(s) batido(s)</span>
+          <button class="btn btn-sm" style="background:#1565C0;color:#fff;border:none;white-space:nowrap"
+            onclick="openPayrollForEmployee('${x.emp.id}', {mes:${x.p.mes}, ano:${x.p.ano}})">Abrir folha</button>
+        </div>`).join('')}
+    </div>`;
+}
+
 // Lupa: filtra a lista por nome / matrícula / setor / posto (ignora acento).
 function _benefFiltrar(q){
   const norm = s => (s||'').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');

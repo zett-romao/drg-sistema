@@ -2799,7 +2799,11 @@
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-sm" onclick="corrigirFolhasDuplicadas()" style="background:#6A1B9A;color:#fff;border:none" title="Corrigir folhas duplicadas (todos os meses): varre TODAS as competências e corrige folhas duplicadas (mesmo colaborador com 2+ folhas no mesmo mês). Mantém a folha canônica (id pay_), junta nela os dias das cópias, remove as cópias. NÃO apaga o colaborador. Folha fechada com cópia que tem ponto fica para revisão manual. Mostra preview antes."><i class="fa-solid fa-wand-magic-sparkles"></i> Corrigir folhas duplicadas</button>
             <button class="btn btn-sm" onclick="restaurarColabsApagados()" style="background:#1565C0;color:#fff;border:none" title="Restaurar colaboradores apagados: recupera colaboradores apagados por engano a partir de um arquivo de BACKUP (JSON). Só ADICIONA de volta quem sumiu — não altera nada do que existe hoje."><i class="fa-solid fa-rotate-left"></i> Restaurar colaboradores apagados</button>
+            <button class="btn btn-sm" onclick="listarFolhasNaoApuradas()" style="background:#B71C1C;color:#fff;border:none" title="Folhas nunca apuradas: lista folhas que TÊM batidas mas nunca tiveram os totais calculados (aparecem como 'undefined dias / R$ 0,00' no histórico). NÃO calcula nada — só acha e leva você até cada uma para dar 'Aplicar na Folha'. Correção de folha continua manual, colaborador por colaborador."><i class="fa-solid fa-triangle-exclamation"></i> Folhas nunca apuradas</button>
           </div>
+          <!-- Saída da listagem. A ferramenta NÃO calcula: rende linhas com "Abrir folha" e
+               o gestor aplica cada uma na tela real. #folha-fantasma-proibida -->
+          <div id="manut-nao-apuradas" style="margin-top:10px"></div>
           <p style="font-size:11px;color:#94a3b8;margin:10px 0 0">Duplicadas: mantém a folha de id canônico <code>pay_{colaborador}_{ano}_{mês}</code>, junta nela os dias das cópias e remove o resto. Folha fechada nunca é descartada.</p>
         </div>
 
@@ -7891,6 +7895,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260716f-manutencao"></script>
+  <script src="app.js?v=20260716g-nao-apuradas"></script>
 </body>
 </html>

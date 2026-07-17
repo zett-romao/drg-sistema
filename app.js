@@ -24952,22 +24952,26 @@ function _monitorFaltasHoje(){
     // o OUTRO dia). A folha apura a falta de verdade depois do fim de semana (se não
     // bater nenhum dos dois). Por isso o Monitor não alarma o fds dessas escalas. #fds-livre-monitor
     const _dowMf = new Date(ano, mes-1, dia).getDay();
-    if((_dowMf===0 || _dowMf===6) && _usaFdsLivreResolve(emp.escala)) return;
+    const _escMf = _escalaEfetivaEm(emp, ymd);   // escala do MOTOR (período/lotação), não o cadastro cru. #escala-efetiva
+    if((_dowMf===0 || _dowMf===6) && _usaFdsLivreResolve(_escMf)) return;
     const exp = _getExpectedDay(emp, mes, ano, dia);
     if(!exp || exp.tipo==='folga' || !exp.entrada) return;   // nao trabalha hoje (inclui feriado-folga)
     const entMin = timeToMinutes(exp.entrada);
     if(!Number.isFinite(entMin)) return;
     if(nowMin < entMin + MONITOR_FALTAS_TOLERANCIA_MIN) return;  // ainda dentro da tolerancia
+    // Regra nova não cobra hora velha: período/transferência criado DEPOIS da entrada
+    // prevista de hoje não alarma hoje (a folha segue apurando o dia). #falta-retroativa
+    if(_regraDoDiaNasceuDepois(emp, ymd, entMin)) return;
     const reg = _pontoDiaReal(emp, ano, mes, dia);
     if(reg && reg.entrada) return;                  // ja bateu a entrada
     // Hoje é feriado-folga PARA O POSTO dele e a escala respeita feriado? Se sim e ainda
     // assim está na lista, é uma INCONSISTÊNCIA real (deveria folgar) — só então anota.
     // Antes a nota aparecia p/ TODO 5x2/6x1 mesmo sem feriado. #monitor-feriado-real
     const _lotHoje = _lotacaoEm(emp, ymd);
-    const _respFeriado = _escalaRespeitaFeriado((_lotHoje&&_lotHoje.escala)||emp.escala)
+    const _respFeriado = _escalaRespeitaFeriado(_escMf)
                        && !!_ehFeriado(ano, mes, dia, _locFeriadoEmp(emp, _lotHoje&&_lotHoje.posto));
     out.push({ id:emp.id, nome:emp.nome||'(sem nome)', setor:emp.setor||'', cargo:emp.cargo||'', posto:emp.posto||'',
-               escala: emp.escala||'', escalaFam: escalaFamilia(emp.escala||'5x2A'), respFeriado:_respFeriado,
+               escala: _escMf||'', escalaFam: escalaFamilia(_escMf||'5x2A'), respFeriado:_respFeriado,
                previsto:exp.entrada, atrasoMin: nowMin - entMin, aguardando: !!(r && r.status==='aguardando') });
   });
   return out.sort((a,b)=> b.atrasoMin - a.atrasoMin);
@@ -24988,6 +24992,10 @@ function _monitorAtrasosHoje(){
     if(!exp || exp.tipo==='folga' || !exp.entrada) return;
     const entMin = timeToMinutes(exp.entrada);
     if(!Number.isFinite(entMin)) return;
+    // Mesmo guard da lista de faltas: quem bateu pela escala ANTIGA não vira atrasado
+    // porque a escala mudou depois que ele já tinha batido. #falta-retroativa
+    const _ymdAt = `${ano}-${String(mes).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
+    if(_regraDoDiaNasceuDepois(emp, _ymdAt, entMin)) return;
     const reg = _pontoDiaReal(emp, ano, mes, dia);
     if(!reg || !reg.entrada) return;            // não bateu entrada → é falta, não atraso
     const realMin = timeToMinutes(reg.entrada);
@@ -27652,6 +27660,10 @@ function _lotacaoSnapshot(src, emp){
   const num = (k,d)=> (s[k]!==undefined && s[k]!==null && s[k]!=='') ? s[k] : d;
   return {
     posto:          txt('posto', emp.posto||''),
+    // Quando a REGRA foi registrada (≠ dataInicio, que é quando ela passa a valer).
+    // O alarme de falta usa isto pra não cobrar hora que passou antes da regra existir.
+    // Vazio no fallback do cadastro base (emp.*) = sempre existiu → nunca silencia. #falta-retroativa
+    criadoEm:       txt('criadoEm', ''),
     turnoNoturno:   bool('turnoNoturno', emp.turnoNoturno),
     escala:         txt('escala', emp.escala||'5x2A'),
     horarioEntrada: txt('horarioEntrada', emp.horarioEntrada||''),
@@ -27896,6 +27908,41 @@ function _periodoEscalaEm(emp, ymd){
 }
 function _overrideAvulsoEm(emp, ymd){
   return (emp && (emp.overridesHorario||[]).find(o => o && o.data === ymd)) || null;
+}
+// Escala EFETIVA numa data — a MESMA que o motor usa pra montar o dia: PERÍODO de
+// mudança (quando troca a escala) → LOTAÇÃO vigente (transferências) → cadastro.
+// Quem lê `emp.escala` cru mostra a escala VELHA de quem foi transferido ou tem
+// período ativo, enquanto o horário do lado vem do motor — a linha se contradiz
+// (Monitor exibia "5x2A · entrada 07:00", que não existe). Pior: portão de decisão
+// que lê o cru julga fds/feriado pela escala errada, calado. #motor-unico #escala-efetiva
+function _escalaEfetivaEm(emp, ymd){
+  if(!emp) return '';
+  const per = _periodoEscalaEm(emp, ymd);
+  if(per && per.escala) return per.escala;
+  const lot = _lotacaoEm(emp, ymd);
+  return (lot && lot.escala) || emp.escala || '';
+}
+// A regra que manda no dia nasceu DEPOIS da hora que ela cobra?
+// Um período/transferência criado às 22h dizendo "a entrada era 07:00" fazia o Monitor
+// cobrar 15h de atraso de uma obrigação que não existia quando a hora passou — e ainda
+// por cima a batida real tinha sido barrada pela janela da escala ANTIGA.
+// 🔒 Vale SÓ pro alarme operacional (Monitor = o que está acontecendo agora). A FOLHA
+// continua reapurando retroativo: lá a retroatividade é legítima e desejada (registrar
+// hoje uma transferência de três dias atrás TEM que reapurar). Só silencia o dia em que
+// a regra nasceu; a partir do dia seguinte ela cobra normal. Sem carimbo `criadoEm`
+// (regra antiga / cadastro base) não silencia nada. #falta-retroativa
+function _regraDoDiaNasceuDepois(emp, ymd, entMin){
+  if(!emp || !ymd || !Number.isFinite(entMin)) return false;
+  const per = _periodoEscalaEm(emp, ymd);
+  const lot = _lotacaoEm(emp, ymd);
+  const criadoEm = (per && per.criadoEm) || (lot && lot.criadoEm) || '';
+  if(!criadoEm) return false;
+  const dt = new Date(criadoEm);
+  if(isNaN(dt.getTime())) return false;
+  const cYmd = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+  if(cYmd > ymd) return true;    // criada depois do dia inteiro
+  if(cYmd < ymd) return false;   // já existia quando o dia começou → cobra
+  return (dt.getHours()*60 + dt.getMinutes()) > entMin;   // mesmo dia, nasceu depois da entrada
 }
 // _getExpectedDay COM "Período de mudança" aplicado. Prioridade: DIA AVULSO (override) →
 // PERÍODO → cadastro. O dia avulso é mais específico (já tratado no base, vence). O período:
@@ -31786,6 +31833,7 @@ async function saveTransferencia(){
   const obs=val('transf-obs').trim();
   const snapNovo={
     id:genId(), dataInicio:vig,
+    criadoEm:new Date().toISOString(),   // quando foi REGISTRADA (≠ vigência). #falta-retroativa
     posto:novoPosto,
     turnoNoturno:!!(document.getElementById('transf-turno-noturno')||{}).checked,
     escala:val('transf-escala')||emp.escala||'5x2A',

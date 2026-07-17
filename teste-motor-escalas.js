@@ -65,3 +65,33 @@ for(const esc of ESCALAS){
   out.forEach(l=>console.log(l));
 }
 console.log(`\n${linhas} dias comparados · ${divergencias} divergência(s)`);
+
+// ── Bloco 12x36 SEM ancora no cadastro (regressao do bug Carlos 0083, 2026-07-17) ──
+// A fixture principal SEMPRE crava ciclo12x36Inicio, entao os dois motores nunca chegam
+// ao fallback onde divergiam. Aqui a ancora fica VAZIA: o gestor ancora no 1o dia batido
+// (payrolls, staff-only); o app NAO pode replicar isso. INVARIANTE: o app pode se abster
+// (nao decidir), mas JAMAIS pode dizer FOLGA num dia que o gestor diz TRABALHO — isso
+// bloquearia um plantao real e a batida nasceria pendente. #ancora-12x36 #motor-unico
+{
+  const empSA={id:'sa',nome:'SemAncora',escala:'12x36-07-19',horarioEntrada:'07:00',horarioSaida:'19:00',
+    horarioRefIni:'',horarioRefFim:'',dataAdmissao:'2026-05-04'};  // par; 1a batida real 05/05 (impar)
+  const pay=[{employeeId:'sa',mes:5,ano:2026,pontoManualDias:[{dia:5,entrada:'07:00',saida:'19:00'}]}];
+  G.__pay=pay; vm.runInContext('State.payrolls=__pay;',G);
+  let nocivas=0, checados=0;
+  for(const dia of [13,14,15,16,17,18,19,20,21]){
+    G.__e=empSA;
+    let g; try{ g=vm.runInContext(`(function(){const x=_getExpectedDay(__e,7,2026,${dia});return {folga:!!(x&&x.tipo==='folga')};})()`,G); }catch(e){ g={erro:e.message}; }
+    P.__e=empSA;
+    const D=P.Date, alvo=new Date(2026,6,dia,9,0,0);
+    P.Date=class extends D{constructor(...a){if(a.length===0)super(alvo.getTime());else super(...a);} static now(){return alvo.getTime();}};
+    let p; try{ p=vm.runInContext(`(function(){currentEmp=__e;return {folga:!!_ehDiaDeFolga(__e,new Date())};})()`,P); }catch(e){ p={erro:e.message}; }
+    P.Date=D;
+    checados++;
+    if(p.folga && !g.folga){ nocivas++; console.log(`   ✗ 12x36 s/ancora ${dia}/07: gestor[trabalho] × app[FOLGA] — plantao real bloqueado`); }
+  }
+  vm.runInContext('State.payrolls=[];',G);
+  if(nocivas){ divergencias+=nocivas; console.log(`✗ 12x36 sem ancora        ${nocivas} bloqueio(s) nocivo(s) de ${checados} dias`); }
+  else console.log(`✓ 12x36 sem ancora        app nunca bloqueia plantao (falha segura) · ${checados} dias`);
+}
+console.log(`\nTOTAL · ${divergencias} divergência(s)`);
+process.exit(divergencias?1:0);

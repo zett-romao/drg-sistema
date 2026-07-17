@@ -1556,12 +1556,20 @@ function _ehTrabalho12x36Ponto(emp, dataObj){
     if(p && p.reancora12x36 && p.de && p.de <= ymd && (!perAnchor || p.de > perAnchor)) perAnchor = p.de;
   });
   const perAnchorVale = perAnchor && (!segIni || perAnchor >= segIni) ? perAnchor : null;
+  // ⚠️ A cadeia PARA aqui de propósito. O gestor, ANTES de cair em segIni/dataAdmissao,
+  // ancora no `_primeiroDiaTrabalho12x36` (1º dia realmente batido) — que vive na coleção
+  // `payrolls` INTEIRA, e o app do colaborador não lê a folha dos outros. Chutar segIni/
+  // admissão aqui não é "quase certo": paridade errada = fase INVERTIDA, e TODO dia de
+  // plantão vira "folga" no app → a batida nasce PENDENTE todo dia de trabalho (caso
+  // Carlos 0083, 9 pendentes; comparador provou 6 divergências em 6 dias).
+  // Mesma FALHA SEGURA já adotada no 6x1B/6x1ALT acima, e pelo mesmo motivo: sem âncora
+  // que o gestor use IGUAL → null → o app não decide, quem decide é o gestor (fonte da
+  // verdade). Se ele bater numa folga real, vira folga trabalhada = HE pendente na folha,
+  // que é o comportamento correto. #motor-unico #ancora-12x36
   const ini = perAnchorVale
     || segAnchor
     || (segEhMudanca ? segIni : null)
-    || emp.ciclo12x36Inicio
-    || segIni
-    || emp.dataAdmissao;
+    || emp.ciclo12x36Inicio;
   if(!ini) return null;
   const dAnchor = new Date(ini + 'T00:00:00');
   if(isNaN(dAnchor.getTime())) return null;

@@ -2796,7 +2796,22 @@
             <h3><i class="fa-solid fa-screwdriver-wrench" style="color:#6A1B9A"></i> Manutenção</h3>
           </div>
           <p style="font-size:12px;color:#64748b;margin:0 0 12px">Ferramentas de varredura global. As duas mostram um <strong>preview</strong> e só agem depois que você confirmar.</p>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <style>
+            /* Os 3 botões numa linha só (pedido do dono). Fonte/padding menores pra caber
+               nos 680px do card sem cortar rótulo. Abaixo de 600px volta a quebrar: forçar
+               uma linha num celular estouraria a largura e empurraria scroll horizontal
+               — nunca cortar rótulo nem rolar de lado. #pref-responsivo */
+            /* overflow-x:auto é rede de segurança: .card tem overflow:hidden, então se um dia
+               um rótulo crescer e não couber, a linha ROLA em vez de o texto ser CORTADO. */
+            #manut-botoes{display:flex;gap:6px;flex-wrap:nowrap;align-items:stretch;overflow-x:auto;padding-bottom:2px}
+            #manut-botoes .btn{white-space:nowrap;font-size:11px;padding:8px 9px;flex:0 0 auto;line-height:1.2}
+            #manut-botoes .btn i{margin-right:4px}
+            @media(max-width:600px){
+              #manut-botoes{flex-wrap:wrap}
+              #manut-botoes .btn{font-size:12px;padding:8px 12px}
+            }
+          </style>
+          <div id="manut-botoes">
             <button class="btn btn-sm" onclick="corrigirFolhasDuplicadas()" style="background:#6A1B9A;color:#fff;border:none" title="Corrigir folhas duplicadas (todos os meses): varre TODAS as competências e corrige folhas duplicadas (mesmo colaborador com 2+ folhas no mesmo mês). Mantém a folha canônica (id pay_), junta nela os dias das cópias, remove as cópias. NÃO apaga o colaborador. Folha fechada com cópia que tem ponto fica para revisão manual. Mostra preview antes."><i class="fa-solid fa-wand-magic-sparkles"></i> Corrigir folhas duplicadas</button>
             <button class="btn btn-sm" onclick="restaurarColabsApagados()" style="background:#1565C0;color:#fff;border:none" title="Restaurar colaboradores apagados: recupera colaboradores apagados por engano a partir de um arquivo de BACKUP (JSON). Só ADICIONA de volta quem sumiu — não altera nada do que existe hoje."><i class="fa-solid fa-rotate-left"></i> Restaurar colaboradores apagados</button>
             <button class="btn btn-sm" onclick="listarFolhasNaoApuradas()" style="background:#B71C1C;color:#fff;border:none" title="Folhas nunca apuradas: lista folhas que TÊM batidas mas nunca tiveram os totais calculados (aparecem como 'undefined dias / R$ 0,00' no histórico). NÃO calcula nada — só acha e leva você até cada uma para dar 'Aplicar na Folha'. Correção de folha continua manual, colaborador por colaborador."><i class="fa-solid fa-triangle-exclamation"></i> Folhas nunca apuradas</button>

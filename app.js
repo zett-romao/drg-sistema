@@ -31824,22 +31824,60 @@ function editarPeriodoLotacao(id){
   toast(`Editando o período de ${formatDateBr(p.dataInicio)} — salvar substitui esse período (mantém a data).`,'info');
 }
 
+// CRISTALIZA a âncora do 12x36 numa transferência que NÃO troca a fase do plantão
+// (mesma família de escala E mesmo turno = pura mudança de posto/salário/benefício).
+// Nesses casos o ritmo trabalha/folga CONTINUA — mas, sem um ciclo próprio informado, a
+// cadeia de âncora ([app.js:_ciclo12x36EhTrabalho] / [ponto.html:_ehTrabalho12x36Ponto])
+// cai em `(segEhMudanca ? segIni : null)` e REANCORA na data de vigência, o que INVERTE a
+// fase sempre que a paridade dessa data não bate com o ciclo real. O gestor ainda acerta
+// pelo fallback `_primeiroDiaTrabalho12x36` (1º dia batido), mas o APP DO COLABORADOR não
+// lê a folha dos outros → fica com a fase invertida e chama plantão de FOLGA, gerando
+// pedido de autorização indevido (caso Shirley 0068 / Carlos 0083). Solução: gravar no
+// segmento uma DATA concreta cuja paridade reproduz a fase que o ciclo ANTERIOR tinha em
+// `vig` — assim os dois motores leem a MESMA fase por `segAnchor`, sem depender de dado
+// que o app não enxerga. Retorna '' quando não há como preservar (troca de turno/escala,
+// ou sem referência de ciclo → mantém o comportamento antigo). #troca-escala-12x36 #motor-unico
+function _ancoraContinuada12x36(emp, vigISO, novaEscala, novoTurnoNoturno){
+  if(!emp || !vigISO) return '';
+  if(escalaFamilia(novaEscala||'')!=='12x36') return '';
+  // Só preserva a fase quando escala-família E turno seguem iguais. Se o turno/escala
+  // mudou de fato, é troca de turno → mantém a reancoragem antiga (vig vira 1º dia).
+  if(escalaFamilia(emp.escala||'')!=='12x36') return '';
+  if(!!emp.turnoNoturno !== !!novoTurnoNoturno) return '';
+  const [ay,am,ad]=vigISO.split('-').map(Number);
+  if(!ay||!am||!ad) return '';
+  // Avalia a fase pelo estado ANTES deste segmento (remove qualquer período que comece em
+  // `vig`, seja criação nova ou re-edição): assim `_ciclo12x36EhTrabalho` resolve pelo ciclo
+  // anterior (incluindo `_primeiroDiaTrabalho12x36`), não pela âncora que estamos gravando.
+  const empAntes={ ...emp, historicoLotacao:(emp.historicoLotacao||[]).filter(h=>h && h.dataInicio!==vigISO) };
+  const ehTrab=_ciclo12x36EhTrabalho(empAntes, ay, am, ad);
+  if(ehTrab===null || ehTrab===undefined) return '';   // sem referência → não crava
+  // Âncora = "1º dia = TRABALHO". Se `vig` é trabalho, âncora = vig (diff 0, par); se é
+  // folga, âncora = vig−1 (diff 1, ímpar → folga em vig). Preserva a fase byte a byte.
+  return ehTrab ? vigISO : _isoMinusDays(vigISO, 1);
+}
+
 async function saveTransferencia(){
   const empId=State.editingEmployeeId;
   const emp=State.employees.find(e=>e.id===empId); if(!emp) return;
   const vig=val('transf-data-entrada');
   if(!vig){ toast('Informe a data de vigência (a partir de quando vale).','error'); return; }
   const novoPosto=val('transf-novo-posto')||emp.posto||'';
+  const novoTurno=!!(document.getElementById('transf-turno-noturno')||{}).checked;
+  const novaEscala=val('transf-escala')||emp.escala||'5x2A';
   const obs=val('transf-obs').trim();
   const snapNovo={
     id:genId(), dataInicio:vig,
     criadoEm:new Date().toISOString(),   // quando foi REGISTRADA (≠ vigência). #falta-retroativa
     posto:novoPosto,
-    turnoNoturno:!!(document.getElementById('transf-turno-noturno')||{}).checked,
-    escala:val('transf-escala')||emp.escala||'5x2A',
-    // Âncora do ciclo 12x36 da NOVA fase (paridade trabalho/folga). Só p/ 12x36;
-    // vazio → a folha usa a dataInicio (vigência) como âncora. #troca-escala-12x36
-    ciclo12x36Inicio: (escalaFamilia(val('transf-escala')||emp.escala||'5x2A')==='12x36') ? (val('transf-ciclo-12x36')||'') : '',
+    turnoNoturno:novoTurno,
+    escala:novaEscala,
+    // Âncora do ciclo 12x36 da NOVA fase (paridade trabalho/folga). Só p/ 12x36. Prioridade:
+    // 1) ciclo digitado; 2) âncora CONTINUADA (transferência que não troca a fase — preserva o
+    // ritmo pro app do colaborador ler igual ao gestor); 3) vazio → folha usa a vigência. #troca-escala-12x36
+    ciclo12x36Inicio: (escalaFamilia(novaEscala)==='12x36')
+      ? (val('transf-ciclo-12x36') || _ancoraContinuada12x36(emp, vig, novaEscala, novoTurno))
+      : '',
     horarioEntrada:val('transf-h-entrada')||'',
     horarioSaida:val('transf-h-saida')||'',
     horarioRefIni:val('transf-h-ref-ini')||'',

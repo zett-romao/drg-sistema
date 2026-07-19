@@ -3467,6 +3467,7 @@ function renderRelatorios(){
         <div class="form-row" style="align-items:flex-end;flex-wrap:wrap;gap:10px">
           <div class="form-group" style="min-width:260px"><label>Colaborador</label><select id="rel-dossie-emp">${_relEmpOptions('',false)}</select></div>
           <button class="btn btn-primary" style="background:#5C6BC0;border-color:#5C6BC0" onclick="gerarDossieColaborador()"><i class="fa-solid fa-file-arrow-down"></i> Gerar dossiê (PDF)</button>
+          <button class="btn btn-primary" style="background:#3949AB;border-color:#3949AB" onclick="abrirModalProntuario(val('rel-dossie-emp'))" title="Prontuário completo: escolha o que baixar (dossiê + todas as folhas de ponto + todos os holerites) — para processos e auditorias"><i class="fa-solid fa-folder-tree"></i> Prontuário completo (escolher o que baixar)</button>
         </div>
       </div>
     </div>`;
@@ -3624,14 +3625,31 @@ function _dossieDoCadastro(){
   if(!id){ toast('Salve o colaborador primeiro para gerar o dossiê.','warning'); return; }
   gerarDossieColaborador(id);
 }
-function gerarDossieColaborador(empIdArg){
-  const empId=empIdArg||val('rel-dossie-emp');
-  if(!empId){ toast('Selecione um colaborador.','warning'); return; }
-  const emp=(State.employees||[]).find(e=>e.id===empId);
-  if(!emp){ toast('Colaborador não encontrado.','error'); return; }
+// Busca ASSÍNCRONA das fontes que não vivem no State global (ficam no Firestore por
+// colaborador): atos disciplinares e comunicações/avisos. Usada pelo dossiê e pelo
+// prontuário. Falha segura: erro de rede → seção vazia, nunca derruba o documento. #prontuario
+async function _prontuarioFetchAsync(empId){
+  const out={ disciplina:[], comunicacoes:[] };
+  try{
+    const snap=await firebase.firestore().collection('disciplina').where('employeeId','==',empId).get();
+    out.disciplina=snap.docs.map(d=>({ id:d.id, ...d.data() }));
+  }catch(e){ console.warn('prontuario:disciplina', e); }
+  try{
+    const snap=await firebase.firestore().collection('comunicacoes').where('employeeId','==',empId).get();
+    out.comunicacoes=snap.docs.map(d=>({ id:d.id, ...d.data() }));
+  }catch(e){ console.warn('prontuario:comunicacoes', e); }
+  return out;
+}
+
+// Monta TODAS as seções de dados do colaborador (tabelas HTML), cada uma numa chave.
+// O dossiê usa todas; o prontuário escolhe quais entram. `extra` traz o que veio do
+// Firestore (_prontuarioFetchAsync). Reúso = motor único de "o que se sabe do colaborador". #prontuario
+function _colabSecoesHtml(emp, extra){
+  extra = extra || { disciplina:[], comunicacoes:[] };
+  const S = {};
   const linha=(rot,val)=>`<tr><td style="width:200px;color:#475569;font-weight:600">${rot}</td><td>${_relEsc(val||'—')}</td></tr>`;
   // 1) Identificação
-  const ident=`<h2>Identificação</h2><table style="max-width:640px"><tbody>
+  S.ficha=`<h2>Identificação</h2><table style="max-width:640px"><tbody>
     ${linha('Nome', emp.nome)}
     ${linha('Matrícula', emp.registro?String(emp.registro).padStart(4,'0'):'')}
     ${linha('CPF', emp.cpf)}${linha('RG', emp.rg)}
@@ -3645,9 +3663,8 @@ function gerarDossieColaborador(empIdArg){
     ${linha('Escala atual', (typeof escalaLabel==='function'?escalaLabel(emp.escala||''):emp.escala))}
     ${linha('Salário base', emp.salarioBase!=null?fmtMoney(emp.salarioBase):'')}
     ${linha('Situação', (emp.status||'ativo'))}
-  </tbody></table>`;
-  // 2) Conta bancária
-  const banco=`<h2>Conta bancária</h2><table style="max-width:640px"><tbody>
+  </tbody></table>
+  <h2>Conta bancária</h2><table style="max-width:640px"><tbody>
     ${linha('Banco', emp.banco)}
     ${linha('Tipo de conta', _relContaTipoLabel(emp.contaTipo)||emp.contaTipo)}
     ${linha('Agência', emp.agencia)}
@@ -3655,9 +3672,9 @@ function gerarDossieColaborador(empIdArg){
     ${linha('Chave PIX', emp.chavePix)}
     ${linha('Tipo da chave', emp.chavePixTipo)}
   </tbody></table>`;
-  // 3) Linha do tempo de lotação (posto/função/escala/salário/benefícios)
+  // 2) Linha do tempo de lotação
   const hl=(emp.historicoLotacao||[]).slice().sort((a,b)=>(a.dataInicio||'').localeCompare(b.dataInicio||''));
-  const lotHtml=hl.length?`<h2>Linha do tempo — postos, funções, escalas e salários</h2>
+  S.lotacao=hl.length?`<h2>Linha do tempo — postos, funções, escalas e salários</h2>
     <table><thead><tr><th>A partir de</th><th>Posto</th><th>Função</th><th>Escala</th><th>Turno</th><th>Horário</th><th class="r">Salário</th><th>Adicionais</th><th>Benefícios (VT·VR·VA)</th></tr></thead><tbody>
     ${hl.map(h=>{ const adic=[h.insalubridade?`Insal. ${h.insalubridade}%`:'',h.acumuloFuncao?'Acúmulo +20%':''].filter(Boolean).join(' · ')||'—';
       const _bn=v=>(v!=null&&v!==''&&!isNaN(parseFloat(v)))?fmtMoney(v):'—';
@@ -3667,52 +3684,242 @@ function gerarDossieColaborador(empIdArg){
         <td class="r">${fmtMoney(h.salarioBase||0)}</td><td style="font-size:10px">${_relEsc(adic)}</td>
         <td style="font-size:10px;white-space:nowrap">VT ${_bn(h.valorDiarioVt)} · VR ${_bn(h.valorDiarioVr)} · VA ${_bn(h.valorMensalVa)}</td></tr>`;
     }).join('')}</tbody></table>`:'<h2>Linha do tempo — postos, funções, escalas e salários</h2><p class="muted">Sem transferências registradas (mantém a lotação de admissão).</p>';
-  // 4) Períodos de mudança de escala
+  // 3) Períodos de mudança de escala
   const pe=(emp.historicoEscalas||[]).slice().sort((a,b)=>(a.de||'').localeCompare(b.de||''));
-  const escHtml=pe.length?`<h2>Períodos de mudança de escala/horário</h2>
+  S.escalas=pe.length?`<h2>Períodos de mudança de escala/horário</h2>
     <table><thead><tr><th>De</th><th>Até</th><th>Escala</th><th>Horário</th><th>Observação</th><th>Lançado por</th></tr></thead><tbody>
     ${pe.map(p=>`<tr><td>${formatDateBr(p.de)}</td><td>${p.ate?formatDateBr(p.ate):'—'}</td><td>${_relEsc(p.escala)||'—'}</td>
       <td style="white-space:nowrap">${p.horarioEntrada||'—'}–${p.horarioSaida||'—'}</td><td style="font-size:10px">${_relEsc(p.observacao)||'—'}</td><td style="font-size:10px">${_relEsc(p.criadoPorNome)||'—'}</td></tr>`).join('')}
     </tbody></table>`:'';
-  // 5) Dias avulsos / folgas / trocas / coberturas
+  // 4) Dias avulsos / folgas / trocas / coberturas
   const ov=(emp.overridesHorario||[]).slice().sort((a,b)=>(a.data||'').localeCompare(b.data||''));
-  const ovHtml=ov.length?`<h2>Folgas, dias avulsos, trocas e coberturas</h2>
+  S.avulsos=ov.length?`<h2>Folgas, dias avulsos, trocas e coberturas</h2>
     <table><thead><tr><th>Data</th><th>Tipo</th><th>Detalhe</th><th>Pagamento</th><th>Observação</th><th>Lançado por</th></tr></thead><tbody>
     ${ov.map(o=>{ const det=o.tipo==='folga'?'Folga':`Trabalho ${o.horarioEntrada||'—'}–${o.horarioSaida||'—'}`;
       const pg=o.tipo==='folga'?(o.remunerada?'Folga paga':'Dia descontado')+(o.pagaBeneficios?' · c/ benefícios':''):'Dia de trabalho';
       return `<tr><td style="white-space:nowrap">${formatDateBr(o.data)}</td><td>${_relEsc(_relTipoAvulsoLabel(o))}</td><td>${_relEsc(det)}</td><td style="font-size:10px">${_relEsc(pg)}</td><td style="font-size:10px">${_relEsc(o.observacao)||'—'}</td><td style="font-size:10px">${_relEsc(o.criadoPorNome)||'—'}</td></tr>`;
     }).join('')}</tbody></table>`:'';
-  // 6) Férias
+  // 5) Férias
   const fer=(emp.ferias||[]).slice().sort((a,b)=>(a.dataInicio||'').localeCompare(b.dataInicio||''));
-  const ferHtml=fer.length?`<h2>Férias</h2><table><thead><tr><th>Início</th><th>Fim</th><th>Dias</th><th>Tipo</th><th>Pago</th><th>Observação</th></tr></thead><tbody>
+  S.ferias=fer.length?`<h2>Férias</h2><table><thead><tr><th>Início</th><th>Fim</th><th>Dias</th><th>Tipo</th><th>Pago</th><th>Observação</th></tr></thead><tbody>
     ${fer.map(f=>`<tr><td>${formatDateBr(f.dataInicio)}</td><td>${f.dataFim?formatDateBr(f.dataFim):'—'}</td><td>${f.dias||'—'}</td><td>${_relEsc(f.tipo)||'Férias'}</td><td>${f.pago?('Sim'+(f.pagoEm?' ('+formatDateBr(String(f.pagoEm).slice(0,10))+')':'')):'Não'}</td><td style="font-size:10px">${_relEsc(f.observacao)||'—'}</td></tr>`).join('')}
     </tbody></table>`:'';
-  // 7) Atestados / abonos
+  // 6) Atestados / abonos
   const ates=(State.atestados||[]).filter(a=>a && a.employeeId===emp.id).slice().sort((a,b)=>(a.dataInicio||'').localeCompare(b.dataInicio||''));
-  const atesHtml=ates.length?`<h2>Atestados e abonos</h2><table><thead><tr><th>Início</th><th>Fim/Duração</th><th>Tipo</th><th>Situação</th><th>Motivo</th></tr></thead><tbody>
+  S.atestados=ates.length?`<h2>Atestados e abonos</h2><table><thead><tr><th>Início</th><th>Fim/Duração</th><th>Tipo</th><th>Situação</th><th>Motivo</th></tr></thead><tbody>
     ${ates.map(a=>{ const dur=a.tipo==='horas'?`${a.horas||'—'}h`:(a.dataFim&&a.dataFim!==a.dataInicio?formatDateBr(a.dataFim):`${a.dias||1} dia(s)`);
       return `<tr><td>${formatDateBr(a.dataInicio)}</td><td>${_relEsc(dur)}</td><td>${_relEsc(a.tipo)||'—'}</td><td>${_relEsc(a.status)||'—'}</td><td style="font-size:10px">${_relEsc(a.motivo||a.observacao)||'—'}</td></tr>`;
     }).join('')}</tbody></table>`:'';
-  // 8) Pagamentos do colaborador
+  // 7) EPIs (entregas e devoluções, com recibo assinado)
+  const epis=(typeof _episDoColaborador==='function')?_episDoColaborador(emp.id):[];
+  S.epis=epis.length?`<h2>EPIs — entregas e devoluções</h2><table><thead><tr><th>Data</th><th>EPI</th><th>CA</th><th class="r">Qtd</th><th>Motivo</th><th>Assinado</th></tr></thead><tbody>
+    ${epis.map(m=>{ const dev=m.tipo==='devolucao';
+      const ass=dev?'—':(m.assinatura?('Sim'+(m.assinatura.em?' ('+new Date(m.assinatura.em).toLocaleDateString('pt-BR')+')':'')):'Aguardando');
+      return `<tr><td style="white-space:nowrap">${m.data?formatDateBr(m.data):'—'}</td><td>${_relEsc(m.itemNome)||'—'}${m.tamanho?' · '+_relEsc(m.tamanho):''}${dev?' (devolução)':''}</td><td>${_relEsc(m.ca)||'—'}</td><td class="r">${m.quantidade||'—'}</td><td style="font-size:10px">${_relEsc((typeof _EPI_MOTIVO_LBL!=='undefined'&&_EPI_MOTIVO_LBL[m.motivo])||m.motivo)||'—'}</td><td style="font-size:10px">${ass}</td></tr>`;
+    }).join('')}</tbody></table>`:'';
+  // 8) Atos disciplinares (fonte async)
+  const disc=(extra.disciplina||[]).slice().sort((a,b)=>String(b.criadoEm||b.data||'').localeCompare(String(a.criadoEm||a.data||'')));
+  S.disciplina=disc.length?`<h2>Atos disciplinares (advertências e suspensões)</h2><table><thead><tr><th>Data</th><th>Tipo</th><th>Motivo</th><th class="r">Dias</th><th>Fundamento</th><th>Ciência</th><th>Situação</th></tr></thead><tbody>
+    ${disc.map(d=>{ const tp=d.tipo==='suspensao'?'Suspensão':'Advertência';
+      const dt=d.data?formatDateBr(d.data):(d.criadoEm?formatDateBr(String(d.criadoEm).slice(0,10)):'—');
+      const dias=(d.diasSuspensao||d.dias)?String(d.diasSuspensao||d.dias):'—';
+      const cie=d.visualizadoEm?('Visualizada '+formatDateBr(String(d.visualizadoEm).slice(0,10))):'Aguardando ciência';
+      const sit=d.anulada?'ANULADA':'Vigente';
+      return `<tr><td style="white-space:nowrap">${dt}</td><td>${tp}</td><td style="font-size:10px">${_relEsc(d.motivo)||'—'}</td><td class="r">${dias}</td><td style="font-size:10px">${_relEsc(d.artigoCLT)||'—'}</td><td style="font-size:10px">${cie}</td><td style="font-size:10px">${sit}${d.anexoHash?'<br><span class="muted" style="font-size:8px">hash '+_relEsc(String(d.anexoHash).slice(0,16))+'</span>':''}</td></tr>`;
+    }).join('')}</tbody></table>`:'';
+  // 9) Comunicações / avisos enviados ao colaborador (fonte async)
+  const comu=(extra.comunicacoes||[]).slice().sort((a,b)=>String(b.criadoEm||'').localeCompare(String(a.criadoEm||'')));
+  S.comunicacoes=comu.length?`<h2>Comunicações e avisos</h2><table><thead><tr><th>Data</th><th>Assunto</th><th>Mensagem</th><th>Lida</th></tr></thead><tbody>
+    ${comu.map(c=>{ const dt=c.criadoEm?formatDateBr(String(c.criadoEm).slice(0,10)):'—';
+      const lida=c.lida?('Sim'+(c.lidaEm?' ('+formatDateBr(String(c.lidaEm).slice(0,10))+')':'')):'Não';
+      return `<tr><td style="white-space:nowrap">${dt}</td><td>${_relEsc(c.assunto)||'—'}</td><td style="font-size:10px">${_relEsc((c.corpo||'').slice(0,300))||'—'}</td><td style="font-size:10px">${lida}</td></tr>`;
+    }).join('')}</tbody></table>`:'';
+  // 10) Documentos anexados
+  const docs=(State.documentos||[]).filter(d=>d && d.employeeId===emp.id).slice().sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+  S.documentos=docs.length?`<h2>Documentos anexados</h2><table><thead><tr><th>Data</th><th>Tipo</th><th>Descrição</th><th>Situação</th><th>Anexo</th></tr></thead><tbody>
+    ${docs.map(d=>{ const meta=(typeof DOC_TIPOS_META!=='undefined'&&DOC_TIPOS_META[d.tipo])||{nome:d.tipoLabel||d.tipo||'Documento'};
+      const dt=(d.createdAt||'').slice(0,10).split('-').reverse().join('/')||'—';
+      const st=d.status==='aprovado'?('Aprovado'+(d.aprovadoPorNome?' por '+d.aprovadoPorNome:'')):(d.status==='reprovado'?('Reprovado'+(d.motivoReprovacao?' — '+d.motivoReprovacao:'')):'Pendente');
+      return `<tr><td style="white-space:nowrap">${dt}</td><td>${_relEsc(meta.nome)}</td><td style="font-size:10px">${_relEsc(d.descricao)||'—'}</td><td style="font-size:10px">${_relEsc(st)}</td><td style="font-size:9px">${d.arquivoUrl?_relEsc(d.arquivoUrl):'—'}</td></tr>`;
+    }).join('')}</tbody></table>`:'';
+  // 11) Pagamentos do colaborador
   const pags=_relColetaPagamentos({empId:emp.id, status:'todos'});
   const totPag=pags.filter(p=>p.status==='pago').reduce((s,p)=>s+p.valor,0);
-  const pagHtml=pags.length?`<h2>Pagamentos (${pags.length}) — total pago ${fmtMoney(totPag)}</h2>
+  S.pagamentos=pags.length?`<h2>Pagamentos (${pags.length}) — total pago ${fmtMoney(totPag)}</h2>
     <table><thead><tr><th>Data</th><th>Refere-se a</th><th class="r">Valor</th><th>Forma</th><th>Conta / PIX</th><th>Situação</th></tr></thead><tbody>
     ${pags.map(r=>`<tr><td style="white-space:nowrap">${formatDateBr(r.data)||'—'}</td><td>${_relEsc(r.refere)}</td><td class="r">${fmtMoney(r.valor)}</td><td>${_relEsc(r.forma)}</td><td style="font-size:10px">${_relEsc(_relContaTexto(r))}</td><td>${_relStatusLabel(r.status)}</td></tr>`).join('')}
     </tbody></table>`:'';
-  // 9) Trilha de auditoria (registros que mencionam o colaborador)
+  // 12) Rescisão
+  const rescs=(State.rescisoes||[]).filter(r=>r && r.employeeId===emp.id).slice().sort((a,b)=>String(b.dataDemissao||'').localeCompare(String(a.dataDemissao||'')));
+  S.rescisao=rescs.length?`<h2>Rescisão</h2><table><thead><tr><th>Data demissão</th><th>Tipo</th><th class="r">Líquido</th><th>Situação</th><th>Pago</th></tr></thead><tbody>
+    ${rescs.map(r=>{ const tp=(typeof RESCISAO_TIPOS!=='undefined'&&RESCISAO_TIPOS[r.tipo]&&RESCISAO_TIPOS[r.tipo].label)||r.tipo||'—';
+      return `<tr><td style="white-space:nowrap">${r.dataDemissao?formatDateBr(r.dataDemissao):'—'}</td><td>${_relEsc(tp)}</td><td class="r">${fmtMoney((r.calc&&r.calc.liquido)||0)}</td><td>${r.status==='fechada'?'Fechada':'Aberta'}</td><td>${r.pago?'Sim':'Não'}</td></tr>`;
+    }).join('')}</tbody></table><p class="muted" style="font-size:10px">O TRCT completo (formulário oficial) é impresso à parte, pelo botão de impressão na tela de Rescisões.</p>`:'';
+  // 13) Trilha de auditoria
   const nomeLow=(emp.nome||'').toLowerCase();
   const trilha=(Auth.accessLog||[]).filter(e=> nomeLow && (e.details||'').toLowerCase().includes(nomeLow)).slice(0,300);
-  const trilhaHtml=trilha.length?`<h2>Trilha de auditoria (quem alterou o quê)</h2>
+  S.auditoria=trilha.length?`<h2>Trilha de auditoria (quem alterou o quê)</h2>
     <table><thead><tr><th>Data/Hora</th><th>Ação</th><th>Usuário</th><th>Detalhe</th></tr></thead><tbody>
     ${trilha.map(e=>`<tr><td style="white-space:nowrap">${fmtDateTime(e.timestamp)}</td><td style="font-size:10px">${_relEsc(e.type)}</td><td>${_relEsc(e.username)||'—'}</td><td style="font-size:10px">${_relEsc(e.details)||'—'}</td></tr>`).join('')}
     </tbody></table><p class="muted" style="font-size:10px">Filtro por menção ao nome do colaborador nos registros de auditoria (últimos meses disponíveis).</p>`:'';
+  return S;
+}
 
+async function gerarDossieColaborador(empIdArg){
+  const empId=empIdArg||val('rel-dossie-emp');
+  if(!empId){ toast('Selecione um colaborador.','warning'); return; }
+  const emp=(State.employees||[]).find(e=>e.id===empId);
+  if(!emp){ toast('Colaborador não encontrado.','error'); return; }
+  toast('Montando dossiê — buscando disciplina e comunicações...','info');
+  const extra=await _prontuarioFetchAsync(empId);
+  const S=_colabSecoesHtml(emp, extra);
+  const ordem=['ficha','lotacao','escalas','avulsos','ferias','atestados','epis','disciplina','comunicacoes','documentos','pagamentos','rescisao','auditoria'];
+  const corpo=ordem.map(k=>S[k]||'').join('');
   const bodyHtml=_relCabecalhoEmpresa('Dossiê do Colaborador', `${emp.nome}${emp.registro?` · Matrícula ${String(emp.registro).padStart(4,'0')}`:''}`)+
-    ident+banco+lotHtml+escHtml+ovHtml+ferHtml+atesHtml+pagHtml+trilhaHtml+
-    `<p style="margin-top:14px;font-size:10px;color:#666">Documentos com assinatura eletrônica (termos, férias, holerites) possuem hash SHA-256 e carimbo do tempo em blockchain (OpenTimestamps), verificáveis no próprio sistema.</p>`;
+    corpo+
+    `<p style="margin-top:14px;font-size:10px;color:#666">Documentos com assinatura eletrônica (termos, férias, holerites, EPIs, atos disciplinares) possuem hash SHA-256 e carimbo do tempo em blockchain (OpenTimestamps), verificáveis no próprio sistema.</p>`;
   _relImprimir('Dossiê — '+emp.nome, bodyHtml);
   try{ Auth.log('REL_DOSSIE', Auth.currentUser?.username, emp.nome); }catch(_){}
+}
+
+// ── Prontuário Completo do Colaborador (tudo, com escolha do que baixar) ──────
+// Para processos trabalhistas e auditorias: reúne num único PDF as seções de dados
+// (dossiê), TODAS as folhas de ponto (batidas + observações) e TODOS os holerites do
+// contrato — o usuário marca o que entra. Reusa os motores existentes: _colabSecoesHtml
+// (dossiê), _buildFolhaHtmlFromRecord (folha/espelho) e _reciboOficialUmHTML (holerite). #prontuario
+
+// Todas as folhas de ponto do colaborador, em ordem cronológica (cada uma já quebra página).
+function _prontuarioFolhasHtml(emp){
+  const ps=(State.payrolls||[]).filter(p=>p && p.employeeId===emp.id)
+    .slice().sort((a,b)=>(a.ano-b.ano)||(a.mes-b.mes));
+  if(!ps.length) return { html:'', n:0 };
+  return { html: ps.map(p=>_buildFolhaHtmlFromRecord(emp,p)).join(''), n:ps.length };
+}
+// Todos os holerites/recibos do colaborador (page-break antes de cada um).
+function _prontuarioHoleritesHtml(emp){
+  const ps=(State.payrolls||[]).filter(p=>p && p.employeeId===emp.id)
+    .slice().sort((a,b)=>(a.ano-b.ano)||(a.mes-b.mes));
+  if(!ps.length) return { html:'', n:0 };
+  return { html: ps.map(p=>`<div style="page-break-before:always"></div>`+_reciboOficialUmHTML(emp,p,p.mes,p.ano,{})).join(''), n:ps.length };
+}
+
+// Catálogo das seções do prontuário (ordem = ordem no PDF). `grupo` separa dados x documentos.
+const PRONTUARIO_SECOES = [
+  { key:'ficha',        lbl:'Ficha cadastral + conta bancária',                   grupo:'dados' },
+  { key:'lotacao',      lbl:'Linha do tempo — postos, funções, escalas, salários', grupo:'dados' },
+  { key:'escalas',      lbl:'Períodos de mudança de escala/horário',              grupo:'dados' },
+  { key:'avulsos',      lbl:'Folgas, dias avulsos, trocas e coberturas',          grupo:'dados' },
+  { key:'ferias',       lbl:'Férias',                                             grupo:'dados' },
+  { key:'atestados',    lbl:'Atestados e abonos',                                 grupo:'dados' },
+  { key:'epis',         lbl:'EPIs — entregas e devoluções (com recibo)',          grupo:'dados' },
+  { key:'disciplina',   lbl:'Atos disciplinares (advertências e suspensões)',     grupo:'dados' },
+  { key:'comunicacoes', lbl:'Comunicações e avisos enviados',                     grupo:'dados' },
+  { key:'documentos',   lbl:'Documentos anexados (RG, CTPS, ASO, contrato...)',   grupo:'dados' },
+  { key:'pagamentos',   lbl:'Pagamentos (comprovantes)',                          grupo:'dados' },
+  { key:'rescisao',     lbl:'Rescisão',                                           grupo:'dados' },
+  { key:'auditoria',    lbl:'Trilha de auditoria (quem alterou o quê)',           grupo:'dados' },
+  { key:'folhas',       lbl:'Folhas de ponto — TODAS as competências (batidas + observações)', grupo:'docs' },
+  { key:'holerites',    lbl:'Holerites — TODAS as competências',                  grupo:'docs' },
+];
+
+// Abre o modal de seleção (checkboxes) para um colaborador. empId direto ou do cadastro/relatório.
+function abrirModalProntuario(empId){
+  const id=empId||val('emp-id')||val('rel-dossie-emp');
+  if(!id){ toast('Selecione um colaborador primeiro.','warning'); return; }
+  const emp=(State.employees||[]).find(e=>e.id===id);
+  if(!emp){ toast('Colaborador não encontrado.','error'); return; }
+  const nPay=(State.payrolls||[]).filter(p=>p && p.employeeId===id).length;
+  const chk=(s)=>`<label style="display:flex;align-items:center;gap:9px;padding:7px 4px;border-bottom:1px solid #f1f5f9;cursor:pointer;font-size:13px">
+      <input type="checkbox" id="pront-chk-${s.key}" checked style="width:16px;height:16px;flex-shrink:0">
+      <span>${s.lbl}${(s.key==='folhas'||s.key==='holerites')?` <span style="color:#94a3b8">(${nPay} compet.)</span>`:''}</span></label>`;
+  const dados=PRONTUARIO_SECOES.filter(s=>s.grupo==='dados').map(chk).join('');
+  const docs =PRONTUARIO_SECOES.filter(s=>s.grupo==='docs').map(chk).join('');
+  const old=document.getElementById('modal-prontuario'); if(old) old.remove();
+  const ov=document.createElement('div');
+  ov.id='modal-prontuario';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  ov.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:640px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.35)">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #e2e8f0">
+      <div><div style="font-size:16px;font-weight:800;color:#1a3a6b"><i class="fa-solid fa-folder-tree" style="color:#5C6BC0"></i> Prontuário completo — o que baixar</div>
+      <div style="font-size:12px;color:#64748b;margin-top:2px">${_relEsc(emp.nome)}${emp.registro?' · Matrícula '+String(emp.registro).padStart(4,'0'):''} · para processos e auditorias</div></div>
+      <button onclick="document.getElementById('modal-prontuario').remove()" style="background:none;border:none;font-size:22px;color:#94a3b8;cursor:pointer;line-height:1" title="Fechar">&times;</button>
+    </div>
+    <div style="padding:12px 20px;overflow-y:auto">
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <button class="btn btn-sm btn-outline" onclick="_prontuarioMarcarTodos(true)"><i class="fa-solid fa-check-double"></i> Marcar tudo</button>
+        <button class="btn btn-sm btn-outline" onclick="_prontuarioMarcarTodos(false)"><i class="fa-solid fa-xmark"></i> Desmarcar tudo</button>
+      </div>
+      <div style="font-size:11px;font-weight:700;color:#5C6BC0;text-transform:uppercase;letter-spacing:.4px;margin:6px 0 2px">Dados e histórico</div>
+      ${dados}
+      <div style="font-size:11px;font-weight:700;color:#5C6BC0;text-transform:uppercase;letter-spacing:.4px;margin:12px 0 2px">Documentos por competência</div>
+      ${docs}
+      <p style="font-size:11px;color:#94a3b8;margin-top:10px"><i class="fa-solid fa-circle-info"></i> Abre uma janela pronta para imprimir ou salvar em PDF (todas as competências do contrato).</p>
+    </div>
+    <div style="padding:14px 20px;border-top:1px solid #e2e8f0;display:flex;justify-content:flex-end;gap:8px">
+      <button class="btn btn-outline" onclick="document.getElementById('modal-prontuario').remove()">Cancelar</button>
+      <button class="btn btn-primary" style="background:#5C6BC0;border-color:#5C6BC0" onclick="gerarProntuario('${id}')"><i class="fa-solid fa-file-arrow-down"></i> Gerar PDF</button>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+function _prontuarioMarcarTodos(v){
+  PRONTUARIO_SECOES.forEach(s=>{ const el=document.getElementById('pront-chk-'+s.key); if(el) el.checked=v; });
+}
+
+// Monta e abre o PDF do prontuário conforme as seções marcadas.
+async function gerarProntuario(empId){
+  const emp=(State.employees||[]).find(e=>e.id===empId);
+  if(!emp){ toast('Colaborador não encontrado.','error'); return; }
+  const sel={}; PRONTUARIO_SECOES.forEach(s=>{ const el=document.getElementById('pront-chk-'+s.key); sel[s.key]=el?el.checked:false; });
+  if(!Object.values(sel).some(Boolean)){ toast('Marque ao menos uma seção.','warning'); return; }
+  const m=document.getElementById('modal-prontuario'); if(m) m.remove();
+  toast('Montando prontuário — aguarde...','info');
+  // Só busca o assíncrono (disciplina/comunicações) se alguma dessas seções foi marcada.
+  const extra=(sel.disciplina||sel.comunicacoes) ? await _prontuarioFetchAsync(empId) : { disciplina:[], comunicacoes:[] };
+  const S=_colabSecoesHtml(emp, extra);
+  // Bloco 1: seções de dados (tabelas do dossiê), na ordem do catálogo.
+  const ordemDados=PRONTUARIO_SECOES.filter(s=>s.grupo==='dados' && sel[s.key]).map(s=>s.key);
+  let dossieHtml='';
+  if(ordemDados.length){
+    dossieHtml=`<div class="dossie">`+
+      _relCabecalhoEmpresa('Prontuário do Colaborador', `${emp.nome}${emp.registro?` · Matrícula ${String(emp.registro).padStart(4,'0')}`:''} · documento para processos e auditorias`)+
+      ordemDados.map(k=>S[k]||'').join('')+
+      `<p style="margin-top:12px;font-size:10px;color:#666">Documentos com assinatura eletrônica (termos, férias, holerites, EPIs, atos disciplinares) possuem hash SHA-256 e carimbo do tempo em blockchain (OpenTimestamps), verificáveis no próprio sistema.</p>`+
+      `</div><div style="page-break-after:always"></div>`;
+  }
+  // Bloco 2: folhas de ponto (todas as competências).
+  let folhasHtml='', nF=0;
+  if(sel.folhas){ const r=_prontuarioFolhasHtml(emp); folhasHtml=r.html; nF=r.n; }
+  // Bloco 3: holerites (todas as competências).
+  let holHtml='', nH=0;
+  if(sel.holerites){ const r=_prontuarioHoleritesHtml(emp); holHtml=r.html; nH=r.n; }
+  if(!dossieHtml && !folhasHtml && !holHtml){ toast('Nada a gerar com esta seleção.','warning'); return; }
+  const titulo='Prontuário — '+emp.nome;
+  const fullHtml=`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${_relEsc(titulo)}</title>
+  <style>
+    body{font-family:Arial,sans-serif;color:#212529;font-size:12px}
+    .dossie{padding:18px}
+    .dossie h2{color:#1a3a6b;font-size:13px;border-bottom:1px solid #cbd5e1;padding-bottom:3px;margin:16px 0 6px}
+    .dossie table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:6px}
+    .dossie th,.dossie td{border:1px solid #cbd5e1;padding:4px 6px;text-align:left;vertical-align:top}
+    .dossie th{background:#1a3a6b;color:#fff}
+    .dossie tr:nth-child(even) td{background:#f6f8fb}
+    .dossie .muted{color:#64748b}.dossie .r{text-align:right}
+    @media print{ @page{size:A4;margin:8mm} div[style*="page-break-after"]{page-break-after:always} }
+  </style></head><body>
+  ${dossieHtml}${folhasHtml}${holHtml}
+  <script>window.onload=function(){ setTimeout(function(){ window.print(); }, 350); }<\/script>
+  </body></html>`;
+  const win=window.open('','_blank','width=980,height=800');
+  if(!win){ toast('Permita pop-ups para gerar o prontuário.','error'); return; }
+  win.document.write(fullHtml); win.document.close();
+  try{ Auth.log('REL_PRONTUARIO', Auth.currentUser?.username, `${emp.nome} · seções:${ordemDados.length}${sel.folhas?` · ${nF} folha(s)`:''}${sel.holerites?` · ${nH} holerite(s)`:''}`); }catch(_){}
+}
+// Atalho a partir do cadastro do colaborador (usa o emp-id em foco).
+function _prontuarioDoCadastro(){
+  const id=val('emp-id');
+  if(!id){ toast('Salve o colaborador primeiro para gerar o prontuário.','warning'); return; }
+  abrirModalProntuario(id);
 }
 
 function renderUsersTable(){

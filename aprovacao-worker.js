@@ -815,6 +815,10 @@ async function handlePontoLogin(body, token, env){
     foto:        emp.foto || '',
     // Flag "trabalha sozinho" — usada pela UI do ponto pra pular intervalos
     semRefeicao: !!emp.semRefeicao,
+    // Opt-in do botão "Trabalhei sem intervalo hoje" (refeição não rendida →
+    // indenização). SEM isto o campo morre no Worker e o botão nunca aparece
+    // no app, mesmo o gestor tendo habilitado no cadastro. #sem-intervalo-optin
+    permiteSemIntervalo: !!emp.permiteSemIntervalo,
     // Horários contratuais — usados pela TRAVA de disciplina (entrada/saída
     // só com tolerância de 5min; fora disso pede autorização do supervisor).
     escala:           emp.escala || '',

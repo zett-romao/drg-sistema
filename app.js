@@ -3994,18 +3994,42 @@ async function _prontuarioBaixarZip(empId){
   const emp=(State.employees||[]).find(e=>e.id===empId);
   const keys=_prontuarioChecks().filter(c=>c.checked).map(c=>c.getAttribute('data-key')).filter(k=>_prontuarioDocs[k]);
   if(!keys.length){ toast('Marque ao menos um documento para incluir no ZIP.','warning'); return; }
-  const _safe=s=>(s||'').toString().replace(/[^a-zA-Z0-9 _-]/g,'').trim().replace(/\s+/g,'_');
+  // Deburr (á→a, ç→c, ê→e, õ→o) ANTES de tirar o resto — senão "bancária" vira "bancria",
+  // "Férias" vira "Frias", "competências" vira "competncias". #prontuario-zip
+  const _safe=s=>(s||'').toString().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-zA-Z0-9 _-]/g,'').trim().replace(/\s+/g,'_');
   const lblDe=k=>{ const s=(PRONTUARIO_SECOES||[]).find(x=>x.key===k); return s?s.lbl:k; };
   const zip=new JSZip(), usados={};
-  let i=0;
+  let i=0, docIdx=0;
   for(const k of keys){
-    i++; toast(`Gerando PDF ${i}/${keys.length}… aguarde`,'info');
+    i++; if(k==='documentos') docIdx=i;
+    toast(`Gerando PDF ${i}/${keys.length}… aguarde`,'info');
     try{
       const blob=await _htmlParaPdfBlob(_prontuarioDocs[k].html);
       let base=String(i).padStart(2,'0')+'_'+(_safe(lblDe(k))||'documento');
       let fname=base+'.pdf', n=2; while(usados[fname]){ fname=base+'_'+n+'.pdf'; n++; } usados[fname]=1;
       zip.file(fname, blob);
     }catch(e){ console.error('pdf prontuario', k, e); toast(`Falhou gerar "${lblDe(k)}" — sigo com os demais.`,'warning'); }
+  }
+  // Anexa os ARQUIVOS REAIS do cadastro (RG, CTPS, ASO, contrato...), não só a listagem:
+  // busca cada um do Storage (mesmo fetch do _zipDocsEmpresa) e põe numa subpasta. #prontuario-zip
+  if(keys.includes('documentos') && emp){
+    const anexos=(State.documentos||[]).filter(d=>d && d.employeeId===emp.id && d.arquivoUrl);
+    if(anexos.length){
+      toast(`Anexando ${anexos.length} arquivo(s) do cadastro…`,'info');
+      const dir=String(docIdx||10).padStart(2,'0')+'_Documentos_anexados_arquivos/';
+      const usadosA={};
+      await Promise.all(anexos.map(async d=>{
+        try{
+          const resp=await fetch(d.arquivoUrl); if(!resp || !resp.ok) return; const blob=await resp.blob();
+          const meta=(typeof DOC_TIPOS_META!=='undefined'&&DOC_TIPOS_META[d.tipo])||{nome:d.tipoLabel||d.tipo||'documento'};
+          const ext=(d.arquivoNome&&d.arquivoNome.includes('.'))?d.arquivoNome.split('.').pop().toLowerCase():((blob.type&&blob.type.split('/')[1])||'dat');
+          let base=_safe(meta.nome)||'documento';
+          const desc=_safe(d.descricao); if(desc && desc.toLowerCase()!==base.toLowerCase()) base+='_'+desc;
+          let fname=dir+base+'.'+ext, m=2; while(usadosA[fname]){ fname=dir+(_safe(meta.nome)||'documento')+'_'+m+'.'+ext; m++; } usadosA[fname]=1;
+          zip.file(fname, blob);
+        }catch(_){}
+      }));
+    }
   }
   const n=Object.keys(usados).length;
   if(!n){ toast('Não foi possível gerar nenhum PDF.','error'); return; }

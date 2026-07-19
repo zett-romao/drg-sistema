@@ -3931,26 +3931,92 @@ function _prontuarioMostrarResultado(emp, feitos){
   if(!ov){ ov=document.createElement('div'); ov.id='modal-prontuario';
     ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
     document.body.appendChild(ov); }
-  const botoes=feitos.map(s=>`<button onclick="_prontuarioAbrirUm('${s.key}')" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:#fff;border:1px solid #c7d2fe;border-radius:9px;padding:10px 12px;margin-bottom:7px;cursor:pointer;font-size:13px;color:#1a3a6b">
-      <i class="fa-solid fa-file-pdf" style="color:#c62828;font-size:16px"></i>
-      <span style="flex:1"><strong>${_relEsc(s.lbl)}</strong></span>
-      <span style="color:#5C6BC0;font-size:12px;white-space:nowrap"><i class="fa-solid fa-arrow-up-right-from-square"></i> Abrir / salvar PDF</span>
-    </button>`).join('');
+  const linhas=feitos.map(s=>`<div style="display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #c7d2fe;border-radius:9px;padding:10px 12px;margin-bottom:7px">
+      <input type="checkbox" class="pront-dl-chk" data-key="${s.key}" checked onchange="_prontuarioSyncTodos()" style="width:17px;height:17px;flex-shrink:0;cursor:pointer" title="Incluir no ZIP">
+      <div onclick="_prontuarioAbrirUm('${s.key}')" style="flex:1;display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;color:#1a3a6b" title="Abrir/salvar este avulso">
+        <i class="fa-solid fa-file-pdf" style="color:#c62828;font-size:16px"></i>
+        <span style="flex:1"><strong>${_relEsc(s.lbl)}</strong></span>
+        <span style="color:#5C6BC0;font-size:12px;white-space:nowrap"><i class="fa-solid fa-arrow-up-right-from-square"></i> Abrir / salvar PDF</span>
+      </div>
+    </div>`).join('');
   ov.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:640px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.35)">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #e2e8f0">
       <div><div style="font-size:16px;font-weight:800;color:#1a3a6b"><i class="fa-solid fa-folder-tree" style="color:#5C6BC0"></i> ${feitos.length} PDF(s) prontos — um por assunto</div>
-      <div style="font-size:12px;color:#64748b;margin-top:2px">${_relEsc(emp.nome)} · clique em cada um para abrir/salvar separadamente</div></div>
+      <div style="font-size:12px;color:#64748b;margin-top:2px">${_relEsc(emp.nome)} · marque os que quiser e baixe tudo num ZIP, ou clique num item para salvar avulso</div></div>
       <button onclick="document.getElementById('modal-prontuario').remove()" style="background:none;border:none;font-size:22px;color:#94a3b8;cursor:pointer;line-height:1" title="Fechar">&times;</button>
     </div>
-    <div style="padding:14px 20px;overflow-y:auto">
-      ${botoes}
-      <p style="font-size:11px;color:#94a3b8;margin-top:8px"><i class="fa-solid fa-circle-info"></i> Cada botão abre uma janela pronta para imprimir ou <strong>salvar em PDF</strong> (o nome do arquivo já vem com o assunto). Abra um de cada vez.</p>
+    <div style="padding:12px 20px 0;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      <label style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:#334155;cursor:pointer;font-weight:600">
+        <input type="checkbox" id="pront-chk-all" checked onclick="_prontuarioToggleTodos(this.checked)" style="width:16px;height:16px;cursor:pointer"> Marcar / desmarcar todos
+      </label>
+      <button class="btn btn-primary" style="background:#3949AB;border-color:#3949AB;font-size:12.5px" onclick="_prontuarioBaixarZip('${emp.id}')"><i class="fa-solid fa-file-zipper"></i> Baixar selecionados (ZIP)</button>
+    </div>
+    <div style="padding:12px 20px;overflow-y:auto">
+      ${linhas}
+      <p style="font-size:11px;color:#94a3b8;margin-top:8px"><i class="fa-solid fa-circle-info"></i> No ZIP cada assunto vai como um <strong>PDF separado</strong> (nunca tudo num PDF só). Ou clique num item para abrir e salvar avulso.</p>
     </div>
     <div style="padding:14px 20px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;gap:8px">
       <button class="btn btn-outline" onclick="abrirModalProntuario('${emp.id}')"><i class="fa-solid fa-rotate-left"></i> Escolher de novo</button>
       <button class="btn btn-primary" style="background:#5C6BC0;border-color:#5C6BC0" onclick="document.getElementById('modal-prontuario').remove()">Concluir</button>
     </div>
   </div>`;
+}
+// Marcar/desmarcar todos os checkboxes do ZIP + sincronizar o master. #prontuario-zip
+function _prontuarioChecks(){ return Array.from(document.querySelectorAll('.pront-dl-chk')); }
+function _prontuarioToggleTodos(on){ _prontuarioChecks().forEach(c=>{ c.checked=on; }); }
+function _prontuarioSyncTodos(){ const all=_prontuarioChecks(), m=document.getElementById('pront-chk-all'); if(m) m.checked=all.length>0 && all.every(c=>c.checked); }
+// Rasteriza um documento HTML (dossiê/folha) num PDF A4 multipágina → Blob. Reusa o
+// pipeline html2canvas+jsPDF já usado nos recibos; tira o <script> de auto-print. #prontuario-zip
+async function _htmlParaPdfBlob(htmlFull){
+  const jsPDFctor=(window.jspdf&&window.jspdf.jsPDF)||window.jsPDF;
+  if(!jsPDFctor) throw new Error('jsPDF não carregado');
+  if(typeof html2canvas==='undefined') throw new Error('html2canvas não carregado');
+  const html=String(htmlFull||'').replace(/<script[\s\S]*?<\/script>/gi,'');   // sem auto-print
+  const holder=document.createElement('div');
+  holder.style.cssText='position:fixed;left:-99999px;top:0;width:820px;background:#fff;font-family:Arial,sans-serif;color:#212529;font-size:12px;z-index:-1';
+  holder.innerHTML=html;
+  document.body.appendChild(holder);
+  try{
+    const canvas=await html2canvas(holder,{scale:2,backgroundColor:'#ffffff',useCORS:true,windowWidth:820});
+    const pdf=new jsPDFctor('p','mm','a4');
+    const pw=pdf.internal.pageSize.getWidth(), ph=pdf.internal.pageSize.getHeight();
+    const imgW=pw, imgH=canvas.height*imgW/canvas.width;
+    const imgData=canvas.toDataURL('image/jpeg',0.92);
+    let heightLeft=imgH, position=0;
+    pdf.addImage(imgData,'JPEG',0,position,imgW,imgH); heightLeft-=ph;
+    while(heightLeft>0.5){ position-=ph; pdf.addPage(); pdf.addImage(imgData,'JPEG',0,position,imgW,imgH); heightLeft-=ph; }
+    return pdf.output('blob');
+  } finally { holder.remove(); }
+}
+// Gera os PDFs marcados (um por assunto) e baixa tudo num ZIP — nunca num PDF só. #prontuario-zip
+async function _prontuarioBaixarZip(empId){
+  if(typeof JSZip==='undefined'){ toast('JSZip não carregado. Verifique a conexão.','error'); return; }
+  const emp=(State.employees||[]).find(e=>e.id===empId);
+  const keys=_prontuarioChecks().filter(c=>c.checked).map(c=>c.getAttribute('data-key')).filter(k=>_prontuarioDocs[k]);
+  if(!keys.length){ toast('Marque ao menos um documento para incluir no ZIP.','warning'); return; }
+  const _safe=s=>(s||'').toString().replace(/[^a-zA-Z0-9 _-]/g,'').trim().replace(/\s+/g,'_');
+  const lblDe=k=>{ const s=(PRONTUARIO_SECOES||[]).find(x=>x.key===k); return s?s.lbl:k; };
+  const zip=new JSZip(), usados={};
+  let i=0;
+  for(const k of keys){
+    i++; toast(`Gerando PDF ${i}/${keys.length}… aguarde`,'info');
+    try{
+      const blob=await _htmlParaPdfBlob(_prontuarioDocs[k].html);
+      let base=String(i).padStart(2,'0')+'_'+(_safe(lblDe(k))||'documento');
+      let fname=base+'.pdf', n=2; while(usados[fname]){ fname=base+'_'+n+'.pdf'; n++; } usados[fname]=1;
+      zip.file(fname, blob);
+    }catch(e){ console.error('pdf prontuario', k, e); toast(`Falhou gerar "${lblDe(k)}" — sigo com os demais.`,'warning'); }
+  }
+  const n=Object.keys(usados).length;
+  if(!n){ toast('Não foi possível gerar nenhum PDF.','error'); return; }
+  try{
+    const content=await zip.generateAsync({type:'blob'});
+    const nomeZip=(_safe(`Prontuario_${emp?emp.nome:'colaborador'}`)||'Prontuario');
+    const link=document.createElement('a'); link.href=URL.createObjectURL(content); link.download=nomeZip+'.zip';
+    document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(link.href);
+    toast(`ZIP com ${n} PDF(s) gerado.`,'success');
+    try{ Auth.log('REL_PRONTUARIO', Auth.currentUser?.username, `${emp?emp.nome:''} · ZIP ${n} PDF(s)`); }catch(_){}
+  }catch(e){ console.error('zip prontuario', e); toast('Erro ao gerar o ZIP.','error'); }
 }
 
 // Abre (numa aba nova) o PDF de um assunto já gerado. Disparado por clique = pop-up liberado.

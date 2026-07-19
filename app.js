@@ -3945,11 +3945,16 @@ function _prontuarioMostrarResultado(emp, feitos){
       <div style="font-size:12px;color:#64748b;margin-top:2px">${_relEsc(emp.nome)} · marque os que quiser e baixe tudo num ZIP, ou clique num item para salvar avulso</div></div>
       <button onclick="document.getElementById('modal-prontuario').remove()" style="background:none;border:none;font-size:22px;color:#94a3b8;cursor:pointer;line-height:1" title="Fechar">&times;</button>
     </div>
-    <div style="padding:12px 20px 0;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
-      <label style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:#334155;cursor:pointer;font-weight:600">
-        <input type="checkbox" id="pront-chk-all" checked onclick="_prontuarioToggleTodos(this.checked)" style="width:16px;height:16px;cursor:pointer"> Marcar / desmarcar todos
-      </label>
-      <button class="btn btn-primary" style="background:#3949AB;border-color:#3949AB;font-size:12.5px" onclick="_prontuarioBaixarZip('${emp.id}')"><i class="fa-solid fa-file-zipper"></i> Baixar selecionados (ZIP)</button>
+    <div style="padding:12px 20px 0;display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <label style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:#334155;cursor:pointer;font-weight:600">
+          <input type="checkbox" id="pront-chk-all" checked onclick="_prontuarioToggleTodos(this.checked)" style="width:16px;height:16px;cursor:pointer"> Marcar / desmarcar todos
+        </label>
+        <label style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:#334155;cursor:pointer">
+          <input type="checkbox" id="pront-inc-anexos" checked style="width:16px;height:16px;cursor:pointer"> <span><i class="fa-solid fa-paperclip"></i> Incluir <strong>todos os arquivos anexados</strong> do cadastro (documentos, atestados, disciplina, comunicações, foto)</span>
+        </label>
+      </div>
+      <button class="btn btn-primary" style="background:#3949AB;border-color:#3949AB;font-size:12.5px;white-space:nowrap" onclick="_prontuarioBaixarZip('${emp.id}')"><i class="fa-solid fa-file-zipper"></i> Baixar selecionados (ZIP)</button>
     </div>
     <div style="padding:12px 20px;overflow-y:auto">
       ${linhas}
@@ -3988,20 +3993,55 @@ async function _htmlParaPdfBlob(htmlFull){
     return pdf.output('blob');
   } finally { holder.remove(); }
 }
+// Junta TODO arquivo ligado ao colaborador (qualquer coleção, qualquer campo de URL) para o
+// ZIP do prontuário: documentos, atestados, atrasos, disciplina/suspensões (saidas),
+// comunicações (anexo + recibos de envio/recebimento) e a foto. Dedup por URL. #anexos-todos
+function _coletarAnexosColaborador(emp, _safe){
+  if(!emp) return [];
+  const CAMPOS=[
+    {f:'arquivoUrl',          n:'',                    nomeArq:'arquivoNome'},
+    {f:'anexoUrl',            n:'',                    nomeArq:'anexoNome'},
+    {f:'reciboEnvioUrl',      n:'_recibo_envio',       nomeArq:null},
+    {f:'reciboRecebimentoUrl',n:'_recibo_recebimento', nomeArq:null},
+    {f:'asaasComprovante',    n:'_comprovante',        nomeArq:null},
+  ];
+  const FONTES=[
+    {col:'documentos',  pasta:'Documentos',    nome:d=>(((typeof DOC_TIPOS_META!=='undefined'&&DOC_TIPOS_META[d.tipo])||{}).nome)||d.tipoLabel||d.tipo||'documento'},
+    {col:'atestados',   pasta:'Atestados',     nome:d=>'atestado_'+String(d.dataInicio||d.data||d.createdAt||'').slice(0,10)},
+    {col:'atrasos',     pasta:'Atrasos',       nome:d=>'atraso_'+String(d.data||d.createdAt||'').slice(0,10)},
+    {col:'saidas',      pasta:'Disciplina',    nome:d=>String(d.tipo||'saida')+'_'+String(d.data||d.createdAt||'').slice(0,10)},
+    {col:'comunicacao', pasta:'Comunicacoes',  nome:d=>'comunicacao_'+((d.assunto&&_safe(d.assunto))||String(d.createdAt||'').slice(0,10))},
+  ];
+  const out=[], seen=new Set();
+  const push=(url,pasta,nome,nomeArq)=>{
+    if(!url || !/^https?:/i.test(url) || seen.has(url)) return;
+    seen.add(url); out.push({url, pasta, nome, nomeArq:nomeArq||''});
+  };
+  FONTES.forEach(src=>{
+    (State[src.col]||[]).forEach(it=>{
+      if(!it || it.employeeId!==emp.id) return;
+      const base=src.nome(it)||src.pasta;
+      CAMPOS.forEach(c=>{ if(it[c.f]) push(it[c.f], src.pasta, base+c.n, c.nomeArq?it[c.nomeArq]:''); });
+    });
+  });
+  if(emp.fotoUrl) push(emp.fotoUrl, '', 'Foto_'+(_safe(emp.nome)||'colaborador'), '');
+  return out;
+}
 // Gera os PDFs marcados (um por assunto) e baixa tudo num ZIP — nunca num PDF só. #prontuario-zip
 async function _prontuarioBaixarZip(empId){
   if(typeof JSZip==='undefined'){ toast('JSZip não carregado. Verifique a conexão.','error'); return; }
   const emp=(State.employees||[]).find(e=>e.id===empId);
   const keys=_prontuarioChecks().filter(c=>c.checked).map(c=>c.getAttribute('data-key')).filter(k=>_prontuarioDocs[k]);
-  if(!keys.length){ toast('Marque ao menos um documento para incluir no ZIP.','warning'); return; }
+  const incAnexos=!!((document.getElementById('pront-inc-anexos')||{}).checked);
+  if(!keys.length && !incAnexos){ toast('Marque ao menos um assunto (ou os anexos do cadastro).','warning'); return; }
   // Deburr (á→a, ç→c, ê→e, õ→o) ANTES de tirar o resto — senão "bancária" vira "bancria",
   // "Férias" vira "Frias", "competências" vira "competncias". #prontuario-zip
   const _safe=s=>(s||'').toString().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-zA-Z0-9 _-]/g,'').trim().replace(/\s+/g,'_');
   const lblDe=k=>{ const s=(PRONTUARIO_SECOES||[]).find(x=>x.key===k); return s?s.lbl:k; };
   const zip=new JSZip(), usados={};
-  let i=0, docIdx=0;
+  let i=0;
   for(const k of keys){
-    i++; if(k==='documentos') docIdx=i;
+    i++;
     toast(`Gerando PDF ${i}/${keys.length}… aguarde`,'info');
     try{
       const blob=await _htmlParaPdfBlob(_prontuarioDocs[k].html);
@@ -4010,36 +4050,38 @@ async function _prontuarioBaixarZip(empId){
       zip.file(fname, blob);
     }catch(e){ console.error('pdf prontuario', k, e); toast(`Falhou gerar "${lblDe(k)}" — sigo com os demais.`,'warning'); }
   }
-  // Anexa os ARQUIVOS REAIS do cadastro (RG, CTPS, ASO, contrato...), não só a listagem:
-  // busca cada um do Storage (mesmo fetch do _zipDocsEmpresa) e põe numa subpasta. #prontuario-zip
-  if(keys.includes('documentos') && emp){
-    const anexos=(State.documentos||[]).filter(d=>d && d.employeeId===emp.id && d.arquivoUrl);
+  // Varre TODAS as fontes de arquivo do colaborador e anexa os binários reais no ZIP,
+  // numa subpasta por origem (Documentos/Atestados/Disciplina/Comunicacoes/…). #anexos-todos
+  let anexN=0;
+  if(incAnexos && emp){
+    const anexos=_coletarAnexosColaborador(emp, _safe);
     if(anexos.length){
       toast(`Anexando ${anexos.length} arquivo(s) do cadastro…`,'info');
-      const dir=String(docIdx||10).padStart(2,'0')+'_Documentos_anexados_arquivos/';
       const usadosA={};
-      await Promise.all(anexos.map(async d=>{
+      await Promise.all(anexos.map(async a=>{
         try{
-          const resp=await fetch(d.arquivoUrl); if(!resp || !resp.ok) return; const blob=await resp.blob();
-          const meta=(typeof DOC_TIPOS_META!=='undefined'&&DOC_TIPOS_META[d.tipo])||{nome:d.tipoLabel||d.tipo||'documento'};
-          const ext=(d.arquivoNome&&d.arquivoNome.includes('.'))?d.arquivoNome.split('.').pop().toLowerCase():((blob.type&&blob.type.split('/')[1])||'dat');
-          let base=_safe(meta.nome)||'documento';
-          const desc=_safe(d.descricao); if(desc && desc.toLowerCase()!==base.toLowerCase()) base+='_'+desc;
-          let fname=dir+base+'.'+ext, m=2; while(usadosA[fname]){ fname=dir+(_safe(meta.nome)||'documento')+'_'+m+'.'+ext; m++; } usadosA[fname]=1;
+          const resp=await fetch(a.url); if(!resp || !resp.ok) return; const blob=await resp.blob();
+          let ext=(a.nomeArq && a.nomeArq.includes('.')) ? a.nomeArq.split('.').pop().toLowerCase().replace(/[^a-z0-9]/g,'') : '';
+          if(!ext) ext=(blob.type && blob.type.split('/')[1]) || 'dat';
+          if(ext.length>5) ext='dat';
+          const dir='Anexos_do_colaborador/'+(a.pasta?_safe(a.pasta)+'/':'');
+          const base=_safe(a.nome)||'arquivo';
+          let fname=dir+base+'.'+ext, m=2; while(usadosA[fname]){ fname=dir+base+'_'+m+'.'+ext; m++; } usadosA[fname]=1;
           zip.file(fname, blob);
         }catch(_){}
       }));
+      anexN=Object.keys(usadosA).length;
     }
   }
   const n=Object.keys(usados).length;
-  if(!n){ toast('Não foi possível gerar nenhum PDF.','error'); return; }
+  if(!n && !anexN){ toast('Nada para baixar — nenhum PDF gerado e nenhum anexo encontrado.','error'); return; }
   try{
     const content=await zip.generateAsync({type:'blob'});
     const nomeZip=(_safe(`Prontuario_${emp?emp.nome:'colaborador'}`)||'Prontuario');
     const link=document.createElement('a'); link.href=URL.createObjectURL(content); link.download=nomeZip+'.zip';
     document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(link.href);
-    toast(`ZIP com ${n} PDF(s) gerado.`,'success');
-    try{ Auth.log('REL_PRONTUARIO', Auth.currentUser?.username, `${emp?emp.nome:''} · ZIP ${n} PDF(s)`); }catch(_){}
+    toast(`ZIP gerado: ${n} PDF(s)${anexN?` + ${anexN} anexo(s)`:''}.`,'success');
+    try{ Auth.log('REL_PRONTUARIO', Auth.currentUser?.username, `${emp?emp.nome:''} · ZIP ${n} PDF + ${anexN} anexo(s)`); }catch(_){}
   }catch(e){ console.error('zip prontuario', e); toast('Erro ao gerar o ZIP.','error'); }
 }
 

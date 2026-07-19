@@ -3138,6 +3138,7 @@ async function atualizarLGPD(){
     DB.getAll('pedidosTitular').then(d=>{State.pedidosTitular=d;}).catch(()=>{}),
     DB.getAll('employees').then(d=>{State.employees=d;}).catch(()=>{}),
     DB.getDoc('configuracoes','permissoesUsuarios').then(d=>{State.permissoesUsuarios=d||{};}).catch(()=>{}),
+    DB.getDoc('configuracoes','usuariosArquivados').then(d=>{State.usuariosArquivados=d||{};}).catch(()=>{}),   // usuários inativos arquivados (some da lista). #usuarios-arquivar
     DB.getDoc('configuracoes','acessoUsuarios').then(d=>{State.acessoUsuarios=d||{};}).catch(()=>{}),
     DB.getDoc('configuracoes','lgpdConfig').then(d=>{State.lgpdConfig=d||{};}).catch(()=>{}),
     DB.col('accessLog').where('timestamp','>=',cutoff).orderBy('timestamp','desc').limit(5000).get()
@@ -3969,28 +3970,77 @@ function _prontuarioDoCadastro(){
 
 function renderUsersTable(){
   const tbody=document.getElementById('users-tbody'); if(!tbody) return;
-  tbody.innerHTML=Auth.users.map(u=>{
+  const arq=State.usuariosArquivados||{};
+  const isMaster=Auth.currentUser?.role==='master';
+  const arquivadosN=Auth.users.filter(u=>arq[u.id]).length;
+  const mostrar=!!State.mostrarUsuariosArquivados;
+  // Arquivados somem da lista por padrão; o toggle no rodapé revela. #usuarios-arquivar
+  const lista=Auth.users.filter(u => mostrar || !arq[u.id]);
+  let html=lista.map(u=>{
+    const ehArq=!!arq[u.id];
     const _temPerm=!!(State.permissoesUsuarios||{})[u.username];
     const roleCls=u.role==='master'?'badge-master':(_temPerm||u.role&&u.role.startsWith('p_'))?'badge-gestor':'badge-operador';
     const acessoLbl=u.role==='master'?'Master':(_temPerm?'Personalizado':roleLabel(u.role));
-    const isMaster=Auth.currentUser?.role==='master';
     const logToggle=u.role!=='master'&&isMaster?`<button class="btn-icon ${u.showLog?'btn-primary-icon':'btn-outline'}" onclick="toggleShowLog('${u.id}')" title="${u.showLog?'Revogar acesso ao log':'Dar acesso ao log'}"><i class="fa-solid fa-list-check"></i></button>`:'';
-    return `<tr>
+    // Arquivar só usuário INATIVO (não master, não padrão, não você mesmo); desarquivar sempre disponível no arquivado. #usuarios-arquivar
+    const podeArquivar=isMaster && !u.active && u.role!=='master' && u.id!=='master-default' && u.id!==Auth.currentUser?.id;
+    const arqBtn=ehArq
+      ? `<button class="btn-icon btn-outline" onclick="desarquivarUsuario('${u.id}')" title="Desarquivar (volta pra lista)"><i class="fa-solid fa-box-open"></i></button>`
+      : (podeArquivar?`<button class="btn-icon btn-outline" onclick="arquivarUsuario('${u.id}')" title="Arquivar (some da lista, sem excluir)"><i class="fa-solid fa-box-archive"></i></button>`:'');
+    return `<tr${ehArq?' style="opacity:.55"':''}>
       <td><div style="display:flex;align-items:center;gap:8px">
         <div class="recent-avatar" style="width:30px;height:30px;font-size:11px">${initials(u.username)}</div>
         <strong>${u.username}</strong>
         ${u.id==='master-default'?'<span class="badge badge-muted" style="font-size:10px">padrão</span>':''}
+        ${ehArq?'<span class="badge badge-muted" style="font-size:10px"><i class="fa-solid fa-box-archive"></i> arquivado</span>':''}
       </div></td>
       <td><span class="badge ${roleCls}">${acessoLbl}</span></td>
       <td>${fmtDateTime(u.lastLogin)}</td>
       <td><span class="badge ${u.active?'badge-success':'badge-danger'}">${u.active?'Ativo':'Inativo'}</span></td>
       <td><div class="actions-cell">
         ${logToggle}
+        ${arqBtn}
         <button class="btn-icon btn-warning-icon" onclick="openUserModal('${u.id}')" title="Editar"><i class="fa-solid fa-pencil"></i></button>
         ${u.id!==Auth.currentUser?.id?`<button class="btn-icon btn-danger-icon" onclick="confirmDeleteUser('${u.id}')" title="Excluir"><i class="fa-solid fa-trash"></i></button>`:''}
       </div></td>
     </tr>`;
   }).join('');
+  if(arquivadosN>0){
+    html+=`<tr><td colspan="5" style="text-align:center;padding:10px;background:#f8fafc;border-top:1px dashed var(--border)">
+      <button class="btn btn-sm btn-outline" onclick="toggleMostrarArquivados()" style="font-size:12px">
+        <i class="fa-solid ${mostrar?'fa-eye-slash':'fa-box-archive'}"></i> ${mostrar?'Ocultar arquivados':`Mostrar arquivados (${arquivadosN})`}
+      </button></td></tr>`;
+  }
+  tbody.innerHTML=html;
+}
+function toggleMostrarArquivados(){
+  State.mostrarUsuariosArquivados=!State.mostrarUsuariosArquivados;
+  renderUsersTable();
+}
+async function arquivarUsuario(id){
+  if(Auth.currentUser?.role!=='master'){ toast('Só o Master pode arquivar usuários.','error'); return; }
+  const u=Auth.users.find(x=>x.id===id); if(!u) return;
+  if(u.active){ toast('Só dá pra arquivar usuário Inativo — inative-o antes (Editar).','warning'); return; }
+  const map={...(State.usuariosArquivados||{})}; map[id]=true;
+  try{
+    await DB.saveDoc('configuracoes','usuariosArquivados',map,false);
+    State.usuariosArquivados=map;
+    try{ Auth.log('USER_UPDATED',Auth.currentUser.username,`Usuário arquivado: ${u.username}`); }catch(_){}
+    toast(`"${u.username}" arquivado — saiu da lista.`,'success');
+    renderUsersTable();
+  }catch(e){ toast((e&&e.message)||'Erro ao arquivar.','error'); }
+}
+async function desarquivarUsuario(id){
+  if(Auth.currentUser?.role!=='master'){ toast('Só o Master pode desarquivar usuários.','error'); return; }
+  const u=Auth.users.find(x=>x.id===id);
+  const map={...(State.usuariosArquivados||{})}; delete map[id];
+  try{
+    await DB.saveDoc('configuracoes','usuariosArquivados',map,false);
+    State.usuariosArquivados=map;
+    try{ Auth.log('USER_UPDATED',Auth.currentUser.username,`Usuário desarquivado: ${u?u.username:id}`); }catch(_){}
+    toast(`${u?u.username:'Usuário'} desarquivado — voltou pra lista.`,'success');
+    renderUsersTable();
+  }catch(e){ toast((e&&e.message)||'Erro ao desarquivar.','error'); }
 }
 
 function confirmDeleteUser(id){
@@ -34394,6 +34444,8 @@ async function _carregarDadosPosLogin(){
     catch(_){ State.escalaConsulta = {}; }
     try{ State.permissoesUsuarios = (await DB.getDoc('configuracoes','permissoesUsuarios')) || {}; }   // permissões por usuário (substitui perfis). #perm-por-usuario
     catch(_){ State.permissoesUsuarios = {}; }
+    try{ State.usuariosArquivados = (await DB.getDoc('configuracoes','usuariosArquivados')) || {}; }   // usuários inativos arquivados. #usuarios-arquivar
+    catch(_){ State.usuariosArquivados = {}; }
     try{ State.lgpdConfig = (await DB.getDoc('configuracoes','lgpdConfig')) || {}; }   // encarregado/DPO. #lgpd
     catch(_){ State.lgpdConfig = {}; }
     try{ State.termosLgpd = await DB.getAll('termosLgpd'); }   // termos de consentimento. #lgpd-termo

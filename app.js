@@ -27837,6 +27837,100 @@ function _primeiroDiaTrabalho12x36(emp, fromISO){
   return min;
 }
 
+// ─── REALINHAR CICLO 12x36 PELO PONTO REAL ───────────────────────────────────
+// O ciclo 12x36 decide trabalho×folga só pela paridade da âncora (`ciclo12x36Inicio`).
+// Se a âncora está na fase errada, TODO plantão real cai num "folga" → a jornada
+// inteira vira "HE recusada" (_heMinDia, dia folga = 100% HE) e os dias de descanso
+// viram falta fantasma. Este realinhamento deriva a paridade certa direto do PONTO:
+// a âncora base = 1º plantão batido; e cada VIRADA de plantão (dia batido que
+// contradiz a paridade vigente — troca de escala no posto, plantões colados) vira um
+// "Período de mudança — reinicia ciclo" (reancora12x36) na data da virada. #realinhar-12x36
+function _todosPlantoes12x36Batidos(emp){
+  const pad = n => String(n).padStart(2,'0');
+  const set = new Set();
+  (State.payrolls||[]).forEach(p => {
+    if(p.employeeId !== emp.id) return;
+    const dias = Array.isArray(p.pontoManualDias) ? p.pontoManualDias : [];
+    dias.forEach(d => {
+      if(!d || !d.entrada) return;
+      if((d.entrada_origem||'') === 'backfill') return;   // projeção não conta
+      const rd = _compRealDate(p.mes, p.ano, d.dia);        // dia da competência → data real
+      set.add(`${rd.ano}-${pad(rd.mes)}-${pad(rd.dia)}`);
+    });
+  });
+  return [...set].sort();
+}
+// Deriva { base, seams:[iso,...] } a partir dos plantões batidos, ou null se não houver.
+// base = 1º plantão; seam = plantão que caiu na paridade de FOLGA da âncora vigente
+// (a fase virou ali) → re-ancora nesse dia e segue. Modela exatamente a troca de plantão.
+function _plano12x36PeloPonto(emp){
+  const dias = _todosPlantoes12x36Batidos(emp);
+  if(!dias.length) return null;
+  const base = dias[0];
+  let anchor = new Date(base + 'T00:00:00');
+  const seams = [];
+  for(let i=1;i<dias.length;i++){
+    const d = new Date(dias[i] + 'T00:00:00');
+    const diff = Math.round((d - anchor) / 86400000);
+    if((((diff % 2) + 2) % 2) !== 0){   // caiu na paridade de FOLGA → virou o plantão aqui
+      seams.push(dias[i]);
+      anchor = d;                       // nova âncora a partir da virada
+    }
+  }
+  return { base, seams };
+}
+async function realinharCiclo12x36PeloPonto(){
+  const emp = State.employees.find(e=>e.id===State.editingEmployeeId);
+  if(!emp || !emp.id){ toast('Salve o colaborador antes de realinhar o ciclo.','warning'); return; }
+  if(escalaFamilia(emp.escala||'5x2A')!=='12x36'){ toast('Realinhamento só vale para escala 12x36.','warning'); return; }
+  const plano = _plano12x36PeloPonto(emp);
+  if(!plano){ toast('Nenhum plantão batido ainda — sem como inferir a paridade do ciclo.','warning'); return; }
+  const _br = iso => { const p=(iso||'').split('-'); return p.length===3 ? `${p[2]}/${p[1]}/${p[0]}` : iso; };
+  const seamTxt = plano.seams.length ? plano.seams.map(_br).join(', ') : '(nenhuma — plantões numa fase só)';
+  const msg = `Realinhar o ciclo 12x36 de ${emp.nome} pelo ponto REAL?\n\n`
+    + `• Início do ciclo → ${_br(plano.base)} (1º plantão batido)\n`
+    + `• Viradas de plantão detectadas: ${plano.seams.length}\n     ${seamTxt}\n\n`
+    + `Cada virada vira um "Período de mudança — reinicia ciclo". A folha reapura e some o "HE recusada" da jornada normal. Confirmar?`;
+  if(!confirm(msg)) return;
+
+  const quem = (Auth.currentUser && (Auth.currentUser.username||Auth.currentUser.id))||'—';
+  const nowISO = new Date().toISOString();
+  const OBS_AUTO = 'Realinhamento automático pelo ponto real';
+  // 1) âncora base
+  emp.ciclo12x36Inicio = plano.base;
+  setVal('emp-ciclo-12x36-inicio', plano.base);
+  // 2) reancoragens — base + cada virada. Um reancora na BASE torna a paridade do ponto
+  //    autoritativa (vence `ciclo12x36Inicio` herdado torto num segmento de lotação). Limpa
+  //    os auto anteriores pra o botão ser idempotente e se autocorrigir. #realinhar-12x36
+  emp.historicoEscalas = (emp.historicoEscalas||[]).filter(p => !(p && p.observacao === OBS_AUTO));
+  const ancoras = [plano.base, ...plano.seams];
+  ancoras.forEach(dISO => {
+    if(emp.historicoEscalas.some(p => p && p.de === dISO && p.reancora12x36)) return;   // já reancorado nessa data (manual)
+    const lot = _lotacaoEm(emp, dISO) || {};
+    emp.historicoEscalas.push({
+      id: genId(), de: dISO, ate: '',
+      escala:         lot.escala         || emp.escala         || '',
+      horarioEntrada: lot.horarioEntrada || emp.horarioEntrada || '',
+      horarioSaida:   lot.horarioSaida   || emp.horarioSaida   || '',
+      horarioRefIni:  lot.horarioRefIni  || emp.horarioRefIni  || '',
+      horarioRefFim:  lot.horarioRefFim  || emp.horarioRefFim  || '',
+      reancora12x36: true, observacao: OBS_AUTO,
+      criadoEm: nowISO, criadoPorNome: quem, updatedAt: nowISO,
+    });
+  });
+  try{
+    await DB.merge('employees', emp.id, {
+      ciclo12x36Inicio: emp.ciclo12x36Inicio,
+      historicoEscalas: emp.historicoEscalas,
+      updatedAt: nowISO,
+    });
+    _resetPrimTrab12x36Cache();
+    try{ Auth.log('CICLO_12X36_REALINHAR', null, `${emp.nome} | base ${plano.base} | ${plano.seams.length} virada(s)`); }catch(_){}
+    toast(`✅ Ciclo realinhado: início ${_br(plano.base)}${plano.seams.length?` + ${plano.seams.length} virada(s)`:''}. Gere a prévia de novo.`,'success');
+    try{ renderHorariosTab(emp.id); }catch(_){}
+  }catch(e){ console.error(e); toast('Erro ao realinhar: '+((e&&e.message)||e),'error'); }
+}
+
 // true=trabalho / false=folga / null=sem referência. Regra (decisão usuário
 // 2026-06-01): a paridade do ciclo 12x36 é ancorada na DATA INFORMADA no cadastro
 // (`ciclo12x36Inicio`), que SOBREPÕE qualquer outra regra. A partir dela, conta

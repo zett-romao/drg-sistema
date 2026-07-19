@@ -4096,12 +4096,12 @@
               <strong style="font-size:14px;color:var(--text)"><i class="fa-solid fa-calendar-day" style="color:#E65100"></i> Dias avulsos (overrides)</strong>
               <div style="font-size:11px;color:#888;margin-top:2px">Para um único dia (ex.: plantão noturno excepcional). Tem prioridade sobre o período.</div>
             </div>
-            <div style="display:flex;gap:6px;flex-wrap:wrap">
-              <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;background:#1B5E20;color:#fff;border-color:#1B5E20" onclick="abrirNovaFolga()"><i class="fa-solid fa-mug-hot"></i> Adicionar folga</button>
-              <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;background:#00897B;color:#fff;border-color:#00897B" onclick="abrirCompensacaoSolo()" title="Ela trocou de dia só ela mesma: não veio num dia (vira folga paga) e trabalhou em outro (vira dia de trabalho). Sem falta nem hora extra."><i class="fa-solid fa-arrow-right-arrow-left"></i> Compensação solo</button>
-              <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;background:#6D28D9;color:#fff;border-color:#6D28D9" onclick="abrirTrocaPlantao()"><i class="fa-solid fa-right-left"></i> Troca de plantão</button>
-              <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;background:#7C3AED;color:#fff;border-color:#7C3AED" onclick="abrirCobertura()" title="Um colega cobre o outro por vários dias e depois recebe a folga de volta. Folgas pagas, sem falta nem hora extra."><i class="fa-solid fa-handshake-angle"></i> Cobertura (vários dias)</button>
-              <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;background:#E65100;color:#fff;border-color:#E65100" onclick="abrirNovoOverrideEscala()"><i class="fa-solid fa-plus"></i> Novo dia avulso</button>
+            <div style="flex-basis:100%;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:6px;margin-top:4px">
+              <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;white-space:nowrap;background:#1B5E20;color:#fff;border-color:#1B5E20" onclick="abrirNovaFolga()"><i class="fa-solid fa-mug-hot"></i> Adicionar folga</button>
+              <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;white-space:nowrap;background:#00897B;color:#fff;border-color:#00897B" onclick="abrirCompensacaoSolo()" title="Ela trocou de dia só ela mesma: não veio num dia (vira folga paga) e trabalhou em outro (vira dia de trabalho). Sem falta nem hora extra."><i class="fa-solid fa-arrow-right-arrow-left"></i> Compensação solo</button>
+              <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;white-space:nowrap;background:#6D28D9;color:#fff;border-color:#6D28D9" onclick="abrirTrocaPlantao()"><i class="fa-solid fa-right-left"></i> Troca de plantão</button>
+              <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;white-space:nowrap;background:#7C3AED;color:#fff;border-color:#7C3AED" onclick="abrirCobertura()" title="Um colega cobre o outro por vários dias e depois recebe a folga de volta. Folgas pagas, sem falta nem hora extra."><i class="fa-solid fa-handshake-angle"></i> Cobertura (vários dias)</button>
+              <button type="button" class="btn btn-sm js-gerir-folga-escala" style="font-size:12px;white-space:nowrap;background:#E65100;color:#fff;border-color:#E65100" onclick="abrirNovoOverrideEscala()"><i class="fa-solid fa-plus"></i> Novo dia avulso</button>
             </div>
           </div>
           <div id="hor-overrides-list">
@@ -7915,6 +7915,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260719b-botoes-alinhados"></script>
+  <script src="app.js?v=20260719c-botoes-alinhados-horarios"></script>
 </body>
 </html>

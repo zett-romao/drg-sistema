@@ -3853,11 +3853,11 @@ function abrirModalProntuario(empId){
       ${dados}
       <div style="font-size:11px;font-weight:700;color:#5C6BC0;text-transform:uppercase;letter-spacing:.4px;margin:12px 0 2px">Documentos por competência</div>
       ${docs}
-      <p style="font-size:11px;color:#94a3b8;margin-top:10px"><i class="fa-solid fa-circle-info"></i> Abre uma janela pronta para imprimir ou salvar em PDF (todas as competências do contrato).</p>
+      <p style="font-size:11px;color:#94a3b8;margin-top:10px"><i class="fa-solid fa-circle-info"></i> Gera <strong>um PDF separado por assunto</strong> marcado (folhas e holerites cobrem todas as competências do contrato). Na tela seguinte você abre/salva cada um.</p>
     </div>
     <div style="padding:14px 20px;border-top:1px solid #e2e8f0;display:flex;justify-content:flex-end;gap:8px">
       <button class="btn btn-outline" onclick="document.getElementById('modal-prontuario').remove()">Cancelar</button>
-      <button class="btn btn-primary" style="background:#5C6BC0;border-color:#5C6BC0" onclick="gerarProntuario('${id}')"><i class="fa-solid fa-file-arrow-down"></i> Gerar PDF</button>
+      <button class="btn btn-primary" style="background:#5C6BC0;border-color:#5C6BC0" onclick="gerarProntuario('${id}')"><i class="fa-solid fa-file-arrow-down"></i> Gerar PDFs por assunto</button>
     </div>
   </div>`;
   document.body.appendChild(ov);
@@ -3866,38 +3866,26 @@ function _prontuarioMarcarTodos(v){
   PRONTUARIO_SECOES.forEach(s=>{ const el=document.getElementById('pront-chk-'+s.key); if(el) el.checked=v; });
 }
 
-// Monta e abre o PDF do prontuário conforme as seções marcadas.
-async function gerarProntuario(empId){
-  const emp=(State.employees||[]).find(e=>e.id===empId);
-  if(!emp){ toast('Colaborador não encontrado.','error'); return; }
-  const sel={}; PRONTUARIO_SECOES.forEach(s=>{ const el=document.getElementById('pront-chk-'+s.key); sel[s.key]=el?el.checked:false; });
-  if(!Object.values(sel).some(Boolean)){ toast('Marque ao menos uma seção.','warning'); return; }
-  const m=document.getElementById('modal-prontuario'); if(m) m.remove();
-  toast('Montando prontuário — aguarde...','info');
-  // Só busca o assíncrono (disciplina/comunicações) se alguma dessas seções foi marcada.
-  const extra=(sel.disciplina||sel.comunicacoes) ? await _prontuarioFetchAsync(empId) : { disciplina:[], comunicacoes:[] };
-  const S=_colabSecoesHtml(emp, extra);
-  // Bloco 1: seções de dados (tabelas do dossiê), na ordem do catálogo.
-  const ordemDados=PRONTUARIO_SECOES.filter(s=>s.grupo==='dados' && sel[s.key]).map(s=>s.key);
-  let dossieHtml='';
-  if(ordemDados.length){
-    dossieHtml=`<div class="dossie">`+
-      _relCabecalhoEmpresa('Prontuário do Colaborador', `${emp.nome}${emp.registro?` · Matrícula ${String(emp.registro).padStart(4,'0')}`:''} · documento para processos e auditorias`)+
-      ordemDados.map(k=>S[k]||'').join('')+
-      `<p style="margin-top:12px;font-size:10px;color:#666">Documentos com assinatura eletrônica (termos, férias, holerites, EPIs, atos disciplinares) possuem hash SHA-256 e carimbo do tempo em blockchain (OpenTimestamps), verificáveis no próprio sistema.</p>`+
-      `</div><div style="page-break-after:always"></div>`;
+// Documentos prontos da última geração (key → {titulo, arquivo, html}). Cada assunto
+// vira um PDF SEPARADO — melhor p/ anexar peça a peça no processo. #prontuario
+let _prontuarioDocs = {};
+
+// Empacota UM assunto num documento HTML completo, pronto p/ imprimir/salvar em PDF.
+// grupo 'dados' → CSS de tabela (dossiê) + cabeçalho da empresa; grupo 'docs' (folhas/
+// holerites) → conteúdo já auto-estilizado, só precisa da regra de quebra de página.
+function _prontuarioWrapDoc(emp, s, inner, subInfo){
+  const arquivo=`Prontuário — ${emp.nome} — ${s.lbl}`;
+  const auto=`<script>window.onload=function(){ setTimeout(function(){ window.print(); }, 350); }<\/script>`;
+  if(s.grupo==='docs'){
+    return { titulo:s.lbl, arquivo, html:`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${_relEsc(arquivo)}</title>
+      <style>body{font-family:Arial,sans-serif;color:#212529;font-size:12px}
+      @media print{ @page{size:A4;margin:8mm} div[style*="page-break-after"]{page-break-after:always} }</style></head>
+      <body>${inner}${auto}</body></html>` };
   }
-  // Bloco 2: folhas de ponto (todas as competências).
-  let folhasHtml='', nF=0;
-  if(sel.folhas){ const r=_prontuarioFolhasHtml(emp); folhasHtml=r.html; nF=r.n; }
-  // Bloco 3: holerites (todas as competências).
-  let holHtml='', nH=0;
-  if(sel.holerites){ const r=_prontuarioHoleritesHtml(emp); holHtml=r.html; nH=r.n; }
-  if(!dossieHtml && !folhasHtml && !holHtml){ toast('Nada a gerar com esta seleção.','warning'); return; }
-  const titulo='Prontuário — '+emp.nome;
-  const fullHtml=`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${_relEsc(titulo)}</title>
-  <style>
-    body{font-family:Arial,sans-serif;color:#212529;font-size:12px}
+  const hashNote=`<p style="margin-top:12px;font-size:10px;color:#666">Documentos com assinatura eletrônica (termos, férias, holerites, EPIs, atos disciplinares) possuem hash SHA-256 e carimbo do tempo em blockchain (OpenTimestamps), verificáveis no próprio sistema.</p>`;
+  const body=`<div class="dossie">`+_relCabecalhoEmpresa('Prontuário — '+s.lbl, subInfo)+inner+hashNote+`</div>`;
+  return { titulo:s.lbl, arquivo, html:`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${_relEsc(arquivo)}</title>
+    <style>body{font-family:Arial,sans-serif;color:#212529;font-size:12px}
     .dossie{padding:18px}
     .dossie h2{color:#1a3a6b;font-size:13px;border-bottom:1px solid #cbd5e1;padding-bottom:3px;margin:16px 0 6px}
     .dossie table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:6px}
@@ -3905,15 +3893,72 @@ async function gerarProntuario(empId){
     .dossie th{background:#1a3a6b;color:#fff}
     .dossie tr:nth-child(even) td{background:#f6f8fb}
     .dossie .muted{color:#64748b}.dossie .r{text-align:right}
-    @media print{ @page{size:A4;margin:8mm} div[style*="page-break-after"]{page-break-after:always} }
-  </style></head><body>
-  ${dossieHtml}${folhasHtml}${holHtml}
-  <script>window.onload=function(){ setTimeout(function(){ window.print(); }, 350); }<\/script>
-  </body></html>`;
+    @media print{ @page{size:A4;margin:8mm} div[style*="page-break-after"]{page-break-after:always} }</style></head>
+    <body>${body}${auto}</body></html>` };
+}
+
+// Gera UM PDF por assunto marcado e mostra a lista de documentos prontos (1 botão cada).
+async function gerarProntuario(empId){
+  const emp=(State.employees||[]).find(e=>e.id===empId);
+  if(!emp){ toast('Colaborador não encontrado.','error'); return; }
+  const sel={}; PRONTUARIO_SECOES.forEach(s=>{ const el=document.getElementById('pront-chk-'+s.key); sel[s.key]=el?el.checked:false; });
+  if(!Object.values(sel).some(Boolean)){ toast('Marque ao menos uma seção.','warning'); return; }
+  toast('Montando prontuário — aguarde...','info');
+  // Só busca o assíncrono (disciplina/comunicações) se alguma dessas seções foi marcada.
+  const extra=(sel.disciplina||sel.comunicacoes) ? await _prontuarioFetchAsync(empId) : { disciplina:[], comunicacoes:[] };
+  const S=_colabSecoesHtml(emp, extra);
+  const subInfo=`${emp.nome}${emp.registro?` · Matrícula ${String(emp.registro).padStart(4,'0')}`:''} · para processos e auditorias`;
+  const vazio=msg=>`<div class="dossie"><h2>Sem registros</h2><p class="muted">${msg}</p></div>`;
+  _prontuarioDocs={};
+  const feitos=[];
+  for(const s of PRONTUARIO_SECOES){
+    if(!sel[s.key]) continue;
+    let inner='';
+    if(s.key==='folhas'){ const r=_prontuarioFolhasHtml(emp); inner=r.html; if(!inner){ inner=vazio('Nenhuma folha de ponto lançada para este colaborador.'); } }
+    else if(s.key==='holerites'){ const r=_prontuarioHoleritesHtml(emp); inner=r.html; if(!inner){ inner=vazio('Nenhum holerite lançado para este colaborador.'); } }
+    else { inner=S[s.key] || `<p class="muted">Nenhum registro nesta seção para este colaborador.</p>`; }
+    _prontuarioDocs[s.key]=_prontuarioWrapDoc(emp, s, inner, subInfo);
+    feitos.push(s);
+  }
+  _prontuarioMostrarResultado(emp, feitos);
+  try{ Auth.log('REL_PRONTUARIO', Auth.currentUser?.username, `${emp.nome} · ${feitos.length} PDF(s) por assunto`); }catch(_){}
+}
+
+// Substitui o conteúdo do modal pela lista de PDFs prontos (um botão por assunto).
+function _prontuarioMostrarResultado(emp, feitos){
+  let ov=document.getElementById('modal-prontuario');
+  if(!ov){ ov=document.createElement('div'); ov.id='modal-prontuario';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+    document.body.appendChild(ov); }
+  const botoes=feitos.map(s=>`<button onclick="_prontuarioAbrirUm('${s.key}')" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:#fff;border:1px solid #c7d2fe;border-radius:9px;padding:10px 12px;margin-bottom:7px;cursor:pointer;font-size:13px;color:#1a3a6b">
+      <i class="fa-solid fa-file-pdf" style="color:#c62828;font-size:16px"></i>
+      <span style="flex:1"><strong>${_relEsc(s.lbl)}</strong></span>
+      <span style="color:#5C6BC0;font-size:12px;white-space:nowrap"><i class="fa-solid fa-arrow-up-right-from-square"></i> Abrir / salvar PDF</span>
+    </button>`).join('');
+  ov.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:640px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.35)">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #e2e8f0">
+      <div><div style="font-size:16px;font-weight:800;color:#1a3a6b"><i class="fa-solid fa-folder-tree" style="color:#5C6BC0"></i> ${feitos.length} PDF(s) prontos — um por assunto</div>
+      <div style="font-size:12px;color:#64748b;margin-top:2px">${_relEsc(emp.nome)} · clique em cada um para abrir/salvar separadamente</div></div>
+      <button onclick="document.getElementById('modal-prontuario').remove()" style="background:none;border:none;font-size:22px;color:#94a3b8;cursor:pointer;line-height:1" title="Fechar">&times;</button>
+    </div>
+    <div style="padding:14px 20px;overflow-y:auto">
+      ${botoes}
+      <p style="font-size:11px;color:#94a3b8;margin-top:8px"><i class="fa-solid fa-circle-info"></i> Cada botão abre uma janela pronta para imprimir ou <strong>salvar em PDF</strong> (o nome do arquivo já vem com o assunto). Abra um de cada vez.</p>
+    </div>
+    <div style="padding:14px 20px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;gap:8px">
+      <button class="btn btn-outline" onclick="abrirModalProntuario('${emp.id}')"><i class="fa-solid fa-rotate-left"></i> Escolher de novo</button>
+      <button class="btn btn-primary" style="background:#5C6BC0;border-color:#5C6BC0" onclick="document.getElementById('modal-prontuario').remove()">Concluir</button>
+    </div>
+  </div>`;
+}
+
+// Abre (numa aba nova) o PDF de um assunto já gerado. Disparado por clique = pop-up liberado.
+function _prontuarioAbrirUm(key){
+  const doc=_prontuarioDocs[key];
+  if(!doc){ toast('Documento não encontrado — gere o prontuário novamente.','error'); return; }
   const win=window.open('','_blank','width=980,height=800');
-  if(!win){ toast('Permita pop-ups para gerar o prontuário.','error'); return; }
-  win.document.write(fullHtml); win.document.close();
-  try{ Auth.log('REL_PRONTUARIO', Auth.currentUser?.username, `${emp.nome} · seções:${ordemDados.length}${sel.folhas?` · ${nF} folha(s)`:''}${sel.holerites?` · ${nH} holerite(s)`:''}`); }catch(_){}
+  if(!win){ toast('Permita pop-ups para abrir o PDF.','error'); return; }
+  win.document.write(doc.html); win.document.close();
 }
 // Atalho a partir do cadastro do colaborador (usa o emp-id em foco).
 function _prontuarioDoCadastro(){

@@ -18134,6 +18134,19 @@ function _adiantValorDe(emp, p){
   return 0;
 }
 
+// Score p/ escolher a folha CANÔNICA quando há duplicata (mesma ordem do corretor
+// corrigirFolhasDuplicadas): fechada > pago-externo > id determinístico pay_ > mais dias
+// batidos > mais recente. Usado só p/ EXIBIR uma linha por colaborador. #folha-fantasma-proibida
+function _folhaCanonScore(p){
+  const temBatida=d=>!!(d&&(d.entrada||d.saida));
+  const dias=Array.isArray(p.pontoManualDias)?p.pontoManualDias.filter(temBatida).length:0;
+  return (p.status==='fechada'?1e18:0)
+       + (p.adiantamentoPagoExterno?1e16:0)
+       + (String(p.id||'').startsWith('pay_')?1e14:0)
+       + dias*1e9
+       + ((Date.parse(p.updatedAt||p.createdAt)||0)/1e3);
+}
+
 function renderAdiantamentos(){
   const tbody=document.getElementById('adiant-tbody'); if(!tbody) return;
   const selAno=document.getElementById('adiant-ano');
@@ -18165,8 +18178,19 @@ function renderAdiantamentos(){
   const cutoff=new Date(ano,mes-1,diaLimite,23,59,59,999);
   const passouDoDia=new Date()>cutoff;
 
-  const lista=(State.payrolls||[])
-    .filter(p=>p.mes==mes && p.ano==ano)
+  // 🔒 Anti-duplicidade na EXIBIÇÃO: se o mesmo colaborador tiver 2+ folhas nesta competência
+  // (fantasma legado de id aleatório coexistindo com a folha pay_), a lista mostra UMA linha
+  // — a canônica — pra NUNCA pagar o adiantamento em dobro. A limpeza definitiva é em
+  // Configurações ▸ Manutenção ("Corrigir folhas duplicadas"). #folha-fantasma-proibida
+  const _porEmpAd=new Map(); const _dupEmpsAd=new Set();
+  (State.payrolls||[]).filter(p=>p.mes==mes && p.ano==ano).forEach(p=>{
+    if(!p.employeeId) return;
+    const prev=_porEmpAd.get(p.employeeId);
+    if(!prev){ _porEmpAd.set(p.employeeId, p); return; }
+    _dupEmpsAd.add(p.employeeId);                       // já havia uma folha → duplicata
+    if(_folhaCanonScore(p) > _folhaCanonScore(prev)) _porEmpAd.set(p.employeeId, p);
+  });
+  const lista=[..._porEmpAd.values()]
     .map(p=>{
       const emp=State.employees.find(e=>e.id===p.employeeId)||{};
       if(!_adiantAtivoDe(emp,p)) return null;          // folha marcada OU optante ativo
@@ -18229,6 +18253,19 @@ function renderAdiantamentos(){
         ${_parts.join('')}
         <div style="margin-top:8px;font-size:11px;color:#7C5500">Clique no nome para abrir a Folha de Ponto.</div>
       </div>`;
+    }
+    // Aviso de folha duplicada — prepende ao diagnóstico (não some com as outras dicas).
+    // Uma linha por pessoa já está garantida acima; aqui é o caminho da limpeza definitiva.
+    if(_dupEmpsAd.size){
+      const _podeCorrigir=!!(getUserModules(Auth.currentUser).employees || Auth.currentUser?.role==='master');
+      const _acaoDup=_podeCorrigir
+        ? `<button onclick="corrigirFolhasDuplicadas()" style="background:#6A1B9A;color:#fff;border:none;border-radius:6px;padding:3px 10px;font-size:11px;font-weight:700;cursor:pointer;margin-left:4px"><i class="fa-solid fa-wand-magic-sparkles"></i> Corrigir folhas duplicadas</button>`
+        : `<strong>Configurações ▸ Manutenção ▸ "Corrigir folhas duplicadas"</strong>`;
+      _diagEl.innerHTML=`<div style="padding:10px 14px;background:#FDECEA;border:1px solid #EF9A9A;border-radius:8px;font-size:13px;margin-bottom:8px">
+        <strong style="color:#c62828"><i class="fa-solid fa-triangle-exclamation"></i> ${_dupEmpsAd.size} colaborador(es) com folha DUPLICADA em ${comp}.</strong>
+        Mostro só <strong>uma linha por pessoa</strong> aqui (a folha canônica) para nunca pagar o adiantamento em dobro.
+        Para eliminar a cópia de vez, rode ${_acaoDup} — mostra prévia antes; mantém a folha <code>pay_</code>, junta os dias das cópias e nunca apaga folha fechada.
+      </div>`+(_diagEl.innerHTML||'');
     }
   }
 

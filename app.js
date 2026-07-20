@@ -18147,6 +18147,70 @@ function _folhaCanonScore(p){
        + ((Date.parse(p.updatedAt||p.createdAt)||0)/1e3);
 }
 
+// 🔒 Auto-corretor SILENCIOSO de folhas duplicadas — roda 1x por sessão (após carregar os
+// dados). Trata SÓ o caso INEQUÍVOCO: no grupo colaborador+competência existe EXATAMENTE UMA
+// folha canônica `pay_` e as demais são fantasmas (id aleatório), NENHUMA fechada. Funde na
+// canônica os dias com batida e os campos AUSENTES das cópias (nunca sobrescreve) e apaga os
+// fantasmas. Casos ambíguos (sem `pay_`, 2+ `pay_` impossível, qualquer fechada) ficam para o
+// corretor MANUAL (aviso vermelho em Adiantamentos). Convergente e idempotente. Só grava/atualiza
+// `pay_` e apaga fantasma — compatível com a regra do Firestore. #folha-fantasma-proibida #adiant-dedup-auto
+let _autoDedupFeito=false;
+async function _autoDedupFolhas(){
+  if(_autoDedupFeito) return;
+  if(_restaurandoFolhas) return;                       // restauração reintroduz id de snapshot de propósito
+  if(!(getUserModules(Auth.currentUser)?.employees || Auth.currentUser?.role==='master')) return;
+  _autoDedupFeito=true;                                 // 1x por sessão mesmo se algo falhar no meio
+  const temBatida=d=>!!(d&&(d.entrada||d.saida));
+  const _ehDet=p=>String(p.id||'').startsWith('pay_');
+  const porChave={};
+  (State.payrolls||[]).forEach(p=>{ if(p&&p.employeeId&&p.mes!=null&&p.ano!=null){ const k=`${p.employeeId}|${p.ano}|${p.mes}`; (porChave[k]=porChave[k]||[]).push(p); } });
+  const _NAO_COPIAR=new Set(['id','employeeId','mes','ano','pontoManualDias','updatedAt','createdAt','status']);
+  let nCorrigidas=0; const nomes=[];
+  for(const arr of Object.values(porChave)){
+    const vistos=new Set(); const dist=arr.filter(p=>p.id && !vistos.has(p.id) && vistos.add(p.id));
+    if(dist.length<2) continue;
+    const canon=dist.filter(_ehDet);
+    const ghosts=dist.filter(p=>!_ehDet(p));
+    if(canon.length!==1) continue;                     // 0 pay_ (ambíguo) → manual
+    if(dist.some(p=>p.status==='fechada')) continue;   // qualquer fechada no grupo → manual
+    if(!ghosts.length) continue;
+    const principal=canon[0];
+    // junta dias com batida ausentes na principal (nunca sobrescreve dia já batido)
+    const porDia=new Map();
+    (principal.pontoManualDias||[]).forEach(d=>{ if(d&&d.dia!=null) porDia.set(String(d.dia), d); });
+    ghosts.forEach(g=>(g.pontoManualDias||[]).forEach(d=>{
+      if(!temBatida(d) || d.dia==null) return;
+      const k=String(d.dia), atual=porDia.get(k);
+      if(!atual || !temBatida(atual)) porDia.set(k, d);
+    }));
+    // junta campos AUSENTES na principal (nunca sobrescreve valor existente)
+    const novos={};
+    ghosts.forEach(g=>Object.keys(g||{}).forEach(k=>{
+      if(_NAO_COPIAR.has(k) || (k in principal) || (k in novos)) return;
+      const v=g[k]; if(v===undefined||v===null||v==='') return; novos[k]=v;
+    }));
+    const merged={ ...principal, ...novos, pontoManualDias:[...porDia.values()].sort((a,b)=>(+a.dia)-(+b.dia)), updatedAt:new Date().toISOString() };
+    try{
+      await DB.save('payrolls', _sanitizeForFirestore(merged));
+      const ix=(State.payrolls||[]).findIndex(x=>x.id===principal.id); if(ix>=0) State.payrolls[ix]=merged;
+      for(const g of ghosts){
+        await DB.remove('payrolls', g.id);
+        const gi=(State.payrolls||[]).findIndex(x=>x.id===g.id); if(gi>=0) State.payrolls.splice(gi,1);
+      }
+      nCorrigidas+=ghosts.length;
+      const e=(State.employees||[]).find(x=>x.id===principal.employeeId)||{};
+      nomes.push(`${e.nome||principal.employeeId} ${MESES[principal.mes]||principal.mes}/${principal.ano}`);
+      try{ Auth.log('FOLHA_DEDUP_AUTO', null, `${e.nome||principal.employeeId} | ${String(principal.mes).padStart(2,'0')}/${principal.ano} | ${ghosts.length} fantasma(s) fundido(s) em ${principal.id}`); }catch(_){}
+    }catch(_e){ console.error('auto-dedup folha', _e); }
+  }
+  if(nCorrigidas>0){
+    toast(`${nCorrigidas} folha(s) duplicada(s) corrigida(s) automaticamente${nomes.length?': '+nomes.slice(0,3).join(', ')+(nomes.length>3?'…':''):''}.`,'success');
+    try{ if(State.currentSection==='adiantamentos') renderAdiantamentos(); }catch(_){}
+    try{ if(State.currentSection==='payroll' && val('payroll-employee')) renderPayrollHistory(val('payroll-employee')); }catch(_){}
+    try{ if(State.currentSection==='dashboard') renderDashboard(); }catch(_){}
+  }
+}
+
 function renderAdiantamentos(){
   const tbody=document.getElementById('adiant-tbody'); if(!tbody) return;
   const selAno=document.getElementById('adiant-ano');
@@ -34773,6 +34837,9 @@ async function _carregarDadosPosLogin(){
       _aceitarPorSilencioHoleriteJob().catch(e => console.error('silêncio holerite job:', e));
     }
   });
+  // 🔒 Auto-corretor de folhas duplicadas — 1x por sessão, silencioso, só o caso seguro
+  // (fantasma + folha pay_; nenhuma fechada). Fire-and-forget: não segura o carregamento. #adiant-dedup-auto
+  _autoDedupFolhas().catch(e => console.error('auto-dedup folhas:', e));
   // `users` NÃO tem listener — é coleção só-servidor; a lista vem do Worker
   // (loadUsersFromWorker) sob demanda ao abrir a tela de Usuários.
   DB.listen('accessLog', data => {

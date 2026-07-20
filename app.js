@@ -5284,7 +5284,7 @@ function _reciboOficialLinhas(emp, p){
   }
   if(descAtraso>0) linhas.push({cod:'0952', nome:'Atrasos',                  ref:'—',                                              pr:0, de:descAtraso});
   if(descSaida>0)  linhas.push({cod:'0953', nome:'Saídas no Expediente',     ref:'—',                                              pr:0, de:descSaida});
-  if(adiant>0)     linhas.push({cod:'0905', nome:'Adiantamento Salarial',    ref:'40%',                                            pr:0, de:adiant});
+  if(adiant>0)     linhas.push({cod:'0905', nome:'Adiantamento Salarial',    ref:((p.adiantamentoModo||'percentual')==='valor'?'—':`${p.adiantamentoPerc||40}%`), pr:0, de:adiant});
   if(inss>0)       linhas.push({cod:'0900', nome:'INSS',                     ref:'—',                                              pr:0, de:inss});
   if(irrf>0)       linhas.push({cod:'0901', nome:'IRRF',                     ref:'—',                                              pr:0, de:irrf});
   if(plano>0)      linhas.push({cod:'0920', nome:'Plano de Saúde',           ref:'—',                                              pr:0, de:plano});
@@ -9460,6 +9460,10 @@ function openEmployeeModal(id=null){
     if(adiantChk) adiantChk.checked=!!(emp.recebeAdiantamento);
     const adiantIsentoChk=document.getElementById('emp-adiant-isento-prazo');
     if(adiantIsentoChk) adiantIsentoChk.checked=!!(emp.adiantamentoIsentoPrazo);   // #adiant-prazo-admissao
+    // Base do adiantamento (modo/perc/valor) — espelha a folha. #adiant-cadastro-sync
+    setVal('emp-adiant-perc', emp.adiantamentoModo==='valor' ? 'manual' : (emp.adiantamentoPerc||40));
+    setVal('emp-adiant-valor', (+emp.adiantamentoValor||0) ? (+emp.adiantamentoValor).toFixed(2) : '');
+    onEmpAdiantModoChange();
     const chk=document.getElementById('emp-turno-noturno'); if(chk) chk.checked=!!(emp.turnoNoturno);
     setVal('emp-ciclo-12x36-inicio', emp.ciclo12x36Inicio||'');
     setVal('emp-alternada-folga',    emp.alternadaPrimeiraFolga||'dom');
@@ -9543,6 +9547,7 @@ function openEmployeeModal(id=null){
     const bonifChk=document.getElementById('emp-bonificacao-sempre-pagar'); if(bonifChk) bonifChk.checked=false;
     const adiantChk=document.getElementById('emp-recebe-adiantamento'); if(adiantChk) adiantChk.checked=false;
     const adiantIsentoChk=document.getElementById('emp-adiant-isento-prazo'); if(adiantIsentoChk) adiantIsentoChk.checked=false;   // #adiant-prazo-admissao
+    setVal('emp-adiant-perc','40'); setVal('emp-adiant-valor',''); onEmpAdiantModoChange();   // #adiant-cadastro-sync
     const semRefChk=document.getElementById('emp-sem-refeicao'); if(semRefChk){ semRefChk.checked=false; onSemRefeicaoChange(); }
     const isentoChk=document.getElementById('emp-isento-ponto'); if(isentoChk){ isentoChk.checked=false; onIsentoPontoChange(); }
     const semIntervChk=document.getElementById('emp-permite-sem-intervalo'); if(semIntervChk) semIntervChk.checked=false;   // #sem-intervalo-optin
@@ -9796,6 +9801,13 @@ function renderExperiencias(){
   </table>`;
 }
 
+// Destrava o campo "Valor fixo" do cadastro quando a Base = "Valor manual". #adiant-cadastro-sync
+function onEmpAdiantModoChange(){
+  const manual=val('emp-adiant-perc')==='manual';
+  const inp=document.getElementById('emp-adiant-valor');
+  if(inp){ inp.disabled=!manual; inp.classList.toggle('input-readonly', !manual); }
+}
+
 async function saveEmployee(){
   const nome=val('emp-nome'), cpf=val('emp-cpf');
   if(!nome){ toast('Nome obrigatório.','error'); return; }
@@ -9816,6 +9828,9 @@ async function saveEmployee(){
   // Demissão ANTERIOR (do State, antes de salvar) — p/ disparar o fecha-folha só quando a
   // demissão é NOVA. Escopo de função (não usar `existing`, que é de bloco). #demissao-fecha-folha
   const _demissaoAntes = (State.editingEmployeeId ? (State.employees.find(e=>e.id===State.editingEmployeeId)||{}) : {}).dataDemissao || '';
+  // Config de adiantamento ANTES do save — p/ detectar mudança e só então propagar à folha
+  // aberta (mexer noutro campo do cadastro não toca o valor manual da folha). #adiant-cadastro-sync
+  const _adAntes=(()=>{ const _e=State.editingEmployeeId?(State.employees.find(x=>x.id===State.editingEmployeeId)||{}):{}; return {modo:_e.adiantamentoModo||'percentual', perc:parseInt(_e.adiantamentoPerc)||40, valor:+_e.adiantamentoValor||0}; })();
   let status=val('emp-status')||'ativo';
   if(demissao) status='inativo'; // auto-inativar se data de demissão preenchida
   const chk=document.getElementById('emp-turno-noturno');
@@ -9914,6 +9929,10 @@ async function saveEmployee(){
     bonificacaoSemprePagar:!!(document.getElementById('emp-bonificacao-sempre-pagar')?.checked),
     recebeAdiantamento:!!(document.getElementById('emp-recebe-adiantamento')?.checked),
     adiantamentoIsentoPrazo:!!(document.getElementById('emp-adiant-isento-prazo')?.checked),   // isenta do prazo mínimo de casa. #adiant-prazo-admissao
+    // Base do adiantamento (padrão do colaborador). Modo "valor" = valor fixo informado. #adiant-cadastro-sync
+    adiantamentoModo:(val('emp-adiant-perc')==='manual'?'valor':'percentual'),
+    adiantamentoPerc:(val('emp-adiant-perc')==='manual'?(_adAntes.perc||40):(parseInt(val('emp-adiant-perc'))||40)),
+    adiantamentoValor:(val('emp-adiant-perc')==='manual'?(numVal('emp-adiant-valor')||0):0),
     // Encargos & IRRF
     dependentesIRRF:parseInt(val('emp-dependentes-irrf')||0),
     pensaoAlimenticia:numVal('emp-pensao-alimenticia')||0,
@@ -9975,6 +9994,24 @@ async function saveEmployee(){
     const _eix=State.employees.findIndex(e=>e.id===data.id);
     if(_eix>=0) State.employees[_eix]={...State.employees[_eix],...data};
     else State.employees.push(data);
+    // Propaga a config de adiantamento à FOLHA ABERTA da competência corrente — SÓ se o
+    // adiantamento MUDOU no cadastro (mexer noutro campo não toca a folha, preservando o
+    // ajuste manual de valor). Folha fechada nunca é tocada (histórico). #adiant-cadastro-sync
+    const _adDepois={modo:data.adiantamentoModo||'percentual', perc:parseInt(data.adiantamentoPerc)||40, valor:+data.adiantamentoValor||0};
+    const _adMudou=_adAntes.modo!==_adDepois.modo || _adAntes.perc!==_adDepois.perc || _adAntes.valor!==_adDepois.valor;
+    if(!isNew && _adMudou){
+      const _mesC=currentMes(), _anoC=currentAno();
+      const _pf=(State.payrolls||[]).find(p=>p.employeeId===data.id && p.mes==_mesC && p.ano==_anoC && (p.status||'aberta')!=='fechada');
+      if(_pf){
+        const _salB=+data.salarioBase||0;
+        const _valorProp=_adDepois.modo==='valor'?_adDepois.valor:+(_salB*_adDepois.perc/100).toFixed(2);
+        const _pfUpd={..._pf, adiantamentoModo:_adDepois.modo, adiantamentoPerc:_adDepois.perc, adiantamentoValor:(_pf.adiantamentoAtivo?_valorProp:0), updatedAt:new Date().toISOString()};
+        try{
+          await DB.save('payrolls', _sanitizeForFirestore(_pfUpd));
+          const _pix=State.payrolls.findIndex(p=>p.id===_pf.id); if(_pix>=0) State.payrolls[_pix]=_pfUpd;
+        }catch(_e){ console.error('propaga adiant->folha', _e); }
+      }
+    }
     // REGRA (dono 2026-07-03): demissão NOVA (comparada com a anterior) → fecha automático as
     // folhas (mês da demissão + abertas anteriores) com as faltas apuradas. #demissao-fecha-folha
     if(demissao && demissao!==_demissaoAntes){
@@ -10314,6 +10351,10 @@ function onPayrollEmployeeChange(){
       // marcado como "Recebe adiantamento quinzenal", já entra com Sim — DESDE QUE
       // cumpra o prazo mínimo de casa (ou seja isento). #adiant-prazo-admissao
       if(emp.recebeAdiantamento && _adiantElegivelPrazo(emp, {mes:parseInt(val('payroll-mes'))||currentMes(), ano:parseInt(val('payroll-ano'))||currentAno()})) setVal('payroll-adiantamento-ativo','sim');
+      // Base do adiantamento (modo/perc/valor) vem do CADASTRO numa folha nova. Reseta o
+      // dropdown p/ não herdar "manual" do colaborador anterior. #adiant-cadastro-sync
+      setVal('payroll-adiantamento-perc', emp.adiantamentoModo==='valor' ? 'manual' : (emp.adiantamentoPerc||40));
+      setVal('payroll-adiantamento-valor', (emp.adiantamentoModo==='valor' && +emp.adiantamentoValor>0) ? (+emp.adiantamentoValor).toFixed(2) : '');
     }
     setVal('payroll-vt-dia',emp.valorDiarioVt||'');
     setVal('payroll-vr-dia',emp.valorDiarioVr||'');
@@ -15035,9 +15076,27 @@ function recalculate(){
   // fixo do salário base, pago no meio do mês — independente de quantos
   // dias da folha já foram lançados.
   const ativoAdiant=val('payroll-adiantamento-ativo')==='sim';
-  const percAdiant=parseInt(val('payroll-adiantamento-perc')||'40');
-  if(ativoAdiant && salBase>0){
-    setVal('payroll-adiantamento-valor',((salBase*(percAdiant/100))).toFixed(2));
+  // Modo do adiantamento: "manual" no dropdown = VALOR informado à mão; senão % do salário
+  // base. No modo valor o campo destrava e NÃO é sobrescrito pelo cálculo. #adiant-valor-manual
+  const _adModoManual=val('payroll-adiantamento-perc')==='manual';
+  const percAdiant=_adModoManual?0:(parseInt(val('payroll-adiantamento-perc'))||40);
+  const _adEditavel=ativoAdiant && _adModoManual;
+  const _adValorInput=document.getElementById('payroll-adiantamento-valor');
+  if(_adValorInput){
+    _adValorInput.readOnly=!_adEditavel;
+    _adValorInput.classList.toggle('input-readonly', !_adEditavel);
+  }
+  const _adHint=document.getElementById('payroll-adiant-valor-hint');
+  if(_adHint) _adHint.textContent=_adEditavel?'(digite o valor)':'';
+  if(ativoAdiant){
+    if(_adModoManual){
+      // valor informado à mão — preserva o que está no campo; só impede negativo
+      if((numVal('payroll-adiantamento-valor')||0)<0) setVal('payroll-adiantamento-valor','0.00');
+    } else if(salBase>0){
+      setVal('payroll-adiantamento-valor',((salBase*(percAdiant/100))).toFixed(2));
+    } else {
+      setVal('payroll-adiantamento-valor','0.00');
+    }
   } else {
     setVal('payroll-adiantamento-valor','0.00');
   }
@@ -15219,15 +15278,19 @@ function loadPayrollRecord(id){
   // Optante só força "Sim" se cumpre o prazo mínimo de casa (ou é isento). Folha já com
   // adiantamento ATIVO salvo permanece (não é desfeita). #adiant-prazo-admissao
   const _adOptante = !!(_adEmp && _adEmp.recebeAdiantamento) && _adiantElegivelPrazo(_adEmp, p);
-  const _adPerc = p.adiantamentoPerc || 40;
+  // Modo/percentual: o SNAPSHOT da folha manda; se a folha (registro antigo) não tem, cai
+  // no padrão do cadastro. No modo valor o dropdown vira "manual". #adiant-valor-manual
+  const _adModoP = p.adiantamentoModo || _adEmp?.adiantamentoModo || 'percentual';
+  const _adPerc = p.adiantamentoPerc || _adEmp?.adiantamentoPerc || 40;
   setVal('payroll-adiantamento-ativo', (_adOptante || p.adiantamentoAtivo) ? 'sim' : 'nao');
-  setVal('payroll-adiantamento-perc', _adPerc);
-  // Garante valor coerente: se é optante e ainda não tem valor salvo (folha
-  // antiga), calcula AGORA pelo salário base. Evita exibir/persistir R$0 enquanto
-  // o recalculate não roda.
-  const _adValor = (_adOptante && !p.adiantamentoValor && (_adEmp?.salarioBase||0)>0)
-    ? (_adEmp.salarioBase * (_adPerc/100))
-    : (p.adiantamentoValor || 0);
+  setVal('payroll-adiantamento-perc', _adModoP==='valor' ? 'manual' : _adPerc);
+  // No modo valor usa EXATAMENTE o valor salvo (nunca deriva do %). No modo % de optante
+  // sem valor salvo (folha antiga), calcula agora pelo salário base p/ não exibir/persistir R$0.
+  const _adValor = _adModoP==='valor'
+    ? (p.adiantamentoValor || _adEmp?.adiantamentoValor || 0)
+    : ((_adOptante && !p.adiantamentoValor && (_adEmp?.salarioBase||0)>0)
+        ? (_adEmp.salarioBase * (_adPerc/100))
+        : (p.adiantamentoValor || 0));
   setVal('payroll-adiantamento-valor', _adValor ? _adValor.toFixed(2) : '');
   // Consignado recorrente: se a folha ainda não tem empréstimo lançado, preenche com a
   // soma das parcelas ativas nesta competência (e mostra a nota). Não sobrescreve um
@@ -15333,6 +15396,12 @@ async function savePayroll(){
       toast(`Adiantamento NÃO lançado: ${_empAd?.nome||'o colaborador'} ainda não tem ${_min} dias de casa (regra em Configurações). Para liberar, marque "Isentar do prazo mínimo de adiantamento" no contrato dele.`,'warning');
     }
   }
+  // AVISO — líquido negativo: adiantamento + descontos (consignado, INSS, etc.) superam os
+  // proventos do mês. Não bloqueia; o gestor confirma. #adiant-liquido-negativo
+  const _liqFinalSave=numVal('payroll-total-liquido-final');
+  if(_liqFinalSave<0){
+    if(!confirm(`Atenção: o líquido de ${String(mes).padStart(2,'0')}/${ano} ficará NEGATIVO em ${fmtMoney(_liqFinalSave)}.\n\nO adiantamento somado aos descontos (consignado, INSS, etc.) supera os proventos do mês. Salvar mesmo assim?`)) return;
+  }
   const record={
     id:existing?existing.id:_payrollId(empId,mes,ano), employeeId:empId,
     mes:parseInt(mes), ano:parseInt(ano),
@@ -15360,7 +15429,8 @@ async function savePayroll(){
     minutosAtraso:isentoPontoSave?0:(numVal('payroll-atraso-min')||0),
     descontoAtraso:isentoPontoSave?0:(numVal('payroll-desconto-atraso')||0),
     adiantamentoAtivo:_adiantAtivoSave,
-    adiantamentoPerc:parseInt(val('payroll-adiantamento-perc')||'40'),
+    adiantamentoModo:(val('payroll-adiantamento-perc')==='manual'?'valor':'percentual'),
+    adiantamentoPerc:(val('payroll-adiantamento-perc')==='manual'?(parseInt(existing?.adiantamentoPerc)||40):(parseInt(val('payroll-adiantamento-perc'))||40)),
     adiantamentoValor:_adiantAtivoSave?numVal('payroll-adiantamento-valor'):0,
     // Jornada & Horas Extras
     horarioEntrada:val('payroll-entrada')||'',
@@ -15420,6 +15490,27 @@ async function savePayroll(){
     // ao voltar (ex.: Contabilidade) já refletem os valores aplicados e o nome sai do aviso
     // de "folhas sem valores". #contab-retorno-competencia
     { const _ix=(State.payrolls||[]).findIndex(p=>p.id===cleanRecord.id); if(_ix>=0) State.payrolls[_ix]=cleanRecord; else (State.payrolls=State.payrolls||[]).push(cleanRecord); }
+    // Sincroniza a config de adiantamento de volta ao CADASTRO (última gravação vale). Só
+    // quando ativo — não sobrescreve o template com zero. Não mexe em recebeAdiantamento
+    // (optante recorrente é decisão do cadastro, não de uma folha pontual). #adiant-cadastro-sync
+    if(_adiantAtivoSave){
+      const _empSync=State.employees.find(e=>e.id===empId);
+      if(_empSync){
+        const _novoModo=cleanRecord.adiantamentoModo||'percentual';
+        const _novoPerc=cleanRecord.adiantamentoPerc||40;
+        const _novoValor=_novoModo==='valor'?(cleanRecord.adiantamentoValor||0):0;
+        const _mudou=(_empSync.adiantamentoModo||'percentual')!==_novoModo
+                  || (parseInt(_empSync.adiantamentoPerc)||40)!==_novoPerc
+                  || (+_empSync.adiantamentoValor||0)!==_novoValor;
+        if(_mudou){
+          const _empUpd={..._empSync, adiantamentoModo:_novoModo, adiantamentoPerc:_novoPerc, adiantamentoValor:_novoValor, updatedAt:new Date().toISOString()};
+          try{
+            await DB.save('employees', _sanitizeForFirestore(_empUpd));
+            const _ei=State.employees.findIndex(e=>e.id===empId); if(_ei>=0) State.employees[_ei]=_empUpd;
+          }catch(_e){ console.error('sync adiant->cadastro', _e); }
+        }
+      }
+    }
     // Sincroniza o crédito de banco de horas gerado por esta folha
     await _syncBancoFromPayroll(cleanRecord);
     const empNome=(State.employees.find(e=>e.id===empId)||{}).nome||'—';
@@ -18030,10 +18121,13 @@ function _adiantAtivoDe(emp, p){
   if(p && p.adiantamentoAtivo) return true;
   return !!(emp && emp.recebeAdiantamento && (emp.status||'ativo')==='ativo' && _adiantElegivelPrazo(emp, p));
 }
-// Valor do adiantamento: o salvo na folha; senão, p/ optante, deriva do salário (% padrão 40).
+// Valor do adiantamento: o salvo na folha; senão, p/ optante, deriva do cadastro (modo valor
+// = valor fixo; modo % = salário × %, padrão 40). #adiant-valor-manual
 function _adiantValorDe(emp, p){
   if(p && (p.adiantamentoValor||0)>0) return p.adiantamentoValor;
   if(emp && emp.recebeAdiantamento){
+    const modo=(p&&p.adiantamentoModo) || emp.adiantamentoModo || 'percentual';
+    if(modo==='valor') return +(emp.adiantamentoValor||0);
     const perc=parseInt((p&&p.adiantamentoPerc) || emp.adiantamentoPerc || 40)||40;
     return +(((emp.salarioBase||0)*(perc/100))).toFixed(2);
   }
@@ -18241,6 +18335,11 @@ async function _recalcAdiantamento(empId, mes, ano){
   const emp=State.employees.find(e=>e.id===empId);
   const p=(State.payrolls||[]).find(pp=>pp.employeeId===empId && pp.mes==mes && pp.ano==ano);
   if(!emp || !p){ toast('Folha do colaborador não encontrada.','error'); return; }
+  // Modo "valor manual" não tem percentual p/ recalcular — recalcular apagaria o valor. #adiant-valor-manual
+  if((p.adiantamentoModo||'percentual')==='valor'){
+    toast(`${emp.nome}: adiantamento em modo "valor manual" — não há percentual para recalcular. Ajuste o valor na Folha de Ponto.`,'info');
+    return;
+  }
   const salBase=+emp.salarioBase||0;
   if(salBase<=0){ toast('Salário base do colaborador não está cadastrado.','error'); return; }
   const perc=parseInt(p.adiantamentoPerc||40);
@@ -31105,7 +31204,7 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
     ${refNaoRendidaValorF>0?`<tr><td class="fin-label">Refeição não rendida (hora + 50%) <small style="color:#1B5E20">— indenizatória</small></td><td class="fin-value">${fmtMoney(refNaoRendidaValorF)}</td></tr>`:''}
     ${descontoAtraso>0?`<tr><td class="fin-label">Desconto Atraso — ${minutosAtraso} min atrasados</td><td class="fin-value" style="color:#c0392b">${fmtMoney(descontoAtraso)}</td></tr>`:''}
     ${descontoSaida>0?`<tr><td class="fin-label">Desconto Saídas — ${minutosSaida} min de saída no expediente</td><td class="fin-value" style="color:#c0392b">${fmtMoney(descontoSaida)}</td></tr>`:''}
-    ${adiantamento>0?`<tr><td class="fin-label">Adiantamento (${numVal('payroll-adiantamento-perc')||40}%)</td><td class="fin-value" style="color:#c0392b">${fmtMoney(adiantamento)}</td></tr>`:''}
+    ${adiantamento>0?`<tr><td class="fin-label">Adiantamento${val('payroll-adiantamento-perc')==='manual'?'':` (${numVal('payroll-adiantamento-perc')||40}%)`}</td><td class="fin-value" style="color:#c0392b">${fmtMoney(adiantamento)}</td></tr>`:''}
     ${inssDesc>0?`<tr><td class="fin-label">INSS</td><td class="fin-value" style="color:#c0392b">${fmtMoney(inssDesc)}</td></tr>`:''}
     ${irrfDesc>0?`<tr><td class="fin-label">IRRF</td><td class="fin-value" style="color:#c0392b">${fmtMoney(irrfDesc)}</td></tr>`:''}
     ${planoDesc>0?`<tr><td class="fin-label">Plano de Saúde</td><td class="fin-value" style="color:#c0392b">${fmtMoney(planoDesc)}</td></tr>`:''}
@@ -31507,7 +31606,7 @@ ${diasTrabalhados===0?`<div style="padding:16px;background:#FFF8E1;border:1px so
       ${planoSaudeVal>0?`<tr><td class="fin-label">Plano de Saúde</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(planoSaudeVal)})</td></tr>`:''}
       ${descontoAtraso>0?`<tr><td class="fin-label">Desconto Atraso — ${minutosAtraso} min atrasados</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(descontoAtraso)})</td></tr>`:''}
       ${descontoSaida>0?`<tr><td class="fin-label">Desconto Saídas — ${minutosSaida} min de saída no expediente</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(descontoSaida)})</td></tr>`:''}
-      ${adiantamento>0?`<tr><td class="fin-label">Adiantamento (${adiantamentoPerc}%)</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(adiantamento)})</td></tr>`:''}
+      ${adiantamento>0?`<tr><td class="fin-label">Adiantamento${(p.adiantamentoModo||'percentual')==='valor'?'':` (${adiantamentoPerc}%)`}</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(adiantamento)})</td></tr>`:''}
       ${outrosDescVal>0?`<tr><td class="fin-label">Outros Descontos</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(outrosDescVal)})</td></tr>`:''}
       ${_fixasDescRowsRec}
       ${vtCoPart>0?`<tr><td class="fin-label">Vale Transporte (co-part. 6%)</td><td class="fin-value" style="color:#c0392b">(${fmtMoney(vtCoPart)})</td></tr>`:''}

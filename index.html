@@ -1229,11 +1229,12 @@
                         <option value="30">30%</option>
                         <option value="40" selected>40% (padrão)</option>
                         <option value="50">50%</option>
+                        <option value="manual">Valor manual (R$)</option>
                       </select>
                     </div>
                     <div class="form-group">
-                      <label>Valor do adiantamento: R$</label>
-                      <input type="number" id="payroll-adiantamento-valor" min="0" step="0.01" placeholder="0,00" readonly class="input-readonly">
+                      <label>Valor do adiantamento: R$ <span id="payroll-adiant-valor-hint" style="font-weight:400;color:#00695C;font-size:0.8em"></span></label>
+                      <input type="number" id="payroll-adiantamento-valor" min="0" step="0.01" placeholder="0,00" readonly class="input-readonly" oninput="recalculate()">
                     </div>
                   </div>
                 </div>
@@ -1912,7 +1913,7 @@
                   <th>Total Bruto</th>
                   <th style="color:#c0392b">(-) INSS</th>
                   <th style="color:#c0392b">(-) IRRF</th>
-                  <th style="color:#c0392b" title="Adiantamento quinzenal (40% do salário base) — descontado no líquido">(-) Adiant.</th>
+                  <th style="color:#c0392b" title="Adiantamento quinzenal (% do salário base ou valor manual) — descontado no líquido">(-) Adiant.</th>
                   <th style="color:#1565C0">FGTS *</th>
                   <th style="color:var(--success)">Líquido Final</th>
                   <th>Status</th>
@@ -4040,6 +4041,25 @@
               </label>
               <span style="font-size:11px;color:var(--text-muted);margin-left:6px">(libera o adiantamento mesmo antes de completar os dias de casa exigidos em Configurações)</span>
             </div>
+          </div>
+        </div>
+        <!-- Base do adiantamento (padrão do colaborador) — espelha a folha; a última tela salva prevalece. #adiant-cadastro-sync -->
+        <div class="form-row" id="emp-adiant-config-row">
+          <div class="form-group">
+            <label><i class="fa-solid fa-percent" style="color:#00695C"></i> Base do adiantamento</label>
+            <select id="emp-adiant-perc" onchange="onEmpAdiantModoChange()">
+              <option value="10">10%</option>
+              <option value="20">20%</option>
+              <option value="30">30%</option>
+              <option value="40" selected>40% (padrão)</option>
+              <option value="50">50%</option>
+              <option value="manual">Valor manual (R$)</option>
+            </select>
+            <span style="font-size:11px;color:var(--text-muted)">Padrão da folha. Alterar aqui atualiza a folha em aberto da competência corrente.</span>
+          </div>
+          <div class="form-group">
+            <label>Valor fixo (R$) <span style="font-weight:400;color:#888;font-size:0.8em">— usado quando "Valor manual"</span></label>
+            <input type="number" id="emp-adiant-valor" min="0" step="0.01" placeholder="0,00" disabled class="input-readonly">
           </div>
         </div>
         <!-- Histórico de salário -->
@@ -7915,6 +7935,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260719g-anexos-todos"></script>
+  <script src="app.js?v=20260720a-adiant-valor-manual"></script>
 </body>
 </html>

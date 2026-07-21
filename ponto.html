@@ -574,7 +574,7 @@ try{ window.__APP_BOOTED = true; }catch(_){}
 // ─── VERSÃO DO APP DO COLABORADOR ─────────────────────────────────────────────
 // Bumpe SEMPRE em conjunto com o CACHE do ponto-sw.js e o ?v= do firebase-config.
 // Formato: AA.MM.DD + letra (a, b, c...) — alinhado com o nome do cache.
-const PONTO_VERSION = '26.07.19a';
+const PONTO_VERSION = '26.07.21a';
 // Exibe a versão no rodapé (script roda após o DOM, então o elemento já existe)
 (function _setVersionTag(){
   const t = document.getElementById('app-version-tag');
@@ -647,7 +647,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=50').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=51').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -797,6 +797,54 @@ document.getElementById('login-pin').addEventListener('keydown', e => {
   if (e.key === 'Enter') doLogin();
 });
 
+// Reidrata o cadastro do colaborador a partir do Firestore ao REABRIR o app.
+// A sessão restaurada vem do localStorage (instantâneo/offline) mas pode estar
+// DEFASADA: o gestor muda lotação/turno/escala/salário no cadastro e o app do
+// colaborador nunca re-puxava — ficava com a identidade ANTIGA até um re-login
+// manual. Caso Maria Helena 0050: transferência noturno→diurno em 05/07 não
+// chegava ao app; _diaJornada ainda a tratava como noturna e rolava a batida das
+// 06:56 pra véspera (20/07), dia de folga no ciclo antigo → "folga hoje" falsa
+// justo quando ela entra no diurno das 07:00. As regras do Firestore já permitem
+// o colaborador LER o próprio /employees/{empId}; atualiza o snapshot (mesmos
+// campos gravados no login) antes de renderizar. Offline/erro mantém o cache
+// (falha segura). Retorna true se algo mudou. #refresh-emp #troca-turno-12x36
+async function _refrescarEmpFromFirestore(){
+  try{
+    if(!currentEmp || !currentEmp.id) return false;
+    const snap = await dbCol('employees').doc(currentEmp.id).get();
+    if(!snap.exists) return false;
+    const e = snap.data() || {};
+    const fresh = {
+      id:          currentEmp.id,
+      nome:        e.nome     ?? currentEmp.nome,
+      registro:    e.registro ?? currentEmp.registro,
+      cpf:         e.cpf      ?? currentEmp.cpf,
+      cargo:       e.cargo    ?? currentEmp.cargo,
+      posto:       e.posto    ?? currentEmp.posto,
+      foto:        e.foto || currentEmp.foto || '',
+      semRefeicao: !!e.semRefeicao,
+      permiteSemIntervalo: !!e.permiteSemIntervalo,
+      _v: 4,
+      escala:                  e.escala || '',
+      horarioEntrada:          e.horarioEntrada || '',
+      horarioSaida:            e.horarioSaida   || '',
+      horarioRefIni:           e.horarioRefIni  || '',
+      horarioRefFim:           e.horarioRefFim  || '',
+      turnoNoturno:            !!e.turnoNoturno,
+      overridesHorario:        e.overridesHorario || [],
+      historicoEscalas:        e.historicoEscalas || [],
+      historicoLotacao:        e.historicoLotacao || [],
+      ciclo12x36Inicio:        e.ciclo12x36Inicio || '',
+      alternadaPrimeiraFolga:  e.alternadaPrimeiraFolga || '',
+      dataAdmissao:            e.dataAdmissao || ''
+    };
+    if(JSON.stringify(fresh) === JSON.stringify(currentEmp)) return false;
+    currentEmp = fresh;
+    localStorage.setItem('drg_ponto_emp', JSON.stringify(fresh));
+    return true;
+  }catch(err){ console.warn('refrescar emp', err && err.code); return false; }
+}
+
 // Restaura sessão ao abrir o app
 window.addEventListener('load', async () => {
   const saved = localStorage.getItem('drg_ponto_emp');
@@ -820,6 +868,9 @@ window.addEventListener('load', async () => {
         currentEmp = null;
         return;
       }
+      // Reidrata o cadastro (lotação/turno/escala) ANTES de renderizar — assim a
+      // 1ª tela já reflete a transferência do gestor, sem re-login manual. #refresh-emp
+      await _refrescarEmpFromFirestore();
       carregarHome();
     } catch (e) { localStorage.removeItem('drg_ponto_emp'); }
   }

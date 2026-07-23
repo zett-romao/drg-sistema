@@ -32497,7 +32497,10 @@ function openTransferenciaModal(){
   if(escSel) escSel.value=emp.escala||'5x2A';
   // Âncora do ciclo 12x36 (paridade) — só aparece p/ escala 12x36. Vazio = usa a vigência.
   if(escSel) escSel.onchange=_transfToggleCiclo12x36;
-  setVal('transf-ciclo-12x36', emp.ciclo12x36Inicio||'');
+  // NÃO pré-preencher com a âncora antiga do cadastro: isso fazia a transferência HERDAR a
+  // fase do passado e recusar a virada de plantão (a mudança de lotação é SOBERANA). Vazio =
+  // usa a data de vigência como 1º dia de trabalho. Preencha só p/ fixar outro dia. #lotacao-soberana
+  setVal('transf-ciclo-12x36', '');
   _transfToggleCiclo12x36();
   // Pré-preenche com a lotação atual (muda só o que trocou)
   setVal('transf-data-entrada',hojeISO);
@@ -32565,6 +32568,10 @@ function editarPeriodoLotacao(id){
 // `vig` — assim os dois motores leem a MESMA fase por `segAnchor`, sem depender de dado
 // que o app não enxerga. Retorna '' quando não há como preservar (troca de turno/escala,
 // ou sem referência de ciclo → mantém o comportamento antigo). #troca-escala-12x36 #motor-unico
+// ⛔ DESCONTINUADA (2026-07-22) — NÃO RELIGAR. Preservava a fase do plantão do passado numa
+// transferência de mesma escala/turno, o que VIOLA a regra soberana "a mudança de lotação dita
+// a nova regra, independente do passado" (caso Leticia 16/07: recusava a virada pros pares).
+// Mantida só como referência histórica. #lotacao-soberana
 function _ancoraContinuada12x36(emp, vigISO, novaEscala, novoTurnoNoturno){
   if(!emp || !vigISO) return '';
   if(escalaFamilia(novaEscala||'')!=='12x36') return '';
@@ -32603,8 +32610,13 @@ async function saveTransferencia(){
     // Âncora do ciclo 12x36 da NOVA fase (paridade trabalho/folga). Só p/ 12x36. Prioridade:
     // 1) ciclo digitado; 2) âncora CONTINUADA (transferência que não troca a fase — preserva o
     // ritmo pro app do colaborador ler igual ao gestor); 3) vazio → folha usa a vigência. #troca-escala-12x36
+    // 🔒 A mudança de lotação DITA a nova regra, INDEPENDENTE do passado (regra do dono).
+    // Vazio → o motor ancora na DATA DE VIGÊNCIA (`segEhMudanca ? segIni`, 1º dia = trabalho),
+    // soberano. NÃO herdar a fase antiga: removido o `_ancoraContinuada12x36`, que preservava
+    // a paridade do passado e recusava a virada de plantão informada (caso Leticia 16/07 —
+    // "HE recusada" num plantão real). Preencher o campo só p/ FIXAR outro dia. #lotacao-soberana
     ciclo12x36Inicio: (escalaFamilia(novaEscala)==='12x36')
-      ? (val('transf-ciclo-12x36') || _ancoraContinuada12x36(emp, vig, novaEscala, novoTurno))
+      ? (val('transf-ciclo-12x36') || '')
       : '',
     horarioEntrada:val('transf-h-entrada')||'',
     horarioSaida:val('transf-h-saida')||'',

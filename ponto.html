@@ -1220,6 +1220,7 @@ function _diaJornada(){
   const ehNoturno = !!emp.turnoNoturno
     || (ent!=null && sai!=null && sai<ent)
     || (ent!=null && ent>=17*60)
+    || _escala12x36NoturnaPonto(emp.escala||'')   // variantes 12x36-19-07 / 18-06 mesmo sem horário/flag. #virada-competencia-noturno
     || turnoAbertoOntem;
   if(!ehNoturno) return base;
   // Ponto de virada da jornada: meio do caminho entre a saída e a entrada previstas
@@ -1228,13 +1229,27 @@ function _diaJornada(){
   let corte = 14*60;
   if(ent!=null && sai!=null && sai<ent) corte = Math.round((sai+ent)/2);
   if(nowMin >= corte) return base;
-  // Só atribui à véspera se ela estiver na MESMA COMPETÊNCIA de hoje (a folha da véspera
-  // está carregada) — assim a virada de mês 30/31→01 continua a jornada, e a fronteira
-  // real da competência (25→26) permanece separada (folha anterior não carregada). #ponto-noturno-virada
+  const vespera = {dia:oDia, mes:ontem.getMonth()+1, ano:ontem.getFullYear()};
   const cOntem=_competenciaDe(oDia, ontem.getMonth()+1, ontem.getFullYear());
   const cBase =_competenciaDe(base.dia, base.mes, base.ano);
-  if(cOntem.mes!==cBase.mes || cOntem.ano!==cBase.ano) return base;
-  return {dia:oDia, mes:ontem.getMonth()+1, ano:ontem.getFullYear()};
+  // VIRADA DE COMPETÊNCIA (25→26) — turno noturno que atravessa a fronteira.
+  // O plantão do dia 25 (última data da competência que fecha) avança para a
+  // madrugada do dia 26. Decisão do dono (2026-07-26): a folha de quem trabalha
+  // à NOITE só fecha no dia 26 às 08:00 — assim a batida da madrugada (saída,
+  // intervalo, ou até a ENTRADA de quem esqueceu de bater às 19h e chegou depois
+  // da meia-noite) pertence AINDA à competência que está fechando, gravando no
+  // dia 25. As 08:00 (e não 07:00) dão folga p/ saída atrasada não vazar p/ a
+  // competência nova. Quem é do DIA não passa por isso (turno não cruza a virada).
+  // Só vale se a véspera (25) era plantão dele — se era folga, não há o que
+  // continuar e o dia 26 segue normal. #virada-competencia-noturno
+  if(cOntem.mes!==cBase.mes || cOntem.ano!==cBase.ano){
+    const CORTE_VIRADA = 8*60;   // 08:00 do dia 26 = fim da competência p/ noturno
+    const vespDate = new Date(vespera.ano, vespera.mes-1, vespera.dia);
+    const vespEhTrabalho = !_ehDiaDeFolga(emp, vespDate);
+    if(nowMin < CORTE_VIRADA && vespEhTrabalho) return vespera;  // ainda é o plantão do dia 25
+    return base;                                                 // passou das 08:00 (ou 25 era folga) → competência nova
+  }
+  return vespera;
 }
 
 function getDiaHoje() {
@@ -1401,10 +1416,11 @@ function minToTime(m){
 
 // Resolve a escala/horarios validos numa data — espelha escalaVigenteEm
 // do painel da gestao. Prioridade: override do dia → periodo ativo → cadastro.
-function _vigenciaEscalaHoje(emp){
+// Vigência (override do dia / período de mudança) em uma DATA (ymd) qualquer —
+// não só hoje. Necessário para apurar se a VÉSPERA foi plantão na virada de
+// competência (turno noturno que cruza 25→26). #virada-competencia-noturno
+function _vigenciaEscalaEmData(emp, ymd){
   if(!emp) return null;
-  const hj = new Date();
-  const ymd = `${hj.getFullYear()}-${String(hj.getMonth()+1).padStart(2,'0')}-${String(hj.getDate()).padStart(2,'0')}`;
   // 1) Override do dia
   const ov = (emp.overridesHorario||[]).find(o => o.data === ymd);
   if(ov) return { ...ov, origem:'override' };
@@ -1416,6 +1432,12 @@ function _vigenciaEscalaHoje(emp){
     if(ini && ini <= ymd && ymd <= fim) return { ...p, origem:'periodo' };
   }
   return null;
+}
+function _vigenciaEscalaHoje(emp){
+  if(!emp) return null;
+  const hj = new Date();
+  const ymd = `${hj.getFullYear()}-${String(hj.getMonth()+1).padStart(2,'0')}-${String(hj.getDate()).padStart(2,'0')}`;
+  return _vigenciaEscalaEmData(emp, ymd);
 }
 
 // Jornada esperada de HOJE (entrada/saída/intervalo) conforme a escala — ESPELHA o
@@ -1531,7 +1553,10 @@ function _horaIntIniRegistrada(){
 function _ehDiaDeFolga(emp, dataObj){
   // Considera override do dia primeiro: pode declarar dia FOLGA ou
   // forcar uma escala diferente (que tem prioridade sobre a do cadastro).
-  const vig = _vigenciaEscalaHoje(emp);
+  // Vigência apurada NA DATA passada (não em "hoje") — senão, ao checar a
+  // véspera na virada de competência, aplicaria o override do dia errado. #virada-competencia-noturno
+  const _ymdD = `${dataObj.getFullYear()}-${String(dataObj.getMonth()+1).padStart(2,'0')}-${String(dataObj.getDate()).padStart(2,'0')}`;
+  const vig = _vigenciaEscalaEmData(emp, _ymdD);
   if(vig && vig.tipo === 'folga') return true;
   const escalaEfetiva = (vig && vig.escala) ? vig.escala : (emp && emp.escala);
   // Escala PERSONALIZADA (modelo "m_..."): a folga vem do template do dia. #ponto-escala-custom

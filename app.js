@@ -15966,7 +15966,9 @@ async function _updatePainelFechamento(mes,ano){
   // Auto-fechamento: se hoje >= data de fechamento e não foi fechado ainda.
   // Suspenso após reabertura manual (conf.autoFecharSuspenso) — senão "Reabrir
   // Todas" seria desfeito na hora, já que hoje já passou do dia 25.
-  if(!periodoFechado && conf.dataFechamento && hoje>=conf.dataFechamento && !conf.autoFecharSuspenso){
+  // Piso de segurança: mesmo com dataFechamento atingida, nunca auto-fecha antes
+  // das 08:00 do dia 26 (plantão noturno da virada ainda pode bater a saída). #virada-competencia-noturno
+  if(!periodoFechado && conf.dataFechamento && hoje>=conf.dataFechamento && !conf.autoFecharSuspenso && _podeFecharCompetencia(mes,ano)){
     await _executarFechamentoPeriodo(mes,ano,key,conf,true);
   }
 }
@@ -15988,12 +15990,31 @@ async function configurarDataFechamento(){
   }catch(e){ toast('Erro ao salvar data de fechamento.','error'); }
 }
 
+// PISO DE FECHAMENTO DA COMPETÊNCIA — turno noturno da virada. O último plantão
+// da competência entra no dia 25 às 19h e sai no dia 26 às 07h; a competência só
+// pode fechar depois que essa saída pôde entrar na folha. Decisão do dono
+// (2026-07-26): NUNCA fechar antes das 08:00 do dia 26 (mesmo buffer do app, p/
+// saída atrasada não vazar). Vale para o fechamento da competência INTEIRA (auto
+// + "Fechar Período"); fechamentos individuais/demissão não passam por aqui.
+// #virada-competencia-noturno
+function _pisoFechamentoCompetencia(mes, ano){
+  return new Date(ano, mes-1, 26, 8, 0, 0);   // 08:00 do dia 26 da competência
+}
+function _podeFecharCompetencia(mes, ano){
+  return new Date() >= _pisoFechamentoCompetencia(mes, ano);
+}
+
 async function fecharPeriodo(){
   const mes=parseInt(val('payroll-mes')||currentMes());
   const ano=parseInt(val('payroll-ano')||currentAno());
   const key=_periodoKey(mes,ano);
   const qtd=State.payrolls.filter(p=>p.mes==mes&&p.ano==ano&&p.status!=='fechada').length;
   if(qtd===0){ toast(`Nenhuma folha aberta em ${MESES[mes]}/${ano}.`,'warning'); return; }
+  if(!_podeFecharCompetencia(mes,ano)){
+    const piso=_pisoFechamentoCompetencia(mes,ano);
+    toast(`Fechamento liberado só a partir de ${piso.toLocaleDateString('pt-BR')} às 08:00 — o plantão noturno da virada (entra dia 25, sai dia 26 às 07h) ainda pode registrar a saída.`,'warning');
+    return;
+  }
   if(!confirm(`Fechar ${qtd} folha(s) de ${MESES[mes]}/${ano}?\n\nApós o fechamento as folhas ficam bloqueadas para edição. Você poderá reabrir individualmente se necessário.`)) return;
   await _executarFechamentoPeriodo(mes,ano,key,State.confFolha?.[key]||{},false);
 }
@@ -16931,6 +16952,15 @@ function _apurarBonusFolha(p, emp, cct){
 }
 
 async function _executarFechamentoPeriodo(mes,ano,key,conf,automatico){
+  // Piso das 08:00 do dia 26 (plantão noturno da virada). Rede de segurança —
+  // nenhum caminho fecha a competência antes disso. Auto: só aguarda; manual: avisa. #virada-competencia-noturno
+  if(!_podeFecharCompetencia(mes,ano)){
+    if(!automatico){
+      const piso=_pisoFechamentoCompetencia(mes,ano);
+      toast(`Ainda não é possível fechar ${MESES[mes]}/${ano}: liberado a partir de ${piso.toLocaleDateString('pt-BR')} às 08:00 (plantão noturno da virada).`,'warning');
+    }
+    return;
+  }
   const folhasAbertas=State.payrolls.filter(p=>p.mes==mes&&p.ano==ano&&p.status!=='fechada');
   const agora=new Date().toISOString();
   try{

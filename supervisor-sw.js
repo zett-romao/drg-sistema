@@ -3,7 +3,9 @@
 // Estrategia identica ao ponto-sw.js: network-first para HTML/JS/CSS
 // (busca sempre a versao nova), cache-first para imagens.
 // ============================================================
-const CACHE = 'drg-sup-v12-20260628b-perm-usuario';
+// 🔒 TROCOU A LOGO (ou qualquer imagem)? TEM QUE BUMPAR ESTE CACHE — imagem é
+// cache-first aqui, o `?v=` não resolve. Mesmo detalhe explicado no ponto-sw.js.
+const CACHE = 'drg-sup-v13-20260727a-logo-relogio';
 const ASSETS = [
   'supervisor.html',
   'supervisor-manifest.json',

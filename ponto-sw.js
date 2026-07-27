@@ -8,7 +8,13 @@
 //  - HTML/JS/CSS/JSON do app → network-first (pega versao nova; offline cai no cache).
 //  - Imagens/estaticos → cache-first.
 // ============================================================
-const CACHE = 'drg-ponto-v80-20260721a-refresh-emp';
+// 🔒 TROCOU A LOGO (ou qualquer imagem)? TEM QUE BUMPAR ESTE CACHE.
+// Imagem aqui é cache-first com `ignoreSearch: true` (item 4 do fetch), então
+// `logo.png?v=3` CASA com o `logo.png` já guardado — o cache-bust por query
+// NÃO funciona pra imagem neste app. Sem trocar o nome do CACHE, o celular do
+// funcionário fica com a logo velha pra sempre. Foi o que aconteceu com a logo
+// nova do relógio (25/07): trocaram o ?v= no HTML e o PWA continuou no antigo.
+const CACHE = 'drg-ponto-v81-20260727a-logo-relogio';
 
 // Essenciais do mesmo dominio — o install FALHA se algum nao baixar (intencional).
 const ASSETS = [

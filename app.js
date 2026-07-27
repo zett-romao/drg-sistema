@@ -33305,6 +33305,9 @@ function _transfEscalaMudou(){
       const amostra = d
         ? `Ex.: dia de trabalho <strong>${d.entrada}–${d.saida}</strong>${(d.intIni&&d.intFim)?` (refeição ${d.intIni}–${d.intFim})`:''}.`
         : '';
+      // Cores explícitas: as outras ramificações também pintam o aviso, então
+      // voltar pro modelo tem que repintar de roxo, senão herda a cor anterior.
+      aviso.style.background='#EDE7F6'; aviso.style.borderColor='#B39DDB'; aviso.style.color='#4527A0';
       aviso.innerHTML = `<i class="fa-solid fa-circle-info"></i> <strong>${esc(mod.nome||'Escala personalizada')}</strong> é uma escala montada por você:
         os horários vêm do <strong>próprio modelo, dia a dia</strong> — inclusive folgas e dias com horário diferente.
         ${amostra} Os campos de horário abaixo <strong>não precisam ser preenchidos</strong> para esta escala;
@@ -33313,7 +33316,6 @@ function _transfEscalaMudou(){
     }
     return;
   }
-  if(aviso) aviso.style.display='none';
   // Escala do sistema com horário fixo: preenche por conveniência (editável).
   const def=ESCALA_HORARIOS_DEFAULT[escala];
   if(def && _escalaFixa(escala)){
@@ -33324,6 +33326,32 @@ function _transfEscalaMudou(){
     const nt=document.getElementById('transf-turno-noturno');
     if(nt) nt.checked=_escala12x36Noturna(escala);
   }
+  if(!aviso) return;
+  // A escala e os campos de horário NÃO são redundantes: a escala diz QUAIS DIAS
+  // são trabalho/folga (e as exceções de dia), os campos dizem QUE HORAS. Mas em
+  // parte das escalas o horário faz parte da definição e o campo é ignorado —
+  // e nada na tela dizia qual era o caso. Agora diz, sempre. #escala-modelo-manda
+  if(_escalaFixa(escala)){
+    aviso.style.background='#FFF3E0'; aviso.style.borderColor='#FFCC80'; aviso.style.color='#E65100';
+    aviso.innerHTML = `<i class="fa-solid fa-lock"></i> Nesta escala o <strong>horário faz parte da definição</strong>
+      (${def?`${def.entrada}–${def.saida}`:'fixo'})${def&&def.intIni?`, com refeição ${def.intIni}–${def.intFim}`:''}.
+      Preenchi os campos abaixo com ele; <strong>alterar ali não muda a apuração</strong> nos dias normais.
+      Para um horário próprio, escolha a escala sem horário no nome (ex.: <strong>12x36</strong>, <strong>5x2</strong>, <strong>6x1</strong>).`;
+    aviso.style.display='';
+    return;
+  }
+  // Exceções de dia que fazem parte da definição da escala (valem mesmo com
+  // horário próprio) — espelham _escalaHorariosDia.
+  const EXCECAO={
+    '5x2A':'sexta encerra 16:00', '5x2B':'sexta encerra 16:00',
+    '6x1A':'sábado 07:00–11:00 (4h, sem refeição)',
+    '6x1C':'sábado 08:00–12:00 (4h, sem refeição)',
+  };
+  aviso.style.background='#E8F5E9'; aviso.style.borderColor='#A5D6A7'; aviso.style.color='#1B5E20';
+  aviso.innerHTML = `<i class="fa-solid fa-check"></i> <strong>O horário que você digitar abaixo é o que vale</strong> nesta escala —
+    ela define apenas <strong>quais dias</strong> são de trabalho e quais são de folga.
+    ${EXCECAO[escala]?`Exceção da própria escala: <strong>${EXCECAO[escala]}</strong>.`:''}`;
+  aviso.style.display='';
 }
 
 function openTransferenciaModal(){

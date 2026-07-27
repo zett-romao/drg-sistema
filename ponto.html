@@ -2702,24 +2702,39 @@ function fecharConferenciaFolha(){
   _carregarInboxFolhas(); // atualiza banner
 }
 
+// 🔒 O QUE O COLABORADOR CONFERE AQUI É O PONTO — NUNCA VALOR. (dono 27/07/2026)
+// O "Demonstrativo Financeiro" saiu desta tela. O número que aparecia aqui NÃO é
+// o que a pessoa recebe: a folha ainda passa pela contabilidade, que lança
+// outros descontos e eventuais acréscimos. Mostrar um "Total Líquido" nesta
+// conferência cria expectativa errada e vira discussão no dia do pagamento —
+// além de pedir assinatura num número que vai mudar.
+// Valor tem fluxo PRÓPRIO de conferência: o HOLERITE (holeriteConferencia).
+// Esta tela = apuração do período: dias, faltas, horas extras e as batidas.
 function _renderConferenciaFolha(p){
   const mes = MESES_PT[p.mes]||'';
-  const fmt = v => 'R$ ' + (parseFloat(v)||0).toFixed(2).replace('.',',');
   const dias = Array.isArray(p.pontoManualDias) ? p.pontoManualDias : [];
   const dt = currentEmp || {};
   const totFaltasInj = p.faltasInjustificadas||0;
   const totFaltasJust = p.faltasJustificadas||0;
   const diasTrab = p.diasTrabalhados||0;
   const heHoras = p.horasExtrasTotal||0;
-  // Render simplificado dos dias batidos (mostra só os 5 primeiros + total)
-  const linhasDias = dias.filter(d => d && (d.entrada||d.saida)).slice(0,8).map(d => {
+  // TODAS as batidas do período — não só as 8 primeiras. O colaborador está
+  // conferindo o PONTO dele: esconder o resto do mês é pedir que ele assine no
+  // escuro justamente a parte que ele é a única pessoa capaz de conferir.
+  const diasBatidos = dias.filter(d => d && (d.entrada||d.saida));
+  const linhasDias = diasBatidos.map(d => {
     const dStr = String(d.dia).padStart(2,'0');
-    return `<tr><td style="padding:4px 6px">${dStr}</td><td style="padding:4px 6px">${d.entrada||'—'}</td><td style="padding:4px 6px">${d.intIni||'—'}</td><td style="padding:4px 6px">${d.intFim||'—'}</td><td style="padding:4px 6px">${d.saida||'—'}</td></tr>`;
+    const ds = d.diaSem ? `<span style="color:#94a3b8;font-size:10px;margin-left:3px">${d.diaSem}</span>` : '';
+    return `<tr><td style="padding:4px 6px;white-space:nowrap">${dStr}${ds}</td><td style="padding:4px 6px">${d.entrada||'—'}</td><td style="padding:4px 6px">${d.intIni||'—'}</td><td style="padding:4px 6px">${d.intFim||'—'}</td><td style="padding:4px 6px">${d.saida||'—'}</td></tr>`;
   }).join('');
+  // Período real da competência (26 do mês anterior → 25 do mês da competência).
+  const _pm = p.mes>1 ? p.mes-1 : 12, _pa = p.mes>1 ? p.ano : p.ano-1;
+  const periodoTxt = `26/${String(_pm).padStart(2,'0')}/${_pa} a 25/${String(p.mes).padStart(2,'0')}/${p.ano}`;
   const html = `
     <div style="background:#F1F5F9;padding:12px;border-radius:8px;margin-bottom:14px">
       <div style="font-size:11px;color:#666;font-weight:700;margin-bottom:4px">COMPETÊNCIA</div>
       <div style="font-size:18px;font-weight:700;color:#1a1a2e">${mes} / ${p.ano}</div>
+      <div style="font-size:11px;color:#78909C;margin-top:2px">Período apurado: ${periodoTxt}</div>
     </div>
     <div style="font-size:13px;line-height:1.7;color:#37474F">
       <div><strong>Colaborador:</strong> ${dt.nome || '—'}</div>
@@ -2734,7 +2749,9 @@ function _renderConferenciaFolha(p){
       <div style="background:#FFEBEE;padding:10px;border-radius:6px"><strong>Faltas just.</strong><div style="font-size:18px;font-weight:700;color:#C62828;margin-top:2px">${totFaltasJust}</div></div>
       <div style="background:#E3F2FD;padding:10px;border-radius:6px"><strong>Horas extras</strong><div style="font-size:18px;font-weight:700;color:#1565C0;margin-top:2px">${heHoras}h</div></div>
     </div>
-    <div style="margin-bottom:10px;font-weight:700;font-size:13px;color:#1a1a2e">Primeiros dias do mês:</div>
+    <div style="margin-bottom:10px;font-weight:700;font-size:13px;color:#1a1a2e">
+      Suas batidas no período <span style="font-weight:400;color:#78909C">(${diasBatidos.length} dia${diasBatidos.length===1?'':'s'})</span>
+    </div>
     <div style="overflow-x:auto;border:1px solid #E0E0E0;border-radius:6px;margin-bottom:14px">
       <table style="width:100%;border-collapse:collapse;font-size:12px;background:#fff">
         <thead><tr style="background:#F5F7FB">
@@ -2743,15 +2760,12 @@ function _renderConferenciaFolha(p){
         <tbody>${linhasDias || '<tr><td colspan="5" style="padding:10px;text-align:center;color:#999">Nenhum dia batido.</td></tr>'}</tbody>
       </table>
     </div>
-    <div style="background:#E1F5FE;padding:12px;border-radius:6px;font-size:13px;color:#01579B">
-      <div><strong>Remuneração:</strong> ${fmt(p.remuneracao)}</div>
-      <div><strong>Vale Transporte:</strong> ${fmt(p.valeTransporte)}</div>
-      <div><strong>Vale Refeição:</strong> ${fmt(p.valeRefeicao)}</div>
-      <div><strong>Vale Alimentação:</strong> ${fmt(p.valeAlimentacaoLiquido||p.valeAlimentacaoTotal)}</div>
-      <div><strong>Horas Extras (R$):</strong> ${fmt(p.horasExtrasValor)}</div>
-      <div><strong>Bonificação (B.Perm.):</strong> ${fmt(p.bonificacao)}</div>
-      <hr style="margin:8px 0;border:none;border-top:1px dashed #B3E5FC">
-      <div style="font-size:15px;font-weight:700">Total Líquido: ${fmt(p.totalLiquidoFinal || p.totalLiquido || p.remuneracao)}</div>
+    <div style="background:#FFF8E1;border:1px solid #FFE082;padding:12px;border-radius:6px;font-size:12.5px;color:#5D4037;line-height:1.6">
+      <strong style="color:#E65100">Esta conferência é do seu PONTO, não do pagamento.</strong><br>
+      Aqui você confere <strong>dias trabalhados, faltas, horas extras e as batidas</strong> do período.
+      Os <strong>valores não entram nesta tela</strong>: a folha ainda passa pela contabilidade,
+      que lança descontos e eventuais acréscimos. O valor final chega pra você no
+      <strong>holerite</strong>, que vem separado e também para a sua conferência.
     </div>
   `;
   document.getElementById('conferencia-folha-conteudo').innerHTML = html;
@@ -3090,7 +3104,6 @@ ${reciboHtml}
 // no rodapé. NÃO inclui pinHash em texto puro (só o hash final).
 function _construirHtmlFolhaAssinada(p, snapshot, hash, assinadoEm){
   const mes = MESES_PT[p.mes]||'';
-  const fmt = v => 'R$ ' + (parseFloat(v)||0).toFixed(2).replace('.',',');
   const dt = currentEmp || {};
   const compIni = `26/${String(p.mes-1>0?p.mes-1:12).padStart(2,'0')}/${p.mes-1>0?p.ano:p.ano-1}`;
   const compFim = `25/${String(p.mes).padStart(2,'0')}/${p.ano}`;
@@ -3146,15 +3159,11 @@ function _construirHtmlFolhaAssinada(p, snapshot, hash, assinadoEm){
   <thead><tr><th>Dia</th><th>Entrada</th><th>Int. Ini</th><th>Int. Fim</th><th>Saída</th></tr></thead>
   <tbody>${linhasDias || '<tr><td colspan="5" style="text-align:center;color:#999">Sem batidas no período.</td></tr>'}</tbody>
 </table>
-<h2>Resumo financeiro</h2>
-<div class="resumo">
-  <div class="row"><span>Remuneração</span><span>${fmt(snapshot.remuneracao)}</span></div>
-  <div class="row"><span>Vale Transporte</span><span>${fmt(snapshot.valeTransporte)}</span></div>
-  <div class="row"><span>Vale Refeição</span><span>${fmt(snapshot.valeRefeicao)}</span></div>
-  <div class="row"><span>Vale Alimentação</span><span>${fmt(snapshot.valeAlimentacaoLiquido)}</span></div>
-  <div class="row"><span>Horas Extras (R$)</span><span>${fmt(snapshot.horasExtrasValor)}</span></div>
-  <div class="row"><span>Bonificação (B. Permanência)</span><span>${fmt(snapshot.bonificacao)}</span></div>
-  <div class="row total"><span>Total Líquido</span><span>${fmt(snapshot.totalLiquido)}</span></div>
+<div class="resumo" style="background:#FFF8E1;border:1px solid #FFE082;color:#5D4037;font-size:12px;line-height:1.6;padding:10px 12px">
+  <strong style="color:#E65100">Este documento comprova a APURAÇÃO DO PONTO do período.</strong><br>
+  Não contém valores: a folha ainda passa pela contabilidade, que lança descontos e
+  eventuais acréscimos. Os valores do período constam do <strong>holerite</strong>,
+  documento próprio, com conferência e assinatura separadas.
 </div>
 <div class="assinatura-box">
   <div class="label">🔐 Assinatura Eletrônica Simples — MP 2.200-2/2001</div>
@@ -3569,6 +3578,13 @@ async function confirmarAssinatura(){
     }
     // Snapshot do conteúdo: campos críticos da folha (não inclui o doc inteiro
     // pra hash ficar reproduzível mesmo se outros campos forem reordenados).
+    // 🔒 SEM VALORES (dono 27/07/2026): o que a pessoa assina é a APURAÇÃO DO
+    // PONTO. Valor sai daqui porque ainda muda na contabilidade — e assinar um
+    // número que vai mudar é pior do que não mostrar. Consequência importante:
+    // a hash passa a cobrir exatamente o que aparece no documento; antes ela
+    // selava valores que o documento nem precisava afirmar.
+    // Folhas JÁ assinadas não mudam: o documento delas foi congelado em
+    // `assinatura.htmlRender` e é sempre reaberto de lá.
     const snapshot = {
       employeeId: p.employeeId,
       mes: p.mes, ano: p.ano,
@@ -3576,13 +3592,6 @@ async function confirmarAssinatura(){
       faltasInjustificadas: p.faltasInjustificadas,
       faltasJustificadas: p.faltasJustificadas,
       horasExtrasTotal: p.horasExtrasTotal,
-      horasExtrasValor: p.horasExtrasValor,
-      remuneracao: p.remuneracao,
-      valeTransporte: p.valeTransporte,
-      valeRefeicao: p.valeRefeicao,
-      valeAlimentacaoLiquido: (p.valeAlimentacaoLiquido || p.valeAlimentacaoTotal || 0),
-      bonificacao: p.bonificacao,
-      totalLiquido: (p.totalLiquidoFinal || p.totalLiquido || p.remuneracao || 0),
     };
     const conteudoHash = JSON.stringify(snapshot);
     const hashInput = `${conteudoHash}|${pinHash}|${ip}|${ua}|${fingerprint}|${ts}`;

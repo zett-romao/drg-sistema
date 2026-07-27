@@ -288,6 +288,7 @@ const State = {
   termosFerias:   [],   // termos de ciência/recibo de férias (assinados no app). #ferias-sign
   currentSection: 'dashboard',
   sectionHistory: [],          // pilha de navegação para o botão Voltar
+  logRevisao: {},              // id do evento → {por, em}: "já verifiquei". #log-clicavel
   editingEmployeeId: null,
   currentPdfFile: null,
   currentPdfText: '',
@@ -1038,7 +1039,11 @@ const Auth = {
     this.users = [u];
   },
 
-  log(type, username, details = '') {
+  // `alvo` (opcional) é o ENDEREÇO do dado que este evento mexeu:
+  // {secao:'payroll', empId:'...', mes:7, ano:2026}. Serve pro log ser clicável
+  // e levar direto ao registro. Quem não passa alvo continua funcionando — o
+  // destino é DEDUZIDO do tipo + detalhes em `_logDestino()`. #log-clicavel
+  log(type, username, details = '', alvo = null) {
     const entry = {
       id: genId(),
       timestamp: new Date().toISOString(),
@@ -1046,6 +1051,8 @@ const Auth = {
       username: username || (this.currentUser ? this.currentUser.username : 'sistema'),
       details
     };
+    // Só grava a chave se veio mesmo: Firestore recusa `undefined`.
+    if (alvo && typeof alvo === 'object') entry.alvo = alvo;
     this.accessLog.unshift(entry);
     DB.save('accessLog', entry).catch(console.error);
   },
@@ -1648,6 +1655,7 @@ function showSection(name){
   }
   if(name==='users'){
     renderUsersTable(); renderPerfisTable(); renderLogTable();
+    _logCarregarRevisoes();   // marcas de "já verifiquei" (repinta quando chegar)
     // Lista de usuários vem do Worker (a coleção users é só-servidor).
     if(Auth.currentUser?.role==='master'){
       loadUsersFromWorker().then(()=>{ if(State.currentSection==='users') renderUsersTable(); });
@@ -4282,6 +4290,175 @@ const LOG_TYPES={
   RESCISAO_DELETED:    {label:'Rescisão excluída',     cls:'ev-employee',   icon:'fa-trash'},
 };
 
+// ============================================================================
+// LOG CLICÁVEL — a linha leva ao dado que foi mexido, e fica marcada como
+// "já verifiquei". #log-clicavel
+//
+// Duas peças independentes:
+//  1) DESTINO — pra onde a linha leva. O ideal é o próprio evento gravar o
+//     endereço (`entry.alvo`), e é isso que passa a acontecer daqui pra frente.
+//     Mas há MILHARES de eventos antigos sem alvo nenhum, e são justamente os
+//     que ele quer auditar hoje — então o destino desses é DEDUZIDO do tipo +
+//     do texto do detalhe (nome do colaborador, competência). Dedução é sempre
+//     "best effort": no pior caso cai na seção certa, nunca no lugar errado.
+//  2) VERIFICADO — marca de leitura. NÃO pode morar no próprio log: a coleção
+//     `accessLog` é append-only por regra do Firestore (`allow update: if false`),
+//     de propósito, pra auditoria não ser reescrita. Por isso a marca mora numa
+//     coleção separada (`logRevisao`), 1 doc por evento. Como fica no banco (e
+//     não no localStorage), o que ele conferiu no computador aparece conferido
+//     no celular também.
+// ============================================================================
+
+// Tipo do evento → seção de destino. Prefixo cobre os ~115 tipos sem listar um
+// por um; o mapa EXATO é só pros que fogem da regra do prefixo (e ganha dele).
+const LOG_SECAO_EXATA={
+  // eventos de acesso não têm "dado alterado" — linha não navega
+  LOGIN_SUCCESS:null, LOGIN_FAILED:null, LOGOUT:null, LOGIN_BLOQUEADO_HORARIO:null,
+  LOGOUT_FORA_HORARIO:null, ACESSO_BLOQUEADO_HORARIO:null, USER_DEVICE_RESET:null,
+  // ferramentas de varredura global moram em Configurações ▸ Manutenção
+  PAYROLL_DEDUP:'configuracoes', FOLHA_DEDUP_AUTO:'configuracoes',
+  MIGRACAO_COMPETENCIA:'configuracoes', BACKFILL_PERIODO:'configuracoes',
+  LIMPAR_BACKFILL:'configuracoes', SANEAMENTO_ISENTOS:'configuracoes',
+  REPROJETAR_DIAS_MIGRADOS:'configuracoes', PARAM_LEGAL_SAVE:'configuracoes',
+  PARAMS_LEGAIS_UPDATED:'configuracoes',
+  // mexem na FOLHA do colaborador, mesmo com nome de outra área
+  HE_REVIEW_SAVED:'payroll', ATESTADO_LANCADO:'payroll', ATRASO_LANCADO:'payroll',
+  ATRASO_VALIDADO:'payroll', COBERTURA_COLEGAS:'payroll', COMP_SOLO:'payroll',
+  SAIDA_LANCADA:'payroll', RECALC_FALTAS:'payroll', RECALC_ATRASOS:'payroll',
+  DEMISSAO_FECHA_FOLHA:'payroll',
+  // mexem no CADASTRO
+  LOTACAO_MUDANCA:'employees', EXPERIENCIA_DECISAO:'employees',
+  SUSPENSAO_APLICADA:'employees',
+  TROCA_PLANTAO:'escalas', REGRA_ADIANT_SAVE:'adiantamentos',
+  HOLERITE_IMPORTADO_LOTE:'importaholerite', HOLERITE_IMPORT_DEL:'importaholerite',
+  HOLERITE_VINCULADO:'importaholerite', HOLERITE_IMP_ENVIADO_ASSINAR:'importaholerite',
+};
+const LOG_SECAO_PREFIXO=[
+  ['ADIANT_','adiantamentos'], ['AUTZ_','autorizacoes'],   ['BACKUP_','configuracoes'],
+  ['BANCO_HORAS_','banco'],    ['BENEF_','beneficios'],    ['COMUNICACAO_','comunicacao'],
+  ['CONTAB_','contabilidade'], ['CONTRATO_','contratos'],  ['DEC_TERCEIRO','decimoterceiro'],
+  ['DISCIPLINA_','employees'], ['DOC_EMPRESA','docsempresa'], ['DOCUMENTO_','documentos'],
+  ['EMPLOYEE_','employees'],   ['EPI_','estoque'],         ['ESTOQUE_','estoque'],
+  ['ESCALA_','escalas'],       ['FALTA_','payroll'],       ['FERIAS_','ferias'],
+  ['FOLHA_','payroll'],        ['HOLERITE_','recibos'],    ['LGPD_','lgpd'],
+  ['PAGAMENTO_','pagamentos'], ['PAYROLL_','payroll'],     ['POSTO_','postos'],
+  ['RECIBO_','recibos'],       ['REL_','relatorios'],      ['RESCISAO_','rescisao'],
+  ['USER_',null],              ['PASSWORD_',null],
+];
+function _logSecao(tipo){
+  if(!tipo) return null;
+  if(Object.prototype.hasOwnProperty.call(LOG_SECAO_EXATA,tipo)) return LOG_SECAO_EXATA[tipo];
+  for(const [pre,sec] of LOG_SECAO_PREFIXO) if(tipo.indexOf(pre)===0) return sec;
+  return null;
+}
+
+// Acha o colaborador citado no detalhe. Quase todo log é gravado como
+// `${emp.nome} — ...`, então o casamento por nome pega a maioria; alguns
+// gravam o ID (ex.: PAYROLL_REVISADA). Pega sempre o nome MAIS LONGO que
+// casa, senão "Maria" acharia a "Maria Helena" errada.
+function _logEmpId(e){
+  if(e.alvo && e.alvo.empId) return e.alvo.empId;
+  const d=e.details||''; if(!d) return null;
+  let achado=null, tam=0;
+  for(const emp of (State.employees||[])){
+    if(emp.id && d.indexOf(emp.id)>=0) return emp.id;   // id cru no detalhe
+    const n=(emp.nome||'').trim();
+    if(n.length>tam && n.length>=6 && d.indexOf(n)>=0){ achado=emp.id; tam=n.length; }
+  }
+  return achado;
+}
+
+// Competência citada no detalhe ("Julho/2026"). MESES já é o vocabulário do app.
+function _logCompetencia(e){
+  if(e.alvo && e.alvo.mes && e.alvo.ano) return {mes:+e.alvo.mes, ano:+e.alvo.ano};
+  const m=(e.details||'').match(/([A-Za-zçÇéÉ]+)\s*\/\s*(\d{4})/);
+  if(!m) return null;
+  const i=MESES.findIndex(x=>x && x.toLowerCase()===m[1].toLowerCase());
+  return i>0 ? {mes:i, ano:+m[2]} : null;
+}
+
+// Endereço completo do evento. null = evento sem "dado" (login, logout…).
+function _logDestino(e){
+  const secao=(e.alvo && e.alvo.secao) || _logSecao(e.type);
+  if(!secao) return null;
+  const comp=_logCompetencia(e);
+  return { secao, empId:_logEmpId(e), mes:comp&&comp.mes, ano:comp&&comp.ano };
+}
+
+// Abre a folha do colaborador na competência do evento. Mesmo caminho que
+// Pagamentos usa (_pagAbrirRevisao): destrava o período se não for o vigente.
+function _logAbrirFolha(empId, mes, ano){
+  showSection('payroll');
+  const vig=competenciaVigente();
+  const m=mes||vig.mes, a=ano||vig.ano;
+  const chk=document.getElementById('chk-consultar-passadas');
+  if(chk && (m!==vig.mes||a!==vig.ano) && !chk.checked){ chk.checked=true; _togglePeriodoNavegacao(true); }
+  setVal('payroll-mes', String(m));
+  setVal('payroll-ano', String(a));
+  if(empId){
+    try{ _ensurePayrollEmployeeOption(empId); }catch(err){ console.warn('_logAbrirFolha', err); }
+    setVal('payroll-employee', empId);
+  }
+  onPayrollPeriodoChange();
+}
+
+// Clique na linha: marca como verificado E leva ao dado. Clique no selo de
+// verificado não navega — serve pra desmarcar (ver _logToggleRevisao).
+function _logRowClick(ev, id){
+  if(ev && ev.target && ev.target.closest('.log-check')) return;
+  const e=(Auth.accessLog||[]).find(x=>x.id===id); if(!e) return;
+  if(!State.logRevisao[id]) _logToggleRevisao(id, true);
+  const dest=_logDestino(e);
+  if(!dest){ toast('Este evento não altera dado nenhum (é registro de acesso).','info'); return; }
+  if(dest.secao==='payroll'){ _logAbrirFolha(dest.empId, dest.mes, dest.ano); return; }
+  if(dest.secao==='employees' && dest.empId){ showSection('employees'); openEmployeeModal(dest.empId); return; }
+  showSection(dest.secao);
+  if(dest.empId){
+    const emp=(State.employees||[]).find(x=>x.id===dest.empId);
+    if(emp) toast(`Aberto em ${emp.nome}. Este evento não abre a ficha direto.`,'info');
+  }
+}
+
+// Marca/desmarca "já verifiquei". Grava OTIMISTA (pinta na hora) e desfaz se o
+// banco recusar — a marca nunca pode mentir sobre o que foi conferido.
+async function _logToggleRevisao(id, forcar){
+  const u=Auth.currentUser||{};
+  const jaTem=!!State.logRevisao[id];
+  const ligar=(forcar===true) ? true : !jaTem;
+  if(ligar===jaTem) return;
+  const anterior=State.logRevisao[id];
+  if(ligar) State.logRevisao[id]={ id, por:(u.username||u.id||'—'), em:new Date().toISOString() };
+  else      delete State.logRevisao[id];
+  renderLogTable();
+  try{
+    if(ligar) await DB.save('logRevisao', State.logRevisao[id]);
+    else      await DB.remove('logRevisao', id);
+  }catch(err){
+    if(anterior) State.logRevisao[id]=anterior; else delete State.logRevisao[id];
+    renderLogTable();
+    toast('Não foi possível salvar a marcação.','error');
+    console.error('logRevisao', err);
+  }
+}
+function _logToggleClick(ev, id){
+  if(ev){ ev.stopPropagation(); ev.preventDefault(); }
+  _logToggleRevisao(id);
+}
+
+// Carrega as marcações uma vez por sessão (docs minúsculos). Enquanto não
+// chega, a tabela já aparece — só sem os selos.
+let _logRevisaoCarregado=false;
+async function _logCarregarRevisoes(){
+  if(_logRevisaoCarregado) return;
+  _logRevisaoCarregado=true;
+  try{
+    const docs=await DB.getAll('logRevisao');
+    State.logRevisao={};
+    (docs||[]).forEach(d=>{ if(d && d.id) State.logRevisao[d.id]=d; });
+    if(State.currentSection==='users') renderLogTable();
+  }catch(err){ _logRevisaoCarregado=false; console.warn('logRevisao (carga)', err); }
+}
+
 function renderLogTable(){
   const tbody=document.getElementById('log-tbody');
   const emptyEl=document.getElementById('log-empty');
@@ -4292,21 +4469,36 @@ function renderLogTable(){
   tableEl.style.display=''; emptyEl.classList.add('hidden');
   tbody.innerHTML=Auth.accessLog.slice(0,200).map(e=>{
     const info=LOG_TYPES[e.type]||{label:e.type,cls:'ev-system',icon:'fa-circle-dot'};
-    return `<tr>
+    const dest=_logDestino(e);
+    const rev=State.logRevisao[e.id];
+    const cls=['log-row', rev?'log-revisada':'', dest?'log-navegavel':''].filter(Boolean).join(' ');
+    const dica=dest
+      ? `Abrir ${dest.secao} — clique para ver o que foi alterado e marcar como verificado`
+      : 'Registro de acesso (não altera dado). Clique para marcar como verificado';
+    const selo=rev
+      ? `<button class="log-check log-check-on" onclick="_logToggleClick(event,'${e.id}')"
+           title="Verificado por ${esc(rev.por||'—')} em ${fmtDateTime(rev.em)} — clique para desmarcar">
+           <i class="fa-solid fa-circle-check"></i> ${esc(rev.por||'')}</button>`
+      : `<button class="log-check" onclick="_logToggleClick(event,'${e.id}')"
+           title="Marcar como verificado (sem sair da tela)"><i class="fa-regular fa-circle"></i></button>`;
+    return `<tr class="${cls}" onclick="_logRowClick(event,'${e.id}')" title="${esc(dica)}">
       <td style="white-space:nowrap;font-size:12px">${fmtDateTime(e.timestamp)}</td>
       <td><strong>${e.username||'—'}</strong></td>
       <td><span class="ev-badge ${info.cls}"><i class="fa-solid ${info.icon}"></i> ${info.label}</span></td>
-      <td style="font-size:12px;color:var(--text-muted)">${e.details||''}</td>
+      <td style="font-size:12px;color:var(--text-muted)">${e.details||''}${dest?' <i class="fa-solid fa-arrow-right-long log-seta" title="leva ao dado"></i>':''}</td>
+      <td style="text-align:center">${selo}</td>
     </tr>`;
   }).join('');
 }
 
 function exportLog(){
-  const rows=['Data/Hora,Usuário,Evento,Detalhes'];
+  const rows=['Data/Hora,Usuário,Evento,Detalhes,Conferido por,Conferido em'];
   Auth.accessLog.forEach(e=>{
     const info=LOG_TYPES[e.type]||{label:e.type};
     const esc=s=>`"${(s||'').replace(/"/g,'""')}"`;
-    rows.push([fmtDateTime(e.timestamp),e.username,info.label,e.details].map(esc).join(','));
+    const rev=State.logRevisao[e.id];   // quem conferiu vai junto: é a prova da auditoria
+    rows.push([fmtDateTime(e.timestamp),e.username,info.label,e.details,
+               rev?rev.por:'', rev?fmtDateTime(rev.em):''].map(esc).join(','));
   });
   const blob=new Blob(['﻿'+rows.join('\n')],{type:'text/csv;charset=utf-8'});
   const url=URL.createObjectURL(blob);
@@ -5150,7 +5342,8 @@ async function _pagToggleRevisada(payrollId, checked){
   try{
     await DB.merge('payrolls', p.id, upd);
     const s=State.payrolls.find(r=>r.id===p.id); if(s) Object.assign(s, upd);
-    Auth.log('PAYROLL_REVISADA', null, `${p.employeeId} — ${MESES[p.mes]}/${p.ano} — ${checked?'revisada':'desmarcada'}`);
+    Auth.log('PAYROLL_REVISADA', null, `${p.employeeId} — ${MESES[p.mes]}/${p.ano} — ${checked?'revisada':'desmarcada'}`,
+             {secao:'payroll', empId:p.employeeId, mes:p.mes, ano:p.ano});
     if(State.currentSection==='pagamentos') renderPagamentos();
   }catch(e){ console.error(e); toast('Erro ao salvar a revisão.','error'); }
 }
@@ -13717,7 +13910,8 @@ async function saveAtestado(){
     await DB.save('atestados', doc);
     const empNome=(State.employees.find(e=>e.id===empId)||{}).nome||'—';
     const _rotulo = ehCobertura ? 'Cobertura por colega (pago, mantém BP)' : (ehAbono ? (abona?'Abono (pago)':'Falta justificada (não abonada)') : 'Atestado');
-    Auth.log('ATESTADO_LANCADO', null, `${empNome} — ${_rotulo} — ${tipo==='horas'?horas+'h':dias+' dia(s)'}`);
+    Auth.log('ATESTADO_LANCADO', null, `${empNome} — ${_rotulo} — ${tipo==='horas'?horas+'h':dias+' dia(s)'}`,
+             {secao:'payroll', empId});
     closeModal('modal-atestado');
     toast(ehCobertura ? 'Cobertura por colega salva — dia pago, sem falta, mantém a Boa Permanência!' : (ehAbono ? (abona?'Abono salvo — dia pago e justificado!':'Falta justificada salva (dia descontado, sem penalidade).') : 'Atestado salvo!'),'success');
     renderAtestadosFolha(); recalculate();
@@ -25786,7 +25980,7 @@ async function _monitorAbonar(empId){
   try{
     await DB.save('atestados', doc);
     await _mfSalvarResolv(empId,'abonada');
-    Auth.log && Auth.log('FALTA_ABONADA', null, `${emp.nome} — ${ymd} (Monitor de Faltas)`);
+    Auth.log && Auth.log('FALTA_ABONADA', null, `${emp.nome} — ${ymd} (Monitor de Faltas)`, {secao:'payroll', empId});
     toast(`Falta de ${emp.nome} abonada (1 dia justificado).`,'success');
     renderMonitorFaltas();
   }catch(e){ toast('Erro ao abonar: '+(e.message||e),'error'); }
@@ -30567,7 +30761,8 @@ async function saveHEReview(){
     // Atualiza State.payrolls em memória pra refletir mudança imediata
     const idx = State.payrolls.findIndex(p=>p.id===updated.id);
     if(idx >= 0) State.payrolls[idx] = updated;
-    Auth.log('HE_REVIEW_SAVED', null, `${MESES[mes]}/${ano} — ${Object.keys(decisoes).length} dia(s) revisados`);
+    Auth.log('HE_REVIEW_SAVED', null, `${MESES[mes]}/${ano} — ${Object.keys(decisoes).length} dia(s) revisados`,
+             {secao:'payroll', empId:updated.employeeId, mes, ano});
     closeModal('modal-he-review');
     // Recalcula resumo do Ponto Manual se aberto
     if(_getPontoManualCards().length) calcResumoManual();
@@ -32788,7 +32983,7 @@ async function saveTransferencia(){
     setVal('emp-horario-saida',updated.horarioSaida||'');
     renderHistoricoPostos(updated);
     closeModal('modal-transferencia');
-    try{ Auth.log('LOTACAO_MUDANCA', null, `${emp.nome} → ${updated.posto} · ${updated.escala}${updated.turnoNoturno?' noturno':''} · vig ${vig}`); }catch(_){}
+    try{ Auth.log('LOTACAO_MUDANCA', null, `${emp.nome} → ${updated.posto} · ${updated.escala}${updated.turnoNoturno?' noturno':''} · vig ${vig}`, {secao:'employees', empId:emp.id}); }catch(_){}
     toast('Mudança de lotação registrada. Reabra/recalcule as folhas dos meses afetados pra atualizar os valores.','success');
     if(val('payroll-employee')===empId){ try{ onPayrollEmployeeChange(); }catch(_){} }
   }catch(e){ console.error('saveTransferencia',e); toast('Erro ao registrar a mudança de lotação.','error'); }

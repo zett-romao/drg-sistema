@@ -1073,6 +1073,34 @@ ul { list-style: none; }
 .ev-posto     { background: #FFF8E1; color: #E65100; }
 .ev-contrato  { background: #F3E5F5; color: #4A148C; }
 
+/* ---- Log de acessos: linha clicável + marca de conferido ----
+   A linha leva ao dado que o evento mexeu e, ao ser clicada, fica VERDE
+   apagada — é o "já verifiquei essa". A marca não mora no log (a coleção
+   accessLog é append-only de propósito), mora em `logRevisao`. #log-clicavel */
+.log-row.log-navegavel { cursor: pointer; }
+.log-row.log-navegavel:hover td { background: #F1F7FF; }
+.log-seta { color: #90A4AE; font-size: 11px; margin-left: 4px; opacity: 0; transition: opacity .15s; }
+.log-row.log-navegavel:hover .log-seta { opacity: 1; }
+
+/* Conferida: some do primeiro plano sem sumir da lista. A borda verde à
+   esquerda é o que o olho pega correndo a tabela de cima a baixo. */
+.log-row.log-revisada td { background: #F6FAF6; color: #7C8B7C; }
+.log-row.log-revisada td:first-child { box-shadow: inset 3px 0 0 #66BB6A; }
+.log-row.log-revisada:hover td { background: #EDF6ED; }
+.log-row.log-revisada .ev-badge { opacity: .55; }
+
+.log-check {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: none; border: 1px solid var(--border); border-radius: 20px;
+  padding: 3px 9px; font-size: 11px; font-weight: 700; color: #B0BEC5;
+  cursor: pointer; transition: all var(--transition); max-width: 130px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.log-check:hover { border-color: #66BB6A; color: #2E7D32; }
+.log-check:active { transform: scale(.94); }
+.log-check-on { background: #E8F5E9; border-color: #A5D6A7; color: #2E7D32; }
+.log-check-on:hover { background: #FFEBEE; border-color: #EF9A9A; color: #C62828; }
+
 /* ---- Status badges (employee) ---- */
 .badge-status-ativo    { background: #E8F5E9; color: #2E7D32; }
 .badge-status-inativo  { background: #F5F5F5; color: #757575; }

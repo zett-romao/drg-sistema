@@ -14224,7 +14224,7 @@ function renderAtestadosFolha(){
   if(_diasAtAb>0||tot.horasMin>0) _rp.push(`<i class="fa-solid fa-circle-check" style="color:#2E7D32"></i> <strong>${_diasAtAb} dia(s)${tot.horasMin>0?' e '+minutesToStr(tot.horasMin):''}</strong> de atestado/abono — pagos, abatidos das faltas/atrasos.`);
   if(tot.diasCobertura>0) _rp.push(`<i class="fa-solid fa-people-arrows" style="color:#1565C0"></i> <strong>${tot.diasCobertura} dia(s)</strong> de <strong>cobertura por colega</strong> — pago(s), sem falta, <strong>mantém a Boa Permanência</strong>.`);
   if(tot.diasNaoAbonados>0) _rp.push(`<i class="fa-solid fa-circle-minus" style="color:#E65100"></i> <strong>${tot.diasNaoAbonados} dia(s)</strong> justificado(s) NÃO abonado(s) — descontado(s) (salário÷30), sem perder DSR/VA. ⚠️ derruba a Boa Permanência.`);
-  resumo.innerHTML = _rp.length ? _rp.join('<br>') : 'Nenhum atestado/abono aprovado neste mês.';
+  resumo.innerHTML = _rp.length ? _rp.join('<br>') : 'Nenhum atestado/abono aprovado nesta competência.';
   if(pend>0) resumo.innerHTML += `<br><i class="fa-solid fa-clock" style="color:#E65100"></i> ${pend} atestado(s) enviado(s) pelo app — <strong>aguardando aprovação</strong>.`;
   if(!arr.length){ lista.innerHTML=''; return; }
   lista.innerHTML=arr.map(a=>{
@@ -30622,7 +30622,7 @@ function openPendentesHEList(){
     (totalRef ? ` &middot; <strong style="color:#6A1B9A">${totalRef}</strong> refeição(ões) a aprovar` : '');
   const listEl = document.getElementById('pendentes-he-list');
   if(!lista.length){
-    listEl.innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-check" style="color:#1B5E20"></i><p>Nenhuma HE pendente neste mês.</p></div>';
+    listEl.innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-check" style="color:#1B5E20"></i><p>Nenhuma HE pendente nesta competência.</p></div>';
     document.getElementById('modal-pendentes-he-list').classList.remove('hidden');
     return;
   }
@@ -30774,7 +30774,7 @@ async function openFaltasList(){
     `<strong style="color:#c62828">${totalDias}</strong> dia(s) de falta no total`;
   const listEl = document.getElementById('faltas-list');
   if(!lista.length){
-    listEl.innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-check" style="color:#1B5E20"></i><p>Nenhuma falta registrada neste mês.</p></div>';
+    listEl.innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-check" style="color:#1B5E20"></i><p>Nenhuma falta registrada nesta competência.</p></div>';
     document.getElementById('modal-faltas-list').classList.remove('hidden');
     return;
   }
@@ -30891,7 +30891,9 @@ async function openHEReview(){
     .filter(Boolean).sort((a,b)=>a.dia-b.dia);
   const refPend = refDias.filter(d => d.refExtra.status==='pendente').length + detectDias.length;
   document.getElementById('he-review-info').innerHTML =
-    `<strong>${emp.nome}</strong> &middot; ${MESES[mes]}/${ano} &middot; <strong>${linhas.length}</strong> dia(s) com divergência acima de 10min/dia` +
+    // A competência vem SEMPRE com o período 26→25 do lado. "Agosto/2026"
+    // sozinho faz pensar em 01→31, que aqui não existe. #competencia-26-25
+    `<strong>${emp.nome}</strong> &middot; ${MESES[mes]}/${ano} <span style="color:#78909C">(${_compLabel(mes,ano)})</span> &middot; <strong>${linhas.length}</strong> dia(s) com divergência acima de 10min/dia` +
     (refPend ? ` &middot; <strong style="color:#6A1B9A">${refPend}</strong> refeição(ões) não rendida(s) a aprovar` : '') + _ovrAviso;
   const listEl = document.getElementById('he-review-list');
   let html = '';
@@ -30905,7 +30907,7 @@ async function openHEReview(){
     html += linhas.map(({d,expected,detec}) => _renderHEReviewRow(d, expected, detec)).join('');
   }
   if(!html){
-    html = '<div class="empty-state"><i class="fa-solid fa-circle-check" style="color:#1B5E20"></i><p>Nenhuma divergência de HE nem refeição não rendida pendente neste mês.</p></div>';
+    html = `<div class="empty-state"><i class="fa-solid fa-circle-check" style="color:#1B5E20"></i><p>Nenhuma divergência de HE nem refeição não rendida pendente na competência ${MESES[mes]}/${ano} (${_compLabel(mes,ano)}).</p></div>`;
   }
   listEl.innerHTML = html;
   document.getElementById('modal-he-review').classList.remove('hidden');
@@ -31325,7 +31327,7 @@ async function saveHEReview(){
         const empNext  = State.employees.find(e=>e.id===nextPay.employeeId);
         const remaining = _countAllPendentes(mes, ano);
         const empNome  = empNext?.nome || 'próximo colaborador';
-        const msg = `✓ Revisão salva!\n\nAinda há ${remaining} colaborador(es) com HE pendente neste mês.\n\nDeseja revisar o próximo agora?\n— ${empNome}`;
+        const msg = `✓ Revisão salva!\n\nAinda há ${remaining} colaborador(es) com HE pendente nesta competência.\n\nDeseja revisar o próximo agora?\n— ${empNome}`;
         setTimeout(() => {
           if(confirm(msg)){
             setVal('payroll-employee', nextPay.employeeId);
@@ -31341,7 +31343,7 @@ async function saveHEReview(){
       }
     }
     // Não há mais pendentes
-    toast('🎉 Todas as HE pendentes deste mês foram revisadas!', 'success');
+    toast(`🎉 Todas as HE pendentes da competência ${MESES[mes]}/${ano} (${_compLabel(mes,ano)}) foram revisadas!`, 'success');
   } catch(e){
     console.error(e);
     toast('Erro ao salvar revisão.', 'error');

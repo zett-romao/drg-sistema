@@ -36,6 +36,7 @@
   var trocarTexto = cfg.trocarTexto !== false;
   var JANELA_SEM_REDE = cfg.janelaSemRede || 250;  // ms para decidir que o clique nao chama a rede
   var FOLGA = cfg.folga || 80;                      // ms de espera por uma chamada encadeada
+  var TETO_TRAVA = cfg.tetoTrava || 15000;          // ms: teto absoluto de trava (nunca travar pra sempre)
 
   var armado = null;
 
@@ -51,30 +52,53 @@
     alvo.travado = true;
     btn.dataset.drgBusy = '1';
     btn.classList.add('drg-ocupado');
-    if (podeTrocarTexto(btn)) {
-      alvo.htmlOriginal = btn.innerHTML;
+    // Se o proprio app JA trocou o texto depois do clique (tem ciclo proprio,
+    // tipo setBtnLoading), quem manda no texto e ele: nao disputamos. Aqui
+    // ficamos so com a barreira contra o clique repetido.
+    var appJaCuida = btn.innerHTML !== alvo.htmlOriginal;
+    if (podeTrocarTexto(btn) && !appJaCuida) {
+      // 🔒 O HTML restaurado e o capturado NO CLIQUE (armar), nunca o de agora.
+      // App que ja tem o proprio ciclo de botao (ex.: setBtnLoading do Kronos)
+      // troca o innerHTML por "Salvando..." ANTES da rede disparar. Se a foto
+      // fosse tirada aqui, ela pegaria justamente esse "Salvando..." e o
+      // destravar devolveria ele — o botao ficava "Salvando..." PARA SEMPRE,
+      // mesmo sem clique nenhum, porque o proprio app ja tinha restaurado o
+      // texto certo antes. Foi o que aconteceu no Kronos (27/07/2026).
       alvo.larguraOriginal = btn.style.minWidth;
+      alvo.textoTrocado = true;
       btn.style.minWidth = btn.offsetWidth + 'px';   // nao deixa o botao "pular"
       btn.textContent = '⏳ Aguarde...';
       btn.dataset.drgTexto = '1';                    // o CSS esconde o girador
     }
+    // 🔒 TETO: botao NUNCA fica travado para sempre. O Firestore mantem canais
+    // XHR de escuta (Listen) abertos por minutos — se um clique cair junto com
+    // a abertura de um canal desses, o `loadend` so chega quando a escuta
+    // termina, e ate la o botao ficaria mudo e travado. Passou do teto, solta.
+    clearTimeout(alvo.teto);
+    alvo.teto = setTimeout(function () { destravar(alvo); }, TETO_TRAVA);
   }
 
   function destravar(alvo) {
     var btn = alvo.btn;
+    clearTimeout(alvo.teto);
     if (alvo.travado) {
-      if (alvo.htmlOriginal != null) btn.innerHTML = alvo.htmlOriginal;
+      // Só devolve o HTML se fomos NÓS que trocamos. Em botao de icone o texto
+      // nunca foi tocado — restaurar ali desfaria uma mudanca legitima do app.
+      if (alvo.textoTrocado && alvo.htmlOriginal != null) btn.innerHTML = alvo.htmlOriginal;
       btn.style.minWidth = alvo.larguraOriginal || '';
       btn.classList.remove('drg-ocupado');
       delete btn.dataset.drgTexto;
     }
+    alvo.travado = false;
     delete btn.dataset.drgBusy;
     if (armado === alvo) armado = null;
   }
 
   function armar(btn) {
     if (armado) destravar(armado);
-    var alvo = { btn: btn, pendentes: 0, travado: false, htmlOriginal: null };
+    // Foto do botao no instante do clique — ANTES de qualquer handler do app
+    // mexer no innerHTML (o listener de clique roda em fase de CAPTURA).
+    var alvo = { btn: btn, pendentes: 0, travado: false, htmlOriginal: btn.innerHTML };
     armado = alvo;
     alvo.timer = setTimeout(function () {
       if (alvo.pendentes === 0) destravar(alvo);

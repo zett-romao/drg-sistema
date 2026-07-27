@@ -371,10 +371,24 @@ async function fsFindUser(uid, token){
 }
 
 // ── Permissão / Asaas ────────────────────────────────────────
-// true se o usuário pode APROVAR pagamentos (master, ou perfil com pagamentosAprovar).
+// true se o usuário pode APROVAR pagamentos.
+// Ordem IDÊNTICA à do painel (getUserModules em app.js): master > permissão por
+// usuário > perfil/role. Desde 28/06/2026 a permissão é POR USUÁRIO
+// (configuracoes/permissoesUsuarios); este Worker só olhava `perfis/` e por isso
+// recusava quem a TELA tinha autorizado — a tela concedia, o Worker negava.
+// Se as duas fontes divergirem de novo, é aqui que conserta. #perm-por-usuario
 async function temPermAprovar(user, token){
-  const role = (user && user.role) || '';
-  if (role === 'master')   return true;
+  const role  = (user && user.role) || '';
+  if (role === 'master') return true;
+  // Lista própria do usuário é a FONTE PRINCIPAL — manda inclusive para NEGAR.
+  const uname = (user && user.username) || '';
+  if (uname) {
+    const pu  = await fsGetDoc('configuracoes/permissoesUsuarios', token);
+    const meu = pu && pu[uname];
+    if (meu && meu.modules && typeof meu.modules === 'object')
+      return !!meu.modules.pagamentosAprovar;
+  }
+  // Fallback: quem ainda não tem lista própria continua pelo perfil/role.
   if (role === 'operador') return false;
   if (role.startsWith('p_')) {
     const perfil = await fsGetDoc('perfis/' + role.slice(2), token);

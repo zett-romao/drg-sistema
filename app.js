@@ -20296,6 +20296,7 @@ function abrirNovoPeriodoEscala(){
   if(!_podeGerirFolgasEscala()){ toast('Seu perfil não tem permissão para incluir folgas / dia avulso / troca de escala.','error'); return; }
   const empId = _escalaEmpIdCtx();
   if(!empId){ toast('Salve o colaborador primeiro.','warning'); return; }
+  _preencherSelectEscalas('per-esc-escala','(mesma do cadastro)');
   setVal('per-esc-id','');
   setVal('per-esc-de','');
   setVal('per-esc-ate','');
@@ -20315,6 +20316,7 @@ function editarPeriodoEscala(periodoId){
   if(!emp) return;
   const p = (emp.historicoEscalas||[]).find(x => x.id===periodoId);
   if(!p){ toast('Período não encontrado.','error'); return; }
+  _preencherSelectEscalas('per-esc-escala','(mesma do cadastro)');
   setVal('per-esc-id', p.id);
   setVal('per-esc-de', p.de||'');
   setVal('per-esc-ate', p.ate||'');
@@ -34046,6 +34048,31 @@ function populateEscalaSelect(){
   if(atual) sel.value=atual;
 }
 
+// FONTE ÚNICA das escalas: o seletor do cadastro (#emp-escala) é a lista boa —
+// tem todas as variantes com o horário no rótulo e recebe os modelos criados
+// por você. Os outros seletores de escala eram listas soltas, escritas à mão e
+// que envelheceram: o de "Período de mudança de escala" mostrava 7 opções
+// ("5x2 — Variante A", sem horário) enquanto o cadastro já tinha 21 + modelos.
+// Dava pra escolher no cadastro uma escala que não existia no período — e não
+// tinha como saber qual variante era qual. Agora todos clonam daqui: escala
+// nova aparece nos três lugares de uma vez. #escala-lista-unica
+function _preencherSelectEscalas(selId, labelVazio){
+  const sel=document.getElementById(selId);
+  const fonte=document.getElementById('emp-escala');
+  if(!sel || !fonte) return;
+  const atual=sel.value;
+  _injetarModelosNoSelect(fonte);          // garante os modelos na fonte
+  sel.innerHTML = (labelVazio!=null ? `<option value="">${labelVazio}</option>` : '') + fonte.innerHTML;
+  sel.value=atual;
+  // Valor antigo que não existe mais na lista: o navegador zera em silêncio e o
+  // registro trocaria de escala ao salvar. Reinsere pra preservar o histórico.
+  if(atual && sel.value!==atual){
+    const o=document.createElement('option');
+    o.value=atual; o.textContent=(escalaLabel(atual)||atual)+' (escala antiga)';
+    sel.appendChild(o); sel.value=atual;
+  }
+}
+
 function openEscalaModelos(){
   document.getElementById('modal-escala-modelos').classList.remove('hidden');
   _escModMostrarLista();
@@ -34286,6 +34313,8 @@ function renderEscalas(){
     postoSel.innerHTML = opts;
     postoSel.value = sel;
   }
+  // Filtro de escala: mesma lista completa do cadastro (+ modelos). #escala-lista-unica
+  _preencherSelectEscalas('escala-filter-escala','Todas');
   const setorSel = document.getElementById('escala-filter-setor');
   if(setorSel){
     const sel = setorSel.value;

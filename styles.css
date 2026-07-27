@@ -1061,6 +1061,9 @@ ul { list-style: none; }
 .ev-badge {
   display: inline-flex; align-items: center; gap: 4px;
   padding: 3px 8px; border-radius: 10px; font-size: 11px; font-weight: 700;
+  /* nowrap: com os nomes em português, rótulo comprido quebrava em duas linhas
+     e a pílula ficava com altura diferente das vizinhas. A coluna rola. */
+  white-space: nowrap;
 }
 .ev-login   { background: #E8F5E9; color: #2E7D32; }
 .ev-logout  { background: #E3F2FD; color: #1565C0; }
@@ -1072,6 +1075,13 @@ ul { list-style: none; }
 .ev-payroll   { background: #E8F5E9; color: #1B5E20; }
 .ev-posto     { background: #FFF8E1; color: #E65100; }
 .ev-contrato  { background: #F3E5F5; color: #4A148C; }
+/* Cores por ÁREA: correndo o olho na lista dá pra separar dinheiro de documento
+   e, principalmente, achar o que deu errado (ev-alerta é o único vermelho). */
+.ev-pagamento { background: #E0F2F1; color: #00695C; }
+.ev-benef     { background: #FFF8E1; color: #8D6E00; }
+.ev-doc       { background: #EDE7F6; color: #4527A0; }
+.ev-escala    { background: #E1F5FE; color: #01579B; }
+.ev-alerta    { background: #FFEBEE; color: #C62828; }
 
 /* ---- Log de acessos: linha clicável + marca de conferido ----
    A linha leva ao dado que o evento mexeu e, ao ser clicada, fica VERDE

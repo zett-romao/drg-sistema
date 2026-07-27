@@ -4288,6 +4288,137 @@ const LOG_TYPES={
   RESCISAO_FECHADA:    {label:'Rescisão fechada',      cls:'ev-employee',   icon:'fa-lock'},
   RESCISAO_REABERTA:   {label:'Rescisão reaberta',     cls:'ev-employee',   icon:'fa-lock-open'},
   RESCISAO_DELETED:    {label:'Rescisão excluída',     cls:'ev-employee',   icon:'fa-trash'},
+
+  // ── Nomes em português dos 96 tipos que apareciam CRUS na tela ──────────
+  // Auditoria só serve se der pra ler correndo o olho. "HE_REVIEW_SAVED" não
+  // diz nada pra quem confere; "Horas extras revisadas" diz. Os rótulos foram
+  // tirados do que cada evento GRAVA no detalhe, um por um — não do nome da
+  // constante, que às vezes mente (COMP_SOLO é troca de folga, não "solo").
+  // #log-clicavel
+
+  // Acesso
+  LOGIN_BLOQUEADO_HORARIO: {label:'Login barrado (fora do horário)', cls:'ev-failed', icon:'fa-clock'},
+  LOGOUT_FORA_HORARIO:     {label:'Saída forçada (fora do horário)', cls:'ev-logout', icon:'fa-clock'},
+  ACESSO_BLOQUEADO_HORARIO:{label:'Acesso barrado (fora do horário)',cls:'ev-failed', icon:'fa-ban'},
+  USER_DEVICE_RESET:       {label:'Dispositivos zerados',            cls:'ev-user',   icon:'fa-mobile-screen'},
+
+  // Folha de ponto
+  HE_REVIEW_SAVED:         {label:'Horas extras revisadas',   cls:'ev-payroll', icon:'fa-clock-rotate-left'},
+  PAYROLL_REVISADA:        {label:'Folha marcada revisada',   cls:'ev-payroll', icon:'fa-clipboard-check'},
+  PAYROLL_REABERTO:        {label:'Folha reaberta',           cls:'ev-payroll', icon:'fa-lock-open'},
+  PAYROLL_FECHADO_INDIVIDUAL:{label:'Folha fechada',          cls:'ev-payroll', icon:'fa-lock'},
+  PAYROLL_PERIODO_FECHADO: {label:'Competência fechada',      cls:'ev-payroll', icon:'fa-lock'},
+  PAYROLL_PERIODO_REABERTO:{label:'Competência reaberta',     cls:'ev-payroll', icon:'fa-lock-open'},
+  FOLHA_ENVIADA_CONFERENCIA:{label:'Folha enviada p/ conferência',      cls:'ev-payroll', icon:'fa-paper-plane'},
+  FOLHA_ENVIADA_CONFERENCIA_LOTE:{label:'Folhas enviadas (todas)',      cls:'ev-payroll', icon:'fa-paper-plane'},
+  FOLHA_ENVIADA_CONFERENCIA_SELECAO:{label:'Folhas enviadas (seleção)', cls:'ev-payroll', icon:'fa-paper-plane'},
+  FOLHA_SILENCIO:          {label:'Folhas aceitas por silêncio', cls:'ev-payroll', icon:'fa-hourglass-end'},
+  DEMISSAO_FECHA_FOLHA:    {label:'Demissão fechou a folha',  cls:'ev-payroll', icon:'fa-lock'},
+  SAIDA_LANCADA:           {label:'Saída lançada',            cls:'ev-payroll', icon:'fa-door-open'},
+  ATRASO_LANCADO:          {label:'Atraso lançado',           cls:'ev-payroll', icon:'fa-person-running'},
+  ATRASO_VALIDADO:         {label:'Atraso validado',          cls:'ev-payroll', icon:'fa-check-double'},
+  RECALC_ATRASOS:          {label:'Atrasos recalculados',     cls:'ev-system',  icon:'fa-wrench'},
+  RECALC_FALTAS:           {label:'Faltas recalculadas',      cls:'ev-system',  icon:'fa-wrench'},
+  FALTA_INFORMADA:         {label:'Falta informada',          cls:'ev-alerta',  icon:'fa-user-xmark'},
+  FALTA_CONFERIDA:         {label:'Falta conferida',          cls:'ev-payroll', icon:'fa-clipboard-check'},
+  FALTA_ABONADA:           {label:'Falta abonada',            cls:'ev-payroll', icon:'fa-notes-medical'},
+  FALTA_COBERTURA:         {label:'Falta coberta por colega', cls:'ev-payroll', icon:'fa-people-arrows'},
+  COBERTURA_COLEGAS:       {label:'Cobertura entre colegas',  cls:'ev-payroll', icon:'fa-people-arrows'},
+  BANCO_HORAS_HE_VENCIDA:  {label:'Banco vencido pago como HE',cls:'ev-payroll',icon:'fa-piggy-bank'},
+
+  // Escala
+  TROCA_PLANTAO:           {label:'Troca de plantão',         cls:'ev-escala', icon:'fa-right-left'},
+  COMP_SOLO:               {label:'Compensação de folga',     cls:'ev-escala', icon:'fa-right-left'},
+  CICLO_12X36_REALINHAR:   {label:'12x36 realinhado pelo ponto', cls:'ev-escala', icon:'fa-bullseye'},
+  ESCALA_OVR_DEL:          {label:'Dia avulso removido',      cls:'ev-escala', icon:'fa-calendar-xmark'},
+  ESCALA_PERIODO_DEL:      {label:'Período de escala removido',cls:'ev-escala',icon:'fa-calendar-xmark'},
+
+  // Cadastro / vida do colaborador
+  LOTACAO_MUDANCA:         {label:'Mudança de lotação',       cls:'ev-employee', icon:'fa-arrows-turn-right'},
+  EMPLOYEE_RESTORE:        {label:'Colaboradores restaurados',cls:'ev-backup',   icon:'fa-rotate-left'},
+  EXPERIENCIA_DECISAO:     {label:'Experiência — decisão',    cls:'ev-employee', icon:'fa-hourglass-half'},
+  EXPERIENCIA_DECURSO_P1:  {label:'Experiência — renovada por decurso', cls:'ev-employee', icon:'fa-hourglass-half'},
+  EXPERIENCIA_DECURSO_P2:  {label:'Experiência — efetivada por decurso',cls:'ev-employee', icon:'fa-hourglass-end'},
+  SUSPENSAO_APLICADA:      {label:'Suspensão disciplinar',    cls:'ev-alerta',   icon:'fa-user-lock'},
+  DISCIPLINA_ENVIADA:      {label:'Ato disciplinar enviado',  cls:'ev-alerta',   icon:'fa-gavel'},
+  DISCIPLINA_ANULADA:      {label:'Ato disciplinar anulado',  cls:'ev-alerta',   icon:'fa-ban'},
+
+  // Pagamentos e adiantamentos
+  PAGAMENTO_SOLICITADO:    {label:'Pagamento solicitado',     cls:'ev-pagamento', icon:'fa-hand-holding-dollar'},
+  PAGAMENTO_APROVADO:      {label:'Pagamento aprovado',       cls:'ev-pagamento', icon:'fa-circle-check'},
+  PAGAMENTO_RECUSADO:      {label:'Pagamento recusado',       cls:'ev-alerta',    icon:'fa-circle-xmark'},
+  PAGAMENTO_ESTORNADO:     {label:'Pagamento estornado',      cls:'ev-alerta',    icon:'fa-rotate-left'},
+  PAGAMENTO_MANUAL:        {label:'Pagamento manual',         cls:'ev-pagamento', icon:'fa-money-bill'},
+  PAGAMENTO_MANUAL_DESFEITO:{label:'Pagamento manual desfeito',cls:'ev-alerta',   icon:'fa-rotate-left'},
+  PAGAMENTO_INCLUSAO_AUTORIZADA:{label:'Inclusão autorizada (Master)',cls:'ev-pagamento',icon:'fa-shield-halved'},
+  ADIANT_PAGO_EXTERNO:     {label:'Adiantamento pago fora',   cls:'ev-pagamento', icon:'fa-money-bill-transfer'},
+  ADIANT_PAGO_EXTERNO_DESFEITO:{label:'Pago fora desfeito',   cls:'ev-alerta',    icon:'fa-rotate-left'},
+  REGRA_ADIANT_SAVE:       {label:'Regra de adiantamento salva',cls:'ev-system',  icon:'fa-percent'},
+
+  // Benefícios
+  BENEF_COMPETENCIA_FECHADA: {label:'Benefícios — competência fechada', cls:'ev-benef', icon:'fa-lock'},
+  BENEF_COMPETENCIA_REABERTA:{label:'Benefícios — competência reaberta',cls:'ev-benef', icon:'fa-lock-open'},
+  BENEF_RECIBO_ENVIADO:    {label:'Recibo de benefício enviado',  cls:'ev-benef', icon:'fa-paper-plane'},
+  BENEF_RECIBO_REENVIADO:  {label:'Recibo de benefício reenviado',cls:'ev-benef', icon:'fa-paper-plane'},
+  BENEF_RECIBO_SILENCIO:   {label:'Recibos aceitos por silêncio', cls:'ev-benef', icon:'fa-hourglass-end'},
+
+  // Férias e 13º
+  FERIAS_SAVED:            {label:'Férias lançadas',          cls:'ev-benef', icon:'fa-umbrella-beach'},
+  FERIAS_PAGAMENTO_MARCADO:{label:'Férias — pagamento marcado',cls:'ev-pagamento', icon:'fa-money-bill'},
+  FERIAS_TERMO_ENVIADO:    {label:'Termo de férias enviado',  cls:'ev-doc',   icon:'fa-file-signature'},
+  DEC_TERCEIRO_SAVED:      {label:'13º salário lançado',      cls:'ev-pagamento', icon:'fa-gift'},
+
+  // Holerites e recibos
+  HOLERITE_ENVIADO_CONFERENCIA:     {label:'Holerite enviado p/ conferência', cls:'ev-doc', icon:'fa-paper-plane'},
+  HOLERITE_ENVIADO_CONFERENCIA_LOTE:{label:'Holerites enviados (lote)',       cls:'ev-doc', icon:'fa-paper-plane'},
+  HOLERITE_SILENCIO:       {label:'Holerites aceitos por silêncio', cls:'ev-doc', icon:'fa-hourglass-end'},
+  HOLERITE_IMPORTADO_LOTE: {label:'Holerites importados',     cls:'ev-doc', icon:'fa-file-arrow-up'},
+  HOLERITE_IMPORT_DEL:     {label:'Holerite importado excluído', cls:'ev-alerta', icon:'fa-trash'},
+  HOLERITE_VINCULADO:      {label:'Holerite vinculado',       cls:'ev-doc', icon:'fa-link'},
+  HOLERITE_IMP_ENVIADO_ASSINAR:{label:'Holerite enviado p/ assinar', cls:'ev-doc', icon:'fa-file-signature'},
+  RECIBO_ENVIADO:          {label:'Recibo enviado',           cls:'ev-doc', icon:'fa-paper-plane'},
+  RECIBO_ANULADO:          {label:'Recibo anulado',           cls:'ev-alerta', icon:'fa-ban'},
+  RECIBO_OFICIAL_GERADO:   {label:'Recibo oficial gerado',    cls:'ev-doc', icon:'fa-file-invoice'},
+  RECIBO_OFICIAL_GERADO_LOTE:{label:'Recibos oficiais (lote)',cls:'ev-doc', icon:'fa-file-invoice'},
+
+  // Documentos
+  DOCUMENTO_APROVADO:      {label:'Documento aprovado',       cls:'ev-doc',    icon:'fa-file-circle-check'},
+  DOCUMENTO_REPROVADO:     {label:'Documento reprovado',      cls:'ev-alerta', icon:'fa-file-circle-xmark'},
+  DOC_EMPRESA_DEL:         {label:'Documento da empresa excluído', cls:'ev-alerta', icon:'fa-trash'},
+
+  // Comunicação e autorizações
+  COMUNICACAO_ENVIADA:     {label:'Comunicado enviado',       cls:'ev-doc',    icon:'fa-bullhorn'},
+  COMUNICACAO_EDITADA:     {label:'Comunicado editado',       cls:'ev-doc',    icon:'fa-pen'},
+  COMUNICACAO_APAGADA:     {label:'Comunicado apagado',       cls:'ev-alerta', icon:'fa-trash'},
+  AUTZ_RESOLVIDOS:         {label:'Pedidos de batida resolvidos', cls:'ev-system', icon:'fa-user-shield'},
+
+  // Estoque / EPIs
+  ESTOQUE_ITEM_SAVED:      {label:'Item de estoque salvo',    cls:'ev-posto',  icon:'fa-boxes-stacked'},
+  EPI_ENTREGA_EXCLUIDA:    {label:'Entrega de EPI excluída',  cls:'ev-alerta', icon:'fa-trash'},
+
+  // LGPD e contabilidade
+  LGPD_TERMO_ENVIADO:      {label:'Termo LGPD enviado',       cls:'ev-doc',    icon:'fa-file-shield'},
+  LGPD_TERMO_ENVIADO_LOTE: {label:'Termos LGPD enviados (lote)', cls:'ev-doc', icon:'fa-file-shield'},
+  LGPD_DPO_SALVO:          {label:'Encarregado (DPO) salvo',  cls:'ev-system', icon:'fa-user-shield'},
+  LGPD_RELATORIO:          {label:'Relatório LGPD gerado',    cls:'ev-system', icon:'fa-file-shield'},
+  CONTAB_APLICAR_LOTE:     {label:'Contabilidade aplicada (lote)', cls:'ev-pagamento', icon:'fa-calculator'},
+
+  // Relatórios
+  REL_PAGAMENTOS:          {label:'Relatório de pagamentos',  cls:'ev-system', icon:'fa-file-lines'},
+  REL_PAGAMENTOS_CSV:      {label:'Pagamentos exportados (CSV)', cls:'ev-system', icon:'fa-file-csv'},
+  REL_FECHAMENTO:          {label:'Fechamento mensal gerado', cls:'ev-system', icon:'fa-file-lines'},
+  REL_DOSSIE:              {label:'Dossiê do colaborador',    cls:'ev-system', icon:'fa-user-tie'},
+  REL_PRONTUARIO:          {label:'Prontuário baixado',       cls:'ev-system', icon:'fa-folder-open'},
+
+  // Manutenção (varreduras globais — Configurações ▸ Manutenção)
+  PAYROLL_DEDUP:           {label:'Folhas duplicadas corrigidas', cls:'ev-system', icon:'fa-screwdriver-wrench'},
+  FOLHA_DEDUP_AUTO:        {label:'Folha duplicada mesclada (auto)', cls:'ev-system', icon:'fa-screwdriver-wrench'},
+  MIGRACAO_COMPETENCIA:    {label:'Migração de competência',  cls:'ev-system', icon:'fa-right-left'},
+  BACKFILL_PERIODO:        {label:'Período reprocessado',     cls:'ev-system', icon:'fa-screwdriver-wrench'},
+  LIMPAR_BACKFILL:         {label:'Reprocessamento desfeito', cls:'ev-system', icon:'fa-eraser'},
+  REPROJETAR_DIAS_MIGRADOS:{label:'Dias migrados reprojetados', cls:'ev-system', icon:'fa-screwdriver-wrench'},
+  SANEAMENTO_ISENTOS:      {label:'Isentos saneados',         cls:'ev-system', icon:'fa-broom'},
+  PARAM_LEGAL_SAVE:        {label:'Parâmetro legal salvo',    cls:'ev-system', icon:'fa-scale-balanced'},
 };
 
 // ============================================================================

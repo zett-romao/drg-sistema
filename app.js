@@ -16417,8 +16417,17 @@ async function _updatePainelFechamento(mes,ano){
     const temFechada=State.payrolls.some(p=>p.mes==mes&&p.ano==ano&&p.status==='fechada');
     btnFolhasFechadas.style.display=temFechada?'inline-flex':'none';
   }
+  // "Folhas Abertas": mostra a CONTAGEM no próprio botão — é o que falta fechar
+  // na competência, visível sem precisar abrir nada. Some quando zera. #folhas-abertas
+  const btnFolhasAbertas=document.getElementById('btn-folhas-abertas');
+  if(btnFolhasAbertas){
+    const nAbertas=_folhasAbertasLista(mes,ano).length;
+    btnFolhasAbertas.style.display=nAbertas?'inline-flex':'none';
+    btnFolhasAbertas.innerHTML=`<i class="fa-solid fa-lock-open"></i> Folhas Abertas (${nAbertas})`;
+  }
   // Se a lista estiver aberta, mantém em sincronia ao re-renderizar o painel.
   if(document.getElementById('modal-folhas-fechadas')) renderFolhasFechadasLista();
+  if(document.getElementById('modal-folhas-abertas')) renderFolhasAbertasLista();
   if(infoFechado){
     if(periodoFechado && conf.fechadoEm){
       infoFechado.style.display='inline';
@@ -16692,6 +16701,134 @@ function _folhasFechadasLista(mes, ano){
     return (ea?.nome||'').localeCompare(eb?.nome||'');
   });
   return lista;
+}
+
+// ============================================================================
+// FOLHAS ABERTAS DA COMPETÊNCIA — revisar uma a uma, fechar uma a uma
+// Espelho de "Folhas Fechadas". Antes só dava pra fechar TUDO de uma vez
+// ("Fechar Todas as Folhas") ou caçar colaborador por colaborador no dropdown:
+// não havia onde ver o que ainda falta. A linha é CLICÁVEL — abre a folha
+// daquela pessoa NA COMPETÊNCIA da lista. #folhas-abertas
+// ============================================================================
+function _folhasAbertasLista(mes, ano){
+  const empById = id => State.employees.find(e=>e.id===id);
+  let lista = (State.payrolls||[]).filter(p=>p.mes==mes && p.ano==ano && p.status!=='fechada');
+  // Mesmo escopo de postos do supervisor que a lista de fechadas usa.
+  lista = lista.filter(p=>{ const e=empById(p.employeeId); return e ? _empNoEscopo(e) : true; });
+  lista.sort((a,b)=>{
+    const ea=empById(a.employeeId), eb=empById(b.employeeId);
+    return (ea?.nome||'').localeCompare(eb?.nome||'');
+  });
+  return lista;
+}
+
+// Quantos dias da folha ainda esperam decisão de HE. É o que trava o
+// fechamento na prática — fechar com HE pendente é fechar no escuro.
+function _folhaHePendentes(emp, p){
+  if(!emp || !p || emp.isentoPonto) return 0;
+  let n=0;
+  (Array.isArray(p.pontoManualDias)?p.pontoManualDias:[]).forEach(pd=>{
+    if(!pd || !pd.dia || !pd.entrada || !pd.saida) return;
+    let detec;
+    try{
+      detec=_detectHEDivergencia(
+        {dia:pd.dia,diaSem:pd.diaSem,entrada:pd.entrada,saida:pd.saida,intIni:pd.intIni,intFim:pd.intFim,heReview:pd.heReview},
+        _getExpectedDayComp(emp, p.mes, p.ano, pd.dia));
+    }catch(_){ return; }
+    if(detec && detec.precisaRevisao){
+      const st=pd.heReview&&pd.heReview.status;
+      if(st!=='aprovado' && st!=='recusado') n++;
+    }
+  });
+  return n;
+}
+
+function openFolhasAbertas(){
+  const mes=parseInt(val('payroll-mes')||currentMes());
+  const ano=parseInt(val('payroll-ano')||currentAno());
+  document.getElementById('modal-folhas-abertas')?.remove();
+  const html = `
+    <div id="modal-folhas-abertas" class="modal" style="display:flex;align-items:center;justify-content:center;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999"
+         onclick="if(event.target===this)this.remove()">
+      <div class="modal-content" style="background:#fff;max-width:760px;width:94%;max-height:88vh;border-radius:8px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.3);display:flex;flex-direction:column">
+        <div style="background:#2E7D32;color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;gap:10px">
+          <h3 style="margin:0;font-size:16px"><i class="fa-solid fa-lock-open"></i> Folhas Abertas — ${MESES[mes]}/${ano}</h3>
+          <button onclick="document.getElementById('modal-folhas-abertas').remove()" title="Fechar"
+                  style="background:transparent;border:none;color:#fff;font-size:20px;cursor:pointer;line-height:1">&times;</button>
+        </div>
+        <div style="padding:9px 16px;border-bottom:1px solid #eee;font-size:12px;color:#546E7A;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <i class="fa-solid fa-hand-pointer" style="color:#2E7D32"></i>
+          <span><strong>Clique na linha</strong> pra abrir a folha e revisar. O cadeado fecha só aquela folha.</span>
+          <span style="flex:1"></span>
+          <span id="fa-contador" style="font-weight:700;color:#2E7D32"></span>
+        </div>
+        <div style="overflow:auto;flex:1">
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead><tr style="position:sticky;top:0;background:#f5f6fa;z-index:1">
+              <th style="width:70px;text-align:left;padding:8px 6px;color:#666;font-size:11px;text-transform:uppercase">Matr.</th>
+              <th style="text-align:left;padding:8px 6px;color:#666;font-size:11px;text-transform:uppercase">Colaborador</th>
+              <th style="width:110px;text-align:right;padding:8px 6px;color:#666;font-size:11px;text-transform:uppercase">Líquido</th>
+              <th style="width:60px;text-align:center;padding:8px 6px;color:#666;font-size:11px;text-transform:uppercase">Fechar</th>
+            </tr></thead>
+            <tbody id="fa-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+  renderFolhasAbertasLista();
+}
+
+function renderFolhasAbertasLista(){
+  const tbody=document.getElementById('fa-tbody');
+  if(!tbody) return;
+  const mes=parseInt(val('payroll-mes')||currentMes());
+  const ano=parseInt(val('payroll-ano')||currentAno());
+  const lista=_folhasAbertasLista(mes,ano);
+  const cont=document.getElementById('fa-contador');
+  if(cont) cont.textContent = lista.length ? `${lista.length} aberta(s)` : '';
+  if(!lista.length){
+    tbody.innerHTML=`<tr><td colspan="4" style="padding:26px;text-align:center;color:#2E7D32">
+      <i class="fa-solid fa-circle-check" style="font-size:22px;display:block;margin-bottom:6px"></i>
+      Nenhuma folha aberta em ${MESES[mes]}/${ano} — está tudo fechado.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML=lista.map((p,i)=>{
+    const emp=State.employees.find(e=>e.id===p.employeeId);
+    const nome=emp?.nome||p.employeeNome||'—';
+    const reg=emp?String(emp.registro||'').padStart(4,'0'):'—';
+    const bg=i%2?'#fafbfe':'#fff';
+    // Chips: o que ele precisa saber ANTES de abrir — o que falta e o que trava.
+    const chips=[];
+    if(p.revisada) chips.push(`<span style="background:#E8F5E9;color:#1B5E20;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;white-space:nowrap"><i class="fa-solid fa-clipboard-check"></i> revisada</span>`);
+    const hePend=_folhaHePendentes(emp,p);
+    if(hePend) chips.push(`<span style="background:#FFF3E0;color:#E65100;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;white-space:nowrap"><i class="fa-solid fa-clock-rotate-left"></i> ${hePend} HE p/ revisar</span>`);
+    const falt=parseInt(p.faltasInjustificadas)||0;
+    if(falt) chips.push(`<span style="background:#FFEBEE;color:#C62828;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;white-space:nowrap"><i class="fa-solid fa-user-xmark"></i> ${falt} falta(s)</span>`);
+    const dias=parseInt(p.diasTrabalhados)||0;
+    if(!dias) chips.push(`<span style="background:#ECEFF1;color:#546E7A;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;white-space:nowrap"><i class="fa-solid fa-circle-exclamation"></i> sem dias lançados</span>`);
+    const liq=+(p.totalLiquidoFinal||0);
+    return `<tr class="fa-row" style="background:${bg};border-bottom:1px solid #eef0f5;cursor:pointer"
+                onclick="_folhasAbertasRevisar('${p.employeeId}',${mes},${ano})"
+                title="Abrir a folha de ${esc(nome)} — ${MESES[mes]}/${ano}">
+      <td style="padding:8px 6px;font-family:monospace;color:#555">${reg}</td>
+      <td style="padding:8px 6px"><strong>${esc(nome)}</strong>
+        ${chips.length?`<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:3px">${chips.join('')}</div>`:''}</td>
+      <td style="padding:8px 6px;text-align:right;white-space:nowrap;color:${liq>0?'#1B5E20':'#90A4AE'};font-weight:600">${liq>0?fmtMoney(liq):'—'}</td>
+      <td style="text-align:center;padding:8px 6px">
+        <button class="btn-icon" title="Fechar esta folha" onclick="event.stopPropagation();fecharFolhaPorId('${p.id}')">
+          <i class="fa-solid fa-lock" style="color:#5C6BC0"></i></button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// Abre a folha DAQUELA pessoa na competência da lista (openPayrollForEmployee
+// destrava o período quando não é o vigente). Fecha a lista: quem revisa quer
+// a folha na frente, não um modal por cima.
+function _folhasAbertasRevisar(empId, mes, ano){
+  document.getElementById('modal-folhas-abertas')?.remove();
+  openPayrollForEmployee(empId, {mes, ano});
 }
 
 function openFolhasFechadas(){

@@ -68,7 +68,7 @@
   </script>
   <link rel="stylesheet" href="drg-ui.css?v=1">
   <script src="drg-ui.js?v=1"></script>
-  <link rel="stylesheet" href="styles.css?v=20260726d-log-rastreio">
+  <link rel="stylesheet" href="styles.css?v=20260726e-folhas-abertas">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -758,6 +758,9 @@
             </button>
             <button id="btn-reabrir-periodo" class="btn btn-sm" onclick="reabrirPeriodo()" style="background:#EF6C00;color:#fff;border:none;font-size:12px;white-space:nowrap;display:none" title="Reabre TODAS as folhas fechadas desta competência de uma vez (voltam a ficar editáveis).">
               <i class="fa-solid fa-lock-open"></i> Reabrir Todas as Folhas
+            </button>
+            <button id="btn-folhas-abertas" class="btn btn-sm" onclick="openFolhasAbertas()" style="background:#fff;border:1px solid #2E7D32;color:#2E7D32;font-size:12px;white-space:nowrap;display:none" title="Lista das folhas que ainda estão ABERTAS nesta competência — clique numa linha pra revisar e feche uma a uma.">
+              <i class="fa-solid fa-lock-open"></i> Folhas Abertas
             </button>
             <button id="btn-folhas-fechadas" class="btn btn-sm" onclick="openFolhasFechadas()" style="background:#fff;border:1px solid #5C6BC0;color:#5C6BC0;font-size:12px;white-space:nowrap;display:none" title="Lista das folhas fechadas desta competência — revisar, reabrir e enviar (todas ou selecionadas) pra conferência.">
               <i class="fa-solid fa-list-check"></i> Folhas Fechadas
@@ -7938,6 +7941,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260726d-log-rastreio"></script>
+  <script src="app.js?v=20260726e-folhas-abertas"></script>
 </body>
 </html>

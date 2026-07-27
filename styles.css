@@ -1111,6 +1111,11 @@ ul { list-style: none; }
 .log-check-on { background: #E8F5E9; border-color: #A5D6A7; color: #2E7D32; }
 .log-check-on:hover { background: #FFEBEE; border-color: #EF9A9A; color: #C62828; }
 
+/* Lista de Folhas Abertas: a linha inteira é clicável (abre a folha), então
+   ela precisa reagir ao passar o mouse. O fundo zebrado é inline no <tr>,
+   por isso o !important. #folhas-abertas */
+.fa-row:hover { background: #F1F8E9 !important; }
+
 /* ---- Status badges (employee) ---- */
 .badge-status-ativo    { background: #E8F5E9; color: #2E7D32; }
 .badge-status-inativo  { background: #F5F5F5; color: #757575; }

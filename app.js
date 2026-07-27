@@ -7126,7 +7126,16 @@ function _apuracaoPontoTotais(emp, p){
     // Refeição não rendida APROVADA pelo supervisor (pedido do app OU almoço suprimido
     // detectado pela batida e autorizado na revisão). NÃO paga sozinha — sempre passa pela
     // aprovação. semRefeicao (trabalha sozinho) recebe por naoRendMin (auto). #ref-nao-rendida-solicitada #ref-detectada
-    if(pd.refExtra && pd.refExtra.status==='aprovado'){ out.naoRendAprovadoMin += (+pd.refExtra.min||0); }
+    // 🔒 A aprovação AUTORIZA o pagamento; quem diz QUANTO é a batida do dia.
+    // Antes somava o valor aprovado direto, sem reconferir — então uma aprovação
+    // dada quando o intervalo estava em branco continuava pagando 1h depois que
+    // o intervalo foi batido (ou lançado no Ponto Manual). Resultado: pagava
+    // refeição a quem descansou. O teto é o que a batida AINDA mostra como
+    // suprimido; intervalo batido inteiro ⇒ 0. #ref-aprovada-reconfere
+    if(pd.refExtra && pd.refExtra.status==='aprovado'){
+      const _supAtual=_almocoSuprimidoDetectadoMin({entrada,saida,intIni,intFim}, exp, emp);
+      out.naoRendAprovadoMin += Math.min(+pd.refExtra.min||0, _supAtual);
+    }
   }
   // SEM ponto lançado no registro → NÃO conta todo dia previsto como falta (isso fazia
   // a contabilidade mostrar Faltas = Horas Previstas pra quem tem 0 faltas). Usa o nº de
@@ -31936,7 +31945,12 @@ function printFolhaPonto(isPreview=false){
     if(!emp.semRefeicao){
       // Coluna Ref. n/r (= total pago) mostra SÓ o aprovado pelo supervisor. O almoço
       // suprimido detectado pela batida NÃO entra aqui — vira aviso na Obs até autorizado. #ref-detectada
-      naoRendMin = (pontodia.refExtra && pontodia.refExtra.status==='aprovado') ? (+pontodia.refExtra.min||0) : 0;
+      // Mesmo teto do cálculo (#ref-aprovada-reconfere): aprovação não paga
+      // sozinha — o valor é limitado pelo que a batida do dia ainda mostra como
+      // suprimido. Intervalo batido inteiro ⇒ 0, mesmo com aprovação no dia.
+      naoRendMin = (pontodia.refExtra && pontodia.refExtra.status==='aprovado')
+        ? Math.min(+pontodia.refExtra.min||0, _almocoSuprimidoDetectadoMin({entrada,saida,intIni,intFim}, exp, emp))
+        : 0;
     }
     totTrab += (minLiq>0?minLiq:0); totPrev += prevMin; totAtraso += atrasoMin;
     totExtra += extraMin; totFaltaMin += faltaMin; totNaoRend += naoRendMin;
@@ -31977,6 +31991,12 @@ function printFolhaPonto(isPreview=false){
       else if(_st==='recusado') _rt = 'Almoço suprimido — não autorizado pelo supervisor';
       else                      _rt = 'Almoço suprimido ('+minutesToStr(_supr)+') — autorizar em Folha de Ponto ▸ Revisar HE';
       if(_rt){ if(!obsdia){ obsdia=_rt; obscor=(_st==='recusado'?'#B71C1C':'#E65100'); } else { obsdia=obsdia+' · '+_rt; } }
+    } else if(pontodia.refExtra && pontodia.refExtra.status==='aprovado'){
+      // Aprovada, mas a batida do dia já não mostra supressão (o intervalo foi
+      // batido depois). Deixa de pagar — e DIZ isso, senão o valor sumiria da
+      // folha sem explicação e ninguém saberia por quê. #ref-aprovada-reconfere
+      const _rt2='Refeição aprovada não paga — o intervalo foi batido';
+      if(!obsdia){ obsdia=_rt2; obscor='#6A1B9A'; } else { obsdia=obsdia+' · '+_rt2; }
     }
     const rowBg=isWknd?'background:#F8F9FA;color:#999':'';
     const _cel='text-align:center;padding:3px 5px;border:1px solid #DEE2E6';
@@ -32344,7 +32364,12 @@ function _buildFolhaHtmlFromRecord(emp, p){
     if(!emp.semRefeicao){
       // Coluna Ref. n/r (= total pago) mostra SÓ o aprovado pelo supervisor. O almoço
       // suprimido detectado pela batida NÃO entra aqui — vira aviso na Obs até autorizado. #ref-detectada
-      naoRendMin = (pontodia.refExtra && pontodia.refExtra.status==='aprovado') ? (+pontodia.refExtra.min||0) : 0;
+      // Mesmo teto do cálculo (#ref-aprovada-reconfere): aprovação não paga
+      // sozinha — o valor é limitado pelo que a batida do dia ainda mostra como
+      // suprimido. Intervalo batido inteiro ⇒ 0, mesmo com aprovação no dia.
+      naoRendMin = (pontodia.refExtra && pontodia.refExtra.status==='aprovado')
+        ? Math.min(+pontodia.refExtra.min||0, _almocoSuprimidoDetectadoMin({entrada,saida,intIni,intFim}, exp, emp))
+        : 0;
     }
     totTrab += (minLiq>0?minLiq:0); totPrev += prevMin; totAtraso += atrasoMin;
     totExtra += extraMin; totFaltaMin += faltaMin; totNaoRend += naoRendMin;
@@ -32385,6 +32410,12 @@ function _buildFolhaHtmlFromRecord(emp, p){
       else if(_st==='recusado') _rt = 'Almoço suprimido — não autorizado pelo supervisor';
       else                      _rt = 'Almoço suprimido ('+minutesToStr(_supr)+') — autorizar em Folha de Ponto ▸ Revisar HE';
       if(_rt){ if(!obsdia){ obsdia=_rt; obscor=(_st==='recusado'?'#B71C1C':'#E65100'); } else { obsdia=obsdia+' · '+_rt; } }
+    } else if(pontodia.refExtra && pontodia.refExtra.status==='aprovado'){
+      // Aprovada, mas a batida do dia já não mostra supressão (o intervalo foi
+      // batido depois). Deixa de pagar — e DIZ isso, senão o valor sumiria da
+      // folha sem explicação e ninguém saberia por quê. #ref-aprovada-reconfere
+      const _rt2='Refeição aprovada não paga — o intervalo foi batido';
+      if(!obsdia){ obsdia=_rt2; obscor='#6A1B9A'; } else { obsdia=obsdia+' · '+_rt2; }
     }
     const rowBg=isWknd?'background:#F8F9FA;color:#999':'';
     const _cel='text-align:center;padding:3px 5px;border:1px solid #DEE2E6';

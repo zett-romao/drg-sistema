@@ -116,7 +116,15 @@
       .req-grid { grid-template-columns:1fr; }
       .capa h1 { font-size:22px; }
       .section { padding:20px; }
+      .capa { padding:40px 20px; }
+      .container { padding:20px 12px 40px; }
+      .toc { padding:20px 18px; }
+      /* Tabela do manual rola sozinha em vez de estourar a tela. #mobile */
+      table { display:block; overflow-x:auto; }
     }
+    /* Nada faz a página rolar pro lado. */
+    html, body { overflow-x:hidden; max-width:100%; }
+    @supports (overflow-x: clip) { html, body { overflow-x:clip; } }
   </style>
 </head>
 <body>

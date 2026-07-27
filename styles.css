@@ -1298,7 +1298,10 @@ ul { list-style: none; }
 
   /* --- Dashboard cards --- */
   .dashboard-cards { grid-template-columns: 1fr !important; gap: 14px; }
-  .card { padding: 14px; }
+  /* NÃO colocar padding no .card: ele não tem padding no desktop (quem tem é o
+     header/body). Com padding aqui, a faixa cinza do cabeçalho descolava das
+     bordas e sobrava moldura dupla — o ar de "site antigo". O respiro do
+     celular é dado no .card-header/.card-body, mais abaixo. */
 
   /* --- Barra de busca / filtros de colaboradores --- */
   .employees-toolbar {
@@ -1381,10 +1384,103 @@ ul { list-style: none; }
 @media (max-width: 400px) {
   .stats-grid { grid-template-columns: 1fr; }
   .report-type-grid { grid-template-columns: repeat(2, 1fr); }
-  .topbar-title { font-size: 13px; }
-  .page-content { padding: 10px; }
   .modal-tab { padding: 8px 10px; font-size: 11px; }
 }
+
+/* ---- Celular comum (até 430px: iPhone Pro Max, Androids grandes) ----
+   Antes só existia corte em 400px, então esses aparelhos ficavam com o
+   respiro de tablet e tudo espremido nas bordas. */
+@media (max-width: 430px) {
+  .topbar-title { font-size: 13px; }
+  .page-content { padding: 10px; }
+}
+
+/* ================================================================
+   RESPONSIVO — varredura geral de todas as telas (26/07/2026)
+   Regras GERAIS, que valem pra qualquer seção. Nada de remendo por
+   tela: o que conserta uma classe conserta as 28 seções de uma vez.
+   ================================================================ */
+
+/* ---- TOPBAR: era o único bloco que ESTOURAVA de verdade ----
+   Sete itens numa linha só (menu, título, Supervisor, 🔔, IA, usuário, Sair)
+   = ~515px de largura mínima. Num aparelho de 390px o que passava disso ficava
+   CORTADO — e cortado de vez, porque o body é `overflow-x: clip` (guarda de
+   estouro lá em cima). O botão Sair simplesmente não existia no celular.
+   Correção: no celular os botões viram só ícone (o title= explica) e o título
+   encolhe com reticências em vez de empurrar a barra. #mobile */
+@media (max-width: 768px) {
+  .topbar { gap: 8px; padding: 0 10px; }
+  .topbar-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar-right { gap: 8px; min-width: 0; flex-shrink: 0; }
+
+  /* Supervisor e Sair: só o ícone (padding/gap são inline no HTML → !important) */
+  #topbar-link-supervisor span,
+  .topbar-logout-label { display: none; }
+  #topbar-link-supervisor,
+  .topbar-logout { padding: 8px 10px !important; gap: 0 !important; }
+
+  /* Nome do usuário encurta em vez de empurrar a barra pra fora da tela */
+  .topbar-user { padding: 5px 9px; min-width: 0; }
+  .topbar-user span { max-width: 72px; }
+  /* o escudinho ao lado do nome é enfeite — no celular não cabe */
+  .topbar-user .fa-shield-halved { display: none; }
+}
+
+@media (max-width: 430px) {
+  .topbar { padding: 0 8px; gap: 6px; }
+  .topbar-right { gap: 6px; }
+  #btn-som-avisos, #btn-ajuda-ia { width: 34px !important; height: 34px !important; font-size: 15px !important; }
+  #topbar-link-supervisor, .topbar-logout { padding: 7px 8px !important; }
+  .topbar-user span { max-width: 56px; }
+}
+
+/* ---- Cabeçalho de card com botão de ação ----
+   `.card-header` é flex com space-between e SEM wrap: título comprido +
+   botão à direita espremia os dois. No celular o botão desce pra linha de
+   baixo em vez de amassar o título. #mobile */
+@media (max-width: 768px) {
+  .card-header { flex-wrap: wrap; gap: 8px; padding: 13px 14px; }
+  /* min-width:0 só nos blocos (div/h3) — em botão NÃO, senão ele amassa. */
+  .card-header h3, .card-header > div { min-width: 0; }
+  .card-body { padding: 14px; }
+  .card-toolbar { padding: 12px 14px; gap: 8px; }
+
+  /* ---- min-width:0 nos itens de grid/flex ----
+     Item de grid/flex nasce com `min-width:auto`: ele se RECUSA a ficar menor
+     que o próprio conteúdo. Era o que estourava a Folha de Ponto inteira — a
+     coluna do formulário ficava com 529px numa tela de 390px e levava junto
+     card, form-row e todos os campos. Com min-width:0 a coluna obedece a
+     largura da tela. #mobile */
+  .payroll-layout > *,
+  .dashboard-cards > *,
+  .stats-grid > *,
+  .form-row > * { min-width: 0; }
+
+  /* Botões soltos em linha (padrão da família: botão preenche a linha) */
+  .actions-cell { flex-wrap: wrap; }
+
+  /* ---- Linha de flex inline quebra no celular ----
+     O app tem ~340 barrinhas montadas com `style="display:flex"` direto no
+     HTML/JS (rótulo + campo + botão). Sem `flex-wrap`, elas ficam numa linha
+     só e o último botão sai da tela — foi o que cortava o "Salvar" da data de
+     fechamento e o "Novo Colaborador".
+     Isto NÃO muda nada quando a linha cabe: flex-wrap só age quando ia estourar.
+     Vale só no celular e só dentro do conteúdo/modais. #mobile */
+  .page-content div[style*="display:flex"],
+  .page-content div[style*="display: flex"],
+  .modal-body div[style*="display:flex"],
+  .modal-body div[style*="display: flex"] { flex-wrap: wrap; }
+  .filtros-wrap { flex-wrap: wrap !important; }
+}
+
+/* ---- Tabela larga: rola DENTRO do próprio bloco ----
+   Isto conserta um estouro SILENCIOSO: `.card` tem `overflow:hidden`, então
+   tabela mais larga que o cartão não rolava — era simplesmente CORTADA, e as
+   últimas colunas ficavam inalcançáveis no celular (nem arrastando a tela,
+   porque quem rolava era o .page-content, não o cartão).
+   A classe é só o efeito; quem decide aplicar é `_ajustarTabelasLargas()` no
+   app.js, MEDINDO a tabela — a que já cabe não é tocada. */
+.tabela-rola-mobile { display: block; overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; }
 
 /* ---- Ponto Manual ---- */
 .pm-input {

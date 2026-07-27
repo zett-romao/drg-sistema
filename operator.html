@@ -35,7 +35,9 @@
     }
     .login-card {
       background: var(--white); border-radius: 16px; padding: 40px 48px;
-      width: 380px; box-shadow: 0 8px 40px rgba(0,0,0,.25); text-align: center;
+      /* max-width: sem isto o cartão de 380px + 96px de padding estourava a tela
+         em celular estreito (o texto ficava cortado à direita). #mobile */
+      width: 380px; max-width: 100%; box-shadow: 0 8px 40px rgba(0,0,0,.25); text-align: center;
     }
     .login-card img { width: 64px; margin-bottom: 16px; }
     .login-card h2 { color: var(--primary); font-size: 20px; margin-bottom: 4px; }
@@ -150,7 +152,29 @@
     @media (max-width: 600px) {
       .page-header { flex-direction: column; align-items: flex-start; }
       .form-row { flex-direction: column; }
+
+      /* Topbar: marca + 2 links não cabiam em 390px (≈476px de largura mínima) e
+         o "Sair" ficava fora da tela. No celular a marca encolhe e os links
+         viram só ícone. #mobile */
+      .topbar { padding: 0 12px; gap: 8px; }
+      .topbar-brand { font-size: 14px; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+      .topbar-brand span { display: none; }
+      .topbar-brand img { height: 28px; }
+      .topbar-right { gap: 14px; flex-shrink: 0; }
+      .topbar-right a span { display: none; }
+
+      .container { padding: 16px 12px; }
+      /* Busca ocupa a linha inteira em vez de ficar espremida ao lado do botão */
+      .page-header > div:last-child { width: 100%; }
+      #op-busca { flex: 1; min-width: 0; width: auto !important; }
+
+      .card-body, .modal-body { padding: 14px; }
+      .modal-footer { flex-wrap: wrap; }
+      .modal-footer .btn { flex: 1; justify-content: center; }
     }
+    /* Nada faz a página rolar pro lado (mesmo padrão do app principal). */
+    html, body { overflow-x: hidden; max-width: 100%; }
+    @supports (overflow-x: clip) { html, body { overflow-x: clip; } }
   </style>
 </head>
 <body>
@@ -176,8 +200,8 @@
       DRG-Kronos &nbsp;<span style="font-weight:400;opacity:.7;font-size:13px">Painel do Operador</span>
     </div>
     <div class="topbar-right">
-      <a onclick="openAddTenant()"><i class="fa-solid fa-plus"></i> Novo Tenant</a>
-      <a onclick="doLogout()" style="color:rgba(255,255,255,.6)"><i class="fa-solid fa-right-from-bracket"></i> Sair</a>
+      <a onclick="openAddTenant()" title="Novo Tenant"><i class="fa-solid fa-plus"></i> <span>Novo Tenant</span></a>
+      <a onclick="doLogout()" title="Sair" style="color:rgba(255,255,255,.6)"><i class="fa-solid fa-right-from-bracket"></i> <span>Sair</span></a>
     </div>
   </div>
 

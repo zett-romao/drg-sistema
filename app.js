@@ -1672,7 +1672,53 @@ function showSection(name){
   if(window.scrollTo) window.scrollTo(0,0);
   // Fechar menu automaticamente no celular ao navegar
   if(window.innerWidth<=768) closeSidebarMobile();
+  _ajustarTabelasLargas();
 }
+
+// ── RESPONSIVO: tabela que não cabe rola dentro do próprio bloco ─────────────
+// O app monta ~100 tabelas em JS e quase nenhuma tem wrapper de rolagem. Sem
+// isso, quem rolava pro lado era a TELA INTEIRA (título e filtros iam junto),
+// porque `.page-content` tem overflow-x:auto como rede de segurança.
+// Em vez de caçar as 100 tabelas uma a uma, medimos: só a tabela que REALMENTE
+// estoura o pai ganha rolagem própria. Tabela estreita não é tocada — nada de
+// regressão visual em quem já estava certo. Só abaixo de 768px. #mobile
+function _ajustarTabelasLargas(){
+  const MOBILE = window.innerWidth<=768;
+  // Voltou pro desktop (ou girou o aparelho): desfaz o que marcamos.
+  if(!MOBILE){
+    document.querySelectorAll('table.tabela-rola-mobile').forEach(t=>t.classList.remove('tabela-rola-mobile'));
+    return;
+  }
+  document.querySelectorAll('.page-content .section.active table').forEach(t=>{
+    const pai=t.parentElement; if(!pai) return;
+    if(t.classList.contains('tabela-rola-mobile')) return;
+    // Já está dentro de algo que rola (.table-responsive, overflow-x:auto)? deixa quieto.
+    let ok=false;
+    for(let p=pai, n=0; p && n<4; p=p.parentElement, n++){
+      if(p.classList && p.classList.contains('page-content')) break;
+      const ox=getComputedStyle(p).overflowX;
+      if(ox==='auto'||ox==='scroll'){ ok=true; break; }
+    }
+    if(ok) return;
+    if(t.offsetWidth<=pai.clientWidth) return;   // cabe na largura do pai: não mexe
+    t.classList.add('tabela-rola-mobile');
+  });
+}
+// Conteúdo injetado depois (render assíncrono, filtro, busca) também passa pelo ajuste.
+let _tabTimer=null;
+function _agendarAjusteTabelas(){
+  clearTimeout(_tabTimer);
+  _tabTimer=setTimeout(_ajustarTabelasLargas, 150);
+}
+document.addEventListener('DOMContentLoaded', function(){
+  const pc=document.querySelector('.page-content');
+  if(pc && window.MutationObserver){
+    // childList/subtree apenas: mexer no class= das tabelas NÃO re-dispara o observer.
+    new MutationObserver(_agendarAjusteTabelas).observe(pc, {childList:true, subtree:true});
+  }
+  window.addEventListener('resize', _agendarAjusteTabelas);
+  window.addEventListener('orientationchange', _agendarAjusteTabelas);
+});
 
 // Modais de cada seção que devem ser travados quando o perfil é "somente visualizar".
 const SECTION_MODALS={

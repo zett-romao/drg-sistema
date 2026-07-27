@@ -29503,7 +29503,13 @@ function _getExpectedDayResolve(emp, mes, ano, dia, ignoreAdmissao){
   const base = per.escala
     ? _getExpectedDayBase({ ...emp, escala: per.escala, _escalaPeriodo: per.escala }, mes, ano, dia, ignoreAdmissao)
     : _getExpectedDayBase(emp, mes, ano, dia, ignoreAdmissao);
-  if(base && base.tipo!=='folga' && per.horarioEntrada){
+  // 🔒 O horário do período é o horário do DIA NORMAL. Ele NÃO passa por cima da
+  // exceção de dia da própria escala (sexta curta, sábado de 4h, fds curto) —
+  // isso faz parte da definição da escala, não é um horário a ser substituído.
+  // Sem esta guarda, o domingo de 4h da 6x1 FDS Livre (07–11) recebia o horário
+  // do período (07–16) e a folha acusava "Atraso · 4h59" numa jornada correta.
+  // Caso Carla, 12/07/2026. #horario-do-dia
+  if(base && base.tipo!=='folga' && per.horarioEntrada && !base.diaEspecifico){
     base.entrada = per.horarioEntrada;
     base.saida   = per.horarioSaida || base.saida;
     base.intIni  = per.horarioRefIni || '';
@@ -29619,7 +29625,7 @@ function _getExpectedDayBase(emp, mes, ano, dia, ignoreAdmissao){
     if(ehTrab === false) return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
     if(ehTrab === true){
       const h = _escalaHorariosDia(emp, diaSem, lot);
-      return { tipo:'trabalho', entrada:h.entrada, saida:h.saida, intIni:h.intIni, intFim:h.intFim };
+      return { tipo:'trabalho', entrada:h.entrada, saida:h.saida, intIni:h.intIni, intFim:h.intFim, diaEspecifico:h.diaEspecifico };
     }
     // SEM ÂNCORA DEFINIDA → infere padrão alternado de qualquer forma. Antes
     // caía no retorno genérico (trabalho TODO dia → inflava VT/VR a ~30 dias
@@ -29634,7 +29640,7 @@ function _getExpectedDayBase(emp, mes, ano, dia, ignoreAdmissao){
       const ehTrabFallback = ((((diff % 2) + 2) % 2) === 0);
       if(!ehTrabFallback) return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
       const h = _escalaHorariosDia(emp, diaSem, lot);
-      return { tipo:'trabalho', entrada:h.entrada, saida:h.saida, intIni:h.intIni, intFim:h.intFim };
+      return { tipo:'trabalho', entrada:h.entrada, saida:h.saida, intIni:h.intIni, intFim:h.intFim, diaEspecifico:h.diaEspecifico };
     }
   }
   // 6x1 Alternado / 6x1B rotativo: ciclo deslizante 6x1 (6 trabalho + 1 folga),
@@ -29642,7 +29648,7 @@ function _getExpectedDayBase(emp, mes, ano, dia, ignoreAdmissao){
   if(lot.escala && (lot.escala.startsWith('6x1ALT') || lot.escala==='6x1B')){
     if(_ehFolga6x1Ciclo(emp, ano, mes, dia)) return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
     const h = _escalaHorariosDia(emp, diaSem, lot);
-    return { tipo:'trabalho', entrada:h.entrada, saida:h.saida, intIni:h.intIni, intFim:h.intFim };
+    return { tipo:'trabalho', entrada:h.entrada, saida:h.saida, intIni:h.intIni, intFim:h.intFim, diaEspecifico:h.diaEspecifico };
   }
   // 6x1 FIM DE SEMANA LIVRE: Seg–Sex trabalha; no fds, trabalha o dia que ela
   // BATEU (o outro é folga). Sem batida (projeção) → sábado trabalha, dom folga
@@ -29651,7 +29657,7 @@ function _getExpectedDayBase(emp, mes, ano, dia, ignoreAdmissao){
   if(_ehFds6x1Livre(lot.escala)){
     const _h = _escalaHorariosDia(emp, diaSem, lot);
     if(diaSem>=1 && diaSem<=5)
-      return { tipo:'trabalho', entrada:_h.entrada, saida:_h.saida, intIni:_h.intIni, intFim:_h.intFim };
+      return { tipo:'trabalho', entrada:_h.entrada, saida:_h.saida, intIni:_h.intIni, intFim:_h.intFim, diaEspecifico:_h.diaEspecifico };
     // Fim de semana: para modelo PERSONALIZADO usa o horário do dia de fds marcado
     // trabalho (aplicado a sáb OU dom). Escala do sistema mantém _h. #escala-custom-fdslivre
     const _r = _fdsLivreResolve(emp, ano, mes, dia);
@@ -29662,7 +29668,9 @@ function _getExpectedDayBase(emp, mes, ano, dia, ignoreAdmissao){
     const _mFds=_modeloFdsLivre(lot.escala); const _durFds=_mFds?(+_mFds.fdsDuracaoMin||0):0;
     if(_durFds>0) return { tipo:'trabalho', entrada:'', saida:'', intIni:'', intFim:'', duracaoMinFds:_durFds };
     const _hFds = _modeloFdsHorario(lot.escala) || _h;
-    return { tipo:'trabalho', entrada:_hFds.entrada, saida:_hFds.saida, intIni:_hFds.intIni, intFim:_hFds.intFim };
+    // diaEspecifico: o dia de fds tem horário PRÓPRIO (ex.: S11 = 07–11, sem
+    // refeição). O período de escala não pode sobrescrever. #horario-do-dia
+    return { tipo:'trabalho', entrada:_hFds.entrada, saida:_hFds.saida, intIni:_hFds.intIni, intFim:_hFds.intFim, diaEspecifico:true };
   }
   // 5x2 FIM DE SEMANA OPCIONAL: Seg–Sex trabalha; no fds, trabalha SÓ o dia que ela
   // BATEU (sáb OU dom). Fim de semana sem batida → FOLGA (nunca falta). Em projeção
@@ -29671,13 +29679,13 @@ function _getExpectedDayBase(emp, mes, ano, dia, ignoreAdmissao){
   if(_ehFdsOpcional(lot.escala)){
     const _h = _escalaHorariosDia(emp, diaSem, lot);
     if(diaSem>=1 && diaSem<=5)
-      return { tipo:'trabalho', entrada:_h.entrada, saida:_h.saida, intIni:_h.intIni, intFim:_h.intFim };
+      return { tipo:'trabalho', entrada:_h.entrada, saida:_h.saida, intIni:_h.intIni, intFim:_h.intFim, diaEspecifico:_h.diaEspecifico };
     const _r = _fdsLivreResolve(emp, ano, mes, dia);
     if(_r && _r.esteBatido)
       // heGraceMin: no dia de fim de semana, trabalhar até 30min ALÉM da saída prevista
       // (15:00 → 15:30) NÃO vira hora extra — decisão do dono: até 15:30 fecha a carga
       // semanal. Sair ANTES das 15:00 continua sendo déficit (a saída prevista é 15:00). #fds-opcional-1530
-      return { tipo:'trabalho', entrada:_h.entrada, saida:_h.saida, intIni:_h.intIni, intFim:_h.intFim, heGraceMin:30 };
+      return { tipo:'trabalho', entrada:_h.entrada, saida:_h.saida, intIni:_h.intIni, intFim:_h.intFim, heGraceMin:30, diaEspecifico:true };
     return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };
   }
   // Para 5x2 e fins de semana, sem horário esperado (é folga)
@@ -29694,7 +29702,8 @@ function _getExpectedDayBase(emp, mes, ano, dia, ignoreAdmissao){
     entrada: _hg.entrada || lot.horarioEntrada || '',
     saida:   _hg.saida   || lot.horarioSaida   || '',
     intIni:  _hg.intIni || '',
-    intFim:  _hg.intFim || ''
+    intFim:  _hg.intFim || '',
+    diaEspecifico: _hg.diaEspecifico
   };
 }
 
@@ -33705,6 +33714,11 @@ function _escalaHorariosDia(emp, diaSem, lot){
   let entrada = escalaFixa ? def.entrada : (L.horarioEntrada || def.entrada);
   let saida   = escalaFixa ? def.saida   : (L.horarioSaida   || def.saida);
   // Refeição: respeita flag "semRefeicao" e diferencia noturno/diurno no default
+  // `diaEspecifico`: marcado pelos blocos de EXCEÇÃO DE DIA lá embaixo (sexta curta,
+  // sábado de 4h, fds curto). Quem sobrescreve horário em bloco — o Período de
+  // mudança de escala — tem que respeitar, senão o domingo de 4h vira "atraso"
+  // de 4h59 (caso Carla, 12/07/2026). #horario-do-dia
+  let diaEspecifico = false;
   let intIni, intFim;
   if(L.semRefeicao){
     intIni = ''; intFim = '';
@@ -33733,35 +33747,35 @@ function _escalaHorariosDia(emp, diaSem, lot){
   // da escala, então aplica mesmo que o colaborador tenha horário próprio
   // cadastrado (o horário do cadastro vale para os dias normais de semana).
   if(diaSem===5 && (escala==='5x2A' || escala==='5x2B')){
-    saida = '16:00';
+    saida = '16:00'; diaEspecifico = true;
   }
   if(diaSem===6 && escala==='6x1A'){
-    saida = '11:00'; intIni = ''; intFim = ''; // sábado 07h–11h (4h) — sem refeição
+    saida = '11:00'; intIni = ''; intFim = ''; diaEspecifico = true; // sábado 07h–11h (4h) — sem refeição
   }
   if(diaSem===6 && escala==='6x1C'){
-    saida = '12:00'; intIni = ''; intFim = ''; // sábado 08h–12h (4h) — sem refeição
+    saida = '12:00'; intIni = ''; intFim = ''; diaEspecifico = true; // sábado 08h–12h (4h) — sem refeição
   }
   // 6x1 Alternado 08-17 com fim de semana mais curto: o dia de sáb/dom trabalhado
   // sai às 16:00 (mantém o almoço 12-13). Seg-Sex segue 08-17.
   if((diaSem===0 || diaSem===6) && (escala==='6x1ALT-0800-1700-S16' || escala==='6x1LIV-0800-1700-S16')){
-    saida = '16:00';
+    saida = '16:00'; diaEspecifico = true;
   }
   // 6x1 FDS Livre 08-17 com fim de semana curto: sáb/dom trabalhado sai 12:00
   // (4h, sem refeição). Seg-Sex segue 08-17 com almoço 12-13.
   if((diaSem===0 || diaSem===6) && escala==='6x1LIV-0800-1700-S12'){
-    saida = '12:00'; intIni = ''; intFim = '';
+    saida = '12:00'; intIni = ''; intFim = ''; diaEspecifico = true;
   }
   // 5x2 FDS Opcional 07:30-16:30: o dia de fim de semana trabalhado é 07:00–15:00
   // (com almoço 12-13). Seg-Sex segue 07:30-16:30. #fds-opcional
   if((diaSem===0 || diaSem===6) && escala==='5x2LIV-0730-1630-S15'){
-    entrada = '07:00'; saida = '15:00'; intIni = '12:00'; intFim = '13:00';
+    entrada = '07:00'; saida = '15:00'; intIni = '12:00'; intFim = '13:00'; diaEspecifico = true;
   }
   // 6x1 Alternado 07-16 com fim de semana curto: sáb/dom trabalhado sai 11:00
   // (4h, sem refeição). Seg-Sex segue 07-16 com almoço 12-13.
   if((diaSem===0 || diaSem===6) && (escala==='6x1ALT-0700-1600-S11' || escala==='6x1LIV-0700-1600-S11')){
-    saida = '11:00'; intIni = ''; intFim = '';
+    saida = '11:00'; intIni = ''; intFim = ''; diaEspecifico = true;
   }
-  return { entrada, intIni, intFim, saida };
+  return { entrada, intIni, intFim, saida, diaEspecifico };
 }
 
 // Busca dados do mês anterior (escala salva ou pontoManualDias) para projeção 12x36/6x1B

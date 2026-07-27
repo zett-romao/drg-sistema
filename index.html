@@ -68,7 +68,7 @@
   </script>
   <link rel="stylesheet" href="drg-ui.css?v=1">
   <script src="drg-ui.js?v=1"></script>
-  <link rel="stylesheet" href="styles.css?v=20260726e-folhas-abertas">
+  <link rel="stylesheet" href="styles.css?v=20260727a-sem-folha">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -768,6 +768,7 @@
             <button id="btn-enviar-conferencia" class="btn btn-sm" onclick="enviarTodasFolhasCompetencia()" style="background:#00897B;color:#fff;border:none;font-size:12px;white-space:nowrap;display:none" title="Envia as folhas fechadas dessa competência pro app de cada colaborador conferir (prazo 48h, depois vira aceito por silêncio).">
               <i class="fa-solid fa-paper-plane"></i> Enviar p/ Conferência
             </button>
+            <button id="fechamento-sem-folha" class="btn btn-sm" onclick="openFolhasAbertas()" style="display:none;background:#FFF3E0;border:1px solid #FFCC80;color:#E65100;font-size:12px;white-space:nowrap;font-weight:700" title="Colaboradores que estavam na empresa nesta competência e não têm folha lançada nenhuma. Clique para ver e lançar."></button>
             <span id="fechamento-periodo-fechado-info" style="display:none;font-size:12px;color:#5C6BC0;font-weight:600"></span>
             <span id="fechamento-envio-status" style="font-size:11px;color:var(--text-muted)"></span>
           </div>
@@ -7941,6 +7942,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260726e-folhas-abertas"></script>
+  <script src="app.js?v=20260727a-sem-folha"></script>
 </body>
 </html>

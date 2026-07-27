@@ -16425,6 +16425,15 @@ async function _updatePainelFechamento(mes,ano){
     btnFolhasAbertas.style.display=nAbertas?'inline-flex':'none';
     btnFolhasAbertas.innerHTML=`<i class="fa-solid fa-lock-open"></i> Folhas Abertas (${nAbertas})`;
   }
+  // Aviso de quem NÃO tem folha nenhuma. Vive fora do botão de abertas porque
+  // é independente: pode estar tudo fechado e ainda faltar gente sem folha —
+  // esse é justamente o caso que passa batido no fechamento. #folhas-abertas
+  const btnSemFolha=document.getElementById('fechamento-sem-folha');
+  if(btnSemFolha){
+    const nSem=_semFolhaNaCompetencia(mes,ano).length;
+    btnSemFolha.style.display=nSem?'inline-flex':'none';
+    btnSemFolha.innerHTML=`<i class="fa-solid fa-triangle-exclamation"></i> ${nSem} sem folha`;
+  }
   // Se a lista estiver aberta, mantém em sincronia ao re-renderizar o painel.
   if(document.getElementById('modal-folhas-fechadas')) renderFolhasFechadasLista();
   if(document.getElementById('modal-folhas-abertas')) renderFolhasAbertasLista();
@@ -16722,6 +16731,34 @@ function _folhasAbertasLista(mes, ano){
   return lista;
 }
 
+// ── Quem DEVERIA ter folha na competência e não tem ────────────────────────
+// A lista de abertas só enxerga folha que EXISTE. Quem não teve folha lançada
+// nenhuma é invisível ali — e é exatamente quem se perde no fechamento.
+//
+// 🔒 Isto só ACUSA, nunca cria nada (#folha-fantasma-proibida). E é
+// deliberadamente CONSERVADOR: na dúvida, cala. Sem data de admissão, ou
+// inativo sem data de demissão, não dá pra afirmar que faltou folha — acusar
+// nesses casos encheria a tela de alarme falso e ele pararia de olhar.
+// O período é o 26→25 da competência (_compPeriodo), não o mês civil.
+function _semFolhaNaCompetencia(mes, ano){
+  const per=_compPeriodo(mes, ano);
+  const temFolha=new Set((State.payrolls||[])
+    .filter(p=>p.mes==mes && p.ano==ano)
+    .map(p=>p.employeeId));
+  return _filtrarEmpsPorEscopo(State.employees||[])
+    .filter(e=>{
+      if(temFolha.has(e.id)) return false;
+      const adm=(e.dataAdmissao||'').slice(0,10);
+      const dem=(e.dataDemissao||'').slice(0,10);
+      if(!adm) return false;                 // sem admissão: não dá pra afirmar
+      if(adm>per.ateISO) return false;       // foi admitido DEPOIS do período
+      if(dem && dem<per.deISO) return false; // saiu ANTES do período começar
+      if(!dem && (e.status||'ativo')!=='ativo') return false;  // inativo sem data: cala
+      return true;
+    })
+    .sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+}
+
 // Quantos dias da folha ainda esperam decisão de HE. É o que trava o
 // fechamento na prática — fechar com HE pendente é fechar no escuro.
 function _folhaHePendentes(emp, p){
@@ -16772,11 +16809,42 @@ function openFolhasAbertas(){
             </tr></thead>
             <tbody id="fa-tbody"></tbody>
           </table>
+          <div id="fa-sem-folha"></div>
         </div>
       </div>
     </div>`;
   document.body.insertAdjacentHTML('beforeend', html);
   renderFolhasAbertasLista();
+}
+
+// Bloco SEPARADO, embaixo da lista de abertas. Separado de propósito: "folha
+// aberta" e "folha que nunca existiu" são dois problemas diferentes e se
+// resolvem de jeitos diferentes — misturar os dois numa tabela só confunde
+// na hora de fechar a competência. #folhas-abertas
+function _renderSemFolhaBloco(mes, ano){
+  const box=document.getElementById('fa-sem-folha'); if(!box) return;
+  const faltam=_semFolhaNaCompetencia(mes, ano);
+  if(!faltam.length){ box.innerHTML=''; return; }
+  box.innerHTML=`
+    <div style="border-top:3px solid #FFE0B2;background:#FFFDF7;padding:12px 16px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+        <i class="fa-solid fa-triangle-exclamation" style="color:#E65100"></i>
+        <strong style="font-size:13px;color:#E65100">${faltam.length} colaborador(es) sem folha lançada em ${MESES[mes]}/${ano}</strong>
+      </div>
+      <div style="font-size:11px;color:#8D6E63;margin-bottom:9px">
+        Estavam na empresa no período <strong>${_compPeriodo(mes,ano).deISO.split('-').reverse().join('/')} → ${_compPeriodo(mes,ano).ateISO.split('-').reverse().join('/')}</strong>
+        e não têm folha nenhuma. Clique no nome pra abrir e lançar.
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${faltam.map(e=>`
+          <button class="btn btn-sm" onclick="_folhasAbertasRevisar('${e.id}',${mes},${ano})"
+                  title="Abrir a Folha de Ponto de ${esc(e.nome||'')} em ${MESES[mes]}/${ano}"
+                  style="background:#fff;border:1px solid #FFCC80;color:#6D4C41;font-size:12px;white-space:nowrap">
+            <i class="fa-solid fa-file-circle-plus" style="color:#E65100"></i> ${esc(e.nome||'—')}
+            <span style="font-family:monospace;color:#A1887F;margin-left:4px">${e.registro?String(e.registro).padStart(4,'0'):''}</span>
+          </button>`).join('')}
+      </div>
+    </div>`;
 }
 
 function renderFolhasAbertasLista(){
@@ -16787,6 +16855,7 @@ function renderFolhasAbertasLista(){
   const lista=_folhasAbertasLista(mes,ano);
   const cont=document.getElementById('fa-contador');
   if(cont) cont.textContent = lista.length ? `${lista.length} aberta(s)` : '';
+  _renderSemFolhaBloco(mes, ano);
   if(!lista.length){
     tbody.innerHTML=`<tr><td colspan="4" style="padding:26px;text-align:center;color:#2E7D32">
       <i class="fa-solid fa-circle-check" style="font-size:22px;display:block;margin-bottom:6px"></i>

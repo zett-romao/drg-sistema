@@ -578,7 +578,7 @@ try{ window.__APP_BOOTED = true; }catch(_){}
 // ─── VERSÃO DO APP DO COLABORADOR ─────────────────────────────────────────────
 // Bumpe SEMPRE em conjunto com o CACHE do ponto-sw.js e o ?v= do firebase-config.
 // Formato: AA.MM.DD + letra (a, b, c...) — alinhado com o nome do cache.
-const PONTO_VERSION = '26.07.21a';
+const PONTO_VERSION = '26.07.27a';
 // Exibe a versão no rodapé (script roda após o DOM, então o elemento já existe)
 (function _setVersionTag(){
   const t = document.getElementById('app-version-tag');
@@ -651,7 +651,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=51').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=52').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -1070,9 +1070,22 @@ function _pickPayrollDoc(docs){
 // app do colaborador reconhecer escalas custom (folga/horário). Ponte até a Frente 2
 // (motor único compartilhado). #ponto-escala-custom
 let _escModelosPonto = [];
+let _escModelosFalhou = false;   // leitura negada/offline → NÃO dá pra confiar na jornada de escala custom
 async function _carregarEscalasModelosPonto(){
-  try{ const ms = await dbCol('escalasModelos').get(); _escModelosPonto = ms.docs.map(d=>({ id:d.id, ...d.data() })); }
-  catch(_){ /* sem modelos: segue com as escalas do sistema */ }
+  try{
+    const ms = await dbCol('escalasModelos').get();
+    _escModelosPonto = ms.docs.map(d=>({ id:d.id, ...d.data() }));
+    _escModelosFalhou = false;
+  }
+  catch(e){
+    // ⚠️ NUNCA voltar a engolir isto calado. A regra do Firestore barrava o
+    // colaborador em `escalasModelos` (só staff no catch-all) e a lista ficava
+    // vazia PARA SEMPRE: escala "m_..." não resolvia, caía no default 5x2A
+    // (08:00) e o SÁBADO curto (07–11) barrava quem chegou na hora certa.
+    // Seg–sex a coincidência 08:00=08:00 escondia o defeito. #ponto-escala-custom
+    _escModelosFalhou = true;
+    console.warn('[ponto] não consegui ler os modelos de escala:', e && e.message || e);
+  }
 }
 // Espelha _escalaModelo + _modeloDiaTemplate do gestor.
 function _modeloDeEscalaPonto(escala){
@@ -1461,6 +1474,14 @@ function _jornadaHoje(emp){
   }
   const fonte = vig || e;
   const escala = (vig && vig.escala) || e.escala || '5x2A';
+  // 🔒 FALHA SEGURA: escala PERSONALIZADA cujo modelo eu não consegui ler → devolvo
+  // jornada VAZIA (a janela de batida desliga) em vez de chutar o default 5x2A das
+  // 08:00. Chutar barra quem chega às 07:00 no sábado curto; não saber libera a
+  // batida e o gestor decide na folha — mesma falha segura da âncora 12x36.
+  // #ponto-escala-custom #janela-batida
+  if(typeof escala==='string' && escala.startsWith('m_') && !_modeloDeEscalaPonto(escala)){
+    return { folga:false, entrada:'', saida:'', intIni:'', intFim:'', modeloDesconhecido:true };
+  }
   // Escala PERSONALIZADA (modelo "m_..."): horário e folga vêm do template do dia —
   // resolve o caso da Estela (sáb 07–11h) que o app lia como 08:00 do cadastro. #ponto-escala-custom
   const _modJ = _modeloDeEscalaPonto(escala);

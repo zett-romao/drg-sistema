@@ -18405,7 +18405,7 @@ function openPagarColaborador() {
     resEl.style.display = 'block';
     resEl.innerHTML = `<div style="background:#FFF8E1;border:1px solid #FFE082;border-radius:8px;padding:12px;font-size:12px;color:#6D4C41">
       <i class="fa-solid fa-circle-info"></i> <strong>Pagamento anterior registrado:</strong>
-      ${fmtMoney(pag.asaasValor)} em ${(pag.asaasData||'').split('-').reverse().join('/')} — Status: ${pag.asaasStatus} — ID: ${pag.asaasTransferId}
+      ${fmtMoney(pag.asaasValor)} em ${(pag.asaasData||'').split('-').reverse().join('/')} — ${_pagAguardaAutz({status:'pago',asaasStatus:pag.asaasStatus})?PAG_TXT_AGUARDA:('Status: '+(pag.asaasStatus||'—'))} — ID: ${pag.asaasTransferId}
     </div>`;
   }
 
@@ -18879,7 +18879,31 @@ async function executarPagamentoLote() {
 // ============================================
 // APROVAÇÕES DE PAGAMENTOS (Etapa 4d)
 // ============================================
-function _aprovacaoStatusBadge(st){
+// ── "Pago" no sistema ≠ dinheiro na conta ────────────────────────────────────
+// Aprovar aqui só ENVIA a ordem; o banco ainda pode exigir autorização antes de
+// liberar o dinheiro. O status interno continua 'pago' de propósito (é o que
+// impede pagar duas vezes e alimenta relatórios/fechamento) — o que muda é o que
+// a TELA afirma, pra ninguém dar como recebido o que não saiu. #ordem-aguardando-autz
+const PAG_TXT_AGUARDA = 'Ordem enviada - aguardando autorização.';
+// Status de banco que significam DINHEIRO CONFIRMADO. Genérico de propósito:
+// serve pro banco atual e pros próximos. Fora desta lista = ainda pendente.
+const PAG_STATUS_CONFIRMADO = ['done','confirmed','received','completed','pago-manual'];
+function _pagAguardaAutz(s){
+  if(!s || s.status!=='pago') return false;
+  if(s.asaasComprovante) return false;              // comprovante = o banco confirmou
+  const st = String(s.asaasStatus||'').trim();
+  if(!st) return false;                              // registro antigo/sem status — não reescreve o passado
+  return !PAG_STATUS_CONFIRMADO.includes(st.toLowerCase());
+}
+// Aviso em texto corrido — vai junto do "Pago" nas listas, pra quem bate o olho
+// na linha e não no selo. Silencioso quando o banco já confirmou.
+function _pagAvisoAguarda(s){
+  if(!_pagAguardaAutz(s)) return '';
+  return `<div style="font-size:11px;color:#E65100;font-weight:600;margin-bottom:4px"><i class="fa-solid fa-hourglass-half"></i> ${PAG_TXT_AGUARDA}</div>`;
+}
+function _aprovacaoStatusBadge(st, sol){
+  if(sol && _pagAguardaAutz(sol))
+    return `<span title="${PAG_TXT_AGUARDA}" style="background:#FFF8E1;color:#E65100;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:600"><i class="fa-solid fa-paper-plane"></i> Ordem enviada</span>`;
   const map={
     pendente:  ['#FFF3E0','#E65100','Pendente'],
     pago:      ['#E8F5E9','#2e7d32','Pago'],
@@ -19588,6 +19612,7 @@ function renderEmpPagamentos(empId){
       } else {
         comp='<span style="font-size:11px;color:#999">pago</span>';
       }
+      if(_pagAguardaAutz(s)) comp=`<div style="font-size:11px;color:#E65100;font-weight:600;margin-bottom:3px"><i class="fa-solid fa-hourglass-half"></i> ${PAG_TXT_AGUARDA}</div>`+comp;
     } else if(s.status==='recusado'){
       comp=`<span style="font-size:11px;color:#c62828">${s.motivoRecusa||'recusado'}</span>`;
     } else if(s.status==='erro'){
@@ -19600,7 +19625,7 @@ function renderEmpPagamentos(empId){
       <td style="padding:8px 10px;font-size:12px;white-space:nowrap">${dt||'—'}</td>
       <td style="padding:8px 10px;font-size:12px">${s.descricao||s.origem||'—'}</td>
       <td style="padding:8px 10px;text-align:right;font-weight:700;color:#00695C;white-space:nowrap">${fmtMoney(s.valor||0)}</td>
-      <td style="padding:8px 10px;text-align:center">${_aprovacaoStatusBadge(s.status)}</td>
+      <td style="padding:8px 10px;text-align:center">${_aprovacaoStatusBadge(s.status, s)}</td>
       <td style="padding:8px 10px">${comp}</td>
     </tr>`;
   }).join('');
@@ -21814,9 +21839,9 @@ function renderAprovacoes(){
       if(s.asaasComprovante){
         acoes=`<a href="${s.asaasComprovante}" target="_blank" rel="noopener" class="btn btn-sm" style="background:#00695C;color:#fff;border-color:#00695C;text-decoration:none"><i class="fa-solid fa-receipt"></i> Comprovante</a>${idTxt}`;
       } else if(s.asaasTransferId){
-        acoes=`<button class="btn btn-sm btn-outline" style="color:#00695C;border-color:#00695C" onclick="verComprovante('${s.id}',this)"><i class="fa-solid fa-receipt"></i> Comprovante</button>${idTxt}${estornarBtn}`;
+        acoes=`${_pagAvisoAguarda(s)}<button class="btn btn-sm btn-outline" style="color:#00695C;border-color:#00695C" onclick="verComprovante('${s.id}',this)"><i class="fa-solid fa-receipt"></i> Comprovante</button>${idTxt}${estornarBtn}`;
       } else {
-        acoes=`<span style="font-size:11px;color:#00695C">pago</span>${estornarBtn}`;
+        acoes=`${_pagAvisoAguarda(s)}<span style="font-size:11px;color:#00695C">${_pagAguardaAutz(s)?'':'pago'}</span>${estornarBtn}`;
       }
     } else if(s.status==='estornado'){
       const refazBtn = mods.pagamentosLancar
@@ -21847,7 +21872,7 @@ function renderAprovacoes(){
       <td style="padding:9px 10px;font-family:monospace;font-size:11px">${s.pixKey||'—'}</td>
       <td style="padding:9px 10px;font-size:12px">${sched||'—'}</td>
       <td style="padding:9px 10px;font-size:12px">${s.criadoPorNome||'—'}<br><span style="color:#aaa;font-size:10px">${dt}</span></td>
-      <td style="padding:9px 10px;text-align:center">${_aprovacaoStatusBadge(s.status)}</td>
+      <td style="padding:9px 10px;text-align:center">${_aprovacaoStatusBadge(s.status, s)}</td>
       <td style="padding:9px 10px;font-size:12px">${s.aprovadoPorNome||'—'}${s.aprovadoEm?`<br><span style="color:#aaa;font-size:10px" title="Data em que foi ${s.status==='recusado'?'recusado':s.status==='pago'?'aprovado/pago':'decidido'}">${(s.aprovadoEm||'').substring(0,10).split('-').reverse().join('/')}</span>`:''}</td>
       <td style="padding:9px 10px">${acoes}</td>
     </tr>`;
@@ -21937,7 +21962,7 @@ async function confirmarAprovarLote(){
   const btn=document.getElementById('btn-confirmar-aprovar-lote');
   btn.disabled=true; btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Processando...';
   const prog=document.getElementById('aprovar-lote-progresso'); prog.style.display='block';
-  let ok=0, fail=0; const erros=[]; let expirou=false;
+  let ok=0, fail=0, aguard=0; const erros=[]; let expirou=false;
   for(let i=0;i<sel.length;i++){
     const s=sel[i];
     prog.innerHTML=`<div style="background:#E3F2FD;border:1px solid #90CAF9;border-radius:9px;padding:12px;font-size:13px;color:#0D47A1"><i class="fa-solid fa-spinner fa-spin"></i> Processando ${i+1}/${sel.length}: <strong>${esc(s.employeeNome||'—')}</strong> (${fmtMoney(s.valor||0)})…<br>✅ ${ok} · ❌ ${fail}</div>`;
@@ -21954,8 +21979,9 @@ async function confirmarAprovarLote(){
             try{ await DB.merge('solicitacoesPagamento', st.id, { inclusaoAutorizada:true, inclusaoAutorizadaPorNome:(Auth.currentUser?.username||''), inclusaoAutorizadaEm:new Date().toISOString() }); st.inclusaoAutorizada=true; }catch(_){}
           }
         }
+        if(_pagAguardaAutz({status:'pago', asaasStatus:r.status})) aguard++;   // ordem enviada, banco ainda não liberou. #ordem-aguardando-autz
         _aprSelecionados.delete(s.id);
-        try{ Auth.log('PAGAMENTO_APROVADO',null,`${s.employeeNome||s.id} | R$ ${(s.valor||0).toFixed(2)} | lote | ID Asaas ${r.asaasTransferId||'—'}`); }catch(_){}
+        try{ Auth.log('PAGAMENTO_APROVADO',null,`${s.employeeNome||s.id} | R$ ${(s.valor||0).toFixed(2)} | lote | ID transferência ${r.asaasTransferId||'—'}`); }catch(_){}
       } else {
         fail++; erros.push(`${s.employeeNome||s.id}: ${r.erro||'falhou'}`);
         // 2FA recusado no meio → código provavelmente expirou: para e pede novo. Os já pagos ficam.
@@ -21963,16 +21989,21 @@ async function confirmarAprovarLote(){
       }
     }catch(e){ fail++; erros.push(`${s.employeeNome||s.id}: ${e.message||e}`); }
   }
-  if(expirou) erros.push('⚠️ O código 2FA pode ter expirado no meio do lote. Os já pagos estão concluídos — gere um código novo e aprove os restantes.');
-  const cor = fail? (ok?'#E65100':'#c62828') : '#2e7d32';
-  const bgC = fail? (ok?'#FFF3E0':'#FCE4E4') : '#E8F5E9';
-  const brC = fail? (ok?'#FFCC80':'#EF9A9A') : '#A5D6A7';
+  if(expirou) erros.push('⚠️ O código 2FA pode ter expirado no meio do lote. As ordens já enviadas estão valendo — gere um código novo e aprove as restantes.');
+  const cor = fail? (ok?'#E65100':'#c62828') : (aguard?'#E65100':'#2e7d32');
+  const bgC = fail? (ok?'#FFF3E0':'#FCE4E4') : (aguard?'#FFF8E1':'#E8F5E9');
+  const brC = fail? (ok?'#FFCC80':'#EF9A9A') : (aguard?'#FFE082':'#A5D6A7');
+  // Nada de "pago" no lote enquanto o banco não liberar. #ordem-aguardando-autz
+  const _resumo = aguard
+    ? `${aguard} ordem(ns) enviada(s) - aguardando autorização.${ok>aguard?` · ${ok-aguard} confirmado(s) pelo banco`:''}`
+    : `${ok} aprovado(s) e pago(s)`;
   prog.innerHTML=`<div style="background:${bgC};border:1px solid ${brC};border-radius:9px;padding:14px;font-size:13px;color:${cor}">
-    <strong>${ok} aprovado(s) e pago(s)${fail?` · ${fail} não concluído(s)`:''}.</strong>
+    <strong>${_resumo}${fail?` · ${fail} não concluído(s)`:''}.</strong>
+    ${aguard?`<div style="margin-top:6px;font-size:12px;color:#6D4C41">O valor só sai da conta depois da autorização no banco.</div>`:''}
     ${erros.length?`<div style="margin-top:8px;font-size:12px">${erros.map(esc).join('<br>')}</div>`:''}</div>`;
   btn.style.display='none';
   const cBtn=document.getElementById('btn-aprovar-lote-cancelar'); if(cBtn) cBtn.innerHTML='Fechar';
-  if(ok) toast(`${ok} pagamento(s) aprovado(s) em lote!`,'success');
+  if(ok) toast(aguard?`${aguard} ordem(ns) enviada(s) - aguardando autorização.`:`${ok} pagamento(s) aprovado(s) em lote!`,'success');
   if(State.currentSection==='aprovacoes') renderAprovacoes();
 }
 async function recusarLote(){
@@ -22184,13 +22215,21 @@ async function confirmarAprovacaoPagamento(){
         try{ await DB.merge('solicitacoesPagamento', id, { inclusaoAutorizada:true, inclusaoAutorizadaPorNome:(Auth.currentUser?.username||''), inclusaoAutorizadaEm:new Date().toISOString() }); s.inclusaoAutorizada=true; }catch(_){}
       }
       Auth.log('PAGAMENTO_APROVADO',null,
-        `${s?.employeeNome||id} | R$ ${(s?.valor||0).toFixed(2)} | ID Asaas ${r.asaasTransferId||'—'}`);
+        `${s?.employeeNome||id} | R$ ${(s?.valor||0).toFixed(2)} | ID transferência ${r.asaasTransferId||'—'}`);
+      // A ordem saiu, mas o dinheiro só sai quando o banco autorizar. Só diz
+      // "pago" quando o próprio banco confirmar. #ordem-aguardando-autz
+      const _aguarda = !r.jaPago && _pagAguardaAutz({status:'pago', asaasStatus:r.status});
       resEl.style.display='block';
-      resEl.innerHTML=`<div style="background:#e8f5e9;border:1px solid #a5d6a7;border-radius:9px;padding:14px;font-size:13px;color:#2e7d32">
-        <i class="fa-solid fa-circle-check"></i> <strong>${r.jaPago?'Esta solicitação já estava paga.':'Pagamento aprovado e enviado ao Asaas!'}</strong><br>
-        ID Asaas: <code>${r.asaasTransferId||'—'}</code> · Status: ${r.status||'—'}</div>`;
+      resEl.innerHTML= _aguarda
+        ? `<div style="background:#FFF8E1;border:1px solid #FFE082;border-radius:9px;padding:14px;font-size:13px;color:#E65100">
+        <i class="fa-solid fa-paper-plane"></i> <strong>${PAG_TXT_AGUARDA}</strong><br>
+        <span style="color:#6D4C41">O valor só sai da conta depois da autorização no banco.</span><br>
+        ID da transferência: <code>${r.asaasTransferId||'—'}</code></div>`
+        : `<div style="background:#e8f5e9;border:1px solid #a5d6a7;border-radius:9px;padding:14px;font-size:13px;color:#2e7d32">
+        <i class="fa-solid fa-circle-check"></i> <strong>${r.jaPago?'Esta solicitação já estava paga.':'Pagamento confirmado pelo banco!'}</strong><br>
+        ID da transferência: <code>${r.asaasTransferId||'—'}</code></div>`;
       btn.style.display='none';
-      toast('Pagamento aprovado!','success');
+      toast(_aguarda?PAG_TXT_AGUARDA:'Pagamento aprovado!','success');
       setTimeout(()=>{ closeModal('modal-aprovar-pagamento'); if(State.currentSection==='aprovacoes') renderAprovacoes(); },2000);
     } else {
       resEl.style.display='block';

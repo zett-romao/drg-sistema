@@ -199,6 +199,17 @@ const DB = {
   }
 };
 
+// Nome do colaborador pra escrever no LOG. Auditoria com id cru ("e2 —
+// Julho/2026") é ilegível: quem confere quer o NOME, não a chave. Só cai no id
+// se o cadastro sumiu (colaborador excluído) — id ainda é melhor que vazio.
+// Vive aqui em cima porque é usado nos pontos de gravação espalhados pelo app.
+// #log-clicavel
+function _nomeEmp(empId){
+  if(!empId) return '';
+  const e=(State.employees||[]).find(x=>x.id===empId);
+  return (e&&e.nome) || empId;
+}
+
 // ============================================
 // ESTADO GLOBAL
 // ============================================
@@ -4516,6 +4527,98 @@ function _logDestino(e){
   return { secao, empId:_logEmpId(e), mes:comp&&comp.mes, ano:comp&&comp.ano };
 }
 
+// ── RASTREADOR: acha o registro exato de evento ANTIGO que nasceu cego ──────
+// Os logs antigos de revisão de HE gravavam só "Julho/2026 — 8 dia(s)": levar
+// pra seção sem dizer DE QUEM não serve de nada. Mas o evento deixou marca no
+// próprio dado: cada dia revisado carrega `heReview.aprovadoEm/recusadoEm`, e
+// toda folha salva carrega `updatedAt`. Então não se ADIVINHA nada — procura-se
+// o carimbo de tempo que bate com o do log.
+// Ordem das provas: dia revisado (mais forte, diz até QUAL dia) → folha salva
+// no mesmo instante. Devolve TODOS os candidatos: se der mais de um, quem
+// escolhe é ele, não eu. #log-clicavel
+// 🔒 A JANELA É CURTA DE PROPÓSITO. O log é gravado logo depois do
+// DB.save() — a distância real é de segundos. E ele revisa folhas em
+// sequência, uma a cada ~30s (dá pra ver no próprio log dele: 11:56:26,
+// 11:56:57, 11:57:49). Com janela larga, TODA revisão casaria com as
+// vizinhas e o rastreio viraria chute com cara de resposta.
+const _LOG_JANELA_MS = 30000;
+function _logRastrear(e){
+  const t=Date.parse(e && e.timestamp); if(!t) return [];
+  // dist() devolve a distância em ms (ou null se fora da janela) — é ela que
+  // ordena os candidatos: o mais perto no tempo é o mais provável.
+  const dist=iso=>{ const x=Date.parse(iso||''); if(!x) return null;
+                    const d=Math.abs(x-t); return d<=_LOG_JANELA_MS ? d : null; };
+  const seg=ms=>ms<1000?'no mesmo segundo':`${Math.round(ms/1000)}s de diferença`;
+  const nome=id=>((State.employees||[]).find(x=>x.id===id)||{}).nome||id;
+  const comp=_logCompetencia(e);
+  const secao=(e.alvo&&e.alvo.secao)||_logSecao(e.type);
+  const out=[];
+  if(secao==='payroll'){
+    for(const p of (State.payrolls||[])){
+      if(comp && (p.mes!==comp.mes || p.ano!==comp.ano)) continue;
+      const dias=(p.pontoManualDias||[]).filter(d=>d && d.heReview
+        && (dist(d.heReview.aprovadoEm)!==null || dist(d.heReview.recusadoEm)!==null));
+      if(dias.length){
+        const dt=Math.min(...dias.map(d=>Math.min(dist(d.heReview.aprovadoEm)??1e9, dist(d.heReview.recusadoEm)??1e9)));
+        out.push({ empId:p.employeeId, nome:nome(p.employeeId), mes:p.mes, ano:p.ano, forte:true, dt,
+                   prova:`dia ${dias.map(d=>d.dia).join(', ')} — revisão gravada ${seg(dt)}` });
+        continue;
+      }
+      const dtu=dist(p.updatedAt);
+      if(dtu!==null){
+        out.push({ empId:p.employeeId, nome:nome(p.employeeId), mes:p.mes, ano:p.ano, forte:false, dt:dtu,
+                   prova:`folha salva ${seg(dtu)}` });
+      }
+    }
+  } else if(secao==='employees'){
+    for(const emp of (State.employees||[])){
+      const dtu=dist(emp.updatedAt);
+      if(dtu!==null) out.push({ empId:emp.id, nome:emp.nome, forte:false, dt:dtu, prova:`cadastro salvo ${seg(dtu)}` });
+    }
+  }
+  // Prova FORTE primeiro; empatou, o mais PERTO no tempo. "Dia 12 revisado no
+  // mesmo segundo" é o próprio evento deixando digital; "folha salva" pode ser
+  // coincidência de outra pessoa mexendo junto — é candidato, não resposta.
+  return out.sort((a,b)=>((b.forte?1:0)-(a.forte?1:0)) || (a.dt-b.dt));
+}
+
+// Mais de um candidato: ele escolhe. Mostra a PROVA de cada um — não é palpite.
+function _logEscolherAlvo(id, cands){
+  const e=(Auth.accessLog||[]).find(x=>x.id===id)||{};
+  const info=LOG_TYPES[e.type]||{label:e.type};
+  const linhas=cands.map((c,i)=>`
+    <button class="btn btn-outline" style="width:100%;justify-content:flex-start;text-align:left;padding:11px 14px;margin-bottom:8px"
+            onclick="_logIrCandidato('${id}',${i})">
+      <span><strong>${esc(c.nome||'—')}</strong>
+        <small style="display:block;color:var(--text-muted);font-weight:400">${esc(c.prova)}</small></span>
+    </button>`).join('');
+  const antigo=document.getElementById('modal-log-alvo'); if(antigo) antigo.remove();
+  const div=document.createElement('div');
+  div.id='modal-log-alvo'; div.className='modal-overlay';
+  div.onclick=ev=>{ if(ev.target===div) div.remove(); };
+  div.innerHTML=`<div class="modal-dialog" style="max-width:460px">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-magnifying-glass-location" style="color:#5C6BC0"></i> Qual registro?</h3>
+      <button class="modal-close" onclick="document.getElementById('modal-log-alvo').remove()"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="info-banner" style="background:#EEF2FF;border-color:#C7D2FE;color:#3730A3;margin-bottom:12px;font-size:12px">
+        <i class="fa-solid fa-circle-info"></i> Este registro é antigo e não gravou o colaborador.
+        Rastreei pelo horário (${fmtDateTime(e.timestamp)}) e achei ${cands.length} registro(s) mexido(s) nos segundos em volta.
+      </div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">${esc(info.label)} — ${esc(e.details||'')}</div>
+      ${linhas}
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+  State._logCands=cands;
+}
+function _logIrCandidato(id, i){
+  const c=(State._logCands||[])[i]; if(!c) return;
+  const m=document.getElementById('modal-log-alvo'); if(m) m.remove();
+  _logAbrirFolha(c.empId, c.mes, c.ano);
+}
+
 // Abre a folha do colaborador na competência do evento. Mesmo caminho que
 // Pagamentos usa (_pagAbrirRevisao): destrava o período se não for o vigente.
 function _logAbrirFolha(empId, mes, ano){
@@ -4541,12 +4644,35 @@ function _logRowClick(ev, id){
   if(!State.logRevisao[id]) _logToggleRevisao(id, true);
   const dest=_logDestino(e);
   if(!dest){ toast('Este evento não altera dado nenhum (é registro de acesso).','info'); return; }
-  if(dest.secao==='payroll'){ _logAbrirFolha(dest.empId, dest.mes, dest.ano); return; }
-  if(dest.secao==='employees' && dest.empId){ showSection('employees'); openEmployeeModal(dest.empId); return; }
-  showSection(dest.secao);
+
+  // Sabe de quem é: vai direto ao registro.
   if(dest.empId){
+    if(dest.secao==='payroll'){ _logAbrirFolha(dest.empId, dest.mes, dest.ano); return; }
+    if(dest.secao==='employees'){ showSection('employees'); openEmployeeModal(dest.empId); return; }
+    showSection(dest.secao);
     const emp=(State.employees||[]).find(x=>x.id===dest.empId);
     if(emp) toast(`Aberto em ${emp.nome}. Este evento não abre a ficha direto.`,'info');
+    return;
+  }
+
+  // NÃO sabe de quem é (registro antigo). Antes de largar ele na seção — que é
+  // o mesmo que não fazer nada —, rastreia pelo carimbo de tempo no dado.
+  const cands=_logRastrear(e);
+  // Uma única prova FORTE decide sozinha (é o evento carimbado no dado). Se só
+  // houver prova fraca, ou mais de uma forte, quem escolhe é ele.
+  const fortes=cands.filter(c=>c.forte);
+  const unico = fortes.length===1 ? fortes[0] : (cands.length===1 ? cands[0] : null);
+  if(unico){
+    toast(`Rastreado: ${unico.nome} — ${unico.prova}.`,'success');
+    if(dest.secao==='payroll'){ _logAbrirFolha(unico.empId, unico.mes||dest.mes, unico.ano||dest.ano); return; }
+    showSection('employees'); openEmployeeModal(unico.empId); return;
+  }
+  if(cands.length>1){ _logEscolherAlvo(e.id, cands); return; }
+
+  showSection(dest.secao);
+  if(dest.secao==='payroll'){
+    _logAbrirFolha(null, dest.mes, dest.ano);
+    toast('Registro antigo: não gravou o colaborador, e nenhuma folha foi mexida nos segundos em volta. Abri a competência.','warning');
   }
 }
 
@@ -5473,7 +5599,7 @@ async function _pagToggleRevisada(payrollId, checked){
   try{
     await DB.merge('payrolls', p.id, upd);
     const s=State.payrolls.find(r=>r.id===p.id); if(s) Object.assign(s, upd);
-    Auth.log('PAYROLL_REVISADA', null, `${p.employeeId} — ${MESES[p.mes]}/${p.ano} — ${checked?'revisada':'desmarcada'}`,
+    Auth.log('PAYROLL_REVISADA', null, `${_nomeEmp(p.employeeId)} — ${MESES[p.mes]}/${p.ano} — ${checked?'revisada':'desmarcada'}`,
              {secao:'payroll', empId:p.employeeId, mes:p.mes, ano:p.ano});
     if(State.currentSection==='pagamentos') renderPagamentos();
   }catch(e){ console.error(e); toast('Erro ao salvar a revisão.','error'); }
@@ -16488,7 +16614,10 @@ async function enviarFolhaParaConferencia(payrollId){
   try{
     await DB.merge('payrolls', payrollId, { envioConferencia: envio, ...(_arqC?{contestacoesHistorico:p.contestacoesHistorico}:{}) });
     p.envioConferencia = envio;
-    Auth.log('FOLHA_ENVIADA_CONFERENCIA', null, `${MESES[p.mes]}/${p.ano} — ${p.employeeId} (prazo ${prazo.toLocaleString('pt-BR')})`);
+    // Gravava o ID cru ("e2 — Julho/2026"), ilegível na auditoria. Vai o NOME. #log-clicavel
+    Auth.log('FOLHA_ENVIADA_CONFERENCIA', null,
+      `${_nomeEmp(p.employeeId)} — ${MESES[p.mes]}/${p.ano} (prazo ${prazo.toLocaleString('pt-BR')})`,
+      {secao:'payroll', empId:p.employeeId, mes:p.mes, ano:p.ano});
     toast(`Folha enviada — colab tem ${_CONF_PRAZO_HORAS}h pra conferir.`,'success');
     _updatePainelFechamento(p.mes, p.ano);
   }catch(e){ console.error(e); toast('Erro ao enviar.','error'); }
@@ -16949,7 +17078,9 @@ async function enviarHoleriteParaConferencia(payrollId){
   try{
     await DB.merge('payrolls', payrollId, { holeriteConferencia: envio });
     p.holeriteConferencia = envio;
-    Auth.log('HOLERITE_ENVIADO_CONFERENCIA', null, `${MESES[p.mes]}/${p.ano} — ${p.employeeId} (prazo ${prazo.toLocaleString('pt-BR')})`);
+    Auth.log('HOLERITE_ENVIADO_CONFERENCIA', null,
+      `${_nomeEmp(p.employeeId)} — ${MESES[p.mes]}/${p.ano} (prazo ${prazo.toLocaleString('pt-BR')})`,
+      {secao:'payroll', empId:p.employeeId, mes:p.mes, ano:p.ano});
     toast(`Holerite enviado — colab tem ${_CONF_PRAZO_HORAS}h pra conferir/assinar.`,'success');
     if(typeof renderPagamentos==='function' && State.currentSection==='pagamentos') renderPagamentos();
   }catch(e){ console.error(e); toast('Erro ao enviar holerite.','error'); }
@@ -21020,7 +21151,12 @@ async function enviarComunicacao(){
       };
       try{
         await DB.merge('comunicacoes', _comuEditandoId, changes);
-        try{ Auth.log('COMUNICACAO_EDITADA', null, `${assunto}`); }catch(_){}
+        try{
+          const _msgOrig=(_comuMensagensCache&&_comuMensagensCache[_comuEditandoId])||{};
+          const _dest=_msgOrig.employeeNome||_nomeEmp(_msgOrig.employeeId)||'';
+          Auth.log('COMUNICACAO_EDITADA', null, `${_dest?_dest+' — ':''}${assunto}`,
+                   _msgOrig.employeeId?{secao:'employees', empId:_msgOrig.employeeId}:{secao:'comunicacao'});
+        }catch(_){}
         toast('Mensagem atualizada.','success');
         closeModal('modal-comunicar');
         const m=document.getElementById('modal-employee');
@@ -21146,7 +21282,14 @@ async function enviarComunicacao(){
         try{ Auth.log('DISCIPLINA_ENVIADA', null, `${tipo.toUpperCase()} — ${(e&&e.nome)||''} — Hash: ${(anexoHash||'').substring(0,16)}...`); }catch(_){}
       }
     }
-    try{ Auth.log('COMUNICACAO_ENVIADA', null, `${ok} destinatario(s) — ${assunto}`); }catch(_){}
+    // "1 destinatario(s)" nao dizia QUEM recebeu. Agora vai o nome (ate 3; mais
+    // que isso vira contagem) e, quando e um so, o alvo aponta a ficha dele.
+    try{
+      const _nomes=ids.map(i=>((State.employees.find(x=>x.id===i)||{}).nome)||i);
+      const _quem = _nomes.length<=3 ? _nomes.join(', ') : `${_nomes.length} colaboradores`;
+      Auth.log('COMUNICACAO_ENVIADA', null, `${_quem} — ${assunto}`,
+               ids.length===1 ? {secao:'employees', empId:ids[0]} : {secao:'comunicacao'});
+    }catch(_){}
     if(ok===0){
       toast('Nenhuma mensagem foi salva — abra o console do navegador (F12) para o erro.','error');
       return;
@@ -30892,8 +31035,14 @@ async function saveHEReview(){
     // Atualiza State.payrolls em memória pra refletir mudança imediata
     const idx = State.payrolls.findIndex(p=>p.id===updated.id);
     if(idx >= 0) State.payrolls[idx] = updated;
-    Auth.log('HE_REVIEW_SAVED', null, `${MESES[mes]}/${ano} — ${Object.keys(decisoes).length} dia(s) revisados`,
-             {secao:'payroll', empId:updated.employeeId, mes, ano});
+    // O NOME vai no texto, nao so no alvo: quem le a auditoria tem que saber de
+    // quem e a revisao sem precisar clicar. Os dias tambem — "dia 12, 19" diz
+    // mais que "2 dia(s)". Era exatamente isso que faltava no log antigo.
+    const _revNome=(empObj&&empObj.nome)||updated.employeeId;
+    const _revDias=Object.keys(decisoes).map(Number).sort((a,b)=>a-b);
+    Auth.log('HE_REVIEW_SAVED', null,
+      `${_revNome} — ${MESES[mes]}/${ano} — dia(s) ${_revDias.join(', ')||'—'} (${_revDias.length})`,
+      {secao:'payroll', empId:updated.employeeId, mes, ano, dias:_revDias});
     closeModal('modal-he-review');
     // Recalcula resumo do Ponto Manual se aberto
     if(_getPontoManualCards().length) calcResumoManual();

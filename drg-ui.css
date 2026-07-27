@@ -1,0 +1,45 @@
+/* drg-ui.css — padrao DR Systems, par do drg-ui.js.
+ * Arquivo separado de proposito: entra no app sem mexer na folha de estilo dele.
+ * Instalar ANTES do CSS do app, para que o app consiga sobrescrever se precisar.
+ */
+
+/* ── 1. Botao responde ao toque ──────────────────────────────────────── */
+button, .button, [role="button"] { transition: transform .06s ease, filter .06s ease; }
+button:active:not(:disabled),
+.button:active:not(:disabled) { transform: scale(.98); filter: brightness(.92); }
+button:disabled, .button:disabled { opacity: .6; cursor: not-allowed; }
+
+/* ── 2. Botao trabalhando ────────────────────────────────────────────── */
+.drg-ocupado { cursor: progress !important; pointer-events: none; opacity: .9; }
+/* Girador para quem nao pode ter o texto trocado (React/Vue). Some quando o
+   proprio texto ja virou "⏳ Aguarde...". */
+.drg-ocupado:not([data-drg-texto])::after {
+  content: ""; display: inline-block; width: 13px; height: 13px; margin-left: 8px;
+  border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+  animation: drg-gira .6s linear infinite; vertical-align: -2px; flex: 0 0 auto;
+}
+@keyframes drg-gira { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .drg-ocupado:not([data-drg-texto])::after { animation-duration: 2s; }
+  button, .button { transition: none; }
+}
+
+/* ── 3. Resposta do formulario: sucesso e erro SEMPRE visiveis ───────── */
+.form-msg.drg-msg--ok {
+  background: #e8f5ec; color: #10633a; border: 1px solid #9fd6b4;
+  border-radius: 8px; padding: 10px 12px; font-size: 14px; font-weight: 700;
+  margin-top: 8px; line-height: 1.4;
+}
+.form-msg.drg-msg--erro {
+  background: #fdecec; color: #9b1c1c; border: 1px solid #f0a9a9;
+  border-radius: 8px; padding: 10px 12px; font-size: 14px; font-weight: 700;
+  margin-top: 8px; line-height: 1.4;
+}
+
+/* ── 4. Palavra inteira ──────────────────────────────────────────────── */
+/* overflow-wrap:anywhere pica a palavra no meio ("Ocorrenci as") e ainda deixa
+   a coluna do grid encolher ate 1 caractere. break-word so quebra o que
+   realmente nao cabe — URL e e-mail longos continuam se ajustando. */
+.drg-palavra-inteira, .drg-palavra-inteira * {
+  word-break: normal; overflow-wrap: break-word; hyphens: none;
+}

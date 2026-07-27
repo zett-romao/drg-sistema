@@ -15706,15 +15706,29 @@ function renderColabDashboard(){
   // Atrasos do mês
   const atr=_atrasoTotais(empId,mes,ano);
   // Horas extras: aprovadas (minutos pagos) + nº de dias pendentes de aprovação
-  let heAprovMin=0, hePendDias=0;
+  // Conta TAMBÉM a refeição não rendida a autorizar: a folha imprime "almoço
+  // suprimido — aguardando autorização do supervisor", mas isso não entrava em
+  // contador nenhum e o card não abria nada. A pessoa lia o pedido e não tinha
+  // onde atender. #ref-detectada #alerta-clicavel
+  let heAprovMin=0, hePendDias=0, refPendDias=0;
   if(p && !emp.isentoPonto){
     try{ heAprovMin=_apuracaoPontoTotais(emp,p).extraMin||0; }catch(_){}
     (Array.isArray(p.pontoManualDias)?p.pontoManualDias:[]).forEach(pd=>{
       if(!pd||!pd.dia||!pd.entrada||!pd.saida) return;
-      let detec; try{ detec=_detectHEDivergencia({dia:pd.dia,diaSem:pd.diaSem,entrada:pd.entrada,saida:pd.saida,intIni:pd.intIni,intFim:pd.intFim,heReview:pd.heReview}, _getExpectedDay(emp,mes,ano,pd.dia)); }catch(_){ detec=null; }
+      // _getExpectedDayComp (não _getExpectedDay): `pd.dia` é dia da COMPETÊNCIA.
+      // Os dias 26-31 pertencem ao mês real ANTERIOR — sem a conversão o dia era
+      // comparado com a escala do mês errado. #competencia-26-25
+      const _exp = (()=>{ try{ return _getExpectedDayComp(emp,mes,ano,pd.dia); }catch(_){ return null; } })();
+      let detec; try{ detec=_detectHEDivergencia({dia:pd.dia,diaSem:pd.diaSem,entrada:pd.entrada,saida:pd.saida,intIni:pd.intIni,intFim:pd.intFim,heReview:pd.heReview}, _exp); }catch(_){ detec=null; }
       if(detec && detec.precisaRevisao){ const st=pd.heReview&&pd.heReview.status; if(st!=='aprovado' && st!=='recusado') hePendDias++; }
+      const _stRef = pd.refExtra && pd.refExtra.status;
+      if(_stRef!=='aprovado' && _stRef!=='recusado'){
+        let _supr=0; try{ _supr=_almocoSuprimidoDetectadoMin(pd, _exp, emp)||0; }catch(_){}
+        if(_supr>0 || _stRef==='pendente') refPendDias++;
+      }
     });
   }
+  const _aAprovar = hePendDias + refPendDias;
   // Atestados / abonos
   const at=_atestadoTotais(empId,mes,ano);
   const _abs=(State.atestados||[]).filter(a=>a.employeeId===empId && a.mes==mes && a.ano==ano && a.status!=='pendente' && a.categoria==='abono');
@@ -15735,7 +15749,7 @@ function renderColabDashboard(){
       <div style="font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px"><i class="fa-solid fa-chart-simple" style="color:#1565C0"></i> Situação do mês — ${esc(emp.nome||'')}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         ${card('#C2410C','#FFF7ED','fa-user-clock', (atr.minutos>0?minutesToStr(atr.minutos):'0h'), 'Atrasos', `${atr.count||0} dia(s)${atr.minutosDesc>0?' · desconta':''}`)}
-        ${card('#0E7490','#ECFEFF','fa-bolt', (heAprovMin>0?minutesToStr(heAprovMin):'0h'), 'Horas extras', hePendDias>0?`<span style="color:#E65100;font-weight:700">${hePendDias} dia(s) a aprovar</span>`:'todas aprovadas', hePendDias>0?'openHEReview()':'')}
+        ${card('#0E7490','#ECFEFF','fa-bolt', (heAprovMin>0?minutesToStr(heAprovMin):'0h'), 'Horas extras', _aAprovar>0?`<span style="color:#E65100;font-weight:700">${_aAprovar} dia(s) a aprovar${refPendDias>0?` <span style="color:#6A1B9A">(${refPendDias} refeição)</span>`:''}</span>`:'todas aprovadas', _aAprovar>0?'openHEReview()':'')}
         ${card('#1B5E20','#E8F5E9','fa-notes-medical', `${at.dias||0} dia(s)`, 'Atestados', at.horasMin>0?(minutesToStr(at.horasMin)+' em horas'):'pagos')}
         ${card('#1565C0','#E3F2FD','fa-calendar-check', `${abAbonDias} abon.`, 'Abonos', `${at.diasNaoAbonados||0} não abonado(s)`)}
         ${card('#C62828','#FDECEA','fa-user-xmark', `${fInj} injust.`, 'Faltas', `${fJus} justificada(s)`)}
@@ -31961,7 +31975,7 @@ function printFolhaPonto(isPreview=false){
       let _rt = '';
       if(_st==='aprovado')      _rt = '';   // já aprovado: aparece pago na coluna Ref. n/r
       else if(_st==='recusado') _rt = 'Almoço suprimido — não autorizado pelo supervisor';
-      else                      _rt = 'Almoço suprimido ('+minutesToStr(_supr)+') — aguardando autorização do supervisor';
+      else                      _rt = 'Almoço suprimido ('+minutesToStr(_supr)+') — autorizar em Folha de Ponto ▸ Revisar HE';
       if(_rt){ if(!obsdia){ obsdia=_rt; obscor=(_st==='recusado'?'#B71C1C':'#E65100'); } else { obsdia=obsdia+' · '+_rt; } }
     }
     const rowBg=isWknd?'background:#F8F9FA;color:#999':'';
@@ -32369,7 +32383,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
       let _rt = '';
       if(_st==='aprovado')      _rt = '';   // já aprovado: aparece pago na coluna Ref. n/r
       else if(_st==='recusado') _rt = 'Almoço suprimido — não autorizado pelo supervisor';
-      else                      _rt = 'Almoço suprimido ('+minutesToStr(_supr)+') — aguardando autorização do supervisor';
+      else                      _rt = 'Almoço suprimido ('+minutesToStr(_supr)+') — autorizar em Folha de Ponto ▸ Revisar HE';
       if(_rt){ if(!obsdia){ obsdia=_rt; obscor=(_st==='recusado'?'#B71C1C':'#E65100'); } else { obsdia=obsdia+' · '+_rt; } }
     }
     const rowBg=isWknd?'background:#F8F9FA;color:#999':'';

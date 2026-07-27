@@ -1618,9 +1618,11 @@ function showSection(name){
                 pagamentos:'Pagamentos',beneficios:'Benefícios',recibos:'Recibos Enviados',adiantamentos:'Adiantamentos',aprovacoes:'Aprovações de Pagamentos',decimoterceiro:'13º Salário',ferias:'Férias',rescisao:'Rescisões',
                 contabilidade:'Contabilidade',banco:'Banco de Dados',users:'Usuários & Acessos',postos:'Postos de Trabalho',rubricas:'Rubricas',contratos:'Contratos',comunicacao:'Comunicação',autorizacoes:'Autorizações de Ponto',monitorfaltas:'Monitor de Faltas',estoque:'Estoque / EPIs',documentos:'Documentos do Colaborador',docsempresa:'Documentos da Empresa',configuracoes:'Configurações',lgpd:'Conformidade LGPD',relatorios:'Relatórios'};
   document.getElementById('topbar-title').textContent=titles[name]||name;
+  const _secAnterior=State.currentSection;
   State.currentSection=name;
   if(name==='employees') setEmployeeFilter('ativo');   // abre sempre em ATIVOS (atalhos do dashboard sobrescrevem depois)
-  if(name==='payroll')   { initPayrollSection(); renderPayrollStats(); }
+  // Passa se JÁ estava na Folha: ação interna não reseta a competência escolhida.
+  if(name==='payroll')   { initPayrollSection(_secAnterior==='payroll'); renderPayrollStats(); }
   if(name==='escalas')   renderEscalas();
   if(name==='lgpd')      renderLGPD();
   if(name==='dashboard') renderDashboard();
@@ -4622,9 +4624,10 @@ function _logIrCandidato(id, i){
 // Abre a folha do colaborador na competência do evento. Mesmo caminho que
 // Pagamentos usa (_pagAbrirRevisao): destrava o período se não for o vigente.
 function _logAbrirFolha(empId, mes, ano){
-  showSection('payroll');
   const vig=competenciaVigente();
   const m=mes||vig.mes, a=ano||vig.ano;
+  _payrollAbrirEm(m, a);          // abre já na competência do evento
+  showSection('payroll');
   const chk=document.getElementById('chk-consultar-passadas');
   if(chk && (m!==vig.mes||a!==vig.ano) && !chk.checked){ chk.checked=true; _togglePeriodoNavegacao(true); }
   setVal('payroll-mes', String(m));
@@ -5563,6 +5566,7 @@ function _pagAbrirRevisao(empId){
   const mes=parseInt(val('pag-mes')||currentMes());
   const ano=parseInt(val('pag-ano')||currentAno());
   State._pagReturn={ mes, ano, empId };
+  _payrollAbrirEm(mes, ano);      // abre já nesta competência #folha-fica-na-competencia
   showSection('payroll'); // empilha 'pagamentos' no histórico → botão Voltar retorna aqui
   // Se o período não é o vigente, destrava a navegação (coerência visual do painel).
   const vig=competenciaVigente();
@@ -10639,7 +10643,16 @@ function _ensurePayrollEmployeeOption(empId){
   }
 }
 
-function initPayrollSection(){
+// Competência que um atalho pediu ANTES de abrir a Folha (lista de Folhas
+// Abertas, log clicável, drill-down de card…). A seção abre já nela, em vez de
+// abrir na vigente e se corrigir depois. #folha-fica-na-competencia
+let _payrollCompAlvo = null;
+function _payrollAbrirEm(mes, ano){
+  if(mes && ano) _payrollCompAlvo = { mes:parseInt(mes), ano:parseInt(ano) };
+}
+
+// jaNaFolha = já estava na seção Folha de Ponto (ação interna, não é "entrar").
+function initPayrollSection(jaNaFolha){
   const currentId=(document.getElementById('payroll-employee')||{}).value||'';
   // Filtro por posto — só mostra os postos no escopo do supervisor
   const fSel=document.getElementById('payroll-filter-posto');
@@ -10661,16 +10674,31 @@ function initPayrollSection(){
   _populatePayrollEmployees();
   const mesEl=document.getElementById('payroll-mes');
   const anoEl=document.getElementById('payroll-ano');
-  // Default = COMPETÊNCIA VIGENTE (período em curso, 26→25). Ao ABRIR a seção SEMPRE
-  // volta pra vigente + TRAVA a navegação (pedido do dono 2026-06-27) — antes mantinha a
-  // competência da navegação anterior (ex.: reabria em Junho FECHADA). Os drill-downs
-  // (openPayrollForEmployee / _pagAbrirRevisao) setam a competência DEPOIS do showSection,
-  // então continuam abrindo na competência certa. #folha-abre-vigente
+  // Default = COMPETÊNCIA VIGENTE (período em curso, 26→25). ENTRAR na seção
+  // volta pra vigente + TRAVA a navegação (pedido do dono 2026-06-27) — antes
+  // mantinha a competência da navegação anterior (ex.: reabria em Junho
+  // FECHADA). #folha-abre-vigente
+  //
+  // 🔒 DUAS EXCEÇÕES, e só duas (dono 2026-07-27 — "fecho uma folha e volta pra
+  // vigência atual, gera muito esforço"):
+  //  1. Um atalho DECLAROU a competência antes de abrir (_payrollCompAlvo):
+  //     abre JÁ nela. Antes o atalho abria na vigente e corrigia 100ms depois —
+  //     e o painel, que é assíncrono, às vezes chegava atrasado e repintava a
+  //     vigente por cima.
+  //  2. Já estava NA Folha (`jaNaFolha`): ação interna — fechar uma folha,
+  //     escolher o próximo da lista de Folhas Abertas — NÃO pode arrastar o
+  //     operador pra outra competência no meio do trabalho.
+  // Voltar pra vigente continua sendo um ato explícito: o botão "Voltar pra
+  // Vigente", que segue ali do lado. #folha-fica-na-competencia
   const vig = competenciaVigente();
-  mesEl.value = vig.mes;
-  anoEl.value = vig.ano;
+  const _atual = { mes: parseInt(mesEl.value)||vig.mes, ano: parseInt(anoEl.value)||vig.ano };
+  const alvo = _payrollCompAlvo || (jaNaFolha ? _atual : vig);
+  _payrollCompAlvo = null;
+  mesEl.value = alvo.mes;
+  anoEl.value = alvo.ano;
+  const _foraDaVigente = (alvo.mes!==vig.mes || alvo.ano!==vig.ano);
   const _chkPass = document.getElementById('chk-consultar-passadas');
-  if(_chkPass){ _chkPass.checked = false; _togglePeriodoNavegacao(false); }
+  if(_chkPass){ _chkPass.checked = _foraDaVigente; _togglePeriodoNavegacao(_foraDaVigente); }
   const mes=parseInt(mesEl.value), ano=parseInt(anoEl.value);
   _autoFillPeriodoDates(mes,ano);
   _updatePainelFechamento(mes,ano);
@@ -16044,6 +16072,10 @@ function openPayrollForEmployee(empId, ctx){
   // ctx (opcional) = { mes, ano, fieldKey, label, color }
   // Quando vem de um drill-down de stat, ajusta o mes/ano da Folha e
   // depois faz scroll + destaca o campo correspondente do indicador clicado.
+  // A competência é DECLARADA antes: a seção abre já nela, sem abrir na
+  // vigente e se corrigir 100ms depois (o painel é assíncrono e a correção
+  // chegava atrasada). #folha-fica-na-competencia
+  if(ctx && ctx.mes && ctx.ano) _payrollAbrirEm(ctx.mes, ctx.ano);
   showSection('payroll');
   setTimeout(() => {
     if(ctx && ctx.mes) setVal('payroll-mes', String(ctx.mes));
@@ -16378,8 +16410,17 @@ function onPayrollPeriodoChange(){
   if(empId) onPayrollEmployeeChange();
 }
 
+// 🔒 CORRIDA DE PAINEL: esta função é ASSÍNCRONA (espera o Firestore). Se duas
+// competências forem pedidas em sequência — e é o que acontece ao entrar na
+// Folha por um atalho: a seção abre na VIGENTE e logo em seguida troca pra
+// escolhida —, a resposta da PRIMEIRA podia chegar DEPOIS e repintar o painel
+// com a competência errada. Era isso que "voltava pra vigente" sozinho, com os
+// campos De/Até já mostrando a competência certa. O token descarta a resposta
+// atrasada. #folha-fica-na-competencia
+let _painelFechToken = 0;
 async function _updatePainelFechamento(mes,ano){
   mes=parseInt(mes||currentMes()); ano=parseInt(ano||currentAno());
+  const _tk = ++_painelFechToken;
   const key=_periodoKey(mes,ano);
   const label=document.getElementById('fechamento-periodo-label');
   const badge=document.getElementById('fechamento-status-badge');
@@ -16397,6 +16438,9 @@ async function _updatePainelFechamento(mes,ano){
   }catch(e){ console.warn('Conf fechamento não carregada:',e); }
   State.confFolha=State.confFolha||{};
   State.confFolha[key]=conf;
+  // Outra competência assumiu enquanto o Firestore respondia: guarda a config
+  // (ela é válida) mas NÃO repinta a tela — quem manda é a última pedida.
+  if(_tk !== _painelFechToken) return;
 
   if(dataInput) dataInput.value=conf.dataFechamento||'';
   const hoje=new Date().toISOString().substring(0,10);

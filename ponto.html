@@ -578,7 +578,7 @@ try{ window.__APP_BOOTED = true; }catch(_){}
 // ─── VERSÃO DO APP DO COLABORADOR ─────────────────────────────────────────────
 // Bumpe SEMPRE em conjunto com o CACHE do ponto-sw.js e o ?v= do firebase-config.
 // Formato: AA.MM.DD + letra (a, b, c...) — alinhado com o nome do cache.
-const PONTO_VERSION = '26.07.27a';
+const PONTO_VERSION = '26.07.27b';
 // Exibe a versão no rodapé (script roda após o DOM, então o elemento já existe)
 (function _setVersionTag(){
   const t = document.getElementById('app-version-tag');
@@ -651,7 +651,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=52').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=53').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -1412,15 +1412,18 @@ function linkMaps(geo) {
 
 // ─── DISCIPLINA DE HORÁRIO (trava real, nao mais aviso) ──────────────────────
 // Regras:
-// - Entrada / Saida: horario cadastrado +/- 5 min (CLT Art. 58)
-// - Ida ao intervalo: de 5min antes ate 60min depois do horario cadastrado
-// - Volta do intervalo: 60 a 65 min apos a saida REAL pro intervalo
-//   (regra trabalhista de descanso minimo de 1h — CLT Art. 71)
+// - Entrada: so' a partir de 5 min ANTES do horario do dia (qualquer escala)
+// - Saida:   ate' 5 min DEPOIS do horario do dia (qualquer escala)
+// - Ida ao intervalo: SEMPRE liberada (refeicao nao tem hora marcada)
+// - Volta do intervalo: so' o MINIMO de 1h de descanso (CLT Art. 71). Passar do
+//   previsto NAO pede autorizacao — e' tolerado ate' a SOMA do dia estourar
+//   TOLERANCIA_DIA_MIN, e ai' o supervisor valida o atraso (Sumula 366).
 // - Dia de folga: bloqueia, exige autorizacao
 const TOLERANCIA_MIN     = 5;   // entrada/saida — tolerancia de 5min antes/depois
 const TOLERANCIA_DIA_MIN = 10;  // SOMATORIA do dia (entrada+saida+atraso refeicao) — Sumula 366 TST
 const DESCANSO_MIN       = 60;  // tempo minimo de intervalo (CLT Art. 71)
-const DESCANSO_MAX       = 65;  // tolerancia de 5min sobre o minimo (refeicao nao passa de 1h05)
+// 🔒 NAO recriar um "DESCANSO_MAX": passar do intervalo previsto NAO pede autorizacao.
+// O excesso e' tolerado ate' a SOMA do dia estourar TOLERANCIA_DIA_MIN. #janela-batida
 
 function timeToMin(t){
   const p=(t||'').split(':'); const h=parseInt(p[0])||0, m=parseInt(p[1])||0;
@@ -1556,7 +1559,7 @@ function _horarioEsperado(prox){
 }
 
 // Pega a hora real (HH:MM) que o colaborador bateu a saida pro intervalo HOJE.
-// Usada para travar a volta — 60-65 min APOS essa hora real, nao o previsto.
+// Usada para cobrar o MINIMO de 1h APOS essa hora real, nao o previsto.
 function _horaIntIniRegistrada(){
   try{
     const j = _diaJornada();
@@ -1741,8 +1744,15 @@ function analisarHorario(prox, now){
     return { tipo:'ok' };
   }
 
-  // 3. Volta do intervalo (intFim) — controla só a DURAÇÃO do intervalo.
-  //    Mínimo 1h (CLT Art. 71). Tolerância de 5min. Passou de 1h05 → autorização.
+  // 3. Volta do intervalo (intFim) — DUAS travas, e só duas:
+  //    (a) MÍNIMO de 1h de descanso (CLT Art. 71) — é lei, não abre exceção;
+  //    (b) a SOMA dos minutos fora do horário NO DIA passar de 10min (Súmula 366)
+  //        → aí sim o supervisor valida o atraso.
+  // 🔒 NÃO existe trava por "passou de 1h05" (removida 27/07/2026 a pedido do dono).
+  // Ela fazia quem voltou 1 minuto além pedir autorização — e a janela de ±5min é
+  // SÓ de entrada e saída, para todas as escalas (escopo fechado em 15/07).
+  // Minuto perdido no almoço/jantar é TOLERADO até estourar os 10min do dia.
+  // #janela-batida #tolerancia-minutos
   if(prox === 'intFim'){
     const horaIda = _horaIntIniRegistrada();
     if(!horaIda) return { tipo:'ok' }; // sem ida registrada — não dá pra medir; libera
@@ -1755,14 +1765,6 @@ function analisarHorario(prox, now){
         diff: decorrido,
         faltaMin: DESCANSO_MIN - decorrido,
         msg: `Você precisa descansar mais ${DESCANSO_MIN - decorrido} min. O intervalo mínimo é de 1 hora (você saiu às ${horaIda}). CLT Art. 71.`
-      };
-    }
-    if(decorrido > DESCANSO_MAX){
-      return {
-        tipo: 'foraJanela',
-        esperado: horaIda,
-        diff: decorrido,
-        msg: `O intervalo passou de 1h05 (você saiu às ${horaIda}, já faz ${decorrido} min). Solicite autorização ao supervisor.`
       };
     }
     // Volta dentro de 1h05, mas a SOMA do dia pode estourar 10min → autorização.

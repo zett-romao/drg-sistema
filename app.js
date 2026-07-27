@@ -16786,11 +16786,23 @@ function _folhasFechadasLista(mes, ano){
 // não havia onde ver o que ainda falta. A linha é CLICÁVEL — abre a folha
 // daquela pessoa NA COMPETÊNCIA da lista. #folhas-abertas
 // ============================================================================
+// 🔒 DEMITIDO MORRE PARA O SISTEMA (regra do dono 27/07/2026). Informada a data de
+// demissão, ele SAI de toda relação de ativos — sem exceção, inclusive na própria
+// competência em que foi desligado.
+// O PORQUÊ (é jurídico, não estético): o que sobrou daquele mês vira SALDO DE
+// SALÁRIO e é pago na RESCISÃO. Não é mais pagamento comum. Deixar a folha dele
+// na fila de "abertas a pagar" convida a pagar duas vezes — uma na folha, outra
+// no acerto. #demissao-fecha-folha
+function _empDemitido(emp){
+  return !!((emp && emp.dataDemissao || '').slice(0,10));
+}
 function _folhasAbertasLista(mes, ano){
   const empById = id => State.employees.find(e=>e.id===id);
+  const per = _compPeriodo(mes, ano);
   let lista = (State.payrolls||[]).filter(p=>p.mes==mes && p.ano==ano && p.status!=='fechada');
   // Mesmo escopo de postos do supervisor que a lista de fechadas usa.
   lista = lista.filter(p=>{ const e=empById(p.employeeId); return e ? _empNoEscopo(e) : true; });
+  lista = lista.filter(p=>{ const e=empById(p.employeeId); return e ? !_empDemitido(e) : true; });
   lista.sort((a,b)=>{
     const ea=empById(a.employeeId), eb=empById(b.employeeId);
     return (ea?.nome||'').localeCompare(eb?.nome||'');
@@ -17102,7 +17114,8 @@ async function fecharFolhaPorId(payrollId){
 // _apurarBonusFolha). Ele já vira 'inativo' (some do Monitor); folha fechada some do card
 // "Faltas Registradas". Reversível: reabrir a folha / apagar a demissão volta ao normal.
 // #demissao-fecha-folha
-async function _fecharFolhasDemissao(emp){
+async function _fecharFolhasDemissao(emp, opts){
+  const _silencioso = !!(opts && opts.silencioso);   // selagem em lote fala uma vez só
   if(!emp || !emp.dataDemissao) return;
   const dem=new Date((emp.dataDemissao+'').slice(0,10)+'T00:00:00');
   if(isNaN(dem.getTime())) return;
@@ -17133,10 +17146,44 @@ async function _fecharFolhasDemissao(emp){
   }
   try{ Auth.log('DEMISSAO_FECHA_FOLHA', null, `${emp.nome} — demissão ${emp.dataDemissao} — ${n} folha(s) fechada(s)`); }catch(_){}
   if(n){
-    toast(`Demissão de ${emp.nome}: ${n} folha(s) fechada(s) com as faltas apuradas.`,'success');
+    if(!_silencioso) toast(`Demissão de ${emp.nome}: ${n} folha(s) fechada(s) com as faltas apuradas.`,'success');
     try{ if(State.currentSection==='dashboard') renderDashboard(); }catch(_){}
     try{ if(State.currentSection==='monitorfaltas') renderMonitorFaltas(); }catch(_){}
     try{ renderFolhasFechadasLista(); }catch(_){}
+  }
+}
+
+// 🔒 SELAGEM DOS DEMITIDOS — faz valer a regra "demissão fecha a folha" mesmo para
+// quem foi desligado ANTES dessa automação existir (ou teve a folha reaberta depois).
+// Sem isto o demitido fica eternamente na fila de folhas abertas, e o mês dele
+// parece pagamento comum a fazer — quando na verdade virou SALDO DE SALÁRIO da
+// RESCISÃO. Duas contas para o mesmo dinheiro é como se paga duas vezes.
+// Roda UMA vez por sessão, depois que os dados carregaram, e avisa o que fez
+// (nunca calado). Só quem pode editar folha dispara. #demissao-fecha-folha
+let _demitidosSelados = false;
+async function _selarFolhasDemitidos(){
+  if(_demitidosSelados) return;
+  _demitidosSelados = true;
+  const _ehMaster = Auth.currentUser?.role==='master';
+  if(!_ehMaster && getUserPerms(Auth.currentUser).payroll!=='edit') return;
+  const _key = p => (+p.ano)*12 + (+p.mes);
+  const alvos = (State.employees||[]).filter(e=>{
+    const dem=(e && e.dataDemissao||'').slice(0,10);
+    if(!dem) return false;
+    const d=new Date(dem+'T00:00:00'); if(isNaN(d.getTime())) return false;
+    const c=_competenciaDe(d), kd=(+c.ano)*12 + (+c.mes);
+    return (State.payrolls||[]).some(p=>p && p.employeeId===e.id && p.status!=='fechada' && _key(p)<=kd);
+  });
+  if(!alvos.length) return;
+  let n=0;
+  for(const emp of alvos){
+    try{ await _fecharFolhasDemissao(emp, {silencioso:true}); n++; }
+    catch(e){ console.error('selar folha de demitido', emp&&emp.nome, e); }
+  }
+  if(n){
+    toast(`✓ ${n} colaborador(es) demitido(s): folha fechada e saíram das relações de ativos. O acerto é na rescisão (saldo de salário).`,'success');
+    try{ Auth.log('DEMISSAO_SELAGEM_FOLHAS', null, `${n} demitido(s) com folha aberta — fechadas automaticamente`); }catch(_){}
+    try{ if(State.currentSection==='payroll') renderFolhasAbertasLista(); }catch(_){}
   }
 }
 
@@ -35822,6 +35869,9 @@ async function _carregarDadosPosLogin(){
     catch(_){ State.termosFerias = []; }
     try{ State.pedidosTitular = await DB.getAll('pedidosTitular'); }   // direitos do titular (LGPD Fase 3). #lgpd-titular
     catch(_){ State.pedidosTitular = []; }
+    // Demitido com folha aberta = pendência que não devia existir. Fecha e ele sai
+    // das relações de ativos. Não bloqueia a carga da tela. #demissao-fecha-folha
+    _selarFolhasDemitidos().catch(e=>console.warn('selar folhas de demitidos', e));
   } catch(e){
     console.error('Erro ao carregar dados:', e);
     const msg = e && e.message ? e.message : String(e);

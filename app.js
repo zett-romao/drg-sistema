@@ -33181,9 +33181,15 @@ function renderHistoricoLotacao(emp){
           <td><strong>${formatDateBr(h.dataInicio)}</strong></td>
           <td>${h.posto||'—'}</td>
           <td>${h.cargo||'—'}</td>
-          <td>${h.escala||'—'}</td>
+          <!-- escalaLabel: mostrava o ID cru do modelo ("m_mpeg5x5eydylbnic"), que não
+               diz nada pra quem lê a linha do tempo. #escala-modelo-manda -->
+          <td>${esc(escalaLabel(h.escala)||'—')}</td>
           <td>${h.turnoNoturno?'<span style="color:#5C6BC0;font-weight:600">Noturno</span>':'Diurno'}</td>
-          <td style="white-space:nowrap;font-variant-numeric:tabular-nums">${h.horarioEntrada||'—'}–${h.horarioSaida||'—'}${h.semRefeicao?' <small style="color:#C62828">(s/ ref.)</small>':((h.horarioRefIni||h.horarioRefFim)?` <small style="color:#888">int ${h.horarioRefIni||'—'}–${h.horarioRefFim||'—'}</small>`:'')}</td>
+          <td style="white-space:nowrap;font-variant-numeric:tabular-nums">${
+            _escalaModelo(h.escala)
+              ? '<small style="color:#4527A0">conforme o modelo (dia a dia)</small>'
+              : `${h.horarioEntrada||'—'}–${h.horarioSaida||'—'}${h.semRefeicao?' <small style="color:#C62828">(s/ ref.)</small>':((h.horarioRefIni||h.horarioRefFim)?` <small style="color:#888">int ${h.horarioRefIni||'—'}–${h.horarioRefFim||'—'}</small>`:'')}`
+          }</td>
           <td>${fmtMoney(h.salarioBase||0)}</td>
           <td style="font-size:11px">${adic}</td>
           <td style="font-size:11px;white-space:nowrap">${benef}</td>
@@ -33277,6 +33283,49 @@ function _transfToggleCiclo12x36(){
   row.style.display = (escalaFamilia(val('transf-escala')||'')==='12x36') ? '' : 'none';
 }
 
+// Trocar a escala na Mudança de Lotação passa a MEXER nos horários — antes não
+// mexia em nada e o gestor concluía (com razão) que os modelos eram enfeite.
+// São dois mundos diferentes:
+//  • Escala do SISTEMA (5x2A, 6x1…, 12x36-…): horário fixo e conhecido → preenche
+//    os campos, igual o cadastro já fazia (onEscalaChange).
+//  • MODELO personalizado (m_xxx): o horário é DIA A DIA, dentro do modelo, e é
+//    ele que o cálculo lê (_getExpectedDayComp devolve o template do modelo antes
+//    de olhar estes campos). Aqui NÃO preenchemos nada: avisamos que o modelo
+//    manda. Os campos continuam editáveis de propósito — o app de ponto ainda usa
+//    emp.horarioEntrada como reserva pra montar a jornada do dia. #escala-modelo-manda
+function _transfEscalaMudou(){
+  _transfToggleCiclo12x36();
+  const escala=val('transf-escala')||'';
+  const aviso=document.getElementById('transf-escala-modelo-aviso');
+  const mod=_escalaModelo(escala);
+  if(mod){
+    if(aviso){
+      // Mostra um dia de trabalho do modelo como amostra do que vai valer.
+      const d=(Array.isArray(mod.dias)?mod.dias:[]).find(x=>x && (x.tipo==='trabalho'||x.tipo==='corrido') && x.entrada && x.saida);
+      const amostra = d
+        ? `Ex.: dia de trabalho <strong>${d.entrada}–${d.saida}</strong>${(d.intIni&&d.intFim)?` (refeição ${d.intIni}–${d.intFim})`:''}.`
+        : '';
+      aviso.innerHTML = `<i class="fa-solid fa-circle-info"></i> <strong>${esc(mod.nome||'Escala personalizada')}</strong> é uma escala montada por você:
+        os horários vêm do <strong>próprio modelo, dia a dia</strong> — inclusive folgas e dias com horário diferente.
+        ${amostra} Os campos de horário abaixo <strong>não precisam ser preenchidos</strong> para esta escala;
+        eles ficam só como reserva (o app de ponto usa se o modelo não disser nada no dia).`;
+      aviso.style.display='';
+    }
+    return;
+  }
+  if(aviso) aviso.style.display='none';
+  // Escala do sistema com horário fixo: preenche por conveniência (editável).
+  const def=ESCALA_HORARIOS_DEFAULT[escala];
+  if(def && _escalaFixa(escala)){
+    setVal('transf-h-entrada', def.entrada);
+    setVal('transf-h-saida',   def.saida);
+    if(def.intIni) setVal('transf-h-ref-ini', def.intIni);   // não zera refeição de contrato
+    if(def.intFim) setVal('transf-h-ref-fim', def.intFim);
+    const nt=document.getElementById('transf-turno-noturno');
+    if(nt) nt.checked=_escala12x36Noturna(escala);
+  }
+}
+
 function openTransferenciaModal(){
   const empId=State.editingEmployeeId;
   const emp=State.employees.find(e=>e.id===empId);
@@ -33298,13 +33347,16 @@ function openTransferenciaModal(){
   const escSel=document.getElementById('transf-escala'), empEsc=document.getElementById('emp-escala');
   if(escSel && empEsc) escSel.innerHTML=empEsc.innerHTML;
   if(escSel) escSel.value=emp.escala||'5x2A';
-  // Âncora do ciclo 12x36 (paridade) — só aparece p/ escala 12x36. Vazio = usa a vigência.
-  if(escSel) escSel.onchange=_transfToggleCiclo12x36;
+  // Âncora do ciclo 12x36 + horários da escala escolhida. #escala-modelo-manda
+  if(escSel) escSel.onchange=_transfEscalaMudou;
   // NÃO pré-preencher com a âncora antiga do cadastro: isso fazia a transferência HERDAR a
   // fase do passado e recusar a virada de plantão (a mudança de lotação é SOBERANA). Vazio =
   // usa a data de vigência como 1º dia de trabalho. Preencha só p/ fixar outro dia. #lotacao-soberana
   setVal('transf-ciclo-12x36', '');
-  _transfToggleCiclo12x36();
+  // Na ABERTURA o aviso do modelo já tem que aparecer (a escala atual pode ser
+  // personalizada). Os horários preenchidos logo abaixo vêm do CONTRATO e
+  // sobrescrevem qualquer padrão — a jornada segue o contrato. #jornada-segue-contrato
+  _transfEscalaMudou();
   // Pré-preenche com a lotação atual (muda só o que trocou)
   setVal('transf-data-entrada',hojeISO);
   setVal('transf-cargo',emp.cargo||'');

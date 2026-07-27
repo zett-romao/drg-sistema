@@ -69,7 +69,7 @@
   </script>
   <link rel="stylesheet" href="drg-ui.css?v=2">
   <script src="drg-ui.js?v=2"></script>
-  <link rel="stylesheet" href="styles.css?v=20260727c-botao-travado">
+  <link rel="stylesheet" href="styles.css?v=20260727d-escala-modelo">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -6159,6 +6159,10 @@
           </div>
         </div>
       </div>
+      <!-- Aviso: escala PERSONALIZADA manda nos horários (dia a dia). Os campos de
+           horário abaixo viram só reserva — sem isto o gestor acha que o modelo é
+           ilustrativo e sai preenchendo horário à mão. #escala-modelo-manda -->
+      <div id="transf-escala-modelo-aviso" style="display:none;background:#EDE7F6;border:1px solid #B39DDB;border-radius:7px;padding:9px 12px;margin:-2px 0 10px;font-size:12px;color:#4527A0;line-height:1.55"></div>
       <div class="form-row" id="transf-row-ciclo12x36" style="display:none">
         <div class="form-group" style="grid-column:1 / -1">
           <label><i class="fa-solid fa-repeat" style="color:#5C6BC0"></i> Início do ciclo 12×36 — paridade da NOVA escala</label>
@@ -7943,6 +7947,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260727c-botao-travado"></script>
+  <script src="app.js?v=20260727d-escala-modelo"></script>
 </body>
 </html>

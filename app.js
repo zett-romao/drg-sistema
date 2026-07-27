@@ -29490,8 +29490,18 @@ function _getExpectedDayResolve(emp, mes, ano, dia, ignoreAdmissao){
   if(_overrideAvulsoEm(emp, _ymdP)) return _getExpectedDayBase(emp, mes, ano, dia, ignoreAdmissao);  // avulso vence o período
   const per = _periodoEscalaEm(emp, _ymdP);
   if(!per) return _getExpectedDayBase(emp, mes, ano, dia, ignoreAdmissao);
+  // 🔒 A escala do PERÍODO tem que chegar inteira no cálculo. Trocar só
+  // `emp.escala` NÃO bastava: _getExpectedDayBase lê a escala de _lotacaoEm(),
+  // e a lotação vigente sobrepõe emp.escala sempre que existe histórico. Ou
+  // seja: o período trocava o HORÁRIO mas o ritmo trabalho/folga continuava
+  // vindo da escala da LOTAÇÃO.
+  // Estrago real (Carla, Jul/2026): período 06→15/07 em 6x1, lotação em 12x36.
+  // O motor projetou o ciclo 12x36 (folga em 07, 13 e 15/07 — terça e quarta,
+  // que uma 6x1 nunca folga) e, como ela trabalhou nesses dias, a jornada
+  // INTEIRA virou hora extra a aprovar. HE fantasma, com valor.
+  // `_escalaPeriodo` é lido logo depois do _lotacaoEm(). #periodo-escala-vence-lotacao
   const base = per.escala
-    ? _getExpectedDayBase({ ...emp, escala: per.escala }, mes, ano, dia, ignoreAdmissao)
+    ? _getExpectedDayBase({ ...emp, escala: per.escala, _escalaPeriodo: per.escala }, mes, ano, dia, ignoreAdmissao)
     : _getExpectedDayBase(emp, mes, ano, dia, ignoreAdmissao);
   if(base && base.tipo!=='folga' && per.horarioEntrada){
     base.entrada = per.horarioEntrada;
@@ -29529,6 +29539,10 @@ function _getExpectedDayBase(emp, mes, ano, dia, ignoreAdmissao){
   // Lotação vigente na data (posto/turno/escala/horário/semRefeição) — faz o dia
   // ser calculado com as regras do período em que ele cai (transferências).
   const lot = _lotacaoEm(emp, ymd);
+  // Período de mudança de escala VENCE a escala da lotação no trecho dele — é
+  // exatamente para isso que o período existe. Sem esta linha o período só
+  // conseguia trocar horário. #periodo-escala-vence-lotacao
+  if(emp._escalaPeriodo) lot.escala = emp._escalaPeriodo;
   const ov  = (emp.overridesHorario||[]).find(o => o.data === ymd);
   if(ov){
     if(ov.tipo === 'folga') return { tipo:'folga', entrada:'', saida:'', intIni:'', intFim:'' };

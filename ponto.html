@@ -578,7 +578,7 @@ try{ window.__APP_BOOTED = true; }catch(_){}
 // ─── VERSÃO DO APP DO COLABORADOR ─────────────────────────────────────────────
 // Bumpe SEMPRE em conjunto com o CACHE do ponto-sw.js e o ?v= do firebase-config.
 // Formato: AA.MM.DD + letra (a, b, c...) — alinhado com o nome do cache.
-const PONTO_VERSION = '26.07.27b';
+const PONTO_VERSION = '26.07.31a';
 // Exibe a versão no rodapé (script roda após o DOM, então o elemento já existe)
 (function _setVersionTag(){
   const t = document.getElementById('app-version-tag');
@@ -651,7 +651,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=53').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=54').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -1211,6 +1211,27 @@ async function carregarPayroll() {
     console.error(e);
     currentPayroll = null;
   }
+}
+
+// 🔒 RELEITURA ANTES DE GRAVAR. A batida reescreve o ARRAY INTEIRO de `pontoManualDias`
+// (Firestore não atualiza um item de array sozinho), e a cópia da sessão pode estar velha —
+// o app carrega a folha ao abrir a Home e só relê depois de uma autorização. Se o
+// supervisor tiver ajustado o dia no painel dele desde então, gravar por cima da cópia
+// velha RESSUSCITA os horários antigos e o ajuste some sem ninguém ver.
+// Falhou a leitura (offline/erro)? mantém a cópia que já tem — nunca zera a folha:
+// carregarPayroll() põe `null` no erro, e gravar com `null` apagaria o mês inteiro.
+// #ajuste-dia-supervisor
+async function _relerPayrollAntesDeGravar(){
+  try{
+    const j = _diaJornada();
+    const comp = _competenciaDe(j.dia, j.mes, j.ano);
+    const snap = await dbCol('payrolls')
+      .where('employeeId','==',currentEmp.id)
+      .where('mes','==',comp.mes)
+      .where('ano','==',comp.ano)
+      .get();
+    if(!snap.empty) currentPayroll = _pickPayrollDoc(snap.docs);
+  }catch(e){ console.warn('releitura da folha antes de gravar', e); }
 }
 
 // Dia da JORNADA — turno noturno: registros após a meia-noite pertencem
@@ -2075,6 +2096,10 @@ async function baterPonto() {
   const geo = await getGeolocalizacao();
 
   btn.innerHTML = '<span class="punch-btn-icon">⏳</span><span class="punch-btn-text">Salvando...</span>';
+
+  // Relê a folha do banco ANTES de montar o array (ajuste do supervisor não pode ser
+  // sobrescrito por uma cópia velha da sessão). #ajuste-dia-supervisor
+  await _relerPayrollAntesDeGravar();
 
   try {
     // Copia array de dias

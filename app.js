@@ -30331,6 +30331,24 @@ function _updatePontoOrigemMarker(input){
     parent.appendChild(mark);
     return;
   }
+  // 🔒 Horário AJUSTADO PELO SUPERVISOR no app dele (supervisor.html → "Editar dia").
+  // O que ele grava lá vale aqui: é a mesma folha. A marca existe pra ninguém "consertar"
+  // de volta sem saber que houve decisão. #ajuste-dia-supervisor
+  if(origem === 'supervisor'){
+    const dia = input.closest('[data-dia]');
+    const empId = val('payroll-employee'), mesL = parseInt(val('payroll-mes')), anoL = parseInt(val('payroll-ano'));
+    const pay = (State.payrolls||[]).find(p=>p.employeeId===empId&&p.mes==mesL&&p.ano==anoL);
+    const d = dia && (pay?.pontoManualDias||[]).find(x=>x && x.dia===parseInt(dia.dataset.dia));
+    const aj = d && d.ajusteSupervisor;
+    const mark = document.createElement('span');
+    mark.className = 'pm-origem-mark';
+    mark.title = 'Ajustado pelo SUPERVISOR no app de autorização'
+      + (aj ? ` — ${aj.por||'—'} em ${aj.em ? new Date(aj.em).toLocaleString('pt-BR') : '—'}${aj.motivo ? '\nMotivo: '+aj.motivo : ''}` : '');
+    mark.textContent = '✏️';
+    mark.style.cssText = 'font-size:11px;margin-left:4px;vertical-align:middle';
+    parent.appendChild(mark);
+    return;
+  }
   if(origem === 'manual'){
     const mark = document.createElement('span');
     mark.className = 'pm-origem-mark';
@@ -30387,6 +30405,10 @@ function _collectPontoManualDias(){
     if(existingDay.refExtra) obj.refExtra = existingDay.refExtra;
     // Preserva aprovação do benefício de feriado trabalhado. #feriados
     if(existingDay.feriadoBenefOk) obj.feriadoBenefOk = existingDay.feriadoBenefOk;
+    // Preserva a auditoria do ajuste feito pelo SUPERVISOR (quem/quando/motivo/de→para).
+    // Salvar o Ponto Manual reconstrói o dia a partir dos campos da tela — sem isto o
+    // registro de quem decidiu sumia no primeiro save. #ajuste-dia-supervisor
+    if(existingDay.ajusteSupervisor) obj.ajusteSupervisor = existingDay.ajusteSupervisor;
     dias.push(obj);
   });
   return dias;

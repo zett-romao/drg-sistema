@@ -81,13 +81,40 @@
   .card-motivo{margin-top:7px;background:#fffbeb;border:1px solid #fde68a;border-radius:7px;padding:7px 9px;font-size:12px;color:#713f12;line-height:1.45}
   .card-motivo strong{color:#92400e}
   .card-tempo{font-size:11px;color:#64748b;margin-top:7px}
-  .card-actions{display:flex;gap:8px;margin-top:11px}
-  .btn-aut{flex:1;padding:13px;background:#16a34a;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer}
+  /* Botões preenchem a linha (grid auto-fit, mesma altura) — padrão DR Systems. */
+  .card-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:8px;margin-top:11px}
+  .btn-aut{padding:13px;background:#16a34a;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer}
   .btn-aut:active{background:#15803d}
-  .btn-rec{flex:1;padding:13px;background:#fff;color:#c62828;border:1px solid #fca5a5;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer}
+  .btn-rec{padding:13px;background:#fff;color:#c62828;border:1px solid #fca5a5;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer}
   .btn-rec:active{background:#fee2e2}
-  .btn-edit{flex:1;padding:13px;background:#fff;color:#1565C0;border:1px solid #90caf9;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer}
+  .btn-edit{padding:13px;background:#fff;color:#1565C0;border:1px solid #90caf9;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer}
   .btn-edit:active{background:#e3f2fd}
+  button:active{transform:scale(.98);filter:brightness(.92)}
+
+  /* AJUSTE DO DIA — o supervisor corrige as 4 batidas aqui. #ajuste-dia-supervisor */
+  .ajd-card{max-width:440px;max-height:92vh;overflow-y:auto;position:relative}
+  .ajd-x{position:absolute;top:10px;right:10px;width:34px;height:34px;border-radius:9px;border:1px solid #e2e8f0;background:#fff;color:#64748b;font-size:16px;font-weight:700;cursor:pointer;line-height:1}
+  .ajd-row{display:grid;grid-template-columns:1fr 118px;gap:8px;align-items:center;padding:9px 0;border-top:1px solid #f1f5f9}
+  .ajd-row.pedido{background:#e3f2fd;border-radius:8px;padding:9px;margin:0 -9px}
+  .ajd-lbl{font-size:13px;font-weight:700;color:#334155}
+  .ajd-sub{font-size:11px;color:#64748b;margin-top:2px;line-height:1.4}
+  .ajd-inp{width:100%;padding:10px 8px;border:1px solid #cbd5e1;border-radius:9px;font-size:16px;font-weight:700;text-align:center;font-variant-numeric:tabular-nums;outline:none;font-family:inherit;background:#fff}
+  .ajd-inp:focus{border-color:#1976D2;box-shadow:0 0 0 3px #dbeafe}
+  .ajd-chips{grid-column:1 / -1;display:flex;flex-wrap:wrap;gap:6px}
+  .ajd-chip{background:#f1f5f9;border:1px solid #e2e8f0;color:#475569;border-radius:20px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit}
+  .ajd-chip:active{background:#e2e8f0}
+  .ajd-tag{display:inline-block;background:#e0e7ff;color:#3730a3;border-radius:9px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:5px;vertical-align:middle;text-transform:uppercase;letter-spacing:.3px}
+  .ajd-tag.ped{background:#1976D2;color:#fff}
+  .ajd-tag.falta{background:#fee2e2;color:#c62828}
+  .ajd-diff{margin-top:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:9px;padding:9px 11px;font-size:12px;color:#334155;line-height:1.6}
+  .ajd-diff b{color:#0f172a}
+  .ajd-diff .sem{color:#94a3b8}
+  .ajd-aviso{margin-top:10px;background:#fffbeb;border:1px solid #fde68a;border-radius:9px;padding:9px 11px;font-size:12px;color:#92400e;line-height:1.45;font-weight:600}
+  .ajd-aviso.bloqueio{background:#fee2e2;border-color:#fca5a5;color:#991b1b}
+  .modal-btn-salvar{background:#1976D2;color:#fff}
+  .modal-btn-salvar:disabled{opacity:.5;cursor:not-allowed}
+  /* Ajuste avulso pela busca (sem pedido pendente) */
+  .busca-ajuste{background:#fff;border-radius:12px;padding:13px 14px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
 
   .empty{text-align:center;padding:40px 20px;color:#94a3b8}
   .empty-icon{font-size:48px;margin-bottom:8px}
@@ -100,7 +127,7 @@
   /* MODAL RECUSA */
   .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;align-items:center;justify-content:center;padding:20px}
   .modal-overlay.show{display:flex}
-  .modal-card{background:#fff;border-radius:16px;max-width:380px;width:100%;padding:22px;box-shadow:0 12px 48px rgba(0,0,0,.35)}
+  .modal-card{background:#fff;border-radius:16px;max-width:380px;width:100%;padding:22px;box-shadow:0 12px 48px rgba(0,0,0,.35);position:relative}
   .modal-title{font-size:17px;font-weight:700;color:#1e293b;margin-bottom:6px}
   .modal-text{font-size:13px;color:#475569;margin-bottom:14px;line-height:1.45}
   .modal-input{width:100%;padding:11px 13px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px;font-family:inherit;resize:vertical;min-height:80px}
@@ -186,14 +213,34 @@
 </div>
 
 <!-- MODAL RECUSA -->
-<div class="modal-overlay" id="modal-recusa">
+<div class="modal-overlay" id="modal-recusa" onclick="if(event.target.id==='modal-recusa') fecharModalRecusa()">
   <div class="modal-card">
+    <button class="ajd-x" onclick="fecharModalRecusa()" title="Fechar" data-noguard="1">✕</button>
     <div class="modal-title">❌ Recusar pedido</div>
     <div class="modal-text" id="modal-recusa-info">Informe o motivo da recusa — o colaborador vera essa mensagem.</div>
     <textarea class="modal-input" id="modal-recusa-motivo" placeholder="Ex.: Sem motivo justificavel para o atraso..."></textarea>
     <div class="modal-btns">
       <button class="modal-btn modal-btn-secondary" onclick="fecharModalRecusa()">Cancelar</button>
       <button class="modal-btn modal-btn-primary" onclick="confirmarRecusa()">Recusar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL AJUSTE DO DIA — corrige as 4 batidas sem ir à folha de ponto. #ajuste-dia-supervisor -->
+<div class="modal-overlay" id="modal-ajuste-dia" onclick="_ajdCliqueFora(event)">
+  <div class="modal-card ajd-card">
+    <button class="ajd-x" onclick="fecharAjusteDia()" title="Fechar" data-noguard="1">✕</button>
+    <div class="modal-title">✏️ Ajustar o dia</div>
+    <div class="modal-text" id="ajd-sub">—</div>
+    <div id="ajd-linhas"></div>
+    <div class="ajd-aviso" id="ajd-aviso" style="display:none"></div>
+    <div class="ajd-diff" id="ajd-diff"></div>
+    <textarea class="modal-input" id="ajd-motivo" style="min-height:56px;margin-top:10px"
+      placeholder="Motivo do ajuste (fica registrado na folha). Ex.: esqueceu a volta do almoço; a saída caiu no campo errado."></textarea>
+    <div class="form-msg" id="ajd-msg" hidden></div>
+    <div class="modal-btns">
+      <button class="modal-btn modal-btn-secondary" onclick="fecharAjusteDia()">Cancelar</button>
+      <button class="modal-btn modal-btn-salvar" id="ajd-salvar" onclick="salvarAjusteDia(this)">💾 Gravar na folha</button>
     </div>
   </div>
 </div>
@@ -874,7 +921,7 @@ function _cardPedido(p){
       <div class="card-tempo">⏱ Solicitado ${fmtMinAtras(p.tentativaEm)}</div>
       <div class="card-actions">
         <button class="btn-aut" onclick="autorizarPedido('${p.id}')" title="Registra na folha o horário REAL da batida (${p.horarioReal||'—'})">✓ AUTORIZAR</button>
-        <button class="btn-edit" onclick="editarERegistrar('${p.id}')" title="Define o horário a registrar (ex.: o previsto, pra abonar o desvio)">✏️ Editar</button>
+        <button class="btn-edit" onclick="abrirAjusteDia('${p.id}')" title="Corrige as batidas do dia inteiro (entrada, intervalo e saída) — vale na folha de ponto">✏️ Editar dia</button>
         <button class="btn-rec" onclick="abrirRecusa('${p.id}')">✕ Recusar</button>
       </div>
     </div>`;
@@ -947,41 +994,293 @@ async function autorizarPedido(pedidoId){
   }
 }
 
-// Edita o horário antes de registrar (ex.: usar o previsto pra ABONAR o desvio,
-// sem gerar atraso/HE). O supervisor controla o que conta pelo horário. #ponto-provisorio
-async function editarERegistrar(pedidoId){
+// ─── AJUSTE DO DIA (as 4 batidas, aqui mesmo) ─────────────────────────────
+// 🔒 O que o supervisor grava AQUI é o que vale na folha de ponto: escreve direto em
+// `payrolls.pontoManualDias` (a MESMA fonte que a folha/Ponto Manual do gestor lê), com
+// origem `supervisor` por campo e o bloco de auditoria `ajusteSupervisor` no dia.
+// Nasceu do caso real (Lucia 0127, 30/07): ela não bateu a VOLTA do almoço, então a
+// batida da SAÍDA se encaixou no campo "Fim do intervalo" (o app preenche o próximo campo
+// vazio). Consertar isso exige mexer em DOIS horários — o antigo "Editar" só deixava
+// definir o horário da batida pedida, e o supervisor tinha que ir na folha de ponto.
+// SUBSTITUI `editarERegistrar` (prompt de um campo só; prompt ainda por cima pode estar
+// desligado no navegador). #ajuste-dia-supervisor
+let _ajdCtx = null;
+
+function _hojeYmdSup(){
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+// Esc fecha os modais (regra de tela: X + Esc + clique fora).
+document.addEventListener('keydown', e => {
+  if(e.key !== 'Escape') return;
+  const md = document.getElementById('modal-ajuste-dia');
+  if(md && md.classList.contains('show')){ fecharAjusteDia(); return; }
+  const mr = document.getElementById('modal-recusa');
+  if(mr && mr.classList.contains('show')) fecharModalRecusa();
+});
+
+// Competência (26→25) de uma data do calendário: dia ≥26 pertence ao mês SEGUINTE.
+// Inverso de _compRealSup. #competencia-26-25
+function _compDeDataSup(ymd){
+  const [a,m,d] = String(ymd||'').split('-').map(Number);
+  if(!a || !m || !d) return null;
+  if(d >= 26){ let mm=m+1, aa=a; if(mm>12){ mm=1; aa++; } return { mes:mm, ano:aa, dia:d }; }
+  return { mes:m, ano:a, dia:d };
+}
+
+async function _lerFolhaSup(empId, mes, ano){
+  const snap = await dbCol('payrolls')
+    .where('employeeId','==',empId).where('mes','==',mes).where('ano','==',ano).get();
+  return snap.empty ? null : _pickPayrollDoc(snap.docs);
+}
+
+// Abre pelo card de um pedido pendente.
+async function abrirAjusteDia(pedidoId){
   const p = pedidos.find(x => x.id === pedidoId);
   if(!p) return;
-  const _empE = employeesCache.find(e=>e.id===p.employeeId);
-  const prevEf = _previstoDoDiaSup(_empE, p.mesComp, p.anoComp, p.diaBatida, p.tipoBatida) || p.horarioPrevisto || '';
-  const sugestao = prevEf || p.horarioReal || '';
-  const txt = prompt(
-    'Horário a REGISTRAR na folha (HH:MM):\n\n'
-    + '• Real da batida: ' + (p.horarioReal||'—') + (prevEf ? '\n• Previsto (escala atual): ' + prevEf : '')
-    + '\n\nDica: use o PREVISTO para abonar o desvio (sem atraso/HE).',
-    sugestao);
-  if(txt === null) return;
-  let hhmm = (txt||'').trim();
-  const m = hhmm.match(/^(\d{1,2}):(\d{2})$/);
-  if(!m || +m[1] > 23 || +m[2] > 59){ toast('Horário inválido. Use HH:MM (ex.: 07:00).', 'error'); return; }
-  hhmm = String(+m[1]).padStart(2,'0') + ':' + m[2];
-  if(!confirm(`Registrar na folha a batida de ${p.employeeNome} às ${hhmm} (${NOMES_BATIDA[p.tipoBatida]||p.tipoBatida})?`)) return;
-  const agora = new Date().toISOString();
-  try{
-    await _gravarBatidaNaFolha(p, hhmm);
-    await dbCol('autorizacoesPonto').doc(pedidoId).update({
-      status: 'autorizada',
-      autorizadoPorId:   currentUser.id || '',
-      autorizadoPorNome: currentUser.username || '',
-      autorizadoEm:      agora,
-      batidaGravada:     true,
-      horarioEditado:    hhmm,
-    });
-    toast(`✅ Registrado às ${hhmm} — ${p.employeeNome}`, 'success');
-  }catch(e){
-    console.error(e);
-    toast('Erro ao registrar: ' + (e.message||e), 'error');
+  if(!p.employeeId || !p.mesComp || !p.anoComp || !p.diaBatida){
+    toast('Pedido antigo sem competência/dia — recuse e peça um novo.','error'); return;
   }
+  await _abrirAjusteDia(p.employeeId, p.mesComp, p.anoComp, p.diaBatida);
+}
+
+// Abre pela busca por matrícula (dia qualquer, SEM pedido pendente).
+async function abrirAjusteDiaData(empId){
+  const el = document.getElementById('busca-data');
+  const v = (el && el.value) || '';
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(v)){ toast('Escolha a data do dia a ajustar.','error'); return; }
+  const c = _compDeDataSup(v);
+  if(!c){ toast('Data inválida.','error'); return; }
+  await _abrirAjusteDia(empId, c.mes, c.ano, c.dia);
+}
+
+async function _abrirAjusteDia(empId, mes, ano, dia){
+  const emp = employeesCache.find(e => e.id === empId) || null;
+  let folha = null;
+  try{ folha = await _lerFolhaSup(empId, mes, ano); }
+  catch(e){ console.error(e); toast('Erro ao ler a folha: '+(e.message||e),'error'); return; }
+  const entry = ((folha && folha.pontoManualDias) || []).find(d => d && d.dia === dia) || {};
+  // Pedidos pendentes do MESMO dia (a pessoa costuma pedir mais de uma vez) — todos são
+  // resolvidos por este ajuste.
+  const peds = pedidos.filter(x => x.employeeId===empId && x.mesComp===mes && x.anoComp===ano && x.diaBatida===dia);
+  const salvos = {}, pedHora = {}, valores = {};
+  TIPOS_BATIDA.forEach(t => {
+    salvos[t] = entry[t] || '';
+    const ped = peds.find(x => x.tipoBatida === t);
+    if(ped) pedHora[t] = ped.horarioReal || '';
+    valores[t] = ped ? (ped.horarioReal || '') : salvos[t];   // pré-preenche com o que foi pedido
+  });
+  _ajdCtx = { empId, mes, ano, dia, emp, folha, entry, pedidos:peds, salvos, pedHora,
+              fechada: !!(folha && folha.status === 'fechada') };
+  _ajdRender(valores);
+  document.getElementById('modal-ajuste-dia').classList.add('show');
+}
+
+function _ajdDataLabel(){
+  const c = _ajdCtx;
+  const r = _compRealSup(c.mes, c.ano, c.dia);
+  const dt = new Date(r.ano, r.mes-1, r.dia);
+  return `${_DIAS_SEM[dt.getDay()]||''}, ${String(r.dia).padStart(2,'0')}/${String(r.mes).padStart(2,'0')}/${r.ano}`;
+}
+
+function _ajdRender(valores){
+  const c = _ajdCtx;
+  const nome = (c.emp && c.emp.nome) || (c.pedidos[0] && c.pedidos[0].employeeNome) || '—';
+  const mat  = (c.emp && c.emp.registro) ? String(c.emp.registro).padStart(4,'0')
+             : (c.pedidos[0] && c.pedidos[0].employeeRegistro) ? String(c.pedidos[0].employeeRegistro).padStart(4,'0') : '—';
+  document.getElementById('ajd-sub').innerHTML =
+    `<strong>${String(nome).replace(/</g,'&lt;')}</strong> · Matrícula ${mat}<br>📅 ${_ajdDataLabel()}`;
+
+  document.getElementById('ajd-linhas').innerHTML = TIPOS_BATIDA.map(t => {
+    const prev = _previstoDoDiaSup(c.emp, c.mes, c.ano, c.dia, t) || '';
+    const ped  = c.pedHora[t] || '';
+    const sal  = c.salvos[t] || '';
+    let tag = '';
+    if(ped) tag = '<span class="ajd-tag ped">pedido agora</span>';
+    else if(sal) tag = `<span class="ajd-tag">${c.entry[t+'_origem']==='supervisor' ? 'ajustado' : (c.entry[t+'_origem']||'batido')}</span>`;
+    else if(prev) tag = '<span class="ajd-tag falta">não batido</span>';
+    const chips = [];
+    if(prev) chips.push(`<button type="button" class="ajd-chip" data-noguard="1" onclick="_ajdPreencher('${t}','${prev}')">previsto ${prev}</button>`);
+    if(ped)  chips.push(`<button type="button" class="ajd-chip" data-noguard="1" onclick="_ajdPreencher('${t}','${ped}')">pedido ${ped}</button>`);
+    if(sal && sal!==ped) chips.push(`<button type="button" class="ajd-chip" data-noguard="1" onclick="_ajdPreencher('${t}','${sal}')">batido ${sal}</button>`);
+    // MOVER a hora pedida para outro campo: quando falta uma batida no meio, a seguinte se
+    // encaixa no campo errado (a saída vira "fim do intervalo"). Um toque põe a hora no
+    // lugar certo. #ajuste-dia-supervisor
+    TIPOS_BATIDA.forEach(o => {
+      if(o === t) return;
+      const h = c.pedHora[o]; if(!h) return;
+      chips.push(`<button type="button" class="ajd-chip" data-noguard="1" title="Trazer para cá a hora pedida em ${NOMES_BATIDA[o]}" onclick="_ajdPreencher('${t}','${h}')">↧ ${h}</button>`);
+    });
+    chips.push(`<button type="button" class="ajd-chip" data-noguard="1" onclick="_ajdPreencher('${t}','')">apagar</button>`);
+    return `
+      <div class="ajd-row${ped?' pedido':''}">
+        <div>
+          <div class="ajd-lbl">${NOMES_BATIDA[t]}${tag}</div>
+          <div class="ajd-sub">Previsto ${prev||'—'}${sal?` · na folha ${sal}`:''}</div>
+        </div>
+        <input type="time" class="ajd-inp" id="ajd-${t}" value="${valores[t]||''}" oninput="_ajdDiff()">
+        <div class="ajd-chips">${chips.join('')}</div>
+      </div>`;
+  }).join('');
+
+  document.getElementById('ajd-motivo').value = '';
+  const msg = document.getElementById('ajd-msg');
+  msg.hidden = true; msg.className = 'form-msg'; msg.textContent = '';
+  const btn = document.getElementById('ajd-salvar');
+  btn.disabled = false; btn.textContent = '💾 Gravar na folha';
+  const avi = document.getElementById('ajd-aviso');
+  if(c.fechada){
+    avi.className = 'ajd-aviso bloqueio';
+    avi.textContent = '🔒 A folha desta competência está FECHADA — o ponto não pode ser alterado por aqui. Peça ao gestor para reabrir a folha.';
+    avi.style.display = '';
+    btn.disabled = true;
+  } else {
+    avi.style.display = 'none';
+  }
+  _ajdDiff();
+}
+
+function _ajdPreencher(tipo, hhmm){
+  const el = document.getElementById('ajd-'+tipo);
+  if(el){ el.value = hhmm || ''; _ajdDiff(); }
+}
+
+function _ajdValores(){
+  const out = {};
+  TIPOS_BATIDA.forEach(t => {
+    const el = document.getElementById('ajd-'+t);
+    out[t] = (el && el.value) ? el.value.slice(0,5) : '';
+  });
+  return out;
+}
+
+// Resumo do que vai mudar + aviso de ordem fora de sequência (só AVISA: turno noturno
+// cruza a meia-noite e ali a ordem "errada" é a certa).
+function _ajdDiff(){
+  const c = _ajdCtx; if(!c) return;
+  const v = _ajdValores();
+  const linhas = [];
+  TIPOS_BATIDA.forEach(t => {
+    const de = c.salvos[t] || '', para = v[t] || '';
+    if(de === para) return;
+    linhas.push(`<b>${NOMES_BATIDA[t]}</b>: ${de || '<span class="sem">—</span>'} → <b>${para || '<span class="sem">apagado</span>'}</b>`);
+  });
+  document.getElementById('ajd-diff').innerHTML = linhas.length
+    ? '📝 Vai gravar na folha:<br>' + linhas.join('<br>')
+    : '<span class="sem">Nenhuma mudança nos horários ainda.</span>';
+  // Aviso de sequência
+  if(!c.fechada){
+    const seq = TIPOS_BATIDA.map(t => v[t] ? _toMinSup(v[t]) : null).filter(x => x!=null);
+    const foraDeOrdem = seq.some((x,i) => i>0 && x < seq[i-1]);
+    const avi = document.getElementById('ajd-aviso');
+    if(foraDeOrdem){
+      avi.className = 'ajd-aviso';
+      avi.textContent = '⚠ Os horários estão fora de ordem (entrada → intervalo → saída). Se for turno que vira a madrugada, pode gravar assim mesmo.';
+      avi.style.display = '';
+    } else {
+      avi.style.display = 'none';
+    }
+  }
+}
+
+function _ajdCliqueFora(ev){
+  if(ev && ev.target && ev.target.id === 'modal-ajuste-dia') fecharAjusteDia();
+}
+function fecharAjusteDia(){
+  _ajdCtx = null;
+  document.getElementById('modal-ajuste-dia').classList.remove('show');
+}
+
+// Grava o DIA inteiro na folha. Mesma coleção/documento que a folha de ponto do gestor lê
+// (id determinístico), então o que sai daqui já É a folha do colaborador.
+async function _gravarDiaNaFolha(vals, motivo){
+  const c = _ajdCtx;
+  const { empId, mes, ano, dia } = c;
+  const snap = await dbCol('payrolls')
+    .where('employeeId','==',empId).where('mes','==',mes).where('ano','==',ano).get();
+  let docId, dias, createdAt, veioDoBanco = false;
+  if(!snap.empty){
+    const folha = _pickPayrollDoc(snap.docs);
+    // 🔒 Folha FECHADA é histórico — não se mexe por aqui (a checagem da abertura pode ter
+    // envelhecido; esta é a que vale).
+    if(folha.status === 'fechada')
+      throw new Error('A folha desta competência está FECHADA. Peça ao gestor para reabrir.');
+    docId = folha.id; dias = [...((folha.pontoManualDias)||[])];
+    createdAt = folha.createdAt || new Date().toISOString(); veioDoBanco = true;
+  } else {
+    docId = _payrollIdDet(empId, mes, ano); dias = []; createdAt = new Date().toISOString();
+  }
+  const r = _compRealSup(mes, ano, dia);
+  let entry = dias.find(d => d.dia === dia);
+  if(!entry){
+    entry = { dia, diaSem: new Date(r.ano, r.mes-1, r.dia).getDay(), entrada:'', saida:'', intIni:'', intFim:'' };
+    dias.push(entry);
+  }
+  const agora = new Date().toISOString();
+  const de = {}, para = {};
+  let mudou = 0;
+  TIPOS_BATIDA.forEach(t => {
+    const velho = entry[t] || '', novo = vals[t] || '';
+    de[t] = velho; para[t] = novo;
+    if(velho === novo) return;
+    mudou++;
+    entry[t] = novo;
+    if(novo) entry[t+'_origem'] = 'supervisor';
+    else delete entry[t+'_origem'];
+    // A geolocalização da batida original NÃO se apaga (é prova de onde a pessoa estava);
+    // só o horário é do supervisor agora.
+  });
+  if(!mudou) throw new Error('Nenhum horário foi alterado.');
+  entry.ajusteSupervisor = {
+    porId: currentUser.id || '', por: currentUser.username || '', em: agora,
+    motivo: motivo || '', de, para
+  };
+  // Pedido de HORA EXTRA resolvido pelo ajuste: a liberação do supervisor É a aprovação da
+  // HE do dia — mesma regra do fluxo de autorização. #regra-ponto-he-atraso
+  if(c.pedidos.some(p => p.tipoBloqueio === 'horaExtra')){
+    entry.heReview = { status:'aprovado', perc:50, observacao:'HE aprovada via ajuste do dia (supervisor)',
+      aprovadoPor: currentUser.username || '', aprovadoEm: agora, recusadoPor:null, recusadoEm:null };
+  }
+  _assertFolhaIdSup(docId, empId, mes, ano, veioDoBanco);   // 🔒 #folha-fantasma-proibida
+  await dbCol('payrolls').doc(docId).set({
+    id:docId, employeeId:empId, mes, ano, pontoManualDias:dias,
+    updatedAt: agora, createdAt
+  }, { merge:true });
+  delete _diasCache[_diaKey(empId, mes, ano)];   // o bloco do dia nos cards recarrega
+  return mudou;
+}
+
+async function salvarAjusteDia(btn){
+  const c = _ajdCtx; if(!c) return;
+  const vals = _ajdValores();
+  const motivo = (document.getElementById('ajd-motivo').value||'').trim();
+  await drgSubmit(btn, async () => {
+    for(const t of TIPOS_BATIDA){
+      if(vals[t] && !/^([01]\d|2[0-3]):[0-5]\d$/.test(vals[t]))
+        throw new Error(`Horário inválido em "${NOMES_BATIDA[t]}". Use HH:MM.`);
+    }
+    const n = await _gravarDiaNaFolha(vals, motivo);
+    // Resolve TODOS os pedidos pendentes do dia (o ajuste responde a todos eles).
+    const agora = new Date().toISOString();
+    for(const p of c.pedidos){
+      try{
+        await dbCol('autorizacoesPonto').doc(p.id).update({
+          status:'autorizada',
+          autorizadoPorId:   currentUser.id || '',
+          autorizadoPorNome: currentUser.username || '',
+          autorizadoEm:      agora,
+          batidaGravada:     true,
+          ajusteDia:         true,
+          horarioEditado:    vals[p.tipoBatida] || '',
+          motivoAjuste:      motivo || ''
+        });
+      }catch(e){ console.error('resolver pedido', p.id, e); }
+    }
+    const nome = (c.emp && c.emp.nome) || (c.pedidos[0] && c.pedidos[0].employeeNome) || '';
+    toast(`✅ Ponto ajustado na folha — ${nome}`, 'success');
+    return `Gravado na folha: ${n} horário(s) ajustado(s)${c.pedidos.length?` · ${c.pedidos.length} pedido(s) resolvido(s)`:''}.`;
+  }, { msg:'ajd-msg', depois: fecharAjusteDia, espera: 1400 }).catch(e => console.error(e));
 }
 
 function abrirRecusa(pedidoId){
@@ -1042,6 +1341,16 @@ function buscarPorMatricula(){
       Posto ${emp.posto||'—'} · ${emp.status==='ativo'?'Ativo':emp.status||'—'}
     </div>
   </div>`;
+  // Ajuste de QUALQUER dia, mesmo sem pedido pendente — é o que evita ter que abrir a
+  // folha de ponto no gestor pra consertar uma batida. #ajuste-dia-supervisor
+  html += `<div class="busca-ajuste">
+    <div style="font-size:12px;font-weight:700;color:#334155;margin-bottom:7px">✏️ Ajustar um dia do ponto</div>
+    <div style="display:flex;gap:8px">
+      <input type="date" class="search-input" id="busca-data" value="${_hojeYmdSup()}" max="${_hojeYmdSup()}" style="flex:1">
+      <button class="search-btn" onclick="abrirAjusteDiaData('${emp.id}')">Abrir dia</button>
+    </div>
+    <div style="font-size:11px;color:#64748b;margin-top:6px;line-height:1.45">Corrige entrada, intervalo e saída direto por aqui — o que você gravar vale na folha de ponto.</div>
+  </div>`;
   if(peds.length === 0){
     html += `<div class="empty"><div class="empty-icon">📭</div>
       <div style="font-size:14px">Sem pedidos pendentes</div>
@@ -1099,7 +1408,7 @@ setInterval(() => {
 if('serviceWorker' in navigator){
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('supervisor-sw.js?v=9').then(reg => {
+    navigator.serviceWorker.register('supervisor-sw.js?v=10').then(reg => {
       const checar = () => { try{ reg.update(); }catch(_){} };
       document.addEventListener('visibilitychange', () => {
         if(document.visibilityState === 'visible') checar();

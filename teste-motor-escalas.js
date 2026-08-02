@@ -93,5 +93,85 @@ console.log(`\n${linhas} dias comparados · ${divergencias} divergência(s)`);
   if(nocivas){ divergencias+=nocivas; console.log(`✗ 12x36 sem ancora        ${nocivas} bloqueio(s) nocivo(s) de ${checados} dias`); }
   else console.log(`✓ 12x36 sem ancora        app nunca bloqueia plantao (falha segura) · ${checados} dias`);
 }
+// ── Bloco JANELA SEMPRE (regra do dono 2026-08-02) ────────────────────────────
+// "Nao abrir o ponto antes de 5 min do horario de entrada de QUALQUER escala, nem
+// depois de 5 min do horario de saida — fora disso so com autorizacao do supervisor."
+// A trava nao pode DESLIGAR em caso nenhum. Ela desligava quando `_horarioEsperado`
+// devolvia '' (dia marcado folga, modelo de escala ilegivel) e `analisarHorario` caia
+// no `if(!esp) return {tipo:'ok'}` — foi como a Maria Helena (0050) gravou 12:30 no
+// campo de ENTRADA em 02/08. Aqui checamos o COMPORTAMENTO, nao o horario:
+//   entrada 6 min ANTES  -> tem de bloquear ('antesDaJanela')
+//   entrada 6 min DEPOIS -> atraso, bate normal (Sumula 366 apura na folha)
+//   saida   6 min DEPOIS -> tem de bloquear ('horaExtra')
+//   saida   6 min ANTES  -> saiu antes, bate normal
+// Unica excecao legitima: fim de semana por DURACAO (`fdsDuracaoMin`, regra travada
+// 02/07) — esse dia nao tem relogio, nao ha o que ancorar. #janela-sempre
+{
+  let falhas=0, casos=0;
+  // Sonda: roda analisarHorario com o relogio cravado em (esperado + delta).
+  const sonda=(emp, dia, prox, delta, extra)=>{
+    P.__e=emp;
+    const D=P.Date, alvo=new Date(2026,6,dia,12,0,0);
+    P.Date=class extends D{constructor(...a){if(a.length===0)super(alvo.getTime());else super(...a);} static now(){return alvo.getTime();}};
+    let r;
+    try{
+      r=vm.runInContext(`(function(){
+        currentEmp=__e; currentPayroll={pontoManualDias:[]}; ${extra||''}
+        const esp=_horarioEsperado('${prox}');
+        if(!esp) return {esp:'', tipo:'SEM-ANCORA'};
+        const m=timeToMin(esp)+(${delta});
+        const n=new Date(2026,6,${dia},Math.floor(m/60),m%60,0);
+        return {esp:esp, tipo:analisarHorario('${prox}', n).tipo};
+      })()`,P);
+    }catch(e){ r={erro:e.message}; }
+    P.Date=D;
+    return r;
+  };
+  const exige=(rot, emp, dia, prox, delta, esperado, tolerarSemAncora)=>{
+    casos++;
+    const r=sonda(emp, dia, prox, delta, emp.__extra);
+    if(r.erro){ falhas++; console.log(`   ✗ ${rot} — ERRO: ${r.erro}`); return; }
+    if(r.tipo==='SEM-ANCORA'){
+      if(tolerarSemAncora) return;
+      falhas++; console.log(`   ✗ ${rot} — JANELA DESLIGADA (sem horario de ancora)`); return;
+    }
+    if(r.tipo!==esperado){ falhas++; console.log(`   ✗ ${rot} — esperava '${esperado}', veio '${r.tipo}' (ancora ${r.esp})`); }
+  };
+  // (1) Todas as escalas do sistema, os 7 dias da semana — inclusive nos dias que a
+  //     escala chama de folga (a janela tem de continuar de pe).
+  for(const esc of ESCALAS){
+    const emp={id:'w1',nome:'W',escala:esc,horarioEntrada:'08:00',horarioSaida:'17:00',horarioRefIni:'',horarioRefFim:'',
+      dataAdmissao:'2026-01-05',alternadaPrimeiraFolga:'sab',ciclo12x36Inicio:'2026-07-13'};
+    for(let i=0;i<7;i++){
+      const dia=DIAS[i], rot=`${esc} ${NOME[i]}`;
+      // fds por DURACAO (5x2LIV/6x1LIV no sab/dom) e a unica excecao com horario vazio
+      const fdsDur=/^(6x1LIV|5x2LIV)/.test(esc) && (i===5||i===6);
+      exige(`${rot} entrada -6min`, emp, dia, 'entrada', -6, 'antesDaJanela', fdsDur);
+      exige(`${rot} entrada +6min`, emp, dia, 'entrada', +6, 'ok',            fdsDur);
+      exige(`${rot} saida   +6min`, emp, dia, 'saida',   +6, 'horaExtra',     fdsDur);
+      exige(`${rot} saida   -6min`, emp, dia, 'saida',   -6, 'ok',            fdsDur);
+    }
+  }
+  // (2) Casos patologicos — onde a janela desligava antes do conserto de 02/08.
+  const patos=[
+    ['dia avulso marcado FOLGA',
+     {id:'w2',escala:'12x36-07-19',horarioEntrada:'07:00',horarioSaida:'19:00',dataAdmissao:'2026-01-05',
+      ciclo12x36Inicio:'2026-07-13',overridesHorario:[{id:'o1',data:'2026-07-15',tipo:'folga'}]}, 15],
+    ['modelo de escala ILEGIVEL (m_ nao carregado)',
+     {id:'w3',escala:'m_naoexiste',horarioEntrada:'07:00',horarioSaida:'19:00',dataAdmissao:'2026-01-05'}, 15],
+    ['escala vazia, so horario no cadastro',
+     {id:'w4',escala:'',horarioEntrada:'07:00',horarioSaida:'19:00',dataAdmissao:'2026-01-05'}, 15],
+    ['periodo de mudanca vencido (sem vigencia no dia)',
+     {id:'w5',escala:'12x36-07-19',horarioEntrada:'07:00',horarioSaida:'19:00',dataAdmissao:'2026-01-05',
+      ciclo12x36Inicio:'2026-07-13',historicoEscalas:[{de:'2026-06-01',ate:'2026-06-30',escala:'6x1A'}]}, 15],
+  ];
+  for(const [rot,emp,dia] of patos){
+    exige(`${rot} — entrada -6min`, emp, dia, 'entrada', -6, 'antesDaJanela');
+    exige(`${rot} — saida   +6min`, emp, dia, 'saida',   +6, 'horaExtra');
+  }
+  if(falhas){ divergencias+=falhas; console.log(`✗ janela sempre ativa     ${falhas} falha(s) de ${casos} casos`); }
+  else console.log(`✓ janela sempre ativa     ±5min vale em toda escala e todo dia · ${casos} casos`);
+}
+
 console.log(`\nTOTAL · ${divergencias} divergência(s)`);
 process.exit(divergencias?1:0);

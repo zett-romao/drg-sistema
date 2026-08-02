@@ -27,6 +27,51 @@ Sistema de gestão de colaboradores para a empresa **D.R. Global Gestão de Cond
 
 ---
 
+## 🔒 REGRAS TRAVADAS — ponto (02/08/2026). NÃO alterar sem o dono dizer `DESTRAVAR: <assunto>`
+
+Estas quatro são **regra de produto do dono**, não escolha técnica. Código que as viola é bug,
+mesmo que pareça otimização. Antes de mexer em `analisarHorario`, `_horarioEsperado`,
+`_jornadaHoje`, `_ehDiaDeFolga` ou `_jornadaReferencia` (todos em `ponto.html`), leia isto.
+
+1. **JANELA ±5min VALE SEMPRE — em toda escala, todo dia, todo colaborador.**
+   O ponto **não abre antes de 5 min do horário de entrada** nem **depois de 5 min do horário de
+   saída**. Fora disso, **só com autorização prévia do supervisor** — a batida NÃO acontece e
+   quem grava na folha é o `supervisor.html` ao liberar. Palavras do dono: *"não pode ser tido
+   como dificuldade técnica — posso incorrer em ilegalidade ainda que o funcionário tenha a
+   má-fé de bater o ponto antes ou depois do horário"*.
+   - **PROIBIDO deixar a janela sem âncora.** Se a jornada do dia não for conhecida (dia avulso
+     marcado folga, modelo de escala ilegível, período vencido), `_horarioEsperado` cai no
+     `_jornadaReferencia` — dia avulso com horário cravado → dia de trabalho típico do modelo →
+     horário da escala do sistema → cadastro. Nunca devolver `''` e cair no `if(!esp) return
+     {tipo:'ok'}`, que **libera qualquer horário**. Foi assim que uma colaboradora gravou 12:30
+     no campo de ENTRADA (02/08/2026). `#janela-sempre`
+   - **Única exceção:** fim de semana por DURAÇÃO (`fdsDuracaoMin`) — dia sem relógio por regra
+     travada em 02/07.
+   - **Assimetria é proposital:** entrada atrasada e saída antecipada batem normal (Súmula 366
+     apura na folha); o Monitor avisa acima de 15 min (`MONITOR_FALTAS_TOLERANCIA_MIN`).
+   - **PROIBIDO criar escotilha** tipo "bater assim mesmo". Fora da janela só existe um caminho:
+     pedir autorização.
+
+2. **O APP DO COLABORADOR NÃO DECIDE FOLGA.** Não existe mais o bloqueio `tipo:'folga'` em
+   `analisarHorario`. Bate normal em qualquer dia; **folga trabalhada vira HE pendente na folha**,
+   aprovada por quem tem `aprovaHE`. É a mesma falha segura que já valia em 6x1B, 6x1ALT e 12x36
+   sem âncora — agora vale para todas as escalas. **Não recriar a trava.** `#folga-nao-bloqueia`
+
+3. **`teste-motor-escalas.js` É OBRIGATÓRIO** ao mexer em escala/ponto — **não está no CI**.
+   Roda `node teste-motor-escalas.js`; tem que sair `TOTAL · 0 divergência(s)`. O bloco
+   "janela sempre ativa" (568 casos) reprova quem desligar a janela; o cruzamento gestor×app
+   reprova divergência de motor. Teste que passa nos dois lados não prova nada: ao consertar bug
+   de motor, **verifique que o teste reprova o código anterior**.
+
+4. **ERRO NA TELA É O ERRO REAL.** Nada de "Erro ao gerar o arquivo ZIP". Operação em lote usa
+   `Promise.allSettled` e entrega o que deu certo, listando nome + erro do que falhou; `catch`
+   vazio é proibido — anexo que some caladamente vira dossiê incompleto entregue sem ninguém
+   saber. Arquivo do Firebase Storage lido por `fetch` exige **CORS no BUCKET**
+   (`gs://drg-sistema.firebasestorage.app`): as chamadas do SDK passam, o download do conteúdo
+   (`?alt=media`) não. `#zip-docs-resiliente`
+
+---
+
 ## Estrutura de arquivos
 
 ```

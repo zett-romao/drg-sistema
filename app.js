@@ -4127,7 +4127,7 @@ async function _prontuarioBaixarZip(empId){
       const usadosA={}; const falhouA=[];
       await Promise.all(anexos.map(async a=>{
         try{
-          const resp=await fetch(a.url);
+          const resp=await fetch(a.url,{cache:'reload'});   // mesma razao do ZIP de documentos. #zip-docs-resiliente
           if(!resp || !resp.ok) throw new Error(`HTTP ${resp?resp.status:'sem resposta'}`);
           const blob=await resp.blob();
           let ext=(a.nomeArq && a.nomeArq.includes('.')) ? a.nomeArq.split('.').pop().toLowerCase().replace(/[^a-z0-9]/g,'') : '';
@@ -28325,7 +28325,11 @@ async function downloadAllDocuments(){
     const usados={}, falhas=[];
     const resultados = await Promise.allSettled(docs.map(async item=>{
       const url=await item.getDownloadURL();
-      const resp=await fetch(url);
+      // `cache:'reload'` de proposito: se o navegador tiver em cache a resposta ANTIGA do
+      // arquivo (baixada antes de o bucket liberar CORS, via a aba do fallback), ele reusa
+      // a copia SEM o cabecalho CORS e o fetch continua barrado -- dando a impressao de que
+      // liberar o bucket nao adiantou. Forcar a releitura mata essa duvida. #zip-docs-resiliente
+      const resp=await fetch(url,{cache:'reload'});
       if(!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText||''}`.trim());
       const blob=await resp.blob();
       // Nome legível: remove o timestamp do início (ex: 1234567890_RG.pdf → RG.pdf)

@@ -21,7 +21,31 @@ jobs:
           node -c app.js
           node -c ponto-sw.js
           node -c firebase-config.js
+      # As telas do colaborador e do supervisor têm o JS INLINE — `node -c` não as alcança,
+      # e um erro de sintaxe ali entrega tela branca sem o CI piscar. #camada3
+      - name: Sintaxe dos scripts inline (ponto.html, supervisor.html)
+        run: |
+          node -e "
+          const fs=require('fs');let bad=0;
+          for(const f of ['ponto.html','supervisor.html']){
+            const s=fs.readFileSync(f,'utf8');
+            const re=/<script(?![^>]*src)[^>]*>([\s\S]*?)<\/script>/g;let m,i=0;
+            while((m=re.exec(s))){i++;try{new Function(m[1]);}catch(e){bad++;console.error(f+' bloco '+i+': '+e.message);}}
+            console.log(f+' — '+i+' bloco(s) inline');
+          }
+          process.exit(bad?1:0);"
       - name: Instalar ESLint (só na nuvem)
         run: npm install --no-audit --no-fund eslint@9 globals@15
       - name: ESLint (no-undef)
         run: npx eslint app.js ponto-sw.js
+
+      # 🔒 TRAVA DAS REGRAS DE PONTO (dono 2026-08-02, "trave onde for preciso para não
+      # mexer mais"). Até aqui este teste dependia de alguém LEMBRAR de rodar à mão —
+      # protegia quem rodava, não quem esquecia. Agora todo push na main é reprovado se:
+      #   • o motor do app divergir do motor do gestor (escala/folga), OU
+      #   • a janela de ±5min deixar de valer em QUALQUER escala ou dia (568 casos), OU
+      #   • o app voltar a bloquear dia de folga.
+      # O script sai com código 1 em qualquer divergência. NÃO remover, NÃO tornar
+      # `continue-on-error`, NÃO transformar em aviso. Ver CLAUDE.md → "REGRAS TRAVADAS".
+      - name: 🔒 Motor de escalas + janela de batida (regra travada)
+        run: node teste-motor-escalas.js

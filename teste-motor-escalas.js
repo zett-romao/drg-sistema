@@ -17,7 +17,10 @@ vm.runInContext('try{State.employees=[];State.feriados=[];State.escalasModelos=[
 const P=mk();
 const html=fs.readFileSync('ponto.html','utf8');
 const inl=[...html.matchAll(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/g)].map(m=>m[1]);
-try{ vm.runInContext(inl[inl.length-1],P,{filename:'ponto.js'}); }catch(e){ console.log('ponto:',e.message); }
+// 🔒 Erro ao CARREGAR o ponto.html e falha dura, nao aviso: sem o script carregado as
+// sondas abaixo testariam o vazio e o teste poderia passar sem ter testado nada.
+try{ vm.runInContext(inl[inl.length-1],P,{filename:'ponto.js'}); }
+catch(e){ console.log('✗ ponto.html NAO CARREGOU:',e.message); process.exit(1); }
 vm.runInContext('currentPayroll={pontoManualDias:[]}; _escModelosPonto=[];',P);
 
 const ESCALAS=['5x2A','5x2B','6x1A','6x1B','6x1C','6x1ALT','12x36','12x36-07-19','12x36-06-18','12x36-19-07','12x36-18-06',

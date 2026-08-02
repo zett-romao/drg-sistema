@@ -580,7 +580,7 @@ try{ window.__APP_BOOTED = true; }catch(_){}
 // ─── VERSÃO DO APP DO COLABORADOR ─────────────────────────────────────────────
 // Bumpe SEMPRE em conjunto com o CACHE do ponto-sw.js e o ?v= do firebase-config.
 // Formato: AA.MM.DD + letra (a, b, c...) — alinhado com o nome do cache.
-const PONTO_VERSION = '26.07.31a';
+const PONTO_VERSION = '26.08.02a';
 // Exibe a versão no rodapé (script roda após o DOM, então o elemento já existe)
 (function _setVersionTag(){
   const t = document.getElementById('app-version-tag');
@@ -653,7 +653,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=54').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=55').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -1441,7 +1441,8 @@ function linkMaps(geo) {
 // - Volta do intervalo: so' o MINIMO de 1h de descanso (CLT Art. 71). Passar do
 //   previsto NAO pede autorizacao — e' tolerado ate' a SOMA do dia estourar
 //   TOLERANCIA_DIA_MIN, e ai' o supervisor valida o atraso (Sumula 366).
-// - Dia de folga: bloqueia, exige autorizacao
+// - Dia de folga: NAO bloqueia (dono 02/08/2026). O app nao decide folga; a folha
+//   trata folga trabalhada como HE pendente. #folga-nao-bloqueia
 const TOLERANCIA_MIN     = 5;   // entrada/saida — tolerancia de 5min antes/depois
 const TOLERANCIA_DIA_MIN = 10;  // SOMATORIA do dia (entrada+saida+atraso refeicao) — Sumula 366 TST
 const DESCANSO_MIN       = 60;  // tempo minimo de intervalo (CLT Art. 71)
@@ -1706,10 +1707,11 @@ function _ehTrabalho12x36Ponto(emp, dataObj){
 }
 
 // Analisa se a batida pode ser feita. Retorna um objeto:
-//  tipo: 'ok' | 'foraJanela' | 'descansoInsuficiente' | 'folga'
+//  tipo: 'ok' | 'antesDaJanela' | 'horaExtra' | 'foraJanela' | 'descansoInsuficiente'
 //  Quando NAO e' 'ok', a batida deve ser bloqueada.
 //  'descansoInsuficiente' = CLT, supervisor nao pode autorizar.
-//  'foraJanela' / 'folga' = pode pedir autorizacao ao supervisor (Bloco B).
+//  'antesDaJanela' / 'horaExtra' / 'foraJanela' = pode pedir autorizacao (Bloco B).
+//  🔒 NAO existe mais o tipo 'folga' — o app nao decide folga. #folga-nao-bloqueia
 // Somatoria das divergencias do DIA (entrada + saida + atraso de refeicao), JA incluindo
 // a batida atual. Regra do dono: mesmo cada batida dentro dos +/-5min, se a SOMA passar de
 // 10min/dia a batida vira pedido de autorizacao ao supervisor (Sumula 366 TST).
@@ -1733,30 +1735,22 @@ function _somatoriaDivergenciaDia(prox, atualMin){
 }
 
 function analisarHorario(prox, now){
-  const e = currentEmp || {};
   const atualMin = now.getHours()*60 + now.getMinutes();
 
-  // 1. Dia de folga — bloqueia (qualquer batida exige autorizacao).
-  // IMPORTANTE: para turnos noturnos que cruzam a meia-noite (ex.: 12x36
-  // entrando 19h ontem, saindo 7h hoje), a batida da manha pertence a'
-  // jornada de ONTEM — _diaJornada() ja calcula isso. Se ja existe
-  // batida de entrada/intervalo registrada na jornada corrente,
-  // a pessoa esta dentro de um turno em andamento — folga nao se aplica.
-  const j = _diaJornada();
-  const dataJornada = new Date(j.ano, j.mes-1, j.dia);
-  const diaEntry = (currentPayroll && currentPayroll.pontoManualDias || [])
-    .find(d => d.dia === j.dia);
-  const turnoEmAndamento = !!(diaEntry && (diaEntry.entrada || diaEntry.intIni));
-  // So' verifica folga se NAO esta em turno em andamento e a batida e' de
-  // ENTRADA. Saida/intervalos de um turno ja' iniciado nao sao bloqueados
-  // por folga — quem iniciou o turno precisa fechar a jornada.
-  const checarFolga = !turnoEmAndamento && (prox === 'entrada');
-  if(checarFolga && _ehDiaDeFolga(e, dataJornada)){
-    return {
-      tipo: 'folga',
-      msg: 'Você está de folga hoje conforme sua escala. Para registrar batida em dia de folga, solicite autorização ao supervisor.'
-    };
-  }
+  // 1. 🔒 DIA DE FOLGA NÃO BLOQUEIA MAIS (dono 2026-08-02). A trava que exigia autorização
+  // prévia para bater em dia de folga foi REMOVIDA. Motivo (causa-raiz do caso Giselle 0034,
+  // domingo 02/08): o app decidia "hoje é sua folga" e criava um pedido SEM previsto e SEM
+  // diferença (`horarioPrevisto:''`, `diferencaMinutos:0`) — e o supervisor.html, que calculava
+  // o previsto pelo horário do CADASTRO sem olhar folga, exibia "previsto 07:00 · −1 min
+  // adiantado", fazendo parecer que 1 minuto pedia autorização. O bloqueio real era a folga.
+  // A decisão do dono: **o app do colaborador NÃO decide folga** — é exatamente o que ele já
+  // fazia (falha segura) nas escalas 6x1B, 6x1ALT e 12x36 sem âncora, pelo mesmo motivo: quem
+  // tem a fonte da verdade é o GESTOR, e folga errada no app vira pendência falsa toda semana.
+  // Agora vale igual para TODAS as escalas — sobra só a janela ±5min, como o escopo fechado em
+  // 15/07 já dizia ("a ÚNICA regra é a janela 5min antes da entrada / 5min depois da saída").
+  // Bateu em dia de folga? Registra normal; a folha trata como FOLGA TRABALHADA = HE pendente,
+  // aprovada por quem tem a permissão `aprovaHE`. #janela-batida #folga-nao-bloqueia
+  // (`_ehDiaDeFolga` CONTINUA em uso — a jornada noturna da véspera depende dela.)
 
   // REFEIÇÃO — sem horário fixo. O colaborador sai pra refeição QUANDO quiser;
   // o controle é só na DURAÇÃO (verificada na volta). Decisão do usuário:
@@ -1841,7 +1835,6 @@ function mostrarBloqueio(prox, hora, analise){
     let icone='⚠️', titulo='Fora do horário previsto';
     if(analise.tipo==='descansoInsuficiente'){ icone='⏳'; titulo='Aguarde mais um pouco'; }
     else if(analise.tipo==='antesDaJanela')  { icone='⏳'; titulo='Ainda não é hora de bater'; }
-    else if(analise.tipo==='folga')          { icone='🛌'; titulo='Você está de folga hoje'; }
     else if(analise.tipo==='horaExtra')      { icone='⏱️'; titulo='Hora extra — precisa de autorização'; }
     document.getElementById('aviso-icone').textContent  = icone;
     document.getElementById('aviso-titulo').textContent = titulo;
@@ -1856,9 +1849,10 @@ function mostrarBloqueio(prox, hora, analise){
     const btnOk = document.getElementById('aviso-confirmar');
     const btnCancel = document.getElementById('aviso-cancelar');
     const antes  = (analise.tipo === 'antesDaJanela');
-    // Fora da janela (antes da entrada / saída em HE / folga) → oferece PEDIR AUTORIZAÇÃO ao supervisor.
+    // Fora da janela (antes da entrada / saída em HE) → oferece PEDIR AUTORIZAÇÃO ao supervisor.
+    // 'folga' saiu da lista: o app não decide mais folga. #folga-nao-bloqueia
     const podeSolicitar = (analise.tipo === 'antesDaJanela' || analise.tipo === 'foraJanela'
-                        || analise.tipo === 'folga' || analise.tipo === 'horaExtra');
+                        || analise.tipo === 'horaExtra');
     let tick = null;
 
     if(antes){
@@ -2064,7 +2058,9 @@ async function baterPonto() {
   // pede autorização e o SUPERVISOR libera ANTES (supervisor.html grava a batida na folha —
   // aqui o app NÃO grava). Vale p/ todas as escalas. #janela-batida
   //   • descansoInsuficiente → não registra (CLT Art. 71, intervalo mínimo de 1h).
-  //   • antesDaJanela / horaExtra / folga / foraJanela → pede autorização → tela de espera.
+  //   • antesDaJanela / horaExtra / foraJanela → pede autorização → tela de espera.
+  //   • DIA DE FOLGA não entra mais nessa lista (dono 02/08/2026): registra normal e a folha
+  //     trata como folga trabalhada = HE pendente. #folga-nao-bloqueia
   const analise = analisarHorario(prox, now);
   if(analise.tipo === 'descansoInsuficiente'){
     await mostrarBloqueio(prox, hora, analise);   // CLT: só "Entendi", não registra intervalo curto

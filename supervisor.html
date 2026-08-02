@@ -840,6 +840,12 @@ function _dataDoPedido(p){
 function _blocoDiaInteiro(p, emp){
   const dia = _diaDoPedido(p);
   if(!dia) return '';   // sem cache (erro de leitura) → não inventa; some o bloco
+  // 🔒 DIA DE FOLGA: não existe jornada prevista. O `_previstoDoDiaSup` lê o horário do
+  // CADASTRO sem olhar a escala do dia, então num pedido de folga ele enchia a coluna
+  // "Previsto" com 07:00/12:00/13:00/19:00 e marcava "⚠ não batido" em VERMELHO no
+  // intervalo e na saída — de um dia em que a pessoa nem tinha jornada. Decidir assim é
+  // decidir com informação falsa. Em pedido de folga a coluna fica vazia. #folga-sem-previsto
+  const _ehFolgaP = (p.tipoBloqueio === 'folga' || p.ehFolga);
   const outros = {};
   pedidos.forEach(x => {
     if(x.id===p.id || x.employeeId!==p.employeeId) return;
@@ -848,7 +854,7 @@ function _blocoDiaInteiro(p, emp){
   });
   const linhas = TIPOS_BATIDA.map(t => {
     const ehEste  = (t === p.tipoBatida);
-    const prev    = _previstoDoDiaSup(emp, p.mesComp, p.anoComp, p.diaBatida, t) || '';
+    const prev    = _ehFolgaP ? '' : (_previstoDoDiaSup(emp, p.mesComp, p.anoComp, p.diaBatida, t) || '');
     const real    = ehEste ? (p.horarioReal||'') : (dia[t] || '');
     let nota = '', cor = '#1e293b';
     if(ehEste){ nota = '← este pedido'; cor = '#1976D2'; }
@@ -877,14 +883,31 @@ function _cardPedido(p){
   const tag = ehFolga ? 'DIA DE FOLGA' : 'FORA DO HORÁRIO';
   const classExtra = ehFolga ? 'folga' : (((Date.now() - new Date(p.tentativaEm||0).getTime()) < 60000) ? ' recente' : '');
   // Previsto/diferença AO VIVO pela escala atual (o pedido guarda o previsto congelado).
+  // 🔒 EXCETO em pedido de FOLGA: ali o app manda `horarioPrevisto:''` e `diferencaMinutos:0`
+  // de propósito (dia de folga não tem jornada). Recalcular pelo cadastro produzia um previsto
+  // que NÃO existe e uma "diferença" fabricada — foi o "previsto 07:00 · −1 min adiantado" do
+  // caso Giselle 0034 (02/08), que fez o bloqueio de FOLGA parecer bloqueio de 1 MINUTO.
+  // #folga-sem-previsto
   const _empSup = employeesCache.find(e=>e.id===p.employeeId);
-  let previstoEf = p.horarioPrevisto || '', diff = p.diferencaMinutos || 0;
-  const _pl = _previstoDoDiaSup(_empSup, p.mesComp, p.anoComp, p.diaBatida, p.tipoBatida);
+  let previstoEf = ehFolga ? '' : (p.horarioPrevisto || ''), diff = ehFolga ? 0 : (p.diferencaMinutos || 0);
+  const _pl = ehFolga ? '' : _previstoDoDiaSup(_empSup, p.mesComp, p.anoComp, p.diaBatida, p.tipoBatida);
   if(_pl){
     previstoEf = _pl;
     const _re=_toMinSup(p.horarioReal), _pe=_toMinSup(_pl);
     if(_re!=null && _pe!=null) diff = _re - _pe;
   }
+  // MOTIVO DO BLOQUEIO — por que este pedido existe. Sem isto o supervisor lê a diferença de
+  // minutos como se fosse a causa. #motivo-real
+  const MOTIVO_BLOQUEIO = {
+    folga:        '🛌 A escala marcava este dia como FOLGA. (Regra revogada em 02/08/2026 — o app não bloqueia mais folga: pedido antigo, pode autorizar; a hora extra da folga trabalhada é apurada na folha.)',
+    horaExtra:    '⏱️ Passou da janela de 5 min da jornada prevista — hora extra depende da sua liberação.',
+    foraJanela:   '➕ A soma dos minutos fora do horário no dia passou de 10 min (Súmula 366).',
+    antesDaJanela:'⏱️ Bateu antes da janela de 5 min da entrada prevista — entrada antecipada é hora extra.',
+  };
+  const _txtMotivo = MOTIVO_BLOQUEIO[p.tipoBloqueio] || (ehFolga ? MOTIVO_BLOQUEIO.folga : '');
+  const motivoBloqueioBox = _txtMotivo
+    ? `<div class="card-motivo" style="background:#fff8e1;border-color:#ffe082"><strong>Por que veio parar aqui:</strong> ${_txtMotivo}</div>`
+    : '';
   const diffTxt = _diffLabelSup(p.tipoBatida, diff);
   const _maisTrab = (p.tipoBatida==='saida' || p.tipoBatida==='intIni');
   const diffCor = (diff>0 && !_maisTrab) ? '#c62828' : '#1976D2';   // só atraso real em vermelho; extra em azul
@@ -919,6 +942,7 @@ function _cardPedido(p){
           <strong style="color:${diffCor}">${diffTxt}</strong>
         </div>` : ''}
       </div>
+      ${motivoBloqueioBox}
       ${_blocoDiaInteiro(p, _empSup)}
       ${motivoBox}
       <div class="card-tempo">⏱ Solicitado ${fmtMinAtras(p.tentativaEm)}</div>
@@ -1411,7 +1435,7 @@ setInterval(() => {
 if('serviceWorker' in navigator){
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('supervisor-sw.js?v=10').then(reg => {
+    navigator.serviceWorker.register('supervisor-sw.js?v=11').then(reg => {
       const checar = () => { try{ reg.update(); }catch(_){} };
       document.addEventListener('visibilitychange', () => {
         if(document.visibilityState === 'visible') checar();

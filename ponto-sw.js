@@ -14,7 +14,7 @@
 // NÃO funciona pra imagem neste app. Sem trocar o nome do CACHE, o celular do
 // funcionário fica com a logo velha pra sempre. Foi o que aconteceu com a logo
 // nova do relógio (25/07): trocaram o ?v= no HTML e o PWA continuou no antigo.
-const CACHE = 'drg-ponto-v90-20260802a-folga-nao-bloqueia';
+const CACHE = 'drg-ponto-v91-20260802b-janela-sempre';
 
 // Essenciais do mesmo dominio — o install FALHA se algum nao baixar (intencional).
 const ASSETS = [

@@ -580,7 +580,7 @@ try{ window.__APP_BOOTED = true; }catch(_){}
 // ─── VERSÃO DO APP DO COLABORADOR ─────────────────────────────────────────────
 // Bumpe SEMPRE em conjunto com o CACHE do ponto-sw.js e o ?v= do firebase-config.
 // Formato: AA.MM.DD + letra (a, b, c...) — alinhado com o nome do cache.
-const PONTO_VERSION = '26.08.02a';
+const PONTO_VERSION = '26.08.02b';
 // Exibe a versão no rodapé (script roda após o DOM, então o elemento já existe)
 (function _setVersionTag(){
   const t = document.getElementById('app-version-tag');
@@ -653,7 +653,7 @@ if ('serviceWorker' in navigator) {
   // significa que uma versão NOVA acabou de assumir → mostra o banner.
   const _swInicial = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ponto-sw.js?v=55').then(reg => {
+    navigator.serviceWorker.register('ponto-sw.js?v=56').then(reg => {
       // Re-checa por nova versão quando o app volta pra frente
       // e periodicamente (a cada 30 min) enquanto fica aberto.
       const checar = () => { try{ reg.update(); }catch(_){} };
@@ -1571,15 +1571,51 @@ function _temRefeicaoHojeFn(emp){
   return _escala12x36Hoje(e);
 }
 
+// 🔒 ÂNCORA DA JANELA — A JANELA NUNCA DESLIGA (dono 2026-08-02).
+// Regra do dono, literal: "não abrir o ponto antes de 5 min do horário de entrada de
+// QUALQUER escala, nem depois de 5 min do horário de saída". O `_horarioEsperado` devolvia
+// '' toda vez que a jornada do DIA não era conhecida (dia marcado folga, modelo de escala
+// ilegível) — e sem horário esperado o `analisarHorario` cai no `if(!esp) return {tipo:'ok'}`
+// e libera QUALQUER hora. Foi assim que a Maria Helena (0050) bateu 12:30 no campo de
+// ENTRADA em 02/08 sem o app reclamar: a janela não estava frouxa, estava DESLIGADA.
+// Esta função devolve o horário de ancoragem quando o dia não tem jornada própria: o
+// horário NORMAL da escala (ou, em último caso, o do cadastro).
+// ÚNICA exceção mantida: fim de semana por DURAÇÃO (`fdsDuracaoMin`) — regra travada em
+// 02/07, esse dia não tem horário nenhum por definição, não há o que ancorar. #janela-sempre
+function _jornadaReferencia(emp){
+  const e = emp || currentEmp || {};
+  const vig = _vigenciaEscalaHoje(e);
+  // Dia avulso com horário cravado pelo gestor manda, mesmo que o dia esteja marcado folga.
+  if(vig && vig.origem==='override' && (vig.horarioEntrada || vig.horarioSaida))
+    return { entrada: vig.horarioEntrada||'', saida: vig.horarioSaida||'' };
+  const escala = (vig && vig.escala) || e.escala || '';
+  const mod = _modeloDeEscalaPonto(escala);
+  if(mod){
+    // Dia de trabalho TÍPICO do modelo — espelha o `_modeloMinContratados` do gestor.
+    const w = (mod.dias||[]).find(d => d && (d.tipo==='trabalho' || d.tipo==='corrido') && d.entrada && d.saida);
+    if(w) return { entrada: w.entrada, saida: w.saida };
+  } else if(escala && !String(escala).startsWith('m_')){
+    const h = _horariosEscalaDiaPonto(vig||e, e, escala, new Date().getDay());
+    if(h && (h.entrada || h.saida)) return { entrada: h.entrada||'', saida: h.saida||'' };
+  }
+  return { entrada: e.horarioEntrada||'', saida: e.horarioSaida||'' };
+}
+
 // Horário previsto de HOJE para o slot pedido (entrada/saída/intIni/intFim).
 function _horarioEsperado(prox){
   const j = _jornadaHoje(currentEmp);
-  if(j.folga) return '';
-  if(prox==='entrada') return j.entrada;
-  if(prox==='saida')   return j.saida;
-  if(prox==='intIni')  return j.intIni;
-  if(prox==='intFim')  return j.intFim;
-  return '';
+  let v = '';
+  if(prox==='entrada')      v = j.entrada;
+  else if(prox==='saida')   v = j.saida;
+  else if(prox==='intIni')  v = j.folga ? '' : j.intIni;
+  else if(prox==='intFim')  v = j.folga ? '' : j.intFim;
+  // Entrada/saída SEM horário do dia → ancora no horário normal da escala. A janela de
+  // ±5min tem que valer todo dia, em toda escala. #janela-sempre
+  if(!v && (prox==='entrada' || prox==='saida') && !j.duracaoMinFds){
+    const ref = _jornadaReferencia(currentEmp);
+    v = (prox==='entrada') ? ref.entrada : ref.saida;
+  }
+  return v || '';
 }
 
 // Pega a hora real (HH:MM) que o colaborador bateu a saida pro intervalo HOJE.
@@ -1795,7 +1831,11 @@ function analisarHorario(prox, now){
 
   // Entrada/Saída — precisam do horário esperado.
   const esp = _horarioEsperado(prox);
-  // Sem horario cadastrado → trava desligada para essa batida
+  // 🔒 Aqui NÃO existe mais "dia sem jornada → libera geral": o `_horarioEsperado` já ancora
+  // no horário normal da escala quando o dia não tem jornada própria (#janela-sempre). Só
+  // chega a este return quem realmente não tem horário nenhum em lugar nenhum: cadastro sem
+  // entrada/saída, ou fim de semana por DURAÇÃO (`fdsDuracaoMin`, regra travada em 02/07 —
+  // esse dia não tem relógio, vale pela duração). Sem horário não há ±5min que se meça.
   if(!esp) return { tipo:'ok' };
 
   const diff = atualMin - timeToMin(esp);   // + = depois do previsto

@@ -4124,10 +4124,12 @@ async function _prontuarioBaixarZip(empId){
     const anexos=_coletarAnexosColaborador(emp, _safe);
     if(anexos.length){
       toast(`Anexando ${anexos.length} arquivo(s) do cadastro…`,'info');
-      const usadosA={};
+      const usadosA={}; const falhouA=[];
       await Promise.all(anexos.map(async a=>{
         try{
-          const resp=await fetch(a.url); if(!resp || !resp.ok) return; const blob=await resp.blob();
+          const resp=await fetch(a.url);
+          if(!resp || !resp.ok) throw new Error(`HTTP ${resp?resp.status:'sem resposta'}`);
+          const blob=await resp.blob();
           let ext=(a.nomeArq && a.nomeArq.includes('.')) ? a.nomeArq.split('.').pop().toLowerCase().replace(/[^a-z0-9]/g,'') : '';
           if(!ext) ext=(blob.type && blob.type.split('/')[1]) || 'dat';
           if(ext.length>5) ext='dat';
@@ -4135,9 +4137,20 @@ async function _prontuarioBaixarZip(empId){
           const base=_safe(a.nome)||'arquivo';
           let fname=dir+base+'.'+ext, m=2; while(usadosA[fname]){ fname=dir+base+'_'+m+'.'+ext; m++; } usadosA[fname]=1;
           zip.file(fname, blob);
-        }catch(_){}
+        }catch(e){ falhouA.push({nome:a.nome, erro:(e&&e.message)||String(e)}); }
       }));
       anexN=Object.keys(usadosA).length;
+      // 🔒 ANEXO QUE SOME NÃO PODE SUMIR CALADO (#zip-docs-resiliente). O catch aqui era
+      // vazio: se o Storage bloqueasse o download (CORS do bucket), TODOS os anexos
+      // desapareciam e o ZIP saía "com sucesso" só com os PDFs — o operador entregava um
+      // prontuário incompleto sem saber. Agora a tela diz quantos e por quê.
+      if(falhouA.length){
+        console.warn('prontuario — anexos que falharam:', falhouA);
+        const _cors = falhouA.every(f=>/failed to fetch|networkerror|load failed/i.test(f.erro||''));
+        toast(_cors
+          ? `${falhouA.length} anexo(s) NÃO entraram: o Storage bloqueia o download pelo navegador (CORS do bucket não libera ${location.origin}).`
+          : `${falhouA.length} anexo(s) NÃO entraram no ZIP — ${falhouA[0].erro}`, 'warning');
+      }
     }
   }
   const n=Object.keys(usados).length;
@@ -28306,16 +28319,46 @@ async function downloadAllDocuments(){
     toast(`Compactando ${docs.length} documento(s)... aguarde.`,'info');
 
     const zip=new JSZip();
-    // Baixar cada arquivo como blob e adicionar ao zip
-    await Promise.all(docs.map(async item=>{
+    // 🔒 UM ARQUIVO RUIM NÃO DERRUBA O ZIP INTEIRO (#zip-docs-resiliente).
+    // Era `Promise.all`: a primeira rejeição matava os 15 e o operador via só
+    // "Erro ao gerar o arquivo ZIP", sem saber qual arquivo nem por quê.
+    const usados={}, falhas=[];
+    const resultados = await Promise.allSettled(docs.map(async item=>{
       const url=await item.getDownloadURL();
       const resp=await fetch(url);
+      if(!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText||''}`.trim());
       const blob=await resp.blob();
       // Nome legível: remove o timestamp do início (ex: 1234567890_RG.pdf → RG.pdf)
       const parts=item.name.split('_');
-      const nomeArquivo=parts.length>1?parts.slice(1).join('_'):item.name;
+      let nomeArquivo=parts.length>1?parts.slice(1).join('_'):item.name;
+      // Dois documentos com o MESMO nome: o segundo sobrescrevia o primeiro dentro
+      // do ZIP e sumia sem aviso. Agora vira "RG (2).pdf".
+      if(usados[nomeArquivo]){
+        const n=++usados[nomeArquivo], p=nomeArquivo.lastIndexOf('.');
+        nomeArquivo = p>0 ? `${nomeArquivo.slice(0,p)} (${n})${nomeArquivo.slice(p)}` : `${nomeArquivo} (${n})`;
+      } else usados[nomeArquivo]=1;
       zip.file(nomeArquivo, blob);
     }));
+    resultados.forEach((r,i)=>{
+      if(r.status==='rejected') falhas.push({ nome:docs[i].name, erro:(r.reason&&r.reason.message)||String(r.reason) });
+    });
+    const okN = docs.length - falhas.length;
+
+    if(okN===0){
+      // NENHUM byte foi lido. O `fetch` bater em TypeError ("Failed to fetch" /
+      // "NetworkError") em TODOS os arquivos é a assinatura de CORS: as chamadas do
+      // SDK (listAll/getDownloadURL) passam porque a API manda cabeçalho CORS, mas o
+      // download do CONTEÚDO (`?alt=media`) obedece ao CORS do BUCKET, que precisa
+      // liberar este domínio. Sem isso o ZIP nunca vai funcionar — e o download
+      // avulso só "funciona" porque cai no fallback de abrir em aba (_baixarArquivoUrl).
+      // Mensagem REAL na tela, nunca "erro ao gerar": o operador tem de saber o quê.
+      console.error('ZIP documentos — nenhum arquivo lido:', falhas);
+      const cors = falhas.every(f=>/failed to fetch|networkerror|load failed/i.test(f.erro||''));
+      toast(cors
+        ? `Nenhum arquivo pôde ser lido: o Storage está bloqueando o download pelo navegador (CORS do bucket não libera ${location.origin}). Erro: ${falhas[0].erro}`
+        : `Nenhum arquivo pôde ser lido. Erro: ${falhas[0].erro}`, 'error');
+      return;
+    }
 
     const content=await zip.generateAsync({type:'blob'});
     const link=document.createElement('a');
@@ -28325,10 +28368,15 @@ async function downloadAllDocuments(){
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(link.href);
-    toast(`ZIP com ${docs.length} documento(s) gerado com sucesso!`);
+    if(falhas.length){
+      console.warn('ZIP documentos — arquivos que falharam:', falhas);
+      toast(`ZIP gerado com ${okN} de ${docs.length}. Falharam: ${falhas.map(f=>f.nome).join(', ')} — ${falhas[0].erro}`,'warning');
+    } else {
+      toast(`ZIP com ${okN} documento(s) gerado com sucesso!`,'success');
+    }
   } catch(e){
     console.error('Erro ao gerar ZIP:', e);
-    toast('Erro ao gerar o arquivo ZIP.','error');
+    toast('Erro ao gerar o ZIP: '+((e&&e.message)||e),'error');
   } finally {
     if(btn){ btn.disabled=false; btn.innerHTML='<i class="fa-solid fa-file-zipper"></i> Baixar Todos (.zip)'; }
   }

@@ -3747,7 +3747,7 @@ function _colabSecoesHtml(emp, extra){
     ${hl.map(h=>{ const adic=[h.insalubridade?`Insal. ${h.insalubridade}%`:'',h.acumuloFuncao?'Acúmulo +20%':''].filter(Boolean).join(' · ')||'—';
       const _bn=v=>(v!=null&&v!==''&&!isNaN(parseFloat(v)))?fmtMoney(v):'—';
       return `<tr><td style="white-space:nowrap">${formatDateBr(h.dataInicio)}</td><td>${_relEsc(h.posto)||'—'}</td><td>${_relEsc(h.cargo)||'—'}</td>
-        <td>${_relEsc(h.escala)||'—'}</td><td>${h.turnoNoturno?'Noturno':'Diurno'}</td>
+        <td>${h.escala?_relEsc(escalaLabel(h.escala)):'—'}</td><td>${h.turnoNoturno?'Noturno':'Diurno'}</td>
         <td style="white-space:nowrap">${h.horarioEntrada||'—'}–${h.horarioSaida||'—'}</td>
         <td class="r">${fmtMoney(h.salarioBase||0)}</td><td style="font-size:10px">${_relEsc(adic)}</td>
         <td style="font-size:10px;white-space:nowrap">VT ${_bn(h.valorDiarioVt)} · VR ${_bn(h.valorDiarioVr)} · VA ${_bn(h.valorMensalVa)}</td></tr>`;
@@ -3756,7 +3756,7 @@ function _colabSecoesHtml(emp, extra){
   const pe=(emp.historicoEscalas||[]).slice().sort((a,b)=>(a.de||'').localeCompare(b.de||''));
   S.escalas=pe.length?`<h2>Períodos de mudança de escala/horário</h2>
     <table><thead><tr><th>De</th><th>Até</th><th>Escala</th><th>Horário</th><th>Observação</th><th>Lançado por</th></tr></thead><tbody>
-    ${pe.map(p=>`<tr><td>${formatDateBr(p.de)}</td><td>${p.ate?formatDateBr(p.ate):'—'}</td><td>${_relEsc(p.escala)||'—'}</td>
+    ${pe.map(p=>`<tr><td>${formatDateBr(p.de)}</td><td>${p.ate?formatDateBr(p.ate):'—'}</td><td>${p.escala?_relEsc(escalaLabel(p.escala)):'—'}</td>
       <td style="white-space:nowrap">${p.horarioEntrada||'—'}–${p.horarioSaida||'—'}</td><td style="font-size:10px">${_relEsc(p.observacao)||'—'}</td><td style="font-size:10px">${_relEsc(p.criadoPorNome)||'—'}</td></tr>`).join('')}
     </tbody></table>`:'';
   // 4) Dias avulsos / folgas / trocas / coberturas
@@ -31894,7 +31894,7 @@ function _segmentosLotacaoHtml(emp, mes, ano){
       <td style="border:1px solid #B39DDB;padding:3px 6px">${formatDateBr(s.ini)} a ${formatDateBr(s.fim)}</td>
       <td style="border:1px solid #B39DDB;padding:3px 6px">${s.lot.posto||'—'}</td>
       <td style="border:1px solid #B39DDB;padding:3px 6px">${s.lot.cargo||'—'}</td>
-      <td style="border:1px solid #B39DDB;padding:3px 6px">${s.lot.escala||'—'} · ${s.lot.turnoNoturno?'Noturno':'Diurno'}</td>
+      <td style="border:1px solid #B39DDB;padding:3px 6px">${s.lot.escala?escalaLabel(s.lot.escala):'—'} · ${s.lot.turnoNoturno?'Noturno':'Diurno'}</td>
       <td style="border:1px solid #B39DDB;padding:3px 6px;text-align:right">${fmtMoney(s.lot.salarioBase||0)}</td>
     </tr>`).join('');
   return `<div style="margin:8px 0;padding:8px 10px;background:#EDE7F6;border:1.5px solid #B39DDB;border-radius:4px">
@@ -32203,7 +32203,7 @@ ${isPreview?`<div class="preview-banner">
   <div class="info-item"><div class="info-label">RG</div><div class="info-value">${emp.rg||'—'}</div></div>
   <div class="info-item"><div class="info-label">PIS/PASEP</div><div class="info-value">${emp.pis||'—'}</div></div>
   <div class="info-item"><div class="info-label">Cargo / Função</div><div class="info-value">${emp.cargo||emp.setor||'—'}</div></div>
-  <div class="info-item"><div class="info-label">Escala</div><div class="info-value">${emp.escala||'—'}</div></div>
+  <div class="info-item"><div class="info-label">Escala</div><div class="info-value">${emp.escala?escalaLabel(emp.escala):'—'}</div></div>
   <div class="info-item"><div class="info-label">Admissão</div><div class="info-value">${emp.dataAdmissao?fmtDate(emp.dataAdmissao):'—'}</div></div>
   <div class="info-item"><div class="info-label">Posto de Trabalho</div><div class="info-value">${posto.razaoSocial||'—'}</div></div>
   <div class="info-item"><div class="info-label">Salário Base</div><div class="info-value">${fmtMoney(salarioBase)}</div></div>
@@ -32605,7 +32605,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
   <div class="info-item"><div class="info-label">RG</div><div class="info-value">${emp.rg||'—'}</div></div>
   <div class="info-item"><div class="info-label">PIS/PASEP</div><div class="info-value">${emp.pis||'—'}</div></div>
   <div class="info-item"><div class="info-label">Cargo / Função</div><div class="info-value">${emp.cargo||emp.setor||'—'}</div></div>
-  <div class="info-item"><div class="info-label">Escala</div><div class="info-value">${emp.escala||'—'}</div></div>
+  <div class="info-item"><div class="info-label">Escala</div><div class="info-value">${emp.escala?escalaLabel(emp.escala):'—'}</div></div>
   <div class="info-item"><div class="info-label">Admissão</div><div class="info-value">${emp.dataAdmissao?fmtDate(emp.dataAdmissao):'—'}</div></div>
   <div class="info-item"><div class="info-label">Posto de Trabalho</div><div class="info-value">${posto.razaoSocial||'—'}</div></div>
   <div class="info-item"><div class="info-label">Salário Base</div><div class="info-value">${fmtMoney(emp.salarioBase||0)}</div></div>

@@ -28630,6 +28630,169 @@ function _ihCarimboBadge(h){
   return '<div style="font-size:10px;color:#94a3b8;margin-top:3px">🔗 Carimbo blockchain: na fila (até ~10 min)</div>';
 }
 
+// ── SELEÇÃO EM LOTE (marcar vários / todos) ──────────────────────────────────
+// Dois conjuntos separados: a lista de vinculados e a de pendências têm ações
+// diferentes, então cada uma guarda a própria seleção. #importar-holerite
+const _ihSel = new Set();      // ids marcados na tabela de VINCULADOS
+const _ihSelP = new Set();     // ids marcados na tabela de PENDÊNCIAS
+let _ihOrdem = [];             // ordem em que os vinculados foram desenhados (shift+clique)
+let _ihOrdemP = [];            // idem, pendências
+let _ihUltimo = null;          // último id clicado em vinculados
+let _ihUltimoP = null;         // idem, pendências
+
+function _ihSet(lista){ return lista==='pend' ? _ihSelP : _ihSel; }
+function _ihIds(lista){ return lista==='pend' ? _ihOrdemP : _ihOrdem; }
+
+// Marca/desmarca uma linha. Com Shift, marca todo o intervalo desde o último clique.
+function ihSelToggle(id, marcado, lista, ev){
+  const sel=_ihSet(lista), ordem=_ihIds(lista);
+  const ultimo = lista==='pend' ? _ihUltimoP : _ihUltimo;
+  if(ev && ev.shiftKey && ultimo && ultimo!==id){
+    const a=ordem.indexOf(ultimo), b=ordem.indexOf(id);
+    if(a>=0 && b>=0){ const [i,f]=a<b?[a,b]:[b,a]; for(let k=i;k<=f;k++){ marcado?sel.add(ordem[k]):sel.delete(ordem[k]); } }
+  } else {
+    marcado?sel.add(id):sel.delete(id);
+  }
+  if(lista==='pend') _ihUltimoP=id; else _ihUltimo=id;
+  _ihSincronizarSelecao(lista);
+}
+
+// Seleciona/limpa em bloco. filtro opcional: função(h)=>bool (ex.: só os não enviados).
+function ihSelTodos(marcado, lista, filtro){
+  const sel=_ihSet(lista), ordem=_ihIds(lista);
+  const todos=(State.holeritesImportados||[]);
+  sel.clear();
+  if(marcado){
+    ordem.forEach(id=>{ const h=todos.find(x=>x.id===id); if(h && (!filtro || filtro(h))) sel.add(id); });
+  }
+  _ihSincronizarSelecao(lista);
+}
+function ihSelNaoEnviados(){ ihSelTodos(true,'vinc', h=>h.status==='vinculado'); }
+
+// Repinta só o que a seleção muda (checkboxes, barra e contador) — não redesenha
+// a tabela inteira, senão marcar 90 linhas ficaria pesado.
+function _ihSincronizarSelecao(lista){
+  const alvos = lista ? [lista] : ['vinc','pend'];
+  alvos.forEach(l=>{
+    const sel=_ihSet(l), pref = l==='pend' ? 'ihp' : 'ihv';
+    document.querySelectorAll(`input[data-ihchk="${l}"]`).forEach(cb=>{
+      const on=sel.has(cb.dataset.id); cb.checked=on;
+      const tr=cb.closest('tr'); if(tr) tr.style.background = on ? '#EFF6FF' : '';
+    });
+    const total=_ihIds(l).length;
+    const mestre=document.getElementById(pref+'-chk-todos');
+    if(mestre){ mestre.checked = total>0 && sel.size===total; mestre.indeterminate = sel.size>0 && sel.size<total; }
+    const barra=document.getElementById(pref+'-barra');
+    if(barra) barra.classList.toggle('hidden', sel.size===0);
+    const cont=document.getElementById(pref+'-sel-cont');
+    if(cont) cont.textContent=sel.size;
+  });
+  // As duas barras são fixas no rodapé: se as duas listas têm seleção, empilha.
+  const bv=document.getElementById('ihv-barra'), bp=document.getElementById('ihp-barra');
+  const vAtiva = bv && !bv.classList.contains('hidden');
+  if(bp) bp.style.bottom = (vAtiva ? (bv.offsetHeight+20) : 12)+'px';
+  const box=document.getElementById('ih-conteudo');
+  if(box){ const alt=(vAtiva?bv.offsetHeight+12:0)+((bp&&!bp.classList.contains('hidden'))?bp.offsetHeight+12:0); box.style.paddingBottom = alt?(alt+12)+'px':''; }
+}
+
+// Roda uma ação para cada id selecionado, com o botão travado e o progresso na
+// cara do usuário (regra nº1: botão nunca fica mudo). 4 de cada vez pra não
+// deixar o gestor esperando 90 idas ao banco em fila.
+async function _ihLote(btn, ids, verbo, fn){
+  const original = btn ? btn.innerHTML : '';
+  if(btn){ btn.disabled=true; }
+  let ok=0, erro=0, feitos=0;
+  const pintar=()=>{ if(btn) btn.innerHTML=`<div class="spinner" style="display:inline-block;width:12px;height:12px;vertical-align:middle"></div> ⏳ ${verbo} ${feitos} de ${ids.length}... aguarde`; };
+  pintar();
+  try{
+    const fila=ids.slice();
+    const worker=async()=>{ while(fila.length){ const id=fila.shift();
+      try{ await fn(id); ok++; }catch(e){ console.error('holerite lote', e); erro++; }
+      feitos++; pintar(); } };
+    await Promise.all(Array.from({length:Math.min(4,ids.length)}, worker));
+  } finally {
+    if(btn){ btn.disabled=false; btn.innerHTML=original; }
+  }
+  return {ok,erro};
+}
+
+// Envia todos os selecionados pro app do colaborador assinar.
+async function ihLoteEnviarAssinar(btn){
+  if(!_podeImportarHolerite()){ toast('Sem permissão.','error'); return; }
+  const todos=(State.holeritesImportados||[]);
+  const alvo=[..._ihSel].map(id=>todos.find(h=>h.id===id)).filter(h=>h && h.employeeId && h.status!=='assinado');
+  const semVinculo=[..._ihSel].filter(id=>{ const h=todos.find(x=>x.id===id); return h && !h.employeeId; }).length;
+  const assinados=[..._ihSel].filter(id=>{ const h=todos.find(x=>x.id===id); return h && h.status==='assinado'; }).length;
+  if(!alvo.length){ toast(assinados?'Os selecionados já estão assinados.':'Nada a enviar na seleção.','warning'); return; }
+  const reenvios=alvo.filter(h=>h.status==='enviado_assinatura').length;
+  if(!confirm(`Enviar ${alvo.length} holerite(s) pro app dos colaboradores conferirem e assinarem (com hash + carimbo blockchain)?`+
+    (reenvios?`\n\n${reenvios} já tinha(m) sido enviado(s) — isto reenvia.`:'')+
+    (assinados?`\n${assinados} já assinado(s) será(ão) ignorado(s).`:'')+
+    (semVinculo?`\n${semVinculo} sem colaborador vinculado será(ão) ignorado(s).`:''))) return;
+  const usuario=(Auth.currentUser&&Auth.currentUser.username)||'—';
+  const r=await _ihLote(btn, alvo.map(h=>h.id), 'Enviando', async(id)=>{
+    const rec=todos.find(x=>x.id===id);
+    const ts=new Date().toISOString();
+    await DB.merge('holeritesImportados', id, { status:'enviado_assinatura', enviadoAssinaturaEm:ts, enviadoAssinaturaPor:usuario });
+    Object.assign(rec,{status:'enviado_assinatura',enviadoAssinaturaEm:ts});
+  });
+  try{ Auth.log('HOLERITE_IMP_ENVIADO_ASSINAR', null, `Lote: ${r.ok} enviado(s) para assinatura${r.erro?` · ${r.erro} com erro`:''}`); }catch(_){}
+  toast(`✓ ${r.ok} holerite(s) enviado(s) para assinatura${r.erro?` · ${r.erro} com erro`:''}.`, r.erro?'warning':'success');
+  _ihSel.clear(); renderImportaHolerite();
+}
+
+// Desfaz o vínculo dos selecionados (volta pra pendência). Assinado não se mexe.
+async function ihLoteDesvincular(btn){
+  if(!_podeImportarHolerite()){ toast('Sem permissão.','error'); return; }
+  const todos=(State.holeritesImportados||[]);
+  const alvo=[..._ihSel].map(id=>todos.find(h=>h.id===id)).filter(h=>h && h.status!=='assinado');
+  const assinados=_ihSel.size-alvo.length;
+  if(!alvo.length){ toast('Holerite assinado não pode ser desvinculado.','warning'); return; }
+  if(!confirm(`Desfazer o vínculo de ${alvo.length} holerite(s) e mandar de volta pra pendência?`+(assinados?`\n\n${assinados} já assinado(s) será(ão) ignorado(s).`:''))) return;
+  const r=await _ihLote(btn, alvo.map(h=>h.id), 'Desvinculando', async(id)=>{
+    const rec=todos.find(x=>x.id===id);
+    await DB.merge('holeritesImportados', id, { status:'pendente_vinculo', employeeId:null, employeeNome:'', matchConfianca:'nenhum' });
+    Object.assign(rec,{status:'pendente_vinculo',employeeId:null,employeeNome:'',matchConfianca:'nenhum'});
+  });
+  toast(`✓ ${r.ok} desvinculado(s)${r.erro?` · ${r.erro} com erro`:''}.`, r.erro?'warning':'success');
+  _ihSel.clear(); renderImportaHolerite();
+}
+
+// Exclui da lista os selecionados (vale para as duas tabelas).
+async function ihLoteExcluir(btn, lista){
+  if(!_podeImportarHolerite()){ toast('Sem permissão.','error'); return; }
+  const sel=_ihSet(lista);
+  const ids=[...sel]; if(!ids.length) return;
+  if(!confirm(`Excluir ${ids.length} holerite(s) importado(s) da lista?`)) return;
+  const r=await _ihLote(btn, ids, 'Excluindo', async(id)=>{ await DB.remove('holeritesImportados', id); });
+  try{ Auth.log('HOLERITE_IMPORT_DEL', null, `Lote: ${r.ok} excluído(s)`); }catch(_){}
+  toast(`✓ ${r.ok} excluído(s)${r.erro?` · ${r.erro} com erro`:''}.`, r.erro?'warning':'success');
+  sel.clear(); renderImportaHolerite();
+}
+
+// Barra de ações que aparece quando há linhas marcadas.
+function _ihBarraLote(lista){
+  const pref = lista==='pend' ? 'ihp' : 'ihv';
+  const btn = (txt,ico,fn,cor)=>`<button class="btn btn-sm ${cor||'btn-outline'}" onclick="${fn}" style="flex:1 1 auto;font-size:12px;padding:6px 10px;white-space:nowrap${cor==='btn-danger'?'':(cor?'':';color:#334155')}"><i class="fa-solid ${ico}"></i> ${txt}</button>`;
+  const acoes = lista==='pend'
+    ? btn('Excluir selecionados','fa-trash',`ihLoteExcluir(this,'pend')`,'')
+    : btn('Enviar p/ assinar','fa-paper-plane','ihLoteEnviarAssinar(this)','btn-primary')
+      + btn('Desvincular','fa-link-slash','ihLoteDesvincular(this)','')
+      + btn('Excluir','fa-trash',`ihLoteExcluir(this,'vinc')`,'');
+  // Fica FIXA no rodapé: a caixa da lista tem overflow:hidden, então "sticky"
+  // não gruda; e com 90 linhas o gestor não pode ter que subir pra achar a ação.
+  return `<div id="${pref}-barra" class="hidden" style="position:fixed;left:12px;right:12px;bottom:12px;z-index:60;display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:10px 12px;background:#1E293B;color:#fff;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.25)">
+    <span style="font-size:12px;font-weight:700;white-space:nowrap"><span id="${pref}-sel-cont">0</span> selecionado(s)</span>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;flex:1 1 260px">${acoes}</div>
+    <button class="btn btn-sm btn-outline" onclick="ihSelTodos(false,'${lista}')" title="Limpar seleção" style="font-size:12px;padding:6px 10px;background:transparent;color:#fff;border-color:#475569"><i class="fa-solid fa-xmark"></i> Limpar</button>
+  </div>`;
+}
+// Atalhos de seleção acima da tabela.
+function _ihAtalhosSelecao(lista){
+  const extra = lista==='vinc' ? ` &middot; <a onclick="ihSelNaoEnviados()" style="cursor:pointer;color:var(--primary);text-decoration:underline">só os não enviados</a>` : '';
+  return `<div style="padding:6px 10px 0;font-size:11px;color:#64748b">Selecionar: <a onclick="ihSelTodos(true,'${lista}')" style="cursor:pointer;color:var(--primary);text-decoration:underline">todos</a>${extra} &middot; <a onclick="ihSelTodos(false,'${lista}')" style="cursor:pointer;color:var(--primary);text-decoration:underline">nenhum</a> <span style="color:#cbd5e1">(Shift+clique marca um intervalo)</span></div>`;
+}
+
 // <datalist> com os nomes dos colaboradores (autocompletar da caixa de vínculo).
 function _ihDatalistColaboradores(){
   return '<datalist id="ih-colaboradores-list">'+(State.employees||[]).slice().sort((a,b)=>_ihNorm(a.nome).localeCompare(_ihNorm(b.nome))).map(e=>`<option value="${esc(e.nome||'')}"></option>`).join('')+'</datalist>';
@@ -28640,6 +28803,9 @@ function renderImportaHolerite(){
   const todos=(State.holeritesImportados||[]);
   const pend=todos.filter(h=>h.status==='pendente_vinculo').sort((a,b)=>(b.importadoEm||'').localeCompare(a.importadoEm||''));
   const vinc=todos.filter(h=>h.status!=='pendente_vinculo');
+  // guarda a ordem desenhada (shift+clique) e descarta da seleção o que sumiu
+  _ihOrdemP=pend.map(h=>h.id);
+  [..._ihSelP].forEach(id=>{ if(!_ihOrdemP.includes(id)) _ihSelP.delete(id); });
   const cnt=document.getElementById('ih-contador');
   if(cnt) cnt.innerHTML = todos.length ? `<strong>${vinc.length}</strong> vinculado(s) &middot; <strong>${pend.length}</strong> em pendência` : '<span style="color:#999">Nenhum holerite importado ainda</span>';
   let html=_ihDatalistColaboradores();
@@ -28651,10 +28817,13 @@ function renderImportaHolerite(){
       <div style="font-weight:400;font-size:11px;color:#64748b;margin-top:2px">Holerites que a IA leu mas não reconheceu com certeza. Digite o nome, escolha na lista e clique <b>Vincular</b>.</div>
     </div>`;
   if(pend.length){
+    html+=_ihBarraLote('pend')+_ihAtalhosSelecao('pend');
     html+=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#fff;text-align:left;border-bottom:1px solid var(--border)">
+      <th style="padding:8px 6px;width:34px;text-align:center"><input type="checkbox" id="ihp-chk-todos" onclick="ihSelTodos(this.checked,'pend')" title="Selecionar todos" style="cursor:pointer;width:16px;height:16px"></th>
       <th style="padding:8px 10px">Lido pela IA</th><th style="padding:8px 10px">Competência</th><th style="padding:8px 10px;text-align:right">Líquido</th><th style="padding:8px 10px">Arquivo</th><th style="padding:8px 10px;min-width:260px">Vincular ao colaborador</th></tr></thead><tbody>`;
     pend.forEach(h=>{
       html+=`<tr style="border-bottom:1px solid #f1f5f9">
+        <td style="padding:8px 6px;text-align:center"><input type="checkbox" data-ihchk="pend" data-id="${h.id}" onclick="ihSelToggle('${h.id}',this.checked,'pend',event)" style="cursor:pointer;width:16px;height:16px"></td>
         <td style="padding:8px 10px"><strong>${esc(h.iaNome||'—')}</strong><div style="font-size:11px;color:#94a3b8">CPF ${esc(h.iaCpf||'—')} · ${esc(h.matchMotivo||'')}</div></td>
         <td style="padding:8px 10px">${h.competencia?_compLabelYM(h.competencia):'—'}</td>
         <td style="padding:8px 10px;text-align:right">${(+h.liquido>0)?fmtMoney(+h.liquido):'—'}</td>
@@ -28677,16 +28846,24 @@ function renderImportaHolerite(){
   if(vinc.length){
     const grupos={};
     vinc.forEach(h=>{ const k=h.employeeId||'?'; (grupos[k]=grupos[k]||[]).push(h); });
+    // ordem final desenhada — serve pro Shift+clique e pro "selecionar todos"
+    const ordenados=[];
+    Object.keys(grupos).forEach(k=>{ grupos[k].sort((a,b)=>(b.competencia||'').localeCompare(a.competencia||'')).forEach(h=>ordenados.push(h)); });
+    _ihOrdem=ordenados.map(h=>h.id);
+    [..._ihSel].forEach(id=>{ if(!_ihOrdem.includes(id)) _ihSel.delete(id); });
+    html+=_ihBarraLote('vinc')+_ihAtalhosSelecao('vinc');
     html+=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#fff;text-align:left;border-bottom:1px solid var(--border)">
+      <th style="padding:8px 6px;width:34px;text-align:center"><input type="checkbox" id="ihv-chk-todos" onclick="ihSelTodos(this.checked,'vinc')" title="Selecionar todos" style="cursor:pointer;width:16px;height:16px"></th>
       <th style="padding:8px 10px">Colaborador</th><th style="padding:8px 10px">Competência</th><th style="padding:8px 10px;text-align:right">Líquido</th><th style="padding:8px 10px;min-width:150px">Status</th><th style="padding:8px 10px;text-align:center">Ações</th></tr></thead><tbody>`;
-    Object.keys(grupos).forEach(k=>{
-      grupos[k].sort((a,b)=>(b.competencia||'').localeCompare(a.competencia||'')).forEach(h=>{
+    {
+      ordenados.forEach(h=>{
         const conf = h.matchConfianca==='manual' ? 'vínculo manual' : `auto · ${esc(h.matchMotivo||'')}`;
         const assinado = h.status==='assinado';
         const btnEnviar = assinado ? '' : `<button class="btn btn-sm btn-primary" onclick="enviarHoleriteImpAssinar('${h.id}')" title="Enviar pro app do colaborador assinar" style="font-size:11px;padding:4px 8px;white-space:nowrap"><i class="fa-solid fa-paper-plane"></i> ${h.status==='enviado_assinatura'?'Reenviar':'Enviar p/ assinar'}</button>`;
         const btnVerAssin = assinado ? `<button class="btn btn-sm btn-outline" onclick="verHoleriteImpAssinado('${h.id}')" title="Ver comprovante assinado (hash)" style="font-size:11px;padding:4px 8px"><i class="fa-solid fa-file-signature"></i></button>` : '';
         const btnDesv = assinado ? '' : `<button class="btn btn-sm btn-outline" onclick="desvincularHolerite('${h.id}')" title="Desfazer vínculo" style="font-size:11px;padding:4px 8px"><i class="fa-solid fa-link-slash"></i></button>`;
         html+=`<tr style="border-bottom:1px solid #f1f5f9">
+          <td style="padding:8px 6px;text-align:center"><input type="checkbox" data-ihchk="vinc" data-id="${h.id}" onclick="ihSelToggle('${h.id}',this.checked,'vinc',event)" style="cursor:pointer;width:16px;height:16px"></td>
           <td style="padding:8px 10px"><strong>${esc(h.employeeNome||'—')}</strong>${h.iaNome&&_ihNorm(h.iaNome)!==_ihNorm(h.employeeNome)?`<div style="font-size:11px;color:#94a3b8">IA leu: ${esc(h.iaNome)}</div>`:''}</td>
           <td style="padding:8px 10px">${h.competencia?_compLabelYM(h.competencia):'—'}</td>
           <td style="padding:8px 10px;text-align:right">${(+h.liquido>0)?fmtMoney(+h.liquido):'—'}</td>
@@ -28700,13 +28877,15 @@ function renderImportaHolerite(){
             </div>
           </td></tr>`;
       });
-    });
+    }
     html+='</tbody></table></div>';
   } else {
+    _ihOrdem=[]; _ihSel.clear();
     html+='<div style="padding:14px 12px;color:#94a3b8;font-size:12px">Nenhum holerite vinculado ainda. Suba os PDFs acima para começar.</div>';
   }
   html+='</div>';
   box.innerHTML=html;
+  _ihSincronizarSelecao(); // repõe os checks e as barras conforme a seleção viva
 }
 
 function _podeDocsEmpresa(){ return !!(getUserModules(Auth.currentUser)||{}).documentosEmpresa || Auth.currentUser?.role==='master'; }

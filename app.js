@@ -4885,17 +4885,25 @@ function _statCard(o){
 }
 
 // --- Personalização do Dashboard (por usuário) ---
-let _dashConfig = { ordem:[], ocultos:[] };
+// ordem   = sequência escolhida pelo usuário
+// ocultos = o usuário mandou sumir (nunca aparece)
+// sempre  = o usuário FIXOU um card de aviso (aparece mesmo zerado)
+// Cards de aviso (auto) aparecem sozinhos quando há pendência. O que NÃO pode
+// acontecer é sumirem da tela E da tela de personalizar — aí o gestor não tem
+// como trazer de volta. Por isso o catálogo é sempre completo. #dash-cards
+let _dashConfig = { ordem:[], ocultos:[], sempre:[] };
 let _dashConfigLoadedFor = null;
+let _dashConfigMexido = false;   // o usuário já mexeu? então a carga não sobrescreve
 let _dashEditMode = false;
 let _dashOrderedKeys = [];
 
 async function saveDashConfig(){
+  _dashConfigMexido = true;
   const uid=Auth.currentUser?.id; if(!uid) return;
   try {
     await DB.saveDoc('configuracoes','dashboard_'+uid,
-      { ordem:_dashConfig.ordem||[], ocultos:_dashConfig.ocultos||[], updatedAt:new Date().toISOString() }, true);
-  } catch(e){ console.error('Erro ao salvar layout do dashboard:',e); }
+      { ordem:_dashConfig.ordem||[], ocultos:_dashConfig.ocultos||[], sempre:_dashConfig.sempre||[], updatedAt:new Date().toISOString() }, true);
+  } catch(e){ console.error('Erro ao salvar layout do dashboard:',e); toast('Não consegui salvar o layout do dashboard.','error'); }
 }
 
 function toggleDashEdit(){
@@ -4914,7 +4922,10 @@ function _dashMove(key,dir){
   const i=keys.indexOf(key); if(i<0) return;
   const j=i+dir; if(j<0||j>=keys.length) return;
   [keys[i],keys[j]]=[keys[j],keys[i]];
-  _dashConfig.ordem=keys;
+  // preserva as chaves já salvas que este usuário não vê agora (cards por
+  // permissão/config) — senão reordenar aqui apagava a posição delas
+  const restos=(_dashConfig.ordem||[]).filter(k=>!keys.includes(k));
+  _dashConfig.ordem=keys.concat(restos);
   saveDashConfig();
   renderDashboard();
 }
@@ -4927,7 +4938,37 @@ function _dashToggle(key){
   renderDashboard();
 }
 
-// Renderiza os cards aplicando ordem e ocultos do usuário
+// Fixa um card de aviso na tela (aparece mesmo zerado) ou devolve ao automático.
+function _dashFixar(key){
+  const s=_dashConfig.sempre;
+  const i=s.indexOf(key);
+  if(i>=0) s.splice(i,1); else { s.push(key); const o=_dashConfig.ocultos.indexOf(key); if(o>=0) _dashConfig.ocultos.splice(o,1); }
+  saveDashConfig();
+  renderDashboard();
+}
+
+// Devolve o dashboard ao padrão (nada oculto, nada fixado, ordem original).
+async function _dashRestaurarPadrao(btn){
+  if(!confirm('Voltar o dashboard ao padrão? Todos os cards voltam a aparecer, na ordem original.')) return;
+  const original = btn ? btn.innerHTML : '';
+  if(btn){ btn.disabled=true; btn.innerHTML='<div class="spinner" style="display:inline-block;width:12px;height:12px;vertical-align:middle"></div> ⏳ Restaurando... aguarde'; }
+  try{
+    _dashConfig={ ordem:[], ocultos:[], sempre:[] };
+    await saveDashConfig();
+    toast('✓ Dashboard restaurado ao padrão.','success');
+  } catch(e){ toast('Erro ao restaurar: '+(e.message||e),'error'); }
+  finally{ if(btn){ btn.disabled=false; btn.innerHTML=original; } renderDashboard(); }
+}
+
+// Um card só some da tela por decisão do usuário. Card de aviso (auto) sem
+// pendência fica fora da tela, mas SEMPRE aparece em "Personalizar cards".
+function _dashVisivel(c){
+  if(_dashConfig.ocultos.includes(c.key)) return false;
+  if(c.auto && !c.temDados && !_dashConfig.sempre.includes(c.key)) return false;
+  return true;
+}
+
+// Renderiza os cards aplicando ordem, ocultos e fixados do usuário
 function _renderDashCards(catalogo){
   const stats=document.getElementById('dashboard-stats'); if(!stats) return;
   const cfg=_dashConfig;
@@ -4940,17 +4981,31 @@ function _renderDashCards(catalogo){
   if(_dashEditMode){
     stats.innerHTML=ordered.map((c,i)=>{
       const oculto=cfg.ocultos.includes(c.key);
-      return `<div class="dash-edit-wrap${oculto?' dash-oculto':''}">
+      const fixado=cfg.sempre.includes(c.key);
+      const foraPorAuto = c.auto && !c.temDados && !fixado && !oculto;
+      const nota = oculto
+        ? '<div class="dash-edit-nota">Você ocultou — não aparece no dashboard.</div>'
+        : (c.auto
+            ? `<div class="dash-edit-nota">${c.temDados
+                ? 'Card de aviso: está na tela porque há pendência.'
+                : 'Card de aviso: <b>sem pendência agora</b>, então não está na tela. Fixe para mantê-lo sempre.'}</div>`
+            : '');
+      const btnFixar = c.auto
+        ? `<button class="dash-edit-fixar${fixado?' ativo':''}" onclick="_dashFixar('${c.key}')" title="${fixado?'Voltar ao automático (só aparece com pendência)':'Manter sempre na tela, mesmo zerado'}"><i class="fa-solid fa-thumbtack"></i> ${fixado?'Fixado':'Fixar'}</button>`
+        : '';
+      return `<div class="dash-edit-wrap${(oculto||foraPorAuto)?' dash-oculto':''}">
         ${c.html}
         <div class="dash-edit-bar">
           <button onclick="_dashMove('${c.key}',-1)" ${i===0?'disabled':''} title="Mover para cima"><i class="fa-solid fa-arrow-up"></i></button>
           <button onclick="_dashMove('${c.key}',1)" ${i===ordered.length-1?'disabled':''} title="Mover para baixo"><i class="fa-solid fa-arrow-down"></i></button>
           <button class="dash-edit-toggle" onclick="_dashToggle('${c.key}')">${oculto?'<i class="fa-solid fa-eye"></i> Mostrar':'<i class="fa-solid fa-eye-slash"></i> Ocultar'}</button>
+          ${btnFixar}
         </div>
+        ${nota}
       </div>`;
     }).join('');
   } else {
-    stats.innerHTML=ordered.filter(c=>!cfg.ocultos.includes(c.key)).map(c=>c.html).join('');
+    stats.innerHTML=ordered.filter(_dashVisivel).map(c=>c.html).join('');
   }
 }
 
@@ -4960,7 +5015,9 @@ function renderDashboard(){
   if(_uid && _dashConfigLoadedFor!==_uid){
     _dashConfigLoadedFor=_uid;
     DB.getDoc('configuracoes','dashboard_'+_uid).then(d=>{
-      _dashConfig = d ? { ordem:d.ordem||[], ocultos:d.ocultos||[] } : { ordem:[], ocultos:[] };
+      // se o usuário já mexeu enquanto o doc vinha, a escolha DELE vence
+      if(_dashConfigMexido) return;
+      _dashConfig = d ? { ordem:d.ordem||[], ocultos:d.ocultos||[], sempre:d.sempre||[] } : { ordem:[], ocultos:[], sempre:[] };
       if(State.currentSection==='dashboard') renderDashboard();
     }).catch(()=>{});
   }
@@ -5032,8 +5089,8 @@ function renderDashboard(){
   catalogo.push({key:'afastados', html:_statCard({label:'Afastados INSS', value:afastados, icon:'fa-user-clock',
     accent:'#00838F', iconBg:'#E0F7FA', iconColor:'#00838F',
     onclick:"showSection('employees');setEmployeeFilter('afastado')", title:'Ver afastados INSS'})});
-  if(licMaternidade>0) catalogo.push({key:'licMaternidade', html:_statCard({label:'Licença Maternidade', value:licMaternidade, icon:'fa-baby',
-    accent:'#E91E63', iconBg:'#FCE4EC', iconColor:'#E91E63', valueColor:'#E91E63',
+  catalogo.push({key:'licMaternidade', auto:true, temDados:licMaternidade>0, html:_statCard({label:'Licença Maternidade', value:licMaternidade, icon:'fa-baby',
+    accent:'#E91E63', iconBg:'#FCE4EC', iconColor:'#E91E63', valueColor:licMaternidade>0?'#E91E63':'#94a3b8',
     onclick:"showSection('employees');setEmployeeFilter('licenca-maternidade')", title:'Ver licenças maternidade'})});
   catalogo.push({key:'inativos', html:_statCard({label:'Colaboradores inativos', value:inativos, icon:'fa-user-slash',
     accent:'#9E9E9E', iconBg:'#F5F5F5', iconColor:'#757575',
@@ -5041,63 +5098,70 @@ function renderDashboard(){
   catalogo.push({key:'postos', html:_statCard({label:'Postos de trabalho', value:totalPostos, icon:'fa-building',
     accent:'#1565C0', iconBg:'#E3F2FD', iconColor:'#1565C0', valueColor:'#1565C0',
     onclick:"showSection('postos')", title:'Ver postos de trabalho'})});
-  if(heRevisaoEmps>0) catalogo.push({key:'heRevisao', html:_statCard({label:'Pendentes de revisar HE', value:heRevisaoEmps, icon:'fa-magnifying-glass',
-    accent:'#E65100', iconBg:'#FFF3E0', iconColor:'#E65100', valueColor:'#E65100',
-    sub:`<i class="fa-solid fa-triangle-exclamation"></i> ${heRevisaoDias} dia(s) de HE${heRevisaoRef?` + <span style="color:#6A1B9A">${heRevisaoRef} refeição</span>`:''} — clique pra revisar`, subColor:'#E65100',
+  catalogo.push({key:'heRevisao', auto:true, temDados:heRevisaoEmps>0, html:_statCard({label:'Pendentes de revisar HE', value:heRevisaoEmps, icon:'fa-magnifying-glass',
+    accent:'#E65100', iconBg:'#FFF3E0', iconColor:'#E65100', valueColor:heRevisaoEmps>0?'#E65100':'#94a3b8',
+    sub: heRevisaoEmps>0
+      ? `<i class="fa-solid fa-triangle-exclamation"></i> ${heRevisaoDias} dia(s) de HE${heRevisaoRef?` + <span style="color:#6A1B9A">${heRevisaoRef} refeição</span>`:''} — clique pra revisar`
+      : 'Nada pendente de revisão',
+    subColor:heRevisaoEmps>0?'#E65100':'#94a3b8',
     onclick:"_dashGotoHEReview()", title:'Colaboradores com HE acima da tolerância CLT e/ou refeição não rendida aguardando revisão'})});
   // Faltas registradas no mês — colaboradores com falta injustificada. Clique → lista de nomes → folha. #card-faltas
   {
     const _faltasL = _getFaltasList(mes, ano);
-    if(_faltasL.length>0){
-      const _totFaltaDias = _faltasL.reduce((s,x)=>s+x.qtd,0);
-      catalogo.push({key:'faltas', html:_statCard({label:'Faltas registradas', value:_faltasL.length, icon:'fa-user-xmark',
-        accent:'#c62828', iconBg:'#FFEBEE', iconColor:'#c62828', valueColor:'#c62828',
-        sub:`${_totFaltaDias} dia(s) de falta em ${MESES[mes]} — clique p/ ver os nomes`, subColor:'#c62828',
-        onclick:"openFaltasList()", title:'Colaboradores com faltas injustificadas no mês — clique para ver os nomes e abrir a folha de cada um'})});
-    }
+    const _totFaltaDias = _faltasL.reduce((s,x)=>s+x.qtd,0);
+    catalogo.push({key:'faltas', auto:true, temDados:_faltasL.length>0, html:_statCard({label:'Faltas registradas', value:_faltasL.length, icon:'fa-user-xmark',
+      accent:'#c62828', iconBg:'#FFEBEE', iconColor:'#c62828', valueColor:_faltasL.length>0?'#c62828':'#94a3b8',
+      sub:_faltasL.length>0
+        ? `${_totFaltaDias} dia(s) de falta em ${MESES[mes]} — clique p/ ver os nomes`
+        : `Nenhuma falta em aberto em ${MESES[mes]}`,
+      subColor:_faltasL.length>0?'#c62828':'#94a3b8',
+      onclick:"openFaltasList()", title:'Colaboradores com faltas injustificadas no mês — clique para ver os nomes e abrir a folha de cada um'})});
   }
   // Férias — PAGAMENTO a vencer (CLT Art. 145: até 2 dias antes do início). #ferias-pagamento
   {
     const _ferPag=_getFeriasPagamentoPend();
-    if(_ferPag.length>0){
-      const _venc=_ferPag.filter(x=>x.vencido).length;
-      catalogo.push({key:'feriasPagar', html:_statCard({label:'Férias a pagar', value:_ferPag.length, icon:'fa-umbrella-beach',
-        accent:'#00695C', iconBg:'#E0F2F1', iconColor:'#00695C', valueColor:_venc>0?'#c62828':'#00695C',
-        sub:_venc>0
+    const _venc=_ferPag.filter(x=>x.vencido).length;
+    catalogo.push({key:'feriasPagar', auto:true, temDados:_ferPag.length>0, html:_statCard({label:'Férias a pagar', value:_ferPag.length, icon:'fa-umbrella-beach',
+      accent:'#00695C', iconBg:'#E0F2F1', iconColor:'#00695C', valueColor:_venc>0?'#c62828':(_ferPag.length>0?'#00695C':'#94a3b8'),
+      sub:_ferPag.length===0
+        ? 'Nenhum pagamento de férias a vencer'
+        : (_venc>0
           ? `<i class="fa-solid fa-triangle-exclamation"></i> ${_venc} com prazo VENCIDO — pague já (atraso = em dobro)`
-          : 'pagar até 2 dias antes do início — clique p/ ver',
-        subColor:_venc>0?'#c62828':'#00695C',
-        onclick:"openFeriasPagamentoList()", title:'Férias com pagamento a vencer — remuneração + 1/3 deve ser paga até 2 dias antes do início (CLT Art. 145)'})});
-    }
+          : 'pagar até 2 dias antes do início — clique p/ ver'),
+      subColor:_ferPag.length===0?'#94a3b8':(_venc>0?'#c62828':'#00695C'),
+      onclick:"openFeriasPagamentoList()", title:'Férias com pagamento a vencer — remuneração + 1/3 deve ser paga até 2 dias antes do início (CLT Art. 145)'})});
   }
   {
     const pendAprov=(State.solicitacoes||[]).filter(s=>s.status==='pendente');
     const md=getUserModules(Auth.currentUser);
-    if(pendAprov.length>0 && (md.pagamentosLancar||md.pagamentosAprovar)){
+    // Os gates de PERMISSÃO continuam tirando o card do catálogo (quem não pode
+    // ver nem deve escolher). O gate de DADO virou "auto": o card fica listado em
+    // Personalizar e só entra na tela quando há pendência. #dash-cards
+    if(md.pagamentosLancar||md.pagamentosAprovar){
       const totalP=pendAprov.reduce((s,x)=>s+(x.valor||0),0);
-      catalogo.push({key:'aprovacoesPend', html:_statCard({label:'Pagamentos aguardando aprovação', value:pendAprov.length, icon:'fa-hourglass-half',
-        accent:'#E65100', iconBg:'#FFF3E0', iconColor:'#E65100', valueColor:'#E65100',
-        sub:`${fmtMoney(totalP)} — clique para revisar`, subColor:'#E65100',
+      catalogo.push({key:'aprovacoesPend', auto:true, temDados:pendAprov.length>0, html:_statCard({label:'Pagamentos aguardando aprovação', value:pendAprov.length, icon:'fa-hourglass-half',
+        accent:'#E65100', iconBg:'#FFF3E0', iconColor:'#E65100', valueColor:pendAprov.length>0?'#E65100':'#94a3b8',
+        sub:pendAprov.length>0?`${fmtMoney(totalP)} — clique para revisar`:'Nenhum pagamento aguardando aprovação', subColor:pendAprov.length>0?'#E65100':'#94a3b8',
         onclick:"showSection('aprovacoes')", title:'Solicitações de pagamento pendentes de aprovação'})});
     }
 
     // Pedidos de autorização do operador aguardando o MASTER decidir (inclusão + pagamento). #autorizacao-master
     const pedAutoriz=pendAprov.filter(s=>s.autorizacaoSolicitada);
     const _ehAprovador = md.pagamentosAprovar || Auth.currentUser?.role==='master';
-    if(pedAutoriz.length>0 && _ehAprovador){
+    if(_ehAprovador){
       const totalA=pedAutoriz.reduce((s,x)=>s+(x.valor||0),0);
-      catalogo.push({key:'autorizacaoPend', html:_statCard({label:'Pedidos de autorização (você decide)', value:pedAutoriz.length, icon:'fa-user-shield',
-        accent:'#C2185B', iconBg:'#FCE4EC', iconColor:'#C2185B', valueColor:'#C2185B',
-        sub:`${fmtMoney(totalA)} — um operador pediu sua autorização. Clique para decidir.`, subColor:'#C2185B',
+      catalogo.push({key:'autorizacaoPend', auto:true, temDados:pedAutoriz.length>0, html:_statCard({label:'Pedidos de autorização (você decide)', value:pedAutoriz.length, icon:'fa-user-shield',
+        accent:'#C2185B', iconBg:'#FCE4EC', iconColor:'#C2185B', valueColor:pedAutoriz.length>0?'#C2185B':'#94a3b8',
+        sub:pedAutoriz.length>0?`${fmtMoney(totalA)} — um operador pediu sua autorização. Clique para decidir.`:'Nenhum pedido aguardando sua decisão', subColor:pedAutoriz.length>0?'#C2185B':'#94a3b8',
         onclick:"showSection('aprovacoes')", title:'Pagamentos lançados por operador aguardando sua autorização (inclusão + pagamento)'})});
     }
 
     // Documentos enviados pelo colaborador via app, aguardando aprovação
     const pendDocs=(State.documentos||[]).filter(d=>d.status==='pendente');
-    if(pendDocs.length>0 && md.employees){
-      catalogo.push({key:'docsPend', html:_statCard({label:'Documentos aguardando aprovação', value:pendDocs.length, icon:'fa-folder-tree',
-        accent:'#6A1B9A', iconBg:'#F3E5F5', iconColor:'#6A1B9A', valueColor:'#6A1B9A',
-        sub:'Enviados pelos colaboradores pelo app — clique para revisar', subColor:'#6A1B9A',
+    if(md.employees){
+      catalogo.push({key:'docsPend', auto:true, temDados:pendDocs.length>0, html:_statCard({label:'Documentos aguardando aprovação', value:pendDocs.length, icon:'fa-folder-tree',
+        accent:'#6A1B9A', iconBg:'#F3E5F5', iconColor:'#6A1B9A', valueColor:pendDocs.length>0?'#6A1B9A':'#94a3b8',
+        sub:pendDocs.length>0?'Enviados pelos colaboradores pelo app — clique para revisar':'Nenhum documento aguardando aprovação', subColor:pendDocs.length>0?'#6A1B9A':'#94a3b8',
         onclick:"showSection('documentos')", title:'Documentos enviados pelo app aguardando aprovação'})});
     }
 
@@ -5107,25 +5171,24 @@ function renderDashboard(){
       const _agora=new Date();
       const _mesA=_agora.getMonth()+1, _anoA=_agora.getFullYear(), _diaA=_agora.getDate();
       const _diaLim=Math.min(28,Math.max(1,parseInt(State.empresa?.diaLimiteAdiantamento)||15));
-      if(_diaA>_diaLim){
-        const _compA=String(_mesA).padStart(2,'0')+'/'+_anoA;
-        const _venc=(State.payrolls||[]).filter(p=>
-          p.mes==_mesA && p.ano==_anoA &&
-          p.adiantamentoAtivo && (p.adiantamentoValor||0)>0 &&
-          !p.adiantamentoPagoExterno &&
-          !(State.solicitacoes||[]).some(s=>s.origem==='adiantamento' && s.employeeId===p.employeeId &&
-            s.competencia===_compA && (s.status==='pendente'||s.status==='pago'))
-        );
-        if(_venc.length>0){
-          const _totV=_venc.reduce((s,p)=>s+(p.adiantamentoValor||0),0);
-          catalogo.push({key:'adiantVencidos', html:_statCard({
-            label:'Adiantamentos vencidos', value:_venc.length, icon:'fa-triangle-exclamation',
-            accent:'#c62828', iconBg:'#FFEBEE', iconColor:'#c62828', valueColor:'#c62828',
-            sub:`${fmtMoney(_totV)} — passou do dia ${_diaLim}; pague ou marque como pago fora`, subColor:'#c62828',
-            onclick:"showSection('adiantamentos')", title:'Adiantamentos vencidos do mês corrente'
-          })});
-        }
-      }
+      const _compA=String(_mesA).padStart(2,'0')+'/'+_anoA;
+      const _venc=(_diaA>_diaLim ? (State.payrolls||[]) : []).filter(p=>
+        p.mes==_mesA && p.ano==_anoA &&
+        p.adiantamentoAtivo && (p.adiantamentoValor||0)>0 &&
+        !p.adiantamentoPagoExterno &&
+        !(State.solicitacoes||[]).some(s=>s.origem==='adiantamento' && s.employeeId===p.employeeId &&
+          s.competencia===_compA && (s.status==='pendente'||s.status==='pago'))
+      );
+      const _totV=_venc.reduce((s,p)=>s+(p.adiantamentoValor||0),0);
+      catalogo.push({key:'adiantVencidos', auto:true, temDados:_venc.length>0, html:_statCard({
+        label:'Adiantamentos vencidos', value:_venc.length, icon:'fa-triangle-exclamation',
+        accent:'#c62828', iconBg:'#FFEBEE', iconColor:'#c62828', valueColor:_venc.length>0?'#c62828':'#94a3b8',
+        sub:_venc.length>0
+          ? `${fmtMoney(_totV)} — passou do dia ${_diaLim}; pague ou marque como pago fora`
+          : (_diaA>_diaLim ? 'Nenhum adiantamento vencido' : `Nada vencido — o limite do mês é dia ${_diaLim}`),
+        subColor:_venc.length>0?'#c62828':'#94a3b8',
+        onclick:"showSection('adiantamentos')", title:'Adiantamentos vencidos do mês corrente'
+      })});
     }
 
     // Adiantamentos quinzenais — TOTAL do mês corrente (todos com adiantamentoAtivo
@@ -5137,20 +5200,24 @@ function renderDashboard(){
         p.mes==_mesQ && p.ano==_anoQ &&
         p.adiantamentoAtivo && (p.adiantamentoValor||0)>0
       );
-      if(_listaQ.length>0){
-        const _totQ=_listaQ.reduce((s,p)=>s+(p.adiantamentoValor||0),0);
-        catalogo.push({key:'adiantQuinzenais', html:_statCard({
-          label:'Adiantamentos quinzenais', value:_listaQ.length, icon:'fa-money-bill-trend-up',
-          accent:'#00897B', iconBg:'#E0F2F1', iconColor:'#00695C', valueColor:'#00695C',
-          sub:`${fmtMoney(_totQ)} — ${MESES[_mesQ]}/${_anoQ} · clique p/ ver a lista`, subColor:'#00695C',
-          onclick:"showSection('adiantamentos')", title:'Total dos adiantamentos quinzenais do mês corrente'
-        })});
-      }
+      const _totQ=_listaQ.reduce((s,p)=>s+(p.adiantamentoValor||0),0);
+      catalogo.push({key:'adiantQuinzenais', auto:true, temDados:_listaQ.length>0, html:_statCard({
+        label:'Adiantamentos quinzenais', value:_listaQ.length, icon:'fa-money-bill-trend-up',
+        accent:'#00897B', iconBg:'#E0F2F1', iconColor:'#00695C', valueColor:_listaQ.length>0?'#00695C':'#94a3b8',
+        sub:_listaQ.length>0
+          ? `${fmtMoney(_totQ)} — ${MESES[_mesQ]}/${_anoQ} · clique p/ ver a lista`
+          : `Nenhum adiantamento em ${MESES[_mesQ]}/${_anoQ}`,
+        subColor:_listaQ.length>0?'#00695C':'#94a3b8',
+        onclick:"showSection('adiantamentos')", title:'Total dos adiantamentos quinzenais do mês corrente'
+      })});
     }
   }
-  if(colabsHoje.length>0||colabsSemana.length>0) catalogo.push({key:'beneficios', html:_statCard({label:'Benefícios a pagar hoje', value:colabsHoje.length, icon:'fa-money-check-dollar',
-    accent:'#0288D1', iconBg:'#E1F5FE', iconColor:'#0288D1', valueColor:'#0288D1',
-    sub:`${fmtMoney(totalBenHoje)} hoje &middot; Semana: ${colabsSemana.length} colab. ${fmtMoney(totalBenSemana)}`, subColor:'#01579B',
+  catalogo.push({key:'beneficios', auto:true, temDados:(colabsHoje.length>0||colabsSemana.length>0), html:_statCard({label:'Benefícios a pagar hoje', value:colabsHoje.length, icon:'fa-money-check-dollar',
+    accent:'#0288D1', iconBg:'#E1F5FE', iconColor:'#0288D1', valueColor:colabsHoje.length>0?'#0288D1':'#94a3b8',
+    sub:(colabsHoje.length>0||colabsSemana.length>0)
+      ? `${fmtMoney(totalBenHoje)} hoje &middot; Semana: ${colabsSemana.length} colab. ${fmtMoney(totalBenSemana)}`
+      : 'Ninguém escalado hoje nem nesta semana',
+    subColor:(colabsHoje.length>0||colabsSemana.length>0)?'#01579B':'#94a3b8',
     onclick:"openBeneficiosPagar()", title:'Ver benefícios a pagar hoje e nesta semana'})});
   catalogo.push({key:'escalas', html:_statCard({label:`Escalas — ${MESES[mes]}/${ano}`, value:escalasMes, icon:'fa-calendar-days',
     accent:'#6A1B9A', iconBg:'#F3E5F5', iconColor:'#6A1B9A', valueColor:'#6A1B9A',
@@ -5178,8 +5245,9 @@ function renderDashboard(){
   catalogo.push({key:'contratos', html:_statCard({label:'Contratos ativos', value:(State.contratos||[]).filter(c=>!c.status||c.status!=='inativo').length, icon:'fa-file-signature',
     accent:'#2E7D32', iconBg:'#F1F8E9', iconColor:'#2E7D32', valueColor:'#2E7D32',
     onclick:"showSection('contratos')", title:'Ver contratos'})});
-  if(State.cct) catalogo.push({key:'cct', html:_statCard({label:'CCT vigente', value:`desde ${formatDateBr(State.cct.vigencia)}`, icon:'fa-file-contract',
-    accent:'#7B1FA2', iconBg:'#F3E5F5', iconColor:'#7B1FA2', valueColor:'#7B1FA2', smallValue:true,
+  catalogo.push({key:'cct', auto:true, temDados:!!State.cct, html:_statCard({label:'CCT vigente',
+    value: State.cct?`desde ${formatDateBr(State.cct.vigencia)}`:'não cadastrada', icon:'fa-file-contract',
+    accent:'#7B1FA2', iconBg:'#F3E5F5', iconColor:'#7B1FA2', valueColor:State.cct?'#7B1FA2':'#94a3b8', smallValue:true,
     onclick:"openCctModal()", title:'Abrir a CCT vigente'})});
   _renderDashCards(catalogo);
   renderBirthdays();

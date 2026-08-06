@@ -388,14 +388,17 @@ ul { list-style: none; }
 .dash-edit-wrap { display: flex; flex-direction: column; }
 .dash-edit-wrap .stat-card { pointer-events: none; }
 .dash-oculto .stat-card { opacity: 0.4; }
-.dash-edit-bar { display: flex; gap: 6px; margin-top: 6px; }
+.dash-edit-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .dash-edit-bar button {
   padding: 5px 9px; font-size: 12px; cursor: pointer;
   border: 1px solid var(--border); border-radius: 6px;
   background: #fff; color: var(--text);
 }
 .dash-edit-bar button:disabled { opacity: 0.35; cursor: default; }
-.dash-edit-bar .dash-edit-toggle { flex: 1; }
+.dash-edit-bar .dash-edit-toggle { flex: 1 1 90px; }
+.dash-edit-bar .dash-edit-fixar { flex: 1 1 90px; }
+.dash-edit-bar .dash-edit-fixar.ativo { background: #EDE7F6; border-color: #7B1FA2; color: #4A148C; font-weight: 600; }
+.dash-edit-nota { font-size: 11px; color: var(--text-muted); margin-top: 5px; line-height: 1.35; }
 
 /* ---- Dashboard Cards ---- */
 .dashboard-cards {

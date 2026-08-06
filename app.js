@@ -4399,7 +4399,9 @@ const LOG_TYPES={
   HOLERITE_ENVIADO_CONFERENCIA_LOTE:{label:'Holerites enviados (lote)',       cls:'ev-doc', icon:'fa-paper-plane'},
   HOLERITE_SILENCIO:       {label:'Holerites aceitos por silêncio', cls:'ev-doc', icon:'fa-hourglass-end'},
   HOLERITE_IMPORTADO_LOTE: {label:'Holerites importados',     cls:'ev-doc', icon:'fa-file-arrow-up'},
-  HOLERITE_IMPORT_DEL:     {label:'Holerite importado excluído', cls:'ev-alerta', icon:'fa-trash'},
+  HOLERITE_IMPORT_DEL:     {label:'Holerite importado p/ lixeira', cls:'ev-alerta', icon:'fa-trash'},
+  HOLERITE_IMPORT_RESTAURADO:{label:'Holerite restaurado da lixeira', cls:'ev-doc', icon:'fa-rotate-left'},
+  HOLERITE_IMPORT_APAGADO: {label:'Holerite apagado definitivamente', cls:'ev-alerta', icon:'fa-fire'},
   HOLERITE_VINCULADO:      {label:'Holerite vinculado',       cls:'ev-doc', icon:'fa-link'},
   HOLERITE_IMP_ENVIADO_ASSINAR:{label:'Holerite enviado p/ assinar', cls:'ev-doc', icon:'fa-file-signature'},
   RECIBO_ENVIADO:          {label:'Recibo enviado',           cls:'ev-doc', icon:'fa-paper-plane'},
@@ -4489,6 +4491,7 @@ const LOG_SECAO_EXATA={
   TROCA_PLANTAO:'escalas', REGRA_ADIANT_SAVE:'adiantamentos',
   HOLERITE_IMPORTADO_LOTE:'importaholerite', HOLERITE_IMPORT_DEL:'importaholerite',
   HOLERITE_VINCULADO:'importaholerite', HOLERITE_IMP_ENVIADO_ASSINAR:'importaholerite',
+  HOLERITE_IMPORT_RESTAURADO:'importaholerite', HOLERITE_IMPORT_APAGADO:'importaholerite',
 };
 const LOG_SECAO_PREFIXO=[
   ['ADIANT_','adiantamentos'], ['AUTZ_','autorizacoes'],   ['BACKUP_','configuracoes'],
@@ -28648,14 +28651,79 @@ async function desvincularHolerite(id){
   }catch(e){ toast('Erro: '+(e.message||e),'error'); }
 }
 
-// Exclui um holerite importado (arquivo fica no Storage; some da lista).
+// ── LIXEIRA ──────────────────────────────────────────────────────────────────
+// Excluir NÃO apaga: manda pra lixeira e fica lá até alguém apagar de vez.
+// O status original vai pra statusAntesExcluir, então restaurar devolve o
+// holerite exatamente ao estado em que estava. #lixeira-holerite
+function _ihNaLixeira(h){ return !!(h && h.excluido); }
+function _ihLixeira(){ return (State.holeritesImportados||[]).filter(_ihNaLixeira); }
+
+// Grava a marcação de lixeira no banco e no objeto em memória.
+// O status vira 'excluido' de propósito: o app do colaborador (ponto.html) monta
+// a caixa de "holerites p/ assinar" com status==='enviado_assinatura'. Sem trocar
+// o status, um holerite na lixeira continuaria pedindo assinatura no celular dele.
+async function _ihMandarPraLixeira(rec){
+  const ts=new Date().toISOString();
+  const patch={ excluido:true, status:'excluido', excluidoEm:ts, excluidoPor:(Auth.currentUser&&(Auth.currentUser.username||Auth.currentUser.id))||'—',
+                statusAntesExcluir: rec.statusAntesExcluir || rec.status || 'vinculado' };
+  await DB.merge('holeritesImportados', rec.id, patch);
+  Object.assign(rec, patch);
+}
+
+// Exclui um holerite importado — vai pra lixeira, não some do banco.
 async function excluirHoleriteImportado(id){
   if(!_podeImportarHolerite()){ toast('Sem permissão.','error'); return; }
   const rec=(State.holeritesImportados||[]).find(x=>x.id===id); if(!rec) return;
-  if(!confirm('Excluir este holerite importado da lista?')) return;
-  try{ await DB.remove('holeritesImportados', id); try{ Auth.log('HOLERITE_IMPORT_DEL', null, `${rec.employeeNome||rec.iaNome||''} — ${rec.competencia||''}`); }catch(_){} renderImportaHolerite(); toast('Excluído.','success'); }
+  if(!confirm('Mandar este holerite para a lixeira?\n\nEle sai da lista mas continua guardado — dá pra restaurar depois.')) return;
+  try{
+    await _ihMandarPraLixeira(rec);
+    try{ Auth.log('HOLERITE_IMPORT_DEL', null, `Lixeira: ${rec.employeeNome||rec.iaNome||''} — ${rec.competencia||''}`); }catch(_){}
+    renderImportaHolerite();
+    toast('✓ Mandado para a lixeira. Dá pra restaurar lá embaixo.','success');
+  }
   catch(e){ toast('Erro ao excluir: '+(e.message||e),'error'); }
 }
+
+// Tira da lixeira e devolve ao estado anterior.
+async function restaurarHoleriteImportado(id){
+  if(!_podeImportarHolerite()){ toast('Sem permissão.','error'); return; }
+  const rec=(State.holeritesImportados||[]).find(x=>x.id===id); if(!rec) return;
+  try{
+    await _ihRestaurarUm(rec);
+    try{ Auth.log('HOLERITE_IMPORT_RESTAURADO', null, `${rec.employeeNome||rec.iaNome||''} — ${rec.competencia||''}`); }catch(_){}
+    renderImportaHolerite();
+    toast(`✓ Restaurado${rec.employeeNome?` — ${rec.employeeNome}`:''}.`,'success');
+  }catch(e){ toast('Erro ao restaurar: '+(e.message||e),'error'); }
+}
+async function _ihRestaurarUm(rec){
+  const status = rec.statusAntesExcluir || (rec.employeeId ? 'vinculado' : 'pendente_vinculo');
+  const patch={ excluido:false, status, excluidoEm:null, excluidoPor:null, statusAntesExcluir:null,
+                restauradoEm:new Date().toISOString(), restauradoPor:(Auth.currentUser&&Auth.currentUser.username)||'—' };
+  await DB.merge('holeritesImportados', rec.id, patch);
+  Object.assign(rec, patch);
+}
+
+// Apaga DE VEZ: o registro e o PDF no Storage. Só sai da lixeira por aqui.
+async function _ihApagarDeVez(rec){
+  try{
+    if(rec.loteId){ DB.initStorage(); await DB.storageRef(`holeritesImportados/${rec.loteId}/${rec.id}.pdf`).delete(); }
+  }catch(e){ console.warn('arquivo do holerite já não estava no Storage:', e && e.code); }
+  await DB.remove('holeritesImportados', rec.id);
+  const arr=State.holeritesImportados||[]; const i=arr.findIndex(x=>x.id===rec.id); if(i>=0) arr.splice(i,1);
+}
+async function apagarHoleriteDeVez(id){
+  if(!_podeImportarHolerite()){ toast('Sem permissão.','error'); return; }
+  const rec=(State.holeritesImportados||[]).find(x=>x.id===id); if(!rec) return;
+  if(!confirm(`APAGAR DE VEZ o holerite de ${rec.employeeNome||rec.iaNome||'—'}${rec.competencia?` (${_compLabelYM(rec.competencia)})`:''}?\n\nO registro e o arquivo PDF somem. Isto não tem volta.`)) return;
+  try{
+    await _ihApagarDeVez(rec);
+    try{ Auth.log('HOLERITE_IMPORT_APAGADO', null, `Definitivo: ${rec.employeeNome||rec.iaNome||''} — ${rec.competencia||''}`); }catch(_){}
+    renderImportaHolerite();
+    toast('✓ Apagado definitivamente.','success');
+  }catch(e){ toast('Erro ao apagar: '+(e.message||e),'error'); }
+}
+
+function _ihToggleLixeira(){ _ihVerLixeira=!_ihVerLixeira; renderImportaHolerite(); }
 
 // Envia o holerite vinculado pro app do colaborador conferir e assinar (PIN → hash
 // → carimbo blockchain via worker). Só muda o status; o colab vê no ponto.html. #importar-holerite
@@ -28703,25 +28771,33 @@ function _ihCarimboBadge(h){
 // diferentes, então cada uma guarda a própria seleção. #importar-holerite
 const _ihSel = new Set();      // ids marcados na tabela de VINCULADOS
 const _ihSelP = new Set();     // ids marcados na tabela de PENDÊNCIAS
+const _ihSelL = new Set();     // ids marcados na LIXEIRA
 let _ihOrdem = [];             // ordem em que os vinculados foram desenhados (shift+clique)
 let _ihOrdemP = [];            // idem, pendências
+let _ihOrdemL = [];            // idem, lixeira
 let _ihUltimo = null;          // último id clicado em vinculados
 let _ihUltimoP = null;         // idem, pendências
+let _ihUltimoL = null;         // idem, lixeira
+let _ihVerLixeira = false;     // lixeira começa fechada
+const _IH_LISTAS = ['vinc','pend','lix'];
+const _IH_PREF = { vinc:'ihv', pend:'ihp', lix:'ihl' };
 
-function _ihSet(lista){ return lista==='pend' ? _ihSelP : _ihSel; }
-function _ihIds(lista){ return lista==='pend' ? _ihOrdemP : _ihOrdem; }
+function _ihSet(lista){ return lista==='pend' ? _ihSelP : (lista==='lix' ? _ihSelL : _ihSel); }
+function _ihIds(lista){ return lista==='pend' ? _ihOrdemP : (lista==='lix' ? _ihOrdemL : _ihOrdem); }
+function _ihGetUltimo(lista){ return lista==='pend' ? _ihUltimoP : (lista==='lix' ? _ihUltimoL : _ihUltimo); }
+function _ihSetUltimo(lista,id){ if(lista==='pend') _ihUltimoP=id; else if(lista==='lix') _ihUltimoL=id; else _ihUltimo=id; }
 
 // Marca/desmarca uma linha. Com Shift, marca todo o intervalo desde o último clique.
 function ihSelToggle(id, marcado, lista, ev){
   const sel=_ihSet(lista), ordem=_ihIds(lista);
-  const ultimo = lista==='pend' ? _ihUltimoP : _ihUltimo;
+  const ultimo=_ihGetUltimo(lista);
   if(ev && ev.shiftKey && ultimo && ultimo!==id){
     const a=ordem.indexOf(ultimo), b=ordem.indexOf(id);
     if(a>=0 && b>=0){ const [i,f]=a<b?[a,b]:[b,a]; for(let k=i;k<=f;k++){ marcado?sel.add(ordem[k]):sel.delete(ordem[k]); } }
   } else {
     marcado?sel.add(id):sel.delete(id);
   }
-  if(lista==='pend') _ihUltimoP=id; else _ihUltimo=id;
+  _ihSetUltimo(lista,id);
   _ihSincronizarSelecao(lista);
 }
 
@@ -28740,9 +28816,9 @@ function ihSelNaoEnviados(){ ihSelTodos(true,'vinc', h=>h.status==='vinculado');
 // Repinta só o que a seleção muda (checkboxes, barra e contador) — não redesenha
 // a tabela inteira, senão marcar 90 linhas ficaria pesado.
 function _ihSincronizarSelecao(lista){
-  const alvos = lista ? [lista] : ['vinc','pend'];
+  const alvos = lista ? [lista] : _IH_LISTAS;
   alvos.forEach(l=>{
-    const sel=_ihSet(l), pref = l==='pend' ? 'ihp' : 'ihv';
+    const sel=_ihSet(l), pref=_IH_PREF[l];
     document.querySelectorAll(`input[data-ihchk="${l}"]`).forEach(cb=>{
       const on=sel.has(cb.dataset.id); cb.checked=on;
       const tr=cb.closest('tr'); if(tr) tr.style.background = on ? '#EFF6FF' : '';
@@ -28755,12 +28831,16 @@ function _ihSincronizarSelecao(lista){
     const cont=document.getElementById(pref+'-sel-cont');
     if(cont) cont.textContent=sel.size;
   });
-  // As duas barras são fixas no rodapé: se as duas listas têm seleção, empilha.
-  const bv=document.getElementById('ihv-barra'), bp=document.getElementById('ihp-barra');
-  const vAtiva = bv && !bv.classList.contains('hidden');
-  if(bp) bp.style.bottom = (vAtiva ? (bv.offsetHeight+20) : 12)+'px';
+  // As barras são fixas no rodapé: se mais de uma lista tem seleção, empilha.
+  let base=12, alt=0;
+  _IH_LISTAS.forEach(l=>{
+    const b=document.getElementById(_IH_PREF[l]+'-barra');
+    if(!b || b.classList.contains('hidden')) return;
+    b.style.bottom=base+'px';
+    base+=b.offsetHeight+8; alt+=b.offsetHeight+8;
+  });
   const box=document.getElementById('ih-conteudo');
-  if(box){ const alt=(vAtiva?bv.offsetHeight+12:0)+((bp&&!bp.classList.contains('hidden'))?bp.offsetHeight+12:0); box.style.paddingBottom = alt?(alt+12)+'px':''; }
+  if(box) box.style.paddingBottom = alt?(alt+12)+'px':'';
 }
 
 // Roda uma ação para cada id selecionado, com o botão travado e o progresso na
@@ -28826,27 +28906,67 @@ async function ihLoteDesvincular(btn){
   _ihSel.clear(); renderImportaHolerite();
 }
 
-// Exclui da lista os selecionados (vale para as duas tabelas).
+// Manda os selecionados pra lixeira (vale para vinculados e pendências).
 async function ihLoteExcluir(btn, lista){
   if(!_podeImportarHolerite()){ toast('Sem permissão.','error'); return; }
   const sel=_ihSet(lista);
   const ids=[...sel]; if(!ids.length) return;
-  if(!confirm(`Excluir ${ids.length} holerite(s) importado(s) da lista?`)) return;
-  const r=await _ihLote(btn, ids, 'Excluindo', async(id)=>{ await DB.remove('holeritesImportados', id); });
-  try{ Auth.log('HOLERITE_IMPORT_DEL', null, `Lote: ${r.ok} excluído(s)`); }catch(_){}
-  toast(`✓ ${r.ok} excluído(s)${r.erro?` · ${r.erro} com erro`:''}.`, r.erro?'warning':'success');
+  if(!confirm(`Mandar ${ids.length} holerite(s) para a lixeira?\n\nEles saem da lista mas continuam guardados — dá pra restaurar depois.`)) return;
+  const todos=(State.holeritesImportados||[]);
+  const r=await _ihLote(btn, ids, 'Excluindo', async(id)=>{ const rec=todos.find(x=>x.id===id); if(rec) await _ihMandarPraLixeira(rec); });
+  try{ Auth.log('HOLERITE_IMPORT_DEL', null, `Lote: ${r.ok} para a lixeira`); }catch(_){}
+  toast(`✓ ${r.ok} na lixeira${r.erro?` · ${r.erro} com erro`:''}.`, r.erro?'warning':'success');
   sel.clear(); renderImportaHolerite();
+}
+
+// Restaura os selecionados da lixeira.
+async function ihLoteRestaurar(btn){
+  if(!_podeImportarHolerite()){ toast('Sem permissão.','error'); return; }
+  const ids=[..._ihSelL]; if(!ids.length) return;
+  if(!confirm(`Restaurar ${ids.length} holerite(s) da lixeira?\n\nCada um volta ao estado em que estava.`)) return;
+  const todos=(State.holeritesImportados||[]);
+  const r=await _ihLote(btn, ids, 'Restaurando', async(id)=>{ const rec=todos.find(x=>x.id===id); if(rec) await _ihRestaurarUm(rec); });
+  try{ Auth.log('HOLERITE_IMPORT_RESTAURADO', null, `Lote: ${r.ok} restaurado(s)`); }catch(_){}
+  toast(`✓ ${r.ok} restaurado(s)${r.erro?` · ${r.erro} com erro`:''}.`, r.erro?'warning':'success');
+  _ihSelL.clear(); renderImportaHolerite();
+}
+
+// Apaga DE VEZ os selecionados da lixeira (registro + PDF). Sem volta.
+async function ihLoteApagarDeVez(btn){
+  if(!_podeImportarHolerite()){ toast('Sem permissão.','error'); return; }
+  const ids=[..._ihSelL]; if(!ids.length) return;
+  if(!confirm(`APAGAR DE VEZ ${ids.length} holerite(s) da lixeira?\n\nOs registros e os arquivos PDF somem. Isto não tem volta.`)) return;
+  const todos=(State.holeritesImportados||[]);
+  const alvo=ids.map(id=>todos.find(x=>x.id===id)).filter(Boolean);
+  const r=await _ihLote(btn, alvo.map(h=>h.id), 'Apagando', async(id)=>{ const rec=alvo.find(x=>x.id===id); if(rec) await _ihApagarDeVez(rec); });
+  try{ Auth.log('HOLERITE_IMPORT_APAGADO', null, `Lote definitivo: ${r.ok} apagado(s)`); }catch(_){}
+  toast(`✓ ${r.ok} apagado(s) definitivamente${r.erro?` · ${r.erro} com erro`:''}.`, r.erro?'warning':'success');
+  _ihSelL.clear(); renderImportaHolerite();
+}
+
+// Esvazia a lixeira inteira de uma vez.
+async function ihEsvaziarLixeira(btn){
+  if(!_podeImportarHolerite()){ toast('Sem permissão.','error'); return; }
+  const lix=_ihLixeira(); if(!lix.length){ toast('A lixeira já está vazia.','warning'); return; }
+  if(!confirm(`ESVAZIAR A LIXEIRA — apagar de vez os ${lix.length} holerite(s) que estão nela?\n\nOs registros e os arquivos PDF somem. Isto não tem volta.`)) return;
+  const r=await _ihLote(btn, lix.map(h=>h.id), 'Apagando', async(id)=>{ const rec=lix.find(x=>x.id===id); if(rec) await _ihApagarDeVez(rec); });
+  try{ Auth.log('HOLERITE_IMPORT_APAGADO', null, `Lixeira esvaziada: ${r.ok} apagado(s)`); }catch(_){}
+  toast(`✓ Lixeira esvaziada — ${r.ok} apagado(s)${r.erro?` · ${r.erro} com erro`:''}.`, r.erro?'warning':'success');
+  _ihSelL.clear(); renderImportaHolerite();
 }
 
 // Barra de ações que aparece quando há linhas marcadas.
 function _ihBarraLote(lista){
-  const pref = lista==='pend' ? 'ihp' : 'ihv';
+  const pref=_IH_PREF[lista];
   const btn = (txt,ico,fn,cor)=>`<button class="btn btn-sm ${cor||'btn-outline'}" onclick="${fn}" style="flex:1 1 auto;font-size:12px;padding:6px 10px;white-space:nowrap${cor==='btn-danger'?'':(cor?'':';color:#334155')}"><i class="fa-solid ${ico}"></i> ${txt}</button>`;
   const acoes = lista==='pend'
-    ? btn('Excluir selecionados','fa-trash',`ihLoteExcluir(this,'pend')`,'')
+    ? btn('Mandar p/ lixeira','fa-trash',`ihLoteExcluir(this,'pend')`,'')
+    : lista==='lix'
+    ? btn('Restaurar','fa-rotate-left','ihLoteRestaurar(this)','btn-primary')
+      + btn('Apagar de vez','fa-fire','ihLoteApagarDeVez(this)','')
     : btn('Enviar p/ assinar','fa-paper-plane','ihLoteEnviarAssinar(this)','btn-primary')
       + btn('Desvincular','fa-link-slash','ihLoteDesvincular(this)','')
-      + btn('Excluir','fa-trash',`ihLoteExcluir(this,'vinc')`,'');
+      + btn('Mandar p/ lixeira','fa-trash',`ihLoteExcluir(this,'vinc')`,'');
   // Fica FIXA no rodapé: a caixa da lista tem overflow:hidden, então "sticky"
   // não gruda; e com 90 linhas o gestor não pode ter que subir pra achar a ação.
   return `<div id="${pref}-barra" class="hidden" style="position:fixed;left:12px;right:12px;bottom:12px;z-index:60;display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:10px 12px;background:#1E293B;color:#fff;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.25)">
@@ -28869,13 +28989,17 @@ function _ihDatalistColaboradores(){
 function renderImportaHolerite(){
   const box=document.getElementById('ih-conteudo'); if(!box) return;
   const todos=(State.holeritesImportados||[]);
-  const pend=todos.filter(h=>h.status==='pendente_vinculo').sort((a,b)=>(b.importadoEm||'').localeCompare(a.importadoEm||''));
-  const vinc=todos.filter(h=>h.status!=='pendente_vinculo');
+  const ativos=todos.filter(h=>!_ihNaLixeira(h));            // lixeira não entra nas listas
+  const lix=_ihLixeira().sort((a,b)=>(b.excluidoEm||'').localeCompare(a.excluidoEm||''));
+  const pend=ativos.filter(h=>h.status==='pendente_vinculo').sort((a,b)=>(b.importadoEm||'').localeCompare(a.importadoEm||''));
+  const vinc=ativos.filter(h=>h.status!=='pendente_vinculo');
   // guarda a ordem desenhada (shift+clique) e descarta da seleção o que sumiu
   _ihOrdemP=pend.map(h=>h.id);
   [..._ihSelP].forEach(id=>{ if(!_ihOrdemP.includes(id)) _ihSelP.delete(id); });
+  _ihOrdemL=lix.map(h=>h.id);
+  [..._ihSelL].forEach(id=>{ if(!_ihOrdemL.includes(id)) _ihSelL.delete(id); });
   const cnt=document.getElementById('ih-contador');
-  if(cnt) cnt.innerHTML = todos.length ? `<strong>${vinc.length}</strong> vinculado(s) &middot; <strong>${pend.length}</strong> em pendência` : '<span style="color:#999">Nenhum holerite importado ainda</span>';
+  if(cnt) cnt.innerHTML = todos.length ? `<strong>${vinc.length}</strong> vinculado(s) &middot; <strong>${pend.length}</strong> em pendência${lix.length?` &middot; <strong>${lix.length}</strong> na lixeira`:''}` : '<span style="color:#999">Nenhum holerite importado ainda</span>';
   let html=_ihDatalistColaboradores();
 
   // ── CAIXA DE PENDÊNCIAS ──
@@ -28950,6 +29074,46 @@ function renderImportaHolerite(){
   } else {
     _ihOrdem=[]; _ihSel.clear();
     html+='<div style="padding:14px 12px;color:#94a3b8;font-size:12px">Nenhum holerite vinculado ainda. Suba os PDFs acima para começar.</div>';
+  }
+  html+='</div>';
+
+  // ── LIXEIRA ── fica fechada; o que é excluído mora aqui até alguém apagar.
+  html+=`<div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-top:14px">
+    <div style="padding:10px 12px;background:#F8FAFC;font-weight:700;font-size:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;cursor:pointer" onclick="_ihToggleLixeira()" title="${_ihVerLixeira?'Fechar':'Abrir'} a lixeira">
+      <span style="flex:1"><i class="fa-solid fa-trash-can" style="color:#64748b"></i> Lixeira <span style="color:#64748b;font-weight:500;font-size:12px">· ${lix.length}</span>
+        <div style="font-weight:400;font-size:11px;color:#64748b;margin-top:2px">O que você exclui fica aqui até alguém apagar de vez. Nada some sozinho.</div></span>
+      <span style="font-size:12px;color:var(--primary)">${_ihVerLixeira?'<i class="fa-solid fa-chevron-up"></i> fechar':'<i class="fa-solid fa-chevron-down"></i> abrir'}</span>
+    </div>`;
+  if(_ihVerLixeira){
+    if(lix.length){
+      html+=_ihBarraLote('lix')+_ihAtalhosSelecao('lix');
+      html+=`<div style="padding:0 10px 8px"><button class="btn btn-sm btn-outline" onclick="ihEsvaziarLixeira(this)" style="font-size:11px;padding:5px 10px;color:#c62828;border-color:#ef9a9a"><i class="fa-solid fa-fire"></i> Esvaziar lixeira (${lix.length})</button></div>`;
+      html+=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#fff;text-align:left;border-bottom:1px solid var(--border)">
+        <th style="padding:8px 6px;width:34px;text-align:center"><input type="checkbox" id="ihl-chk-todos" onclick="ihSelTodos(this.checked,'lix')" title="Selecionar todos" style="cursor:pointer;width:16px;height:16px"></th>
+        <th style="padding:8px 10px">Holerite</th><th style="padding:8px 10px">Competência</th><th style="padding:8px 10px;text-align:right">Líquido</th><th style="padding:8px 10px;min-width:170px">Excluído</th><th style="padding:8px 10px;text-align:center">Ações</th></tr></thead><tbody>`;
+      lix.forEach(h=>{
+        const nome = h.employeeNome || h.iaNome || '—';
+        const antes = h.statusAntesExcluir==='assinado' ? 'estava <b>assinado</b>'
+                    : h.statusAntesExcluir==='enviado_assinatura' ? 'estava aguardando assinatura'
+                    : h.statusAntesExcluir==='pendente_vinculo' ? 'estava em pendência de vínculo' : 'estava vinculado';
+        html+=`<tr style="border-bottom:1px solid #f1f5f9">
+          <td style="padding:8px 6px;text-align:center"><input type="checkbox" data-ihchk="lix" data-id="${h.id}" onclick="ihSelToggle('${h.id}',this.checked,'lix',event)" style="cursor:pointer;width:16px;height:16px"></td>
+          <td style="padding:8px 10px"><strong>${esc(nome)}</strong><div style="font-size:11px;color:#94a3b8">${antes}</div></td>
+          <td style="padding:8px 10px">${h.competencia?_compLabelYM(h.competencia):'—'}</td>
+          <td style="padding:8px 10px;text-align:right">${(+h.liquido>0)?fmtMoney(+h.liquido):'—'}</td>
+          <td style="padding:8px 10px"><div style="font-size:12px">${h.excluidoEm?new Date(h.excluidoEm).toLocaleString('pt-BR'):'—'}</div><div style="font-size:11px;color:#94a3b8">por ${esc(h.excluidoPor||'—')}</div></td>
+          <td style="padding:8px 10px;text-align:center;white-space:nowrap">
+            <div style="display:inline-flex;gap:4px;flex-wrap:wrap;justify-content:center;align-items:center">
+              <button class="btn btn-sm btn-primary" onclick="restaurarHoleriteImportado('${h.id}')" title="Tirar da lixeira e voltar ao estado anterior" style="font-size:11px;padding:4px 8px;white-space:nowrap"><i class="fa-solid fa-rotate-left"></i> Restaurar</button>
+              <a class="btn btn-sm btn-outline" href="${h.arquivoUrl||'#'}" target="_blank" title="Abrir holerite (PDF original)" style="font-size:11px;padding:4px 8px"><i class="fa-solid fa-file-pdf"></i></a>
+              <button class="btn btn-sm btn-outline" onclick="apagarHoleriteDeVez('${h.id}')" title="Apagar de vez (registro + PDF) — sem volta" style="font-size:11px;padding:4px 8px;color:#c62828;border-color:#ef9a9a"><i class="fa-solid fa-fire"></i></button>
+            </div>
+          </td></tr>`;
+      });
+      html+='</tbody></table></div>';
+    } else {
+      html+='<div style="padding:14px 12px;color:#94a3b8;font-size:12px">A lixeira está vazia.</div>';
+    }
   }
   html+='</div>';
   box.innerHTML=html;

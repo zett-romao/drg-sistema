@@ -72,7 +72,7 @@
   </script>
   <link rel="stylesheet" href="drg-ui.css?v=2">
   <script src="drg-ui.js?v=2"></script>
-  <link rel="stylesheet" href="styles.css?v=20260806a-dash-cards">
+  <link rel="stylesheet" href="styles.css?v=20260806b-dash-sempre-visivel">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -552,7 +552,7 @@
         </div>
         <div id="dash-edit-hint" class="info-banner" style="display:none;background:#E8EAF6;color:#283593;margin-bottom:10px">
           <div><i class="fa-solid fa-circle-info"></i> Use as setas para ordenar e <strong>Ocultar / Mostrar</strong> para escolher os cards. Clique em <strong>Concluir</strong> ao terminar.</div>
-          <div style="margin-top:6px">Os cards de <strong>aviso</strong> (faltas, HE a revisar, férias a pagar, pendências…) entram sozinhos na tela quando há pendência e saem quando não há. Clique em <strong>Fixar</strong> para manter um deles sempre visível, mesmo zerado.</div>
+          <div style="margin-top:6px">Card que você <strong>não ocultar</strong> fica sempre na tela, mesmo zerado — nesse caso ele mostra o estado do dia (“Nenhuma falta em aberto em Agosto”). Nenhum card entra ou sai sozinho.</div>
           <div style="margin-top:8px"><button class="btn btn-sm btn-outline" onclick="_dashRestaurarPadrao(this)" style="font-size:12px"><i class="fa-solid fa-rotate-left"></i> Restaurar padrão</button></div>
         </div>
         <div class="stats-grid" id="dashboard-stats"></div>
@@ -7957,6 +7957,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260806c-lixeira-holerite"></script>
+  <script src="app.js?v=20260806d-dash-sempre-visivel"></script>
 </body>
 </html>

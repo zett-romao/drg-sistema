@@ -396,8 +396,6 @@ ul { list-style: none; }
 }
 .dash-edit-bar button:disabled { opacity: 0.35; cursor: default; }
 .dash-edit-bar .dash-edit-toggle { flex: 1 1 90px; }
-.dash-edit-bar .dash-edit-fixar { flex: 1 1 90px; }
-.dash-edit-bar .dash-edit-fixar.ativo { background: #EDE7F6; border-color: #7B1FA2; color: #4A148C; font-weight: 600; }
 .dash-edit-nota { font-size: 11px; color: var(--text-muted); margin-top: 5px; line-height: 1.35; }
 
 /* ---- Dashboard Cards ---- */

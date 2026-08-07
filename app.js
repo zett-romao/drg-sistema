@@ -4889,12 +4889,13 @@ function _statCard(o){
 
 // --- Personalização do Dashboard (por usuário) ---
 // ordem   = sequência escolhida pelo usuário
-// ocultos = o usuário mandou sumir (nunca aparece)
-// sempre  = o usuário FIXOU um card de aviso (aparece mesmo zerado)
-// Cards de aviso (auto) aparecem sozinhos quando há pendência. O que NÃO pode
-// acontecer é sumirem da tela E da tela de personalizar — aí o gestor não tem
-// como trazer de volta. Por isso o catálogo é sempre completo. #dash-cards
-let _dashConfig = { ordem:[], ocultos:[], sempre:[] };
+// ocultos = o usuário mandou sumir (única razão para um card não aparecer)
+// QUEM MANDA NA TELA É O USUÁRIO: card que ele não ocultou aparece SEMPRE, mesmo
+// zerado (com o estado zerado escrito no próprio card: "Nenhuma falta em aberto
+// em Agosto"). Nada de card entrando e saindo sozinho conforme o dado carrega —
+// era isso que fazia o gestor ver o card sumir sem ter ocultado nada. O catálogo
+// é sempre completo; só o gate de PERMISSÃO tira card de alguém. #dash-cards
+let _dashConfig = { ordem:[], ocultos:[] };
 let _dashConfigLoadedFor = null;
 let _dashConfigMexido = false;   // o usuário já mexeu? então a carga não sobrescreve
 let _dashEditMode = false;
@@ -4905,7 +4906,8 @@ async function saveDashConfig(){
   const uid=Auth.currentUser?.id; if(!uid) return;
   try {
     await DB.saveDoc('configuracoes','dashboard_'+uid,
-      { ordem:_dashConfig.ordem||[], ocultos:_dashConfig.ocultos||[], sempre:_dashConfig.sempre||[], updatedAt:new Date().toISOString() }, true);
+      // `sempre` (o antigo "Fixar") não existe mais — grava vazio p/ limpar quem já tinha
+      { ordem:_dashConfig.ordem||[], ocultos:_dashConfig.ocultos||[], sempre:[], updatedAt:new Date().toISOString() }, true);
   } catch(e){ console.error('Erro ao salvar layout do dashboard:',e); toast('Não consegui salvar o layout do dashboard.','error'); }
 }
 
@@ -4941,37 +4943,26 @@ function _dashToggle(key){
   renderDashboard();
 }
 
-// Fixa um card de aviso na tela (aparece mesmo zerado) ou devolve ao automático.
-function _dashFixar(key){
-  const s=_dashConfig.sempre;
-  const i=s.indexOf(key);
-  if(i>=0) s.splice(i,1); else { s.push(key); const o=_dashConfig.ocultos.indexOf(key); if(o>=0) _dashConfig.ocultos.splice(o,1); }
-  saveDashConfig();
-  renderDashboard();
-}
-
-// Devolve o dashboard ao padrão (nada oculto, nada fixado, ordem original).
+// Devolve o dashboard ao padrão (nada oculto, ordem original).
 async function _dashRestaurarPadrao(btn){
   if(!confirm('Voltar o dashboard ao padrão? Todos os cards voltam a aparecer, na ordem original.')) return;
   const original = btn ? btn.innerHTML : '';
   if(btn){ btn.disabled=true; btn.innerHTML='<div class="spinner" style="display:inline-block;width:12px;height:12px;vertical-align:middle"></div> ⏳ Restaurando... aguarde'; }
   try{
-    _dashConfig={ ordem:[], ocultos:[], sempre:[] };
+    _dashConfig={ ordem:[], ocultos:[] };
     await saveDashConfig();
     toast('✓ Dashboard restaurado ao padrão.','success');
   } catch(e){ toast('Erro ao restaurar: '+(e.message||e),'error'); }
   finally{ if(btn){ btn.disabled=false; btn.innerHTML=original; } renderDashboard(); }
 }
 
-// Um card só some da tela por decisão do usuário. Card de aviso (auto) sem
-// pendência fica fora da tela, mas SEMPRE aparece em "Personalizar cards".
+// Um card só some da tela por decisão do usuário — mais nada. Zerado ele fica na
+// tela mostrando o próprio estado zerado ("Nenhuma falta em aberto em Agosto").
 function _dashVisivel(c){
-  if(_dashConfig.ocultos.includes(c.key)) return false;
-  if(c.auto && !c.temDados && !_dashConfig.sempre.includes(c.key)) return false;
-  return true;
+  return !_dashConfig.ocultos.includes(c.key);
 }
 
-// Renderiza os cards aplicando ordem, ocultos e fixados do usuário
+// Renderiza os cards aplicando ordem e ocultos do usuário
 function _renderDashCards(catalogo){
   const stats=document.getElementById('dashboard-stats'); if(!stats) return;
   const cfg=_dashConfig;
@@ -4984,25 +4975,17 @@ function _renderDashCards(catalogo){
   if(_dashEditMode){
     stats.innerHTML=ordered.map((c,i)=>{
       const oculto=cfg.ocultos.includes(c.key);
-      const fixado=cfg.sempre.includes(c.key);
-      const foraPorAuto = c.auto && !c.temDados && !fixado && !oculto;
       const nota = oculto
         ? '<div class="dash-edit-nota">Você ocultou — não aparece no dashboard.</div>'
-        : (c.auto
-            ? `<div class="dash-edit-nota">${c.temDados
-                ? 'Card de aviso: está na tela porque há pendência.'
-                : 'Card de aviso: <b>sem pendência agora</b>, então não está na tela. Fixe para mantê-lo sempre.'}</div>`
+        : (c.auto && c.temDados
+            ? '<div class="dash-edit-nota">Card de aviso: <b>há pendência agora</b>.</div>'
             : '');
-      const btnFixar = c.auto
-        ? `<button class="dash-edit-fixar${fixado?' ativo':''}" onclick="_dashFixar('${c.key}')" title="${fixado?'Voltar ao automático (só aparece com pendência)':'Manter sempre na tela, mesmo zerado'}"><i class="fa-solid fa-thumbtack"></i> ${fixado?'Fixado':'Fixar'}</button>`
-        : '';
-      return `<div class="dash-edit-wrap${(oculto||foraPorAuto)?' dash-oculto':''}">
+      return `<div class="dash-edit-wrap${oculto?' dash-oculto':''}">
         ${c.html}
         <div class="dash-edit-bar">
           <button onclick="_dashMove('${c.key}',-1)" ${i===0?'disabled':''} title="Mover para cima"><i class="fa-solid fa-arrow-up"></i></button>
           <button onclick="_dashMove('${c.key}',1)" ${i===ordered.length-1?'disabled':''} title="Mover para baixo"><i class="fa-solid fa-arrow-down"></i></button>
           <button class="dash-edit-toggle" onclick="_dashToggle('${c.key}')">${oculto?'<i class="fa-solid fa-eye"></i> Mostrar':'<i class="fa-solid fa-eye-slash"></i> Ocultar'}</button>
-          ${btnFixar}
         </div>
         ${nota}
       </div>`;
@@ -5020,7 +5003,7 @@ function renderDashboard(){
     DB.getDoc('configuracoes','dashboard_'+_uid).then(d=>{
       // se o usuário já mexeu enquanto o doc vinha, a escolha DELE vence
       if(_dashConfigMexido) return;
-      _dashConfig = d ? { ordem:d.ordem||[], ocultos:d.ocultos||[], sempre:d.sempre||[] } : { ordem:[], ocultos:[], sempre:[] };
+      _dashConfig = d ? { ordem:d.ordem||[], ocultos:d.ocultos||[] } : { ordem:[], ocultos:[] };
       if(State.currentSection==='dashboard') renderDashboard();
     }).catch(()=>{});
   }
@@ -5137,9 +5120,10 @@ function renderDashboard(){
   {
     const pendAprov=(State.solicitacoes||[]).filter(s=>s.status==='pendente');
     const md=getUserModules(Auth.currentUser);
-    // Os gates de PERMISSÃO continuam tirando o card do catálogo (quem não pode
-    // ver nem deve escolher). O gate de DADO virou "auto": o card fica listado em
-    // Personalizar e só entra na tela quando há pendência. #dash-cards
+    // Só o gate de PERMISSÃO tira card do catálogo (quem não pode ver nem deve
+    // escolher). Gate de DADO não existe mais: o card fica na tela zerado, com o
+    // texto do estado zerado. `auto`/`temDados` só marcam card de aviso p/ a nota
+    // da tela "Personalizar cards". #dash-cards
     if(md.pagamentosLancar||md.pagamentosAprovar){
       const totalP=pendAprov.reduce((s,x)=>s+(x.valor||0),0);
       catalogo.push({key:'aprovacoesPend', auto:true, temDados:pendAprov.length>0, html:_statCard({label:'Pagamentos aguardando aprovação', value:pendAprov.length, icon:'fa-hourglass-half',

@@ -1437,7 +1437,17 @@
           </div>
         </div>
 
-        <div class="card">
+        <!-- Abas Ativos / Inativos — posto inativo sai da carteira mas continua no histórico. #posto-inativo -->
+        <div class="contrato-tabs" style="margin-bottom:0">
+          <button class="contrato-tab active" id="tab-postos-ativos" onclick="switchPostoTab('ativos')">
+            <i class="fa-solid fa-circle-check"></i> Ativos <span class="tab-count" id="count-postos-ativos">0</span>
+          </button>
+          <button class="contrato-tab" id="tab-postos-inativos" onclick="switchPostoTab('inativos')">
+            <i class="fa-solid fa-circle-xmark"></i> Inativos <span class="tab-count" id="count-postos-inativos">0</span>
+          </button>
+        </div>
+
+        <div class="card" style="margin-top:0;border-radius:0 var(--radius) var(--radius) var(--radius)">
           <div class="card-body" style="padding:0">
             <table class="data-table" id="postos-table">
               <thead>
@@ -1448,11 +1458,12 @@
                   <th>Telefone</th>
                   <th>E-mail</th>
                   <th>Colaboradores</th>
+                  <th>Status</th>
                   <th>Ações</th>
                 </tr>
               </thead>
               <tbody id="postos-tbody">
-                <tr><td colspan="7" class="empty-row"><i class="fa-solid fa-spinner fa-spin"></i> Carregando...</td></tr>
+                <tr><td colspan="8" class="empty-row"><i class="fa-solid fa-spinner fa-spin"></i> Carregando...</td></tr>
               </tbody>
             </table>
           </div>
@@ -7957,6 +7968,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260806d-dash-sempre-visivel"></script>
+  <script src="app.js?v=20260808a-posto-ativo-inativo"></script>
 </body>
 </html>

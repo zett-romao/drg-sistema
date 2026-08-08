@@ -2471,9 +2471,12 @@ function _renderUsrPostosCheckboxes(selecionados){
   box.innerHTML=postos.map(p=>{
     const rs=(p.razaoSocial||'').replace(/"/g,'&quot;');
     const checked=sel.has(p.razaoSocial)?'checked':'';
+    // Escopo de permissão: posto inativo continua na lista (marcado) — o supervisor
+    // ainda precisa enxergar a folha/histórico do posto que saiu. #posto-inativo
+    const inativo=_postoAtivo(p)?'':' <span style="font-size:10px;color:#C62828">(inativo)</span>';
     return `<label class="checkbox-label" style="font-size:13px;display:flex;align-items:center;gap:6px;padding:4px 6px;cursor:pointer">
       <input type="checkbox" name="usr-posto" value="${rs}" ${checked}>
-      <span>${rs||'(sem nome)'}</span>
+      <span>${rs||'(sem nome)'}${inativo}</span>
     </label>`;
   }).join('');
 }
@@ -5022,7 +5025,8 @@ function renderDashboard(){
   const inativos=State.employees.filter(e=>(e.status||'ativo')==='inativo').length;
   const afastados=State.employees.filter(e=>(e.status||'ativo')==='afastado').length;
   const licMaternidade=State.employees.filter(e=>(e.status||'ativo')==='licenca-maternidade').length;
-  const totalPostos=(State.postos||[]).length;
+  const totalPostos=(State.postos||[]).filter(p=>(p.status||'ativo')!=='inativo').length;   // #posto-inativo
+  const postosInativos=(State.postos||[]).length-totalPostos;
   const escalasMes=(State.escalas||[]).filter(es=>es.mes==mes&&es.ano==ano).length;
   // Isentos de ponto não precisam de escala — não entram na contagem de pendência
   const ativosComPonto=State.employees.filter(e=>(e.status||'ativo')==='ativo' && !e.isentoPonto).length;
@@ -5083,6 +5087,7 @@ function renderDashboard(){
     onclick:"showSection('employees');setEmployeeFilter('inativo')", title:'Ver colaboradores inativos'})});
   catalogo.push({key:'postos', html:_statCard({label:'Postos de trabalho', value:totalPostos, icon:'fa-building',
     accent:'#1565C0', iconBg:'#E3F2FD', iconColor:'#1565C0', valueColor:'#1565C0',
+    sub: postosInativos>0 ? `${postosInativos} inativo(s)` : '',
     onclick:"showSection('postos')", title:'Ver postos de trabalho'})});
   catalogo.push({key:'heRevisao', auto:true, temDados:heRevisaoEmps>0, html:_statCard({label:'Pendentes de revisar HE', value:heRevisaoEmps, icon:'fa-magnifying-glass',
     accent:'#E65100', iconBg:'#FFF3E0', iconColor:'#E65100', valueColor:heRevisaoEmps>0?'#E65100':'#94a3b8',
@@ -9997,6 +10002,7 @@ function openEmployeeModal(id=null){
     if(semIntervChk){ semIntervChk.checked=!!(emp.permiteSemIntervalo); }
     setVal('emp-salario-base',emp.salarioBase||'');
     setVal('emp-posto',emp.posto||'');
+    _garantirOpcaoPosto('emp-posto', emp.posto);   // posto inativo/renomeado não some do cadastro. #posto-inativo
     setVal('emp-setor',emp.setor||'');
     setVal('emp-cargo',emp.cargo||'');
     setVal('emp-exame-data',emp.exameAdmissionalData||'');
@@ -10713,13 +10719,15 @@ function initPayrollSection(jaNaFolha){
     const cur=fSel.value;
     fSel.innerHTML='<option value="">Todos os postos</option>';
     const escopo=_postosDoUsuario(Auth.currentUser);
+    // FILTRO de consulta: posto inativo CONTINUA na lista (marcado) — a folha antiga
+    // dele precisa continuar acessível. #posto-inativo
     (State.postos||[]).slice()
       .filter(p=>!escopo || escopo.includes(p.razaoSocial))
       .sort((a,b)=>(a.razaoSocial||'').localeCompare(b.razaoSocial||''))
       .forEach(p=>{
         const o=document.createElement('option');
         o.value=p.razaoSocial; // emp.posto guarda o nome do posto (razaoSocial), não o id
-        o.textContent=p.razaoSocial+(p.cidade?' — '+p.cidade:'');
+        o.textContent=p.razaoSocial+(p.cidade?' — '+p.cidade:'')+_postoSufixo(p);
         if(p.razaoSocial===cur) o.selected=true;
         fSel.appendChild(o);
       });
@@ -24827,10 +24835,11 @@ function populateContratoPostoSelect(){
   const sel=document.getElementById('contrato-posto'); if(!sel) return;
   const cur=sel.value;
   sel.innerHTML='<option value="">— Selecione o posto —</option>';
-  [...State.postos].sort((a,b)=>(a.razaoSocial||'').localeCompare(b.razaoSocial||'')).forEach(p=>{
+  // Só ativos (+ o posto já gravado no contrato, mesmo inativo). #posto-inativo
+  _postosEscolhiveis(cur,'id').forEach(p=>{
     const opt=document.createElement('option');
     opt.value=p.id;
-    opt.textContent=p.nomeFantasia||p.razaoSocial;
+    opt.textContent=(p.nomeFantasia||p.razaoSocial)+_postoSufixo(p);
     sel.appendChild(opt);
   });
   if(cur) sel.value=cur;
@@ -27558,13 +27567,16 @@ function _reportPostosCadastro(){
   const detalhe=val('report-postos-detalhe')||'resumo';
   const lista=[...State.postos].sort((a,b)=>(a.razaoSocial||'').localeCompare(b.razaoSocial||''));
   if(lista.length===0){ toast('Nenhum posto cadastrado.','warning'); return; }
-  _reportHeader('Relatório de Postos de Trabalho', `${lista.length} posto(s) cadastrado(s)`);
+  const nAtivosP=lista.filter(_postoAtivo).length;
+  _reportHeader('Relatório de Postos de Trabalho', `${lista.length} posto(s) cadastrado(s) — ${nAtivosP} ativo(s), ${lista.length-nAtivosP} inativo(s)`);
 
   if(detalhe==='resumo'){
-    const cols=['#','Razão Social / Fantasia','CNPJ','Cidade / UF','Telefone','E-mail','Colaboradores Ativos'];
+    // Relatório traz ATIVOS e INATIVOS — o posto desativado continua sendo histórico. #posto-inativo
+    const cols=['#','Razão Social / Fantasia','CNPJ','Cidade / UF','Telefone','E-mail','Colaboradores Ativos','Status'];
     const rows=lista.map((p,i)=>{
       const ativos=State.employees.filter(e=>e.posto===p.razaoSocial&&(e.status||'ativo')==='ativo').length;
       const nome=p.nomeFantasia?`<strong>${p.nomeFantasia}</strong><br><span style="font-size:11px;color:#666">${p.razaoSocial}</span>`:p.razaoSocial;
+      const at=_postoAtivo(p);
       return `<tr>
         <td>${i+1}</td>
         <td>${nome}</td>
@@ -27573,6 +27585,7 @@ function _reportPostosCadastro(){
         <td style="font-size:12px">${p.telefone||'—'}</td>
         <td style="font-size:12px">${p.email||'—'}</td>
         <td style="text-align:center;font-weight:700;color:var(--primary)">${ativos}</td>
+        <td style="text-align:center;font-size:11px;font-weight:700;color:${at?'#1B5E20':'#B71C1C'}">${at?'Ativo':'Inativo'}</td>
       </tr>`;
     }).join('');
     document.getElementById('report-body-area').innerHTML=_empTable(cols,rows);
@@ -27586,6 +27599,7 @@ function _reportPostosCadastro(){
         <div style="background:#EEF4FF;padding:10px 14px;border-radius:6px;margin-bottom:8px;border-left:4px solid var(--primary)">
           <strong style="font-size:14px">${p.nomeFantasia||p.razaoSocial}</strong>
           ${p.nomeFantasia?`<span style="font-size:12px;color:#555"> — ${p.razaoSocial}</span>`:''}
+          ${_postoAtivo(p)?'':'<span style="font-size:11px;color:#B71C1C;font-weight:700"> · INATIVO</span>'}
           <span style="float:right;font-size:12px;color:var(--primary);font-weight:700">${colab.length} colaborador(es)</span>
         </div>`;
       if(colab.length===0){
@@ -33534,37 +33548,108 @@ async function fetchCepPosto(){
   } catch(e){}
 }
 
+// ── POSTO ATIVO / INATIVO ──────────────────────────────────────── #posto-inativo
+// Posto (condomínio) que saiu da carteira NÃO se exclui — se desativa. Some de onde
+// se ESCOLHE um posto (cadastro, transferência, contrato) mas continua nos FILTROS de
+// consulta, no histórico e nos relatórios: folha antiga, escala antiga e o cadastro de
+// quem ainda está lotado nele precisam continuar enxergando o nome. Se o condomínio
+// voltar, basta Reativar — nada foi perdido.
+function _postoAtivo(p){ return (p && (p.status||'ativo')!=='inativo'); }
+// Lista para os selects de ESCOLHA: só ativos + o valor já gravado (mesmo inativo),
+// senão o select perde o valor calado e o "Salvar" apagaria o posto do colaborador.
+function _postosEscolhiveis(valorAtual, campo='razaoSocial'){
+  return State.postos
+    .filter(p=>_postoAtivo(p) || (valorAtual && p[campo]===valorAtual))
+    .slice().sort((a,b)=>(a.razaoSocial||'').localeCompare(b.razaoSocial||''));
+}
+// Sufixo " — inativo" para o usuário nunca confundir posto ativo com desativado.
+function _postoSufixo(p){ return _postoAtivo(p) ? '' : ' — inativo'; }
+
+let _postoTab='ativos';
+function switchPostoTab(tab){
+  _postoTab = tab;
+  renderPostosTable();
+}
+
 function renderPostosTable(){
   const q=(val('postos-search')||'').toLowerCase();
   const tbody=document.getElementById('postos-tbody'); if(!tbody) return;
+  // Reaplica a aba ativa aqui (e não no switch): switchContratoTab limpa o .active de
+  // TODOS os .contrato-tab da página, inclusive os desta tela.
+  document.querySelectorAll('#section-postos .contrato-tab').forEach(b=>b.classList.remove('active'));
+  const tabEl=document.getElementById('tab-postos-'+_postoTab); if(tabEl) tabEl.classList.add('active');
+  const nAtivos=State.postos.filter(_postoAtivo).length;
+  const cA=document.getElementById('count-postos-ativos');   if(cA) cA.textContent=nAtivos;
+  const cI=document.getElementById('count-postos-inativos'); if(cI) cI.textContent=State.postos.length-nAtivos;
+
   const lista=State.postos.filter(p=>
-    !q ||
-    (p.razaoSocial||'').toLowerCase().includes(q) ||
-    (p.cnpj||'').includes(q) ||
-    (p.cidade||'').toLowerCase().includes(q)
+    (_postoTab==='ativos' ? _postoAtivo(p) : !_postoAtivo(p)) &&
+    (!q ||
+     (p.razaoSocial||'').toLowerCase().includes(q) ||
+     (p.cnpj||'').includes(q) ||
+     (p.cidade||'').toLowerCase().includes(q))
   );
   if(lista.length===0){
-    tbody.innerHTML=`<tr><td colspan="6" class="empty-row"><i class="fa-solid fa-building"></i> Nenhum posto cadastrado</td></tr>`;
+    tbody.innerHTML=`<tr><td colspan="8" class="empty-row"><i class="fa-solid fa-building"></i> Nenhum posto ${_postoTab==='ativos'?'ativo':'inativo'}</td></tr>`;
     return;
   }
   tbody.innerHTML=lista.map(p=>{
+    const ativo=_postoAtivo(p);
     const colaboradores=State.employees.filter(e=>e.posto===p.razaoSocial && (e.status||'ativo')==='ativo').length;
     const nomeExibir=p.nomeFantasia
       ?`<strong>${p.nomeFantasia}</strong><br><span style="font-size:11px;color:var(--text-muted)">${p.razaoSocial}</span>`
       :`<strong>${p.razaoSocial}</strong>`;
-    return `<tr>
+    const statusBadge=ativo
+      ?'<span class="badge badge-success">Ativo</span>'
+      :`<span class="badge badge-danger">Inativo</span>${p.desativadoEm?`<br><span style="font-size:10px;color:var(--text-muted)">desde ${fmtDate(p.desativadoEm+'T00:00:00')}</span>`:''}`;
+    return `<tr${ativo?'':' style="opacity:.72"'}>
       <td>${nomeExibir}</td>
       <td style="font-size:12px">${p.cnpj||'—'}</td>
       <td style="font-size:12px">${p.cidade?(p.cidade+(p.estado?' / '+p.estado:'')):'—'}</td>
       <td style="font-size:12px">${p.telefone||'—'}</td>
       <td style="font-size:12px">${p.email?`<a href="mailto:${p.email}" style="color:var(--primary)">${p.email}</a>`:'—'}</td>
       <td><span class="badge-count">${colaboradores}</span></td>
+      <td>${statusBadge}</td>
       <td>
         <button class="btn-action btn-edit" onclick="openPostoModal('${p.id}')" title="Editar"><i class="fa-solid fa-pen"></i></button>
+        <button class="btn-action" style="color:${ativo?'#E65100':'#1B5E20'}" onclick="confirmTogglePosto('${p.id}')" title="${ativo?'Desativar posto (sai da carteira, histórico preservado)':'Reativar posto'}"><i class="fa-solid fa-${ativo?'circle-xmark':'rotate-left'}"></i></button>
         <button class="btn-action btn-danger" onclick="confirmDeletePosto('${p.id}')" title="Excluir"><i class="fa-solid fa-trash"></i></button>
       </td>
     </tr>`;
   }).join('');
+}
+
+// Desativar / Reativar posto. Não apaga nada — só marca o status. #posto-inativo
+function confirmTogglePosto(id){
+  const p=State.postos.find(x=>x.id===id); if(!p) return;
+  const ativo=_postoAtivo(p);
+  const lotados=State.employees.filter(e=>e.posto===p.razaoSocial && (e.status||'ativo')==='ativo').length;
+  const nome=esc(p.nomeFantasia||p.razaoSocial);
+  document.getElementById('confirm-message').innerHTML = ativo
+    ? `Desativar o posto <strong>${nome}</strong>?<br><br>
+       Ele sai das listas de escolha (cadastro, transferência e contrato), mas <strong>continua nos filtros, no histórico e nos relatórios</strong>. É só reativar quando voltar para a carteira.
+       ${lotados?`<br><br><span style="color:#C62828"><i class="fa-solid fa-triangle-exclamation"></i> Atenção: <strong>${lotados}</strong> colaborador(es) ativo(s) ainda lotado(s) neste posto — transfira-os quando puder.</span>`:''}`
+    : `Reativar o posto <strong>${nome}</strong>?<br><br>Ele volta a aparecer nas listas de escolha.`;
+  const btn=document.getElementById('confirm-ok-btn');
+  btn.innerHTML=ativo?'<i class="fa-solid fa-circle-xmark"></i> Desativar':'<i class="fa-solid fa-rotate-left"></i> Reativar';
+  const textoOriginal=btn.innerHTML;   // captura DEPOIS: no erro o botão volta ao rótulo desta ação
+  btn.onclick=async()=>{
+    btn.disabled=true; btn.innerHTML=`<i class="fa-solid fa-hourglass-half"></i> ${ativo?'Desativando':'Reativando'}... aguarde`;
+    try{
+      const atualizado={...p, status: ativo?'inativo':'ativo', updatedAt:new Date().toISOString()};
+      if(ativo) atualizado.desativadoEm=new Date().toISOString().slice(0,10);
+      else delete atualizado.desativadoEm;
+      await DB.save('postos', atualizado);
+      Auth.log(ativo?'POSTO_DESATIVADO':'POSTO_REATIVADO', null, p.razaoSocial);
+      closeModal('modal-confirm');
+      toast(ativo?`✓ Posto "${p.razaoSocial}" desativado — continua no histórico.`:`✓ Posto "${p.razaoSocial}" reativado.`, ativo?'warning':'success');
+    }catch(e){
+      toast('Erro ao alterar o posto: '+(e.message||e),'error');
+    }finally{
+      btn.disabled=false; btn.innerHTML=textoOriginal;
+    }
+  };
+  document.getElementById('modal-confirm').classList.remove('hidden');
 }
 
 function populatePostoSelect(){
@@ -33572,13 +33657,28 @@ function populatePostoSelect(){
   if(!sel) return;
   const current=sel.value;
   sel.innerHTML='<option value="">— Selecione o posto —</option>';
-  State.postos.sort((a,b)=>(a.razaoSocial||'').localeCompare(b.razaoSocial||'')).forEach(p=>{
+  _postosEscolhiveis(current).forEach(p=>{
     const opt=document.createElement('option');
     opt.value=p.razaoSocial;
-    opt.textContent=p.razaoSocial+(p.cidade?' — '+p.cidade:'');
+    opt.textContent=p.razaoSocial+(p.cidade?' — '+p.cidade:'')+_postoSufixo(p);
     sel.appendChild(opt);
   });
-  if(current) sel.value=current;
+  if(current) _garantirOpcaoPosto('emp-posto', current);   // nunca perder o posto já gravado
+}
+
+// Garante que o posto gravado no colaborador exista no select mesmo estando inativo
+// (ou tendo sido renomeado/excluído). Sem isso o select cai para "" e o Salvar apaga
+// o posto sem avisar ninguém. #posto-inativo
+function _garantirOpcaoPosto(selectId, valor){
+  const sel=document.getElementById(selectId);
+  if(!sel || !valor) return;
+  if([...sel.options].some(o=>o.value===valor)) { sel.value=valor; return; }
+  const p=State.postos.find(x=>x.razaoSocial===valor);
+  const opt=document.createElement('option');
+  opt.value=valor;
+  opt.textContent=valor+(p&&p.cidade?' — '+p.cidade:'')+(p?_postoSufixo(p):' — posto removido');
+  sel.appendChild(opt);
+  sel.value=valor;
 }
 
 function openPostoModal(id=null){
@@ -33617,8 +33717,13 @@ async function savePosto(){
   if(!razao){ toast('Informe a Razão Social.','error'); return; }
   const existingPostoId=val('posto-id');
   const id=existingPostoId||genId();
+  // DB.save SOBRESCREVE o doc inteiro — preserva o status/desativação, senão editar o
+  // cadastro reativaria o posto calado. #posto-inativo
+  const anterior=existingPostoId?State.postos.find(x=>x.id===existingPostoId):null;
   const record={
     id, razaoSocial:razao,
+    status: (anterior&&anterior.status)||'ativo',
+    ...(anterior&&anterior.desativadoEm?{desativadoEm:anterior.desativadoEm}:{}),
     nomeFantasia:val('posto-fantasia').trim(),
     cnpj:val('posto-cnpj').trim(),
     telefone:val('posto-telefone').trim(),
@@ -33966,7 +34071,8 @@ function openTransferenciaModal(){
   // Novo posto (todos; "" = manter o atual)
   const sel=document.getElementById('transf-novo-posto');
   sel.innerHTML='<option value="">— Manter posto atual —</option>';
-  State.postos.slice().sort((a,b)=>(a.razaoSocial||'').localeCompare(b.razaoSocial||'')).forEach(p=>{
+  // Transferir é ESCOLHA: só postos ativos (ninguém transfere para condomínio que saiu). #posto-inativo
+  _postosEscolhiveis(null).forEach(p=>{
     const opt=document.createElement('option');
     opt.value=p.razaoSocial;
     opt.textContent=p.razaoSocial+(p.cidade?' — '+p.cidade:'');
@@ -34186,6 +34292,7 @@ async function saveTransferencia(){
     // Reflete no formulário do cadastro aberto
     populatePostoSelect();
     const selP=document.getElementById('emp-posto'); if(selP) selP.value=updated.posto;
+    _garantirOpcaoPosto('emp-posto', updated.posto);   // "manter posto atual" pode ser um posto inativo. #posto-inativo
     setVal('emp-cargo',updated.cargo||'');
     setVal('emp-escala',updated.escala||'5x2A');
     setVal('emp-salario-base',updated.salarioBase||'');
@@ -34217,7 +34324,7 @@ function confirmDeletePosto(id){
   const p=State.postos.find(x=>x.id===id); if(!p) return;
   const emUso=State.employees.some(e=>e.posto===p.razaoSocial);
   if(emUso){
-    toast(`Posto em uso por colaboradores ativos — remova o vínculo antes de excluir.`,'error');
+    toast(`Posto em uso por colaboradores — use "Desativar" (guarda o histórico) ou remova o vínculo antes de excluir.`,'error');
     return;
   }
   document.getElementById('confirm-message').textContent=`Excluir o posto "${p.razaoSocial}"?`;
@@ -34913,7 +35020,8 @@ function renderEscalas(){
     const sel = postoSel.value;
     let opts = '<option value="">Todos</option>';
     // emp.posto guarda o nome do posto (razaoSocial) — o filtro precisa casar com isso
-    (State.postos||[]).forEach(p => { opts += `<option value="${p.razaoSocial||''}">${p.razaoSocial||p.nome||'—'}</option>`; });
+    // FILTRO: mantém inativos (marcados) para consultar escala antiga. #posto-inativo
+    (State.postos||[]).forEach(p => { opts += `<option value="${p.razaoSocial||''}">${(p.razaoSocial||p.nome||'—')+_postoSufixo(p)}</option>`; });
     postoSel.innerHTML = opts;
     postoSel.value = sel;
   }

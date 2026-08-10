@@ -1193,9 +1193,18 @@ function _ajdDiff(){
     if(de === para) return;
     linhas.push(`<b>${NOMES_BATIDA[t]}</b>: ${de || '<span class="sem">—</span>'} → <b>${para || '<span class="sem">apagado</span>'}</b>`);
   });
+  // O botão diz o que ele FAZ: sem mudança de horário, com pedido pendente, ele confirma a
+  // folha como está e fecha o pedido — não é "não fazer nada". #ajuste-dia-supervisor
+  const soConfirma = !linhas.length && c.pedidos.length > 0;
   document.getElementById('ajd-diff').innerHTML = linhas.length
     ? '📝 Vai gravar na folha:<br>' + linhas.join('<br>')
-    : '<span class="sem">Nenhuma mudança nos horários ainda.</span>';
+    : (soConfirma
+        ? 'Sem mudança de horário — vai <b>confirmar a folha como está</b> e resolver '
+          + (c.pedidos.length > 1 ? `os ${c.pedidos.length} pedidos pendentes` : 'o pedido pendente')
+          + ' deste dia.'
+        : '<span class="sem">Nenhuma mudança nos horários ainda.</span>');
+  const btnS = document.getElementById('ajd-salvar');
+  if(btnS && !c.fechada) btnS.textContent = soConfirma ? '✓ Confirmar folha e resolver pedido' : '💾 Gravar na folha';
   // Aviso de sequência
   if(!c.fechada){
     const seq = TIPOS_BATIDA.map(t => v[t] ? _toMinSup(v[t]) : null).filter(x => x!=null);
@@ -1217,6 +1226,26 @@ function _ajdCliqueFora(ev){
 function fecharAjusteDia(){
   _ajdCtx = null;
   document.getElementById('modal-ajuste-dia').classList.remove('show');
+}
+
+// Depois do ajuste, ainda sobrou HORA EXTRA para aprovar? Compara o horário que VAI ficar na
+// folha com o previsto do dia, na direção que gera trabalho a mais: sair (ou iniciar a pausa)
+// mais TARDE, entrar (ou voltar da pausa) mais CEDO.
+// 🔒 Não conseguiu medir (sem previsto / sem horário) → responde SIM: na dúvida a HE vai para
+// a revisão do gestor; tirá-la em silêncio custaria dinheiro do colaborador.
+function _temHEDepoisDoAjuste(c, entry){
+  return c.pedidos.some(p => {
+    if(p.tipoBloqueio !== 'horaExtra') return false;
+    const t = p.tipoBatida;
+    const real = _toMinSup(entry[t] || '');
+    const prev = _toMinSup(_previstoDoDiaSup(c.emp, c.mes, c.ano, c.dia, t));
+    if(real == null || prev == null) return true;
+    // Turno que vira a madrugada: 07:00 contra previsto 19:00 é +12h de jornada, não −12h.
+    let d = real - prev;
+    if(d >  720) d -= 1440;
+    if(d < -720) d += 1440;
+    return (t === 'saida' || t === 'intIni') ? d > 0 : d < 0;
+  });
 }
 
 // Grava o DIA inteiro na folha. Mesma coleção/documento que a folha de ponto do gestor lê
@@ -1258,14 +1287,28 @@ async function _gravarDiaNaFolha(vals, motivo){
     // A geolocalização da batida original NÃO se apaga (é prova de onde a pessoa estava);
     // só o horário é do supervisor agora.
   });
-  if(!mudou) throw new Error('Nenhum horário foi alterado.');
+  // 🔒 SEM MUDANÇA DE HORÁRIO **NÃO É ERRO** QUANDO EXISTE PEDIDO PENDENTE. Manter o previsto
+  // (ex.: cortar de volta os 11 min pedidos na saída) É a decisão do supervisor, e ela precisa
+  // FECHAR o pedido. O `throw` que existia aqui abortava ANTES do laço de `salvarAjusteDia`
+  // que resolve os pedidos: o supervisor decidia "vale o horário que já está na folha", levava
+  // "Nenhum horário foi alterado" na cara e o pedido ficava pendente PARA SEMPRE — sobrava só
+  // "Recusar", que manda mensagem de recusa ao colaborador, coisa diferente de confirmar a
+  // folha. Sem pedido nenhum (modal aberto pela busca por matrícula) continua sendo erro: aí
+  // realmente não há o que gravar nem o que resolver. #ajuste-dia-supervisor
+  if(!mudou && !c.pedidos.length) throw new Error('Nenhum horário foi alterado.');
   entry.ajusteSupervisor = {
     porId: currentUser.id || '', por: currentUser.username || '', em: agora,
-    motivo: motivo || '', de, para
+    motivo: motivo || '', de, para,
+    // Confirmou a folha como estava (não mexeu em horário) — a prova de QUEM decidiu e por quê
+    // vale igual, e é o que distingue "ninguém olhou" de "o supervisor olhou e manteve".
+    confirmacao: !mudou
   };
   // Pedido de HORA EXTRA resolvido pelo ajuste: a liberação do supervisor É a aprovação da
   // HE do dia — mesma regra do fluxo de autorização. #regra-ponto-he-atraso
-  if(c.pedidos.some(p => p.tipoBloqueio === 'horaExtra')){
+  // 🔒 …mas só se, DEPOIS do ajuste, a batida REALMENTE passar do previsto: o supervisor pode
+  // ter cortado a hora pedida de volta ao horário da escala, e aí não existe hora extra que
+  // aprovar. Aprovar assim mesmo carimbava "HE aprovada" num dia sem HE nenhuma.
+  if(c.pedidos.some(p => p.tipoBloqueio === 'horaExtra') && _temHEDepoisDoAjuste(c, entry)){
     entry.heReview = { status:'aprovado', perc:50, observacao:'HE aprovada via ajuste do dia (supervisor)',
       aprovadoPor: currentUser.username || '', aprovadoEm: agora, recusadoPor:null, recusadoEm:null };
   }
@@ -1305,8 +1348,11 @@ async function salvarAjusteDia(btn){
       }catch(e){ console.error('resolver pedido', p.id, e); }
     }
     const nome = (c.emp && c.emp.nome) || (c.pedidos[0] && c.pedidos[0].employeeNome) || '';
-    toast(`✅ Ponto ajustado na folha — ${nome}`, 'success');
-    return `Gravado na folha: ${n} horário(s) ajustado(s)${c.pedidos.length?` · ${c.pedidos.length} pedido(s) resolvido(s)`:''}.`;
+    const resolvidos = c.pedidos.length ? ` · ${c.pedidos.length} pedido(s) resolvido(s)` : '';
+    toast(n ? `✅ Ponto ajustado na folha — ${nome}` : `✅ Folha confirmada — ${nome}`, 'success');
+    return n
+      ? `Gravado na folha: ${n} horário(s) ajustado(s)${resolvidos}.`
+      : `Folha confirmada como está (nenhum horário mudou)${resolvidos}.`;
   }, { msg:'ajd-msg', depois: fecharAjusteDia, espera: 1400 }).catch(e => console.error(e));
 }
 

@@ -2689,7 +2689,7 @@
       <section id="section-importaholerite" class="section">
         <div class="page-header">
           <h2>Importar Holerites</h2>
-          <p>Recebeu os holerites da contabilidade em PDF? Suba aqui: a Inteligência Artificial lê cada holerite (nome, CPF, competência e líquido) e vincula automaticamente ao colaborador certo. O que não reconhecer com certeza cai na <strong>caixa de pendências</strong>, onde você digita o nome e clica em Vincular.</p>
+          <p>Recebeu os holerites da contabilidade em PDF? Suba aqui: a Inteligência Artificial lê cada holerite (nome, CPF, competência e líquido) e vincula automaticamente ao colaborador certo. O que não reconhecer com certeza cai na <strong>caixa de pendências</strong>, onde você digita o nome e clica em Vincular. Assim que vinculado, o holerite já fica arquivado na <strong>pasta de holerites do colaborador</strong> (ficha ▸ aba Holerites) — e continua lá depois de enviado e assinado, com hash e carimbo em blockchain.</p>
         </div>
         <div class="card">
           <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
@@ -3418,7 +3418,7 @@
           <i class="fa-solid fa-file-signature"></i> Folhas Assinadas
         </button>
         <button class="modal-tab" data-tab-id="tab-holerites-assinados" onclick="switchTab('tab-holerites-assinados');renderHoleritesAssinadosColab()">
-          <i class="fa-solid fa-file-invoice-dollar"></i> Holerites Assinados
+          <i class="fa-solid fa-file-invoice-dollar"></i> Holerites
         </button>
         <button class="modal-tab" data-tab-id="tab-termos-lgpd" onclick="switchTab('tab-termos-lgpd');renderTermosLgpdColab()">
           <i class="fa-solid fa-file-shield"></i> Termos LGPD
@@ -4419,11 +4419,13 @@
         </div>
       </div>
 
-      <!-- Tab: Holerites Assinados — recibos que o colab conferiu/assinou via app. -->
+      <!-- Tab: Holerites — PASTA DE HOLERITES do colaborador. Junta as duas origens:
+           os importados da contabilidade externa (entram assim que são vinculados a ele)
+           e os gerados pela folha. Não duplica arquivo: aponta pro PDF do Storage. -->
       <div class="tab-pane" id="tab-holerites-assinados">
         <div class="info-banner">
-          <i class="fa-solid fa-file-invoice-dollar"></i>
-          Holerites (recibos de pagamento) que o colaborador conferiu e assinou (ou aceitou por silêncio após 48h sem ação) via app. Cada um tem hash SHA-256 — assinatura eletrônica simples (MP 2.200-2/2001).
+          <i class="fa-solid fa-folder-open"></i>
+          <strong>Pasta de holerites deste colaborador.</strong> Reúne os holerites <strong>importados da contabilidade</strong> (que entram aqui assim que são vinculados a ele, mostrando o estágio: vinculado → aguardando assinatura → assinado) e os <strong>gerados pela folha</strong>. Os assinados têm hash SHA-256 e carimbo do tempo em blockchain — assinatura eletrônica simples (MP 2.200-2/2001).
         </div>
         <div id="holerites-assinados-list">
           <div style="font-size:12px;color:#94a3b8;padding:8px 2px">Carregando...</div>
@@ -7968,6 +7970,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260808a-posto-ativo-inativo"></script>
+  <script src="app.js?v=20260811a-pasta-holerites"></script>
 </body>
 </html>

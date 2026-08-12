@@ -1753,8 +1753,12 @@ const SECTION_MODALS={
   ferias:['modal-ferias-modulo'],
   rescisao:['modal-rescisao'],
   postos:['modal-posto'],
-  contratos:['modal-contrato','modal-adm-tenant','modal-adm-cobranca']
+  contratos:['modal-contrato','modal-adm-tenant','modal-adm-cobranca'],
+  docsempresa:['modal-doc-empresa','modal-doc-empresa-cat']
 };
+// Seções cujo id NÃO é igual à chave do módulo em CRUD_MODULES/MODULOS_LABELS.
+// Sem isto o nível "somente ver" nunca chegaria na tela. #docs-empresa-ver-editar
+const SECTION_MODULE={docsempresa:'documentosEmpresa'};
 // Trava campos e o botão Salvar de um modal (mantém imprimir/exportar/fechar).
 function _lockModalView(modalId){
   const m=document.getElementById(modalId); if(!m) return;
@@ -1772,13 +1776,16 @@ function _lockModalView(modalId){
 function _applyViewLock(sectionName){
   const section=document.getElementById('section-'+sectionName);
   if(!section) return;
-  const viewOnly=CRUD_MODULES.includes(sectionName) && !canEditModule(sectionName);
+  const _mod=SECTION_MODULE[sectionName]||sectionName;
+  const viewOnly=CRUD_MODULES.includes(_mod) && !canEditModule(_mod);
   section.classList.toggle('view-locked', viewOnly);
   let banner=section.querySelector('.view-only-banner');
   if(viewOnly && !banner){
     banner=document.createElement('div');
     banner.className='view-only-banner';
-    banner.innerHTML='<i class="fa-solid fa-eye"></i> <strong>Modo somente leitura.</strong> Seu perfil permite consultar e imprimir neste módulo, mas não alterar dados.';
+    banner.innerHTML= sectionName==='docsempresa'
+      ? '<i class="fa-solid fa-eye"></i> <strong>Modo somente leitura.</strong> Você pode consultar e <strong>baixar</strong> os documentos, mas não enviar, alterar ou excluir.'
+      : '<i class="fa-solid fa-eye"></i> <strong>Modo somente leitura.</strong> Seu perfil permite consultar e imprimir neste módulo, mas não alterar dados.';
     section.insertBefore(banner, section.firstChild);
   } else if(!viewOnly && banner){
     banner.remove();
@@ -29328,6 +29335,14 @@ function renderImportaHolerite(){
 }
 
 function _podeDocsEmpresa(){ return !!(getUserModules(Auth.currentUser)||{}).documentosEmpresa || Auth.currentUser?.role==='master'; }
+// VER/BAIXAR (acima) ≠ EDITAR. Sem a subopção "Editar" o usuário consulta e baixa,
+// mas não sobe, não altera, não exclui e não mexe nas pastas. #docs-empresa-ver-editar
+function _podeEditarDocsEmpresa(){ return _podeDocsEmpresa() && canEditModule('documentosEmpresa'); }
+function _barraDocsEmpresaSoLeitura(){
+  if(_podeEditarDocsEmpresa()) return false;
+  toast(_podeDocsEmpresa() ? 'Seu acesso a Documentos da Empresa é de consulta e download — sem permissão para alterar.' : 'Sem permissão.','error');
+  return true;
+}
 function _docsEmpresaCategorias(){
   const c = State.empresa && State.empresa.categoriasDocsEmpresa;
   return (Array.isArray(c) && c.length) ? c : DOCS_EMPRESA_CATEGORIAS_PADRAO;
@@ -29349,7 +29364,7 @@ function _preencherSelectsCategoriaDoc(){
 }
 // ─ Categorias ─
 function abrirCategoriasDoc(){
-  if(!_podeDocsEmpresa()){ toast('Sem permissão.','error'); return; }
+  if(_barraDocsEmpresaSoLeitura()) return;
   setVal('doc-empresa-cat-nome','');
   _renderCategoriasDocLista();
   document.getElementById('modal-doc-empresa-cat').classList.remove('hidden');
@@ -29367,7 +29382,7 @@ function _renderCategoriasDocLista(){
     }).join('');
 }
 async function salvarCategoriaDoc(){
-  if(!_podeDocsEmpresa()){ toast('Sem permissão.','error'); return; }
+  if(_barraDocsEmpresaSoLeitura()) return;
   const nome=(val('doc-empresa-cat-nome')||'').trim();
   if(!nome){ toast('Informe o nome da categoria.','warning'); return; }
   const cats=_docsEmpresaCategorias().slice();
@@ -29377,7 +29392,7 @@ async function salvarCategoriaDoc(){
   catch(e){ toast('Erro ao salvar categoria: '+(e.message||e),'error'); }
 }
 async function excluirCategoriaDoc(id){
-  if(!_podeDocsEmpresa()){ toast('Sem permissão.','error'); return; }
+  if(_barraDocsEmpresaSoLeitura()) return;
   const n=(State.docsEmpresa||[]).filter(d=>d.categoriaId===id).length;
   if(n>0){ toast(`Não dá para excluir: a categoria tem ${n} documento(s). Mova ou exclua os documentos antes.`,'warning'); return; }
   if(!confirm('Excluir esta categoria vazia?')) return;
@@ -29386,6 +29401,7 @@ async function excluirCategoriaDoc(id){
 }
 // ─ Upload + CRUD de documento ─
 async function onDocEmpresaArquivoChange(event){
+  if(_barraDocsEmpresaSoLeitura()){ event.target.value=''; return; }
   const file=event.target.files[0]; if(!file) return;
   const st=document.getElementById('doc-empresa-upload-status');
   if(st){ st.classList.remove('hidden'); st.innerHTML='<i class="fa-solid fa-circle-notch fa-spin"></i> Enviando arquivo...'; }
@@ -29404,7 +29420,7 @@ async function onDocEmpresaArquivoChange(event){
   }catch(e){ if(st) st.innerHTML='<i class="fa-solid fa-triangle-exclamation" style="color:var(--danger)"></i> Erro ao enviar arquivo.'; }
 }
 function abrirNovoDocEmpresa(){
-  if(!_podeDocsEmpresa()){ toast('Sem permissão.','error'); return; }
+  if(_barraDocsEmpresaSoLeitura()) return;
   _preencherSelectsCategoriaDoc();
   ['doc-empresa-id','doc-empresa-nome','doc-empresa-competencia','doc-empresa-valor','doc-empresa-vencimento','doc-empresa-obs','doc-empresa-arquivo-url','doc-empresa-arquivo-nome'].forEach(k=>setVal(k,''));
   const fi=document.getElementById('doc-empresa-arquivo'); if(fi) fi.value='';
@@ -29415,7 +29431,7 @@ function abrirNovoDocEmpresa(){
   document.getElementById('modal-doc-empresa').classList.remove('hidden');
 }
 function editarDocEmpresa(id){
-  if(!_podeDocsEmpresa()){ toast('Sem permissão.','error'); return; }
+  if(_barraDocsEmpresaSoLeitura()) return;
   const d=(State.docsEmpresa||[]).find(x=>x.id===id); if(!d){ toast('Documento não encontrado.','error'); return; }
   _preencherSelectsCategoriaDoc();
   setVal('doc-empresa-id',d.id); setVal('doc-empresa-cat',d.categoriaId||'outros');
@@ -29430,7 +29446,7 @@ function editarDocEmpresa(id){
   document.getElementById('modal-doc-empresa').classList.remove('hidden');
 }
 async function salvarDocEmpresa(){
-  if(!_podeDocsEmpresa()){ toast('Sem permissão.','error'); return; }
+  if(_barraDocsEmpresaSoLeitura()) return;
   const nome=(val('doc-empresa-nome')||'').trim();
   if(!nome){ toast('Informe o nome/descrição do documento.','warning'); return; }
   const catId=val('doc-empresa-cat'); if(!catId){ toast('Escolha a categoria (pasta).','warning'); return; }
@@ -29452,7 +29468,7 @@ async function salvarDocEmpresa(){
   }catch(e){ toast('Erro ao salvar: '+(e.message||e),'error'); }
 }
 async function excluirDocEmpresa(id){
-  if(!_podeDocsEmpresa()){ toast('Sem permissão.','error'); return; }
+  if(_barraDocsEmpresaSoLeitura()) return;
   const d=(State.docsEmpresa||[]).find(x=>x.id===id); if(!d) return;
   if(!confirm(`Excluir o documento "${d.nome}"? Esta ação não pode ser desfeita.`)) return;
   try{
@@ -29477,6 +29493,9 @@ function _docsEmpresaFiltrados(){
 function renderDocsEmpresa(){
   const box=document.getElementById('docsempresa-pastas'); if(!box) return;
   _preencherSelectsCategoriaDoc();
+  // Somente ver/baixar: some com os botões de escrita (o download continua). #docs-empresa-ver-editar
+  const podeEditar=_podeEditarDocsEmpresa();
+  ['btn-doc-empresa-novo','btn-doc-empresa-cats'].forEach(id=>{ const b=document.getElementById(id); if(b) b.classList.toggle('hidden',!podeEditar); });
   const cats=_docsEmpresaCategorias();
   const fCat=val('docsempresa-filtro-cat')||'';
   const filtros = !!(val('docsempresa-filtro-de')||val('docsempresa-filtro-ate')||(val('docsempresa-filtro-busca')||'').trim());
@@ -29504,8 +29523,8 @@ function renderDocsEmpresa(){
           <td style="padding:8px 10px">${d.vencimento?formatDateBr(d.vencimento):'—'}</td>
           <td style="padding:8px 10px;text-align:center;white-space:nowrap">
             <a class="btn btn-sm btn-outline" href="${d.arquivoUrl||'#'}" target="_blank" title="Abrir / baixar" style="font-size:11px;padding:3px 8px"><i class="fa-solid fa-download"></i></a>
-            <button class="btn btn-sm btn-outline" onclick="editarDocEmpresa('${d.id}')" title="Editar" style="font-size:11px;padding:3px 8px"><i class="fa-solid fa-pen"></i></button>
-            <button class="btn btn-sm btn-outline" onclick="excluirDocEmpresa('${d.id}')" title="Excluir" style="font-size:11px;padding:3px 8px;color:#c62828;border-color:#ef9a9a"><i class="fa-solid fa-trash"></i></button>
+            ${podeEditar?`<button class="btn btn-sm btn-outline" onclick="editarDocEmpresa('${d.id}')" title="Editar" style="font-size:11px;padding:3px 8px"><i class="fa-solid fa-pen"></i></button>
+            <button class="btn btn-sm btn-outline" onclick="excluirDocEmpresa('${d.id}')" title="Excluir" style="font-size:11px;padding:3px 8px;color:#c62828;border-color:#ef9a9a"><i class="fa-solid fa-trash"></i></button>`:''}
           </td></tr>`;
       });
       html+='</tbody></table></div>';
@@ -36137,7 +36156,7 @@ const MODULOS_LABELS={
   contratos:       'Administração',
   users:           'Usuários & Acessos',
   configuracoes:   'Configurações (Parâmetros Legais, etc.)',
-  documentosEmpresa: 'Documentos da Empresa (globais)',
+  documentosEmpresa: 'Documentos da Empresa (ver/baixar)',
   log:             'Log de Acessos',
   comunicacao:        'Comunicação (Enviar mensagens)',
   comunicacoesApagar: 'Apagar Mensagens (Comunicações)',
@@ -36177,7 +36196,10 @@ function getUserModules(user){
 
 // Módulos com cadastro/edição onde o nível "editar vs só visualizar" faz sentido.
 // (aprovaHE, reports e log ficam de fora — são ação ou somente leitura.)
-const CRUD_MODULES=['employees','payroll','escalas','pagamentos','decimoterceiro','ferias','rescisao','contabilidade','postos','contratos','users'];
+// `documentosEmpresa`: marcado = VER e BAIXAR; "Editar" = subir/alterar/excluir documento
+// e mexer nas pastas. Quem já tinha a permissão continua com 'edit' (getUserPerms só
+// rebaixa p/ 'view' quando o master marcar explicitamente). #docs-empresa-ver-editar
+const CRUD_MODULES=['employees','payroll','escalas','pagamentos','decimoterceiro','ferias','rescisao','contabilidade','postos','contratos','users','documentosEmpresa'];
 
 // Nível de permissão por módulo: 'edit' | 'view'. Master e operador = edit em tudo.
 // Perfis antigos sem `modulesPerm` assumem 'edit' nos módulos acessíveis
@@ -36261,7 +36283,7 @@ function _filtrarEmpsPorEscopo(emps){
 // ── Bloqueio central de gravação para perfis "somente visualizar" ──
 // Mapeia coleção do Firestore → módulo. Coleções fora do mapa não têm restrição
 // (ex.: accessLog, configuracoes — sempre liberadas).
-const COLL_MODULE={employees:'employees',payrolls:'payroll',escalas:'escalas',rescisoes:'rescisao',decimoTerceiro:'decimoterceiro',ferias:'ferias',postos:'postos',contratos:'contratos',bancoHoras:'payroll'};
+const COLL_MODULE={employees:'employees',payrolls:'payroll',escalas:'escalas',rescisoes:'rescisao',decimoTerceiro:'decimoterceiro',ferias:'ferias',postos:'postos',contratos:'contratos',bancoHoras:'payroll',documentosEmpresa:'documentosEmpresa'};
 // Lança erro (e avisa o usuário) se o perfil atual não pode gravar na coleção.
 // Chamado dentro dos métodos de escrita do DB — rede de segurança do "só visualizar".
 function _dbAssertWrite(col){

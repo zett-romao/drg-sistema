@@ -2603,8 +2603,8 @@
           <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
             <div id="docsempresa-contador" style="font-size:14px"></div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <button class="btn btn-primary btn-sm" onclick="abrirNovoDocEmpresa()"><i class="fa-solid fa-upload"></i> Novo documento</button>
-              <button class="btn btn-sm" onclick="abrirCategoriasDoc()" style="background:#00695C;color:#fff;border:none"><i class="fa-solid fa-folder-plus"></i> Categorias</button>
+              <button class="btn btn-primary btn-sm" id="btn-doc-empresa-novo" onclick="abrirNovoDocEmpresa()"><i class="fa-solid fa-upload"></i> Novo documento</button>
+              <button class="btn btn-sm" id="btn-doc-empresa-cats" onclick="abrirCategoriasDoc()" style="background:#00695C;color:#fff;border:none"><i class="fa-solid fa-folder-plus"></i> Categorias</button>
               <button class="btn btn-sm" onclick="baixarPeriodoZipDocEmpresa()" style="background:#6A1B9A;color:#fff;border:none" title="Baixa tudo do filtro atual num único .zip, com subpastas por categoria"><i class="fa-solid fa-file-zipper"></i> Baixar período (.zip)</button>
             </div>
           </div>
@@ -6999,6 +6999,7 @@
           <div class="checkbox-label perm-card"><label class="perm-mod"><input type="checkbox" name="mod" value="postos"> <span><i class="fa-solid fa-building" style="width:14px;color:var(--primary)"></i> Postos de Trabalho</span></label><label class="perm-edit"><input type="checkbox" data-edit="postos"> Editar</label></div>
           <div class="checkbox-label perm-card"><label class="perm-mod"><input type="checkbox" name="mod" value="contratos"> <span><i class="fa-solid fa-file-signature" style="width:14px;color:var(--primary)"></i> Contratos</span></label><label class="perm-edit"><input type="checkbox" data-edit="contratos"> Editar</label></div>
           <div class="checkbox-label perm-card"><label class="perm-mod"><input type="checkbox" name="mod" value="users"> <span><i class="fa-solid fa-user-shield" style="width:14px;color:var(--primary)"></i> Usuários &amp; Acessos</span></label><label class="perm-edit"><input type="checkbox" data-edit="users"> Editar</label></div>
+          <div class="checkbox-label perm-card"><label class="perm-mod"><input type="checkbox" name="mod" value="documentosEmpresa"> <span><i class="fa-solid fa-folder-open" style="width:14px;color:#00695C"></i> Documentos da Empresa (ver/baixar)</span></label><label class="perm-edit"><input type="checkbox" data-edit="documentosEmpresa"> Editar</label></div>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="log"> <span><i class="fa-solid fa-list-check" style="width:14px;color:var(--primary)"></i> Log de Acessos</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="comunicacao"> <span><i class="fa-solid fa-comments" style="width:14px;color:#1976D2"></i> Comunicação (Enviar mensagens)</span></label>
           <label class="checkbox-label"><input type="checkbox" name="mod" value="comunicacoesApagar"> <span><i class="fa-solid fa-trash" style="width:14px;color:#c62828"></i> Apagar Mensagens (Comunicações)</span></label>
@@ -7970,6 +7971,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260811a-pasta-holerites"></script>
+  <script src="app.js?v=20260812a-docs-empresa-ver-editar"></script>
 </body>
 </html>

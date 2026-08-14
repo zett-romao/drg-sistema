@@ -7172,6 +7172,43 @@ function _repararBatidasDia(pd, exp){
   return { entrada, saida, intIni, intFim };
 }
 
+// FONTE ÚNICA do atraso de UM dia (Súmula 366). Chamada pelo espelho impresso, pela
+// prévia, pela apuração da Contabilidade e pela detecção que alimenta o card e o
+// desconto do recibo — os cinco liam a MESMA regra escrita cinco vezes, e as cópias
+// já tinham divergido (a de _buildFolhaHtmlFromRecord não aplicava a medição por
+// PRESENÇA de 12x36/FDS livre, e a de _detectAtrasosPonto não pulava férias nem dia
+// suspenso, inventando atraso onde a folha impressa não mostrava nenhum).
+// Devolve 0 em folga, férias, dia suspenso, isento de ponto ou dia sem batida completa.
+// #atraso-fonte-unica #susp-ponto #plantao-refeicao #monitor-ferias
+function _atrasoDiaMin(emp, exp, bat, mesComp, anoComp, dia, ymd){
+  if(!emp || emp.isentoPonto) return 0;
+  if(!bat || !bat.entrada || !bat.saida) return 0;
+  // exp.saida vazio (dado quebrado) devolve 0 em vez de calcular sobre lixo.
+  if(!exp || exp.tipo==='folga' || !exp.entrada || !exp.saida) return 0;
+  if(_emFeriasNoDia(emp, ymd)) return 0;
+  // Suspensão NÃO é atraso: quem desconta o dia suspenso é o módulo Saídas
+  // (_saidaTotais). Sem este guard a folha descontava 2x o mesmo dia. #susp-ponto
+  if(_diaSuspenso(emp.id, mesComp, anoComp, dia)) return 0;
+  const is12x36 = escalaFamilia(emp.escala||'5x2A')==='12x36';
+  let mbE = timeToMinutes(exp.saida) - timeToMinutes(exp.entrada);
+  if(mbE<=0) mbE += 24*60;
+  let contratualIntMin = _calcIntervaloMin(exp.intIni, exp.intFim, exp.entrada, exp.saida);
+  // Trabalha sozinho / plantão não tem intervalo no contrato → usa o intervalo LEGAL
+  // (1h p/ jornada > 6h), senão a refeição feita viraria atraso. #plantao-refeicao
+  if((emp.semRefeicao || is12x36) && contratualIntMin===0 && mbE>360) contratualIntMin = 60;
+  const prevMin = Math.max(0, mbE - contratualIntMin);
+  let mb = timeToMinutes(bat.saida) - timeToMinutes(bat.entrada);
+  if(mb<=0) mb += 24*60;
+  const realIntMin = _calcIntervaloMin(bat.intIni, bat.intFim, bat.entrada, bat.saida);
+  const minLiq = mb - realIntMin;
+  // Plantão 12x36 e FDS livre: jornada sem horário fixo, com a refeição DENTRO → atraso
+  // pela PRESENÇA (jornada cumprida), não pelo líquido. #plantao-refeicao
+  const delta = (is12x36 || _usaFdsLivreResolve(emp.escala))
+    ? ((minLiq+realIntMin) - (prevMin+contratualIntMin))
+    : (minLiq - prevMin);
+  return (delta<0 && Math.abs(delta)>HE_TOLERANCIA_DIA_MIN) ? Math.round(-delta) : 0;
+}
+
 // Totais de apuração de ponto do período (horas), por colaborador. MESMA LÓGICA
 // do espelho da folha (_buildFolhaHtmlFromRecord) — manter em sincronia p/ os
 // números da Contabilidade baterem com a folha impressa. #folha-detalhada
@@ -7196,7 +7233,8 @@ function _apuracaoPontoTotais(emp, p){
     const entrada=_bat.entrada, saida=_bat.saida, intIni=_bat.intIni, intFim=_bat.intFim;
     let minLiq=0;
     if(entrada&&saida){ let mb=timeToMinutes(saida)-timeToMinutes(entrada); if(mb<=0)mb+=24*60; minLiq=mb-_calcIntervaloMin(intIni,intFim,entrada,saida); }
-    const _emFerias=_emFeriasNoDia(emp, `${cd.ano}-${String(cd.mes).padStart(2,'0')}-${String(d).padStart(2,'0')}`);
+    const _ymd=`${cd.ano}-${String(cd.mes).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const _emFerias=_emFeriasNoDia(emp, _ymd);
     const ehFolga=_emFerias||!exp||exp.tipo==='folga'||!exp.entrada;
     let prevMin=0, contratualIntMin=0;
     if(!ehFolga){ let mbE=timeToMinutes(exp.saida)-timeToMinutes(exp.entrada); if(mbE<=0)mbE+=24*60; contratualIntMin=_calcIntervaloMin(exp.intIni,exp.intFim,exp.entrada,exp.saida); if((emp.semRefeicao||is12x36)&&contratualIntMin===0&&mbE>360)contratualIntMin=60; prevMin=Math.max(0,mbE-contratualIntMin); }
@@ -7205,10 +7243,12 @@ function _apuracaoPontoTotais(emp, p){
     // HE = SÓ a AUTORIZADA — mesma fonte (_heMinDia) que o pagamento usa; HE não
     // aprovada na revisão não entra na apuração. Atraso/ref.não rendida seguem pelo déficit. #he-autorizada-folha
     if(temBatida){ out.extraMin += _heMinDia({...(_bat||{}), heReview: pd.heReview}, exp, _MCa); }
-    /* Suspensão NÃO é atraso: o dia suspenso é descontado pelo módulo Saídas (_saidaTotais),
-       que sabe pular folga e respeitar o teto de 30 dias (Art. 474). Sem este guard a folha
-       descontava o MESMO dia duas vezes — como atraso e como saída não abonada. #susp-ponto */
-    if(!ehFolga&&temBatida){ const _ir=_calcIntervaloMin(intIni,intFim,entrada,saida); const delta=(is12x36||_usaFdsLivreResolve(emp.escala))?((minLiq+_ir)-(prevMin+contratualIntMin)):(minLiq-prevMin); if(delta<0&&Math.abs(delta)>HE_TOLERANCIA_DIA_MIN&&!_diaSuspenso(emp.id,mes,ano,d)){ out.atrasoMin+=-delta; } const _nr=Math.max(0,contratualIntMin-_ir); out.naoRendMin+=(_nr>HE_TOLERANCIA_DIA_MIN?_nr:0); }   /* ref. não rendida só conta acima da tolerância 10min/dia (Súmula 366). #ref-tolerancia */
+    /* Atraso: _atrasoDiaMin é a fonte única (pula folga/férias/dia suspenso e mede 12x36
+       e FDS livre pela presença). Suspensão NÃO é atraso — o dia suspenso é descontado
+       pelo módulo Saídas (_saidaTotais), que sabe pular folga e respeitar o teto de 30
+       dias (Art. 474). Sem esse guard a folha descontava o MESMO dia duas vezes — como
+       atraso e como saída não abonada. #atraso-fonte-unica #susp-ponto */
+    if(!ehFolga&&temBatida){ const _ir=_calcIntervaloMin(intIni,intFim,entrada,saida); out.atrasoMin+=_atrasoDiaMin(emp,exp,_bat,mes,ano,d,_ymd); const _nr=Math.max(0,contratualIntMin-_ir); out.naoRendMin+=(_nr>HE_TOLERANCIA_DIA_MIN?_nr:0); }   /* ref. não rendida só conta acima da tolerância 10min/dia (Súmula 366). #ref-tolerancia */
     else if(!ehFolga&&!temBatida&&temPonto&&_diaEmBrancoEhFalta(emp,cd.mes,cd.ano,d,isWknd,is12x36)){ out.faltaMin+=prevMin; out.faltaQtd++; }
     out.trabMin+=(minLiq>0?minLiq:0); out.prevMin+=prevMin;
     // Dia TRABALHADO (com batida) em que se cumpriu menos de 50% da jornada prevista —
@@ -14813,10 +14853,47 @@ async function aplicarSuspensao(){
 // ============================================
 // Coleção `atrasos`. Cada doc é uma ocorrência de atraso. Os minutos das
 // ocorrências não-abonadas descontam (minutos × valor/min).
+// Id determinístico da ocorrência detectada pelo ponto. _sincronizarAtrasosDoPonto e
+// _atrasosVigentes PRECISAM gerar o mesmo id — é ele que amarra a decisão do operador
+// (motivo/justificado/abonado/documento) ao dia detectado. #atraso-fonte-unica
+function _atrasoPontoId(empId, mes, ano, dia){
+  return `atr_p_${empId}_${ano}_${String(mes).padStart(2,'0')}_${String(dia).padStart(2,'0')}`;
+}
+// Reconhece a ocorrência vinda do ponto por origem OU pelo prefixo do id (registros
+// antigos, gravados antes de a origem ser marcada). Manual usa genId(), sem o prefixo.
+function _ehAtrasoDoPonto(a){
+  return !!a && (a.origem==='ponto' || /^atr_p_/.test(String(a.id||'')));
+}
+
+// Atrasos VIGENTES da competência = o que o ponto mostra AGORA (detectado ao vivo, pela
+// mesma regra da folha impressa) + os lançados à mão. A coleção `atrasos` deixa de ser a
+// fonte do NÚMERO e passa a guardar só a DECISÃO do operador e as ocorrências manuais.
+// Antes o card, o desconto do recibo e a Contabilidade liam o retrato gravado na última
+// vez que alguém APLICOU o Ponto Manual: batida posterior, rascunho salvo ou revisão de
+// HE não entravam, e a folha impressa mostrava atraso que o desconto ignorava (e vice-
+// versa — dia corrigido continuava descontando). #atraso-fonte-unica
+function _atrasosVigentes(empId, mes, ano){
+  if(!empId) return [];
+  const salvos=(State.atrasos||[]).filter(a=>a.employeeId===empId && a.mes==mes && a.ano==ano);
+  const emp=(State.employees||[]).find(e=>e.id===empId);
+  const p=(State.payrolls||[]).find(x=>x.employeeId===empId && x.mes==mes && x.ano==ano);
+  let det=[];
+  try{ det=_detectAtrasosPonto(emp, p)||[]; }catch(e){ console.error('detect atrasos', e); }
+  const doPonto=det.map(d=>{
+    const id=_atrasoPontoId(empId, mes, ano, d.dia);
+    // Casa pelo id novo e, para registros antigos, pelo dia — assim a justificativa já
+    // dada não se perde quando o id muda de formato.
+    const ex=salvos.find(a=>a.id===id) || salvos.find(a=>_ehAtrasoDoPonto(a) && a.dia===d.dia);
+    return {...(ex||{}), id:ex?ex.id:id, employeeId:empId, mes, ano, dia:d.dia,
+            minutos:d.minutos, origem:'ponto', persistido:!!ex};
+  });
+  const manuais=salvos.filter(a=>!_ehAtrasoDoPonto(a));
+  return [...doPonto, ...manuais].sort((a,b)=>_compDiaOrd(a.dia)-_compDiaOrd(b.dia));
+}
+
 function _atrasoTotais(empId, mes, ano){
   let minutos=0, minutosDesc=0, count=0;
-  (State.atrasos||[]).forEach(a=>{
-    if(a.employeeId!==empId || a.mes!=mes || a.ano!=ano) return;
+  _atrasosVigentes(empId, mes, ano).forEach(a=>{
     const m=parseInt(a.minutos)||0;
     minutos+=m; count++;
     // Descontável = NEM abonado NEM justificado. Qualquer abono/justificação tira o
@@ -14834,8 +14911,8 @@ function renderAtrasosFolha(){
   const mes=parseInt(val('payroll-mes')||currentMes());
   const ano=parseInt(val('payroll-ano')||currentAno());
   if(!empId){ resumo.textContent='Selecione um colaborador para ver os atrasos.'; lista.innerHTML=''; return; }
-  const arr=(State.atrasos||[]).filter(a=>a.employeeId===empId&&a.mes==mes&&a.ano==ano)
-    .sort((a,b)=>_compDiaOrd(a.dia)-_compDiaOrd(b.dia));
+  // Lista os atrasos VIGENTES (ponto ao vivo + manuais), não o retrato salvo. #atraso-fonte-unica
+  const arr=_atrasosVigentes(empId,mes,ano);
   const tot=_atrasoTotais(empId,mes,ano);
   resumo.innerHTML = tot.count
     ? `<i class="fa-solid fa-circle-info"></i> <strong>${tot.count} atraso(s) · ${minutesToStr(tot.minutos)}</strong> — ${tot.minutosDesc>0?minutesToStr(tot.minutosDesc)+' com desconto':'todos abonados/justificados (sem desconto)'}.`
@@ -14843,20 +14920,28 @@ function renderAtrasosFolha(){
   if(!arr.length){ lista.innerHTML=''; return; }
   lista.innerHTML=arr.map(a=>{
     const m=parseInt(a.minutos)||0;
+    const doPonto=_ehAtrasoDoPonto(a);
     const badge=a.abonado
       ? '<span style="color:#2E7D32;font-size:10px;font-weight:700">ABONADO</span>'
       : '<span style="color:#C62828;font-size:10px;font-weight:700">DESCONTA</span>';
+    // Origem à vista: quem veio da batida se corrige no Ponto Manual, não aqui.
+    const origem=doPonto
+      ? '<span title="Detectado pela batida do Ponto Manual" style="color:#B45309;font-size:10px;font-weight:700">DO PONTO</span>'
+      : '<span title="Lançado à mão nesta tela" style="color:#6A1B9A;font-size:10px;font-weight:700">MANUAL</span>';
     const horario=(a.horarioInicio&&a.horarioFim)?` <small style="color:#888">${a.horarioInicio}→${a.horarioFim}</small>`:'';
     const arq=a.arquivoUrl
       ? `<a href="${a.arquivoUrl}" target="_blank" title="Ver documento"><i class="fa-solid fa-paperclip" style="color:#1565C0"></i></a>`
       : '';
+    // Atraso do ponto não se exclui aqui (voltaria na hora): some corrigindo a batida.
+    const btnExcluir=doPonto ? '' : `<button class="btn-icon" onclick="confirmDeleteAtraso('${a.id}')" title="Excluir"><i class="fa-solid fa-trash" style="color:#C62828"></i></button>`;
     return `<div style="display:flex;align-items:center;gap:8px;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;margin-bottom:5px">
       <i class="fa-solid fa-clock" style="color:#F59E0B"></i>
-      <span style="flex:1">Dia ${String(a.dia||'?').padStart(2,'0')} · ${minutesToStr(m)}${horario}${a.motivo?' — '+a.motivo:''}${a.justificado?' <span style="color:#1565C0;font-size:10px">(justificado)</span>':''}</span>
+      <span style="flex:1">Dia ${String(a.dia||'?').padStart(2,'0')} · ${minutesToStr(m)}${horario}${a.motivo?' — '+esc(a.motivo):''}${a.justificado?' <span style="color:#1565C0;font-size:10px">(justificado)</span>':''}</span>
       ${arq}
+      ${origem}
       ${badge}
-      <button class="btn-icon" onclick="openAtrasoModal('${a.id}')" title="Editar"><i class="fa-solid fa-pen" style="color:#1565C0"></i></button>
-      <button class="btn-icon" onclick="confirmDeleteAtraso('${a.id}')" title="Excluir"><i class="fa-solid fa-trash" style="color:#C62828"></i></button>
+      <button class="btn-icon" onclick="openAtrasoModal('${a.id}')" title="${doPonto?'Justificar / abonar':'Editar'}"><i class="fa-solid fa-pen" style="color:#1565C0"></i></button>
+      ${btnExcluir}
     </div>`;
   }).join('');
 }
@@ -14887,7 +14972,9 @@ function openAtrasoModal(id){
   const ano=parseInt(val('payroll-ano')||currentAno());
   setVal('atraso-emp-id',empId); setVal('atraso-mes',mes); setVal('atraso-ano',ano);
   document.getElementById('atraso-emp-nome').textContent=emp.nome||'—';
-  const a=id?(State.atrasos||[]).find(x=>x.id===id):null;
+  // Resolve na lista VIGENTE: o atraso detectado pelo ponto pode ainda não ter documento
+  // gravado na coleção — sem isso o lápis abria o modal em branco. #atraso-fonte-unica
+  const a=id?_atrasosVigentes(empId,mes,ano).find(x=>x.id===id):null;
   setVal('atraso-id', a?a.id:'');
   setVal('atraso-dia', a?.dia||'');
   setVal('atraso-hora-inicio', a?.horarioInicio||'');
@@ -14902,7 +14989,29 @@ function openAtrasoModal(id){
     ? `<i class="fa-solid fa-paperclip"></i> Documento atual: <a href="${a.arquivoUrl}" target="_blank">${a.arquivoNome||'ver arquivo'}</a> — envie outro para substituir.`
     : '';
   _atrasoRecalcInfo();
+  // Atraso vindo da batida: o dia e os minutos são do Ponto Manual (fonte única) — aqui
+  // só se decide motivo/justificado/abonado/documento. Editar o número não adiantaria:
+  // a próxima leitura recalcularia do ponto e o valor voltaria. #atraso-fonte-unica
+  _atrasoLockPonto(_ehAtrasoDoPonto(a));
   document.getElementById('modal-atraso').classList.remove('hidden');
+}
+
+// Trava (ou libera) os campos que pertencem ao Ponto Manual quando o atraso vem da batida.
+function _atrasoLockPonto(travar){
+  ['atraso-dia','atraso-minutos','atraso-hora-inicio','atraso-hora-fim'].forEach(idc=>{
+    const el=document.getElementById(idc);
+    if(!el) return;
+    // `disabled`, não `readOnly`: o Chrome ignora readOnly em input type="time" e no
+    // spinner do type="number" — o campo continuaria editável pelo seletor. val() lê
+    // .value mesmo desabilitado, então o save continua enxergando dia/minutos.
+    el.disabled=!!travar;
+    el.style.background=travar?'#f1f5f9':'';
+    el.style.cursor=travar?'not-allowed':'';
+  });
+  const info=document.getElementById('atraso-min-info');
+  if(info && travar){
+    info.innerHTML='<i class="fa-solid fa-lock" style="color:#B45309"></i> Dia e minutos vêm da <strong>batida do Ponto Manual</strong> — para mudar o valor, corrija a batida do dia. Aqui você justifica, abona ou anexa o documento.';
+  }
 }
 
 async function saveAtraso(){
@@ -14913,7 +15022,11 @@ async function saveAtraso(){
   if(minutos<1){ toast('Informe os minutos de atraso (ou os horários de início e fim).','error'); return; }
   const editId=val('atraso-id');
   const id=editId||genId();
-  const existente=editId?(State.atrasos||[]).find(x=>x.id===editId):null;
+  const _mesA=parseInt(val('atraso-mes'))||currentMes(), _anoA=parseInt(val('atraso-ano'))||currentAno();
+  // Busca na lista VIGENTE: justificar um atraso detectado pelo ponto que ainda não tinha
+  // documento gravado precisa nascer com origem='ponto' e o id determinístico, senão a
+  // próxima sincronização criaria um segundo registro e o dia contaria em dobro. #atraso-fonte-unica
+  const existente=editId?_atrasosVigentes(empId,_mesA,_anoA).find(x=>x.id===editId):null;
   const btn=document.querySelector('#modal-atraso .btn-primary');
   setBtnLoading(btn,true,'');
   try {
@@ -14934,7 +15047,7 @@ async function saveAtraso(){
     }
     const doc={
       id, employeeId:empId,
-      mes:parseInt(val('atraso-mes'))||currentMes(), ano:parseInt(val('atraso-ano'))||currentAno(),
+      mes:_mesA, ano:_anoA,
       dia, minutos,
       horarioInicio:val('atraso-hora-inicio')||'',
       horarioFim:val('atraso-hora-fim')||'',
@@ -14960,7 +15073,16 @@ async function saveAtraso(){
 }
 
 function confirmDeleteAtraso(id){
-  if(!(State.atrasos||[]).some(x=>x.id===id)) return;
+  const empId=val('payroll-employee');
+  const mes=parseInt(val('payroll-mes')||currentMes());
+  const ano=parseInt(val('payroll-ano')||currentAno());
+  const alvo=_atrasosVigentes(empId,mes,ano).find(x=>x.id===id);
+  // Botão nunca é mudo: antes um id desconhecido saía pelo return sem dizer nada.
+  if(!alvo){ toast('Atraso não encontrado — recarregue a folha.','error'); return; }
+  if(_ehAtrasoDoPonto(alvo)){
+    toast('Este atraso vem da batida do Ponto Manual e voltaria na hora. Corrija a batida do dia ou marque como justificado/abonado no lápis.','warning');
+    return;
+  }
   document.getElementById('confirm-message').textContent='Excluir este atraso?';
   const btn=document.getElementById('confirm-ok-btn');
   btn.innerHTML='<i class="fa-solid fa-trash"></i> Excluir';
@@ -14979,16 +15101,15 @@ function confirmDeleteAtraso(id){
 // abonado) por dia. Ocorrências manuais (origem!='ponto') não são tocadas.
 async function _sincronizarAtrasosDoPonto(empId, mes, ano, detectados){
   State.atrasos = State.atrasos || [];
-  const idDe = dia => `atr_p_${empId}_${ano}_${String(mes).padStart(2,'0')}_${String(dia).padStart(2,'0')}`;
+  const idDe = dia => _atrasoPontoId(empId, mes, ano, dia);
   const diasDetectados = new Set(detectados.map(d=>d.dia));
   const tarefas = [];
   // Remove ocorrências do ponto de dias que não têm mais atraso. Reconhece como "do
   // ponto" por origem='ponto' OU pelo PREFIXO do id (atr_p_...) — assim limpa também
   // registros antigos gravados antes de a origem ser marcada. Manual usa genId() (id
   // aleatório, sem esse prefixo), então nunca é tocado por engano. #atraso-fonte-unica
-  const _ehDoPonto = a => a.origem==='ponto' || /^atr_p_/.test(String(a.id||''));
   const removerIds = State.atrasos
-    .filter(a=>a.employeeId===empId && a.mes==mes && a.ano==ano && _ehDoPonto(a) && !diasDetectados.has(a.dia))
+    .filter(a=>a.employeeId===empId && a.mes==mes && a.ano==ano && _ehAtrasoDoPonto(a) && !diasDetectados.has(a.dia))
     .map(a=>a.id);
   removerIds.forEach(id=>tarefas.push(DB.remove('atrasos', id)));
   // Cria/atualiza os detectados (preserva a decisão do operador)
@@ -15009,32 +15130,23 @@ async function _sincronizarAtrasosDoPonto(empId, mes, ano, detectados){
   await Promise.all(tarefas);
 }
 
-// Detecta os atrasos do ponto de UMA folha SEM DOM (lê p.pontoManualDias). MESMA regra
-// do applyPontoManual: déficit do dia além da tolerância CLT (10min). 12x36 mede pela
-// PRESENÇA (jornada), não pelo líquido — refeição de 60min não é atraso. Base do
-// recálculo de atrasos em lote. #plantao-refeicao #atraso-fonte-unica
+// Detecta os atrasos do ponto de UMA folha SEM DOM (lê p.pontoManualDias), dia a dia,
+// pela fonte única _atrasoDiaMin — exatamente o que a folha impressa mostra na coluna
+// Atraso. Base do card, do desconto do recibo, da Contabilidade e do recálculo em lote.
+// #atraso-fonte-unica
 function _detectAtrasosPonto(emp, p){
   const out=[];
   if(!emp || !p || emp.isentoPonto) return out;
   const dias=Array.isArray(p.pontoManualDias)?p.pontoManualDias:[];
   if(!dias.length) return out;
-  const fam=escalaFamilia(emp.escala||'5x2A');
-  const is12x36=fam==='12x36';
-  let minContratados=480; if(fam==='6x1')minContratados=440; else if(fam==='12x36')minContratados=660;
-  const _mod=_escalaModelo(emp.escala); if(_mod)minContratados=_modeloMinContratados(_mod);
   for(const cd of _compDias(p.mes,p.ano)){
     const pd=dias.find(x=>x && x.dia===cd.dia);
     if(!pd) continue;
     const exp=_getExpectedDay(emp,cd.mes,cd.ano,cd.dia);
     const _bat=_repararBatidasDia(pd, exp);
-    const entrada=_bat.entrada, saida=_bat.saida, intIni=_bat.intIni, intFim=_bat.intFim;
-    if(!entrada || !saida) continue;
-    if(!exp || exp.tipo==='folga' || !exp.entrada || !exp.saida) continue;
-    const realDay={dia:cd.dia, diaSem:cd.diaSem, entrada, saida, intIni, intFim};
-    if(pd.heReview) realDay.heReview=pd.heReview;
-    const effLiq=_effectiveMinLiq(realDay, exp, minContratados);
-    const faltaDia = (is12x36||_usaFdsLivreResolve(emp.escala)) ? (_presencaMin(exp)-_presencaMin(realDay)) : (_liqMin(exp)-effLiq);
-    if(faltaDia>HE_TOLERANCIA_DIA_MIN) out.push({dia:cd.dia, minutos:Math.round(faltaDia)});
+    const _ymd=`${cd.ano}-${String(cd.mes).padStart(2,'0')}-${String(cd.dia).padStart(2,'0')}`;
+    const m=_atrasoDiaMin(emp, exp, _bat, p.mes, p.ano, cd.dia, _ymd);
+    if(m>0) out.push({dia:cd.dia, minutos:m});
   }
   return out;
 }
@@ -15056,7 +15168,7 @@ async function recalcularAtrasosCompetencia(mesArg, anoArg){
   for(const p of afetadas){
     const emp=State.employees.find(e=>e.id===p.employeeId);
     if(!emp) continue;
-    const antes=(State.atrasos||[]).filter(a=>a.employeeId===p.employeeId && a.mes==mes && a.ano==ano && (a.origem==='ponto' || /^atr_p_/.test(String(a.id||'')))).length;
+    const antes=(State.atrasos||[]).filter(a=>a.employeeId===p.employeeId && a.mes==mes && a.ano==ano && _ehAtrasoDoPonto(a)).length;
     const detect=_detectAtrasosPonto(emp, p);
     try{
       await _sincronizarAtrasosDoPonto(p.employeeId, mes, ano, detect);
@@ -32684,7 +32796,8 @@ function printFolhaPonto(isPreview=false){
       const mi=_calcIntervaloMin(intIni,intFim,entrada,saida);
       minLiq=mb-mi;
     }
-    const _emFerias = _emFeriasNoDia(emp, `${cd.ano}-${String(cd.mes).padStart(2,'0')}-${String(d).padStart(2,'0')}`);   // #monitor-ferias
+    const _ymd = `${cd.ano}-${String(cd.mes).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const _emFerias = _emFeriasNoDia(emp, _ymd);   // #monitor-ferias
     const ehFolga = isentoPonto || _emFerias || !exp || exp.tipo==='folga' || !exp.entrada;
     let prevMin=0, contratualIntMin=0;
     if(!ehFolga){
@@ -32701,12 +32814,8 @@ function printFolhaPonto(isPreview=false){
     if(temBatida) extraMin = _heMinDia({..._bat, heReview: pontodia.heReview}, exp, _MC);
     if(!ehFolga && temBatida){
       const realIntMin = _calcIntervaloMin(intIni,intFim,entrada,saida);
-      // Plantão 12x36: jornada sem horário fixo, com 60min de refeição DENTRO → atraso
-      // pela PRESENÇA (jornada cumprida), não pelo líquido, senão fazer o almoço viraria atraso. #plantao-refeicao
-      const delta = (is12x36||_usaFdsLivreResolve(emp.escala)) ? ((minLiq+realIntMin)-(prevMin+contratualIntMin)) : (minLiq - prevMin);
-      // Suspensão NÃO é atraso: quem desconta o dia suspenso é o módulo Saídas
-      // (_saidaTotais). Sem este guard a folha descontava 2x o mesmo dia. #susp-ponto
-      if(delta < 0 && Math.abs(delta) > HE_TOLERANCIA_DIA_MIN && !_diaSuspenso(emp.id, mes, ano, d)) atrasoMin = -delta;   // atraso = déficit acima da tolerância (Súmula 366)
+      // Atraso pela fonte única — mesma regra do card, do desconto e da Contabilidade. #atraso-fonte-unica
+      atrasoMin = _atrasoDiaMin(emp, exp, _bat, mes, ano, d, _ymd);
       const _nrShort = Math.max(0, contratualIntMin - realIntMin);
       naoRendMin = (_nrShort > HE_TOLERANCIA_DIA_MIN) ? _nrShort : 0;   // tolerância 10min/dia (Súmula 366) — resíduo de poucos min não conta. #ref-tolerancia
     } else if(!ehFolga && !temBatida && _diaEmBrancoEhFalta(emp,cd.mes,cd.ano,d,isWknd,is12x36)){
@@ -33103,7 +33212,8 @@ function _buildFolhaHtmlFromRecord(emp, p){
       const mi=_calcIntervaloMin(intIni,intFim,entrada,saida);
       minLiq=mb-mi;
     }
-    const _emFerias = _emFeriasNoDia(emp, `${cd.ano}-${String(cd.mes).padStart(2,'0')}-${String(d).padStart(2,'0')}`);   // #monitor-ferias
+    const _ymd = `${cd.ano}-${String(cd.mes).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const _emFerias = _emFeriasNoDia(emp, _ymd);   // #monitor-ferias
     const ehFolga = isentoPonto || _emFerias || !exp || exp.tipo==='folga' || !exp.entrada;
     let prevMin=0, contratualIntMin=0;
     if(!ehFolga){
@@ -33120,10 +33230,10 @@ function _buildFolhaHtmlFromRecord(emp, p){
     // na revisão NÃO entra na folha. Cobre dia normal e folga trabalhada. #he-autorizada-folha
     if(temBatida) extraMin = _heMinDia({..._bat, heReview: pontodia.heReview}, exp, _MC);
     if(!ehFolga && temBatida){
-      const delta = minLiq - prevMin;
-      // Suspensão NÃO é atraso: quem desconta o dia suspenso é o módulo Saídas
-      // (_saidaTotais). Sem este guard a folha descontava 2x o mesmo dia. #susp-ponto
-      if(delta < 0 && Math.abs(delta) > HE_TOLERANCIA_DIA_MIN && !_diaSuspenso(emp.id, mes, ano, d)) atrasoMin = -delta;   // atraso = déficit acima da tolerância (Súmula 366)
+      // Atraso pela fonte única. Esta cópia media SÓ pelo líquido: reimprimir a folha de um
+      // plantonista 12x36 (ou de escala FDS livre) mostrava atraso que a prévia não mostrava,
+      // porque a refeição feita entrava como déficit. #atraso-fonte-unica #plantao-refeicao
+      atrasoMin = _atrasoDiaMin(emp, exp, _bat, mes, ano, d, _ymd);
       // Refeição não rendida = intervalo contratual − intervalo realmente tirado
       const realIntMin = _calcIntervaloMin(intIni,intFim,entrada,saida);
       const _nrShort = Math.max(0, contratualIntMin - realIntMin);

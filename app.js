@@ -14865,6 +14865,42 @@ function _ehAtrasoDoPonto(a){
   return !!a && (a.origem==='ponto' || /^atr_p_/.test(String(a.id||'')));
 }
 
+// Quão "cheia" está a folha — desempata DUPLICATAS da mesma competência. Fechada vence,
+// depois mais dias na grade, depois mais dias batidos, depois o id determinístico. Existe
+// porque o app do colaborador grava a batida numa das cópias e um find() qualquer pode
+// pegar a outra, escondendo o dia. #anti-dup-folha
+function _scorePayrollPonto(p){
+  const ds=Array.isArray(p&&p.pontoManualDias)?p.pontoManualDias:[];
+  const bat=ds.filter(d=>d&&(d.entrada||d.saida||d.intIni||d.intFim)).length;
+  return (p&&p.status==='fechada'?1e9:0)+ds.length*1e4+bat*100+(String(p&&p.id||'').startsWith('pay_')?1:0);
+}
+// A MELHOR folha da competência no State (não a primeira que aparecer). #anti-dup-folha
+function _melhorPayroll(empId, mes, ano){
+  let best=null;
+  (State.payrolls||[]).forEach(p=>{
+    if(!p || p.employeeId!==empId || p.mes!=mes || p.ano!=ano) return;
+    if(!best || _scorePayrollPonto(p)>_scorePayrollPonto(best)) best=p;
+  });
+  return best;
+}
+// Dias de ponto VIGENTES da competência. A grade do Ponto Manual montada é a verdade mais
+// nova (batida que acabou de chegar do app, edição ainda não aplicada) — é dela que a
+// Prévia Parcial já lia, e era por isso que a prévia mostrava um atraso que o card não
+// mostrava. Só vale para o colaborador/competência ABERTOS na folha: a Contabilidade varre
+// todo mundo e tem de cair sempre no registro. #atraso-fonte-unica
+function _pontoDiasVigentes(empId, mes, ano){
+  const modal=document.getElementById('modal-ponto-manual');
+  const aberto=!!modal && !modal.classList.contains('hidden');
+  if(aberto && empId===val('payroll-employee')
+     && mes==parseInt(val('payroll-mes')||currentMes())
+     && ano==parseInt(val('payroll-ano')||currentAno())
+     && _getPontoManualCards().length){
+    try{ return _collectPontoManualDias(); }catch(e){ console.warn('grade do ponto', e); }
+  }
+  const p=_melhorPayroll(empId, mes, ano);
+  return (p && Array.isArray(p.pontoManualDias)) ? p.pontoManualDias : [];
+}
+
 // Atrasos VIGENTES da competência = o que o ponto mostra AGORA (detectado ao vivo, pela
 // mesma regra da folha impressa) + os lançados à mão. A coleção `atrasos` deixa de ser a
 // fonte do NÚMERO e passa a guardar só a DECISÃO do operador e as ocorrências manuais.
@@ -14876,7 +14912,10 @@ function _atrasosVigentes(empId, mes, ano){
   if(!empId) return [];
   const salvos=(State.atrasos||[]).filter(a=>a.employeeId===empId && a.mes==mes && a.ano==ano);
   const emp=(State.employees||[]).find(e=>e.id===empId);
-  const p=(State.payrolls||[]).find(x=>x.employeeId===empId && x.mes==mes && x.ano==ano);
+  // Folha sintética com os dias VIGENTES (grade aberta > melhor registro salvo) — mesma
+  // regra que recalculate() já usa. Um find() simples em State.payrolls pegava qualquer
+  // uma das folhas duplicadas e escondia a batida do dia. #anti-dup-folha
+  const p={mes, ano, pontoManualDias:_pontoDiasVigentes(empId, mes, ano)};
   let det=[];
   try{ det=_detectAtrasosPonto(emp, p)||[]; }catch(e){ console.error('detect atrasos', e); }
   const doPonto=det.map(d=>{
@@ -15422,7 +15461,9 @@ function recalculate(){
   // PERÍODO (ex.: troca de função/salário no meio do mês). Fast-path: 1 segmento
   // (sem transferência no período) → cálculo idêntico ao de antes, sem regressão.
   const _cardsR=_getPontoManualCards();
-  const _regR=State.payrolls.find(p=>p.employeeId===empId&&p.mes==_mesR&&p.ano==_anoR);
+  // Melhor folha, não a primeira: com duplicata na competência o find() podia devolver a
+  // cópia sem as batidas e zerar segmentos/refeição não rendida. #anti-dup-folha
+  const _regR=_melhorPayroll(empId,_mesR,_anoR);
   const _pontoDiasR=_cardsR.length?_collectPontoManualDias()
                   :(_regR&&Array.isArray(_regR.pontoManualDias)?_regR.pontoManualDias:[]);
   const _segs=(emp && !isentoPonto && diasPrevistos>0)
@@ -30979,10 +31020,7 @@ async function openPontoManual(){
       .where('ano','==',ano)
       .get();
     if(!snap.empty){
-      const _scorePM=p=>{ const ds=Array.isArray(p.pontoManualDias)?p.pontoManualDias:[];
-        const bat=ds.filter(d=>d&&(d.entrada||d.saida||d.intIni||d.intFim)).length;
-        return (p.status==='fechada'?1e9:0)+ds.length*1e4+bat*100+(String(p.id||'').startsWith('pay_')?1:0); };
-      let _best=null; snap.docs.forEach(doc=>{ const p={id:doc.id, ...doc.data()}; if(!_best||_scorePM(p)>_scorePM(_best)) _best=p; });
+      let _best=null; snap.docs.forEach(doc=>{ const p={id:doc.id, ...doc.data()}; if(!_best||_scorePayrollPonto(p)>_scorePayrollPonto(_best)) _best=p; });
       payrollSalvo = _best;
       // Sincroniza State para manter cache atualizado
       const idx = State.payrolls.findIndex(p=>p.employeeId===empId&&p.mes==mes&&p.ano==ano);

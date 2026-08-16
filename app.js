@@ -14168,6 +14168,34 @@ function _atestadoTotais(empId, mes, ano){
   return {dias, horasMin, diasNaoAbonados, diasCobertura};
 }
 
+// Atestado / abono / cobertura que cobre UM dia do calendário (ymd = 'AAAA-MM-DD').
+// `horasMin` abate minutos de atraso; `diaAbonado` justifica o dia inteiro. Só aprovado
+// conta — igual a _atestadoTotais. Existe porque a folha impressa mostrava o atraso em
+// vermelho e NÃO mostrava o papel que o justifica: quem lia o documento cobrava a
+// colaboradora por um atraso que o recibo não desconta. #atestado-abona-falta
+function _atestadoDoDia(empId, mes, ano, ymd){
+  const out={horasMin:0, diaAbonado:false, itens:[]};
+  if(!empId || !ymd) return out;
+  (State.atestados||[]).forEach(a=>{
+    if(!a || a.employeeId!==empId || a.mes!=mes || a.ano!=ano) return;
+    if(a.status==='pendente') return;
+    const ini=a.dataInicio||'', fim=a.dataFim||ini;
+    if(!ini || ymd<ini || ymd>fim) return;   // datas ISO comparam como texto
+    const nome=(a.observacao||'').trim()
+      || (a.categoria==='cobertura' ? 'Cobertura por colega'
+         : a.categoria==='abono'    ? 'Abono'
+         : 'Atestado médico');
+    if(a.tipo==='horas'){
+      const m=Math.round((parseFloat(a.horas)||0)*60);
+      if(m>0){ out.horasMin+=m; out.itens.push(`${nome} · ${minutesToStr(m)}`); }
+    } else {
+      out.diaAbonado=true;
+      out.itens.push(nome + (a.categoria==='abono' && a.abona===false ? ' (justifica, não paga)' : ''));
+    }
+  });
+  return out;
+}
+
 function _diasEntreInclusivo(ini, fim){
   if(!ini) return 0;
   const a=new Date(ini+'T00:00:00'), b=new Date((fim||ini)+'T00:00:00');
@@ -32885,7 +32913,15 @@ function printFolhaPonto(isPreview=false){
 
     const horasLiq=minLiq>0?minutesToStr(minLiq):'';
     const cPrev = prevMin>0  ? minutesToStr(prevMin)  : '';
-    const cAtr  = atrasoMin>0 ? minutesToStr(atrasoMin): '';
+    // Atraso coberto por atestado/abono do MESMO dia: o número continua à vista (é fato
+    // da batida), mas o documento diz que está abonado. #atestado-abona-falta
+    const _atd  = _atestadoDoDia(emp.id, mes, ano, _ymd);
+    let   cAtr  = atrasoMin>0 ? minutesToStr(atrasoMin): '';
+    if(cAtr){
+      const _selo = (_atd.diaAbonado || _atd.horasMin>=atrasoMin) ? 'abonado'
+                  : (_atd.horasMin>0 ? 'abona '+minutesToStr(_atd.horasMin) : '');
+      if(_selo) cAtr += `<div style="font-size:8px;font-weight:700;color:#1B5E20">${_selo}</div>`;
+    }
     const cExt  = extraMin>0  ? minutesToStr(extraMin) : '';
     const cFal  = faltaMin>0  ? minutesToStr(faltaMin) : '';
     const cNR   = naoRendMin>0? minutesToStr(naoRendMin):'';
@@ -32926,6 +32962,13 @@ function printFolhaPonto(isPreview=false){
       const _rt2='Refeição aprovada não paga — o intervalo foi batido';
       if(!obsdia){ obsdia=_rt2; obscor='#6A1B9A'; } else { obsdia=obsdia+' · '+_rt2; }
     }
+    // Atestado/abono do dia na Obs — por último, senão FERIADO/FÉRIAS sobrescreveriam. O
+    // papel que justifica o dia tem de estar NO documento, não só na tela. #atestado-abona-falta
+    if(_atd.itens.length){
+      const _atTxt='Atestado/abono: '+esc(_atd.itens.join(' · '));
+      if(!obsdia){ obsdia=_atTxt; obscor='#1B5E20'; }
+      else obsdia=obsdia+' · <span style="color:#1B5E20">'+_atTxt+'</span>';
+    }
     const rowBg=isWknd?'background:#F8F9FA;color:#999':'';
     const _cel='text-align:center;padding:3px 5px;border:1px solid #DEE2E6';
     tabelaDias+=`<tr style="${rowBg}">
@@ -32946,6 +32989,12 @@ function printFolhaPonto(isPreview=false){
   }
   // Formatador de totais (suporta > 24h, ex.: 345:34)
   const _hmTot=(mm)=>{const x=Math.max(0,Math.round(mm));return Math.floor(x/60)+':'+String(x%60).padStart(2,'0');};
+  // Atestado/abono do mês e o atraso que SOBRA pra descontar — mesma conta do recibo
+  // (max(0, descontável − horas de atestado)). A folha mostrava "Atrasos 3:56" seco,
+  // sem dizer que o atestado zera o desconto. #atestado-abona-falta
+  const _atMes  = _atestadoTotais(emp.id, mes, ano);
+  const _atrMes = _atrasoTotais(emp.id, mes, ano);
+  const _atrasoDescStr = _hmTot(Math.max(0, (_atrMes.minutosDesc||0) - (_atMes.horasMin||0)));
   const _totTrabStr=_hmTot(totTrab), _totPrevStr=_hmTot(totPrev), _totAtrasoStr=_hmTot(totAtraso),
         _totExtraStr=_hmTot(totExtra), _totFaltaStr=_hmTot(totFaltaMin), _totNaoRendStr=_hmTot(totNaoRend);
   const _obsFolha = (payrollReg && payrollReg.observacaoFolha) ? String(payrollReg.observacaoFolha) : '';
@@ -33071,7 +33120,8 @@ ${_segmentosLotacaoHtml(emp, mes, ano)}
 <div class="resumo-bar" style="flex-wrap:wrap">
   <div class="resumo-item"><div class="resumo-label">Horas Trabalhadas</div><div class="resumo-valor">${_totTrabStr}</div></div>
   <div class="resumo-item"><div class="resumo-label">Horas Previstas</div><div class="resumo-valor" style="color:#1a3a6b">${_totPrevStr}</div></div>
-  <div class="resumo-item alerta"><div class="resumo-label">Atrasos</div><div class="resumo-valor">${_totAtrasoStr}</div></div>
+  <div class="resumo-item alerta"><div class="resumo-label">Atrasos</div><div class="resumo-valor">${_totAtrasoStr}</div><div style="font-size:8px;font-weight:700;color:${_atrasoDescStr==='0:00'?'#1B5E20':'#c0392b'}">a descontar ${_atrasoDescStr}</div></div>
+  <div class="resumo-item"><div class="resumo-label">Atestados / Abonos</div><div class="resumo-valor" style="color:#1B5E20">${_hmTot(_atMes.horasMin)}</div><div style="font-size:8px;font-weight:700;color:#1B5E20">${_atMes.dias||0} dia(s) · abate atraso/falta</div></div>
   <div class="resumo-item"><div class="resumo-label">Horas Extras</div><div class="resumo-valor">${_totExtraStr}</div></div>
   <div class="resumo-item alerta"><div class="resumo-label">Faltas (${totFaltaQtd} dia${totFaltaQtd===1?'':'s'})</div><div class="resumo-valor">${_totFaltaStr}</div></div>
   <div class="resumo-item alerta"><div class="resumo-label">Refeições não rendidas${emp.semRefeicao?' (sozinho)':''}</div><div class="resumo-valor">${_totNaoRendStr}</div></div>
@@ -33305,7 +33355,15 @@ function _buildFolhaHtmlFromRecord(emp, p){
 
     const horasLiq=minLiq>0?minutesToStr(minLiq):'';
     const cPrev = prevMin>0  ? minutesToStr(prevMin)  : '';
-    const cAtr  = atrasoMin>0 ? minutesToStr(atrasoMin): '';
+    // Atraso coberto por atestado/abono do MESMO dia: o número continua à vista (é fato
+    // da batida), mas o documento diz que está abonado. #atestado-abona-falta
+    const _atd  = _atestadoDoDia(emp.id, mes, ano, _ymd);
+    let   cAtr  = atrasoMin>0 ? minutesToStr(atrasoMin): '';
+    if(cAtr){
+      const _selo = (_atd.diaAbonado || _atd.horasMin>=atrasoMin) ? 'abonado'
+                  : (_atd.horasMin>0 ? 'abona '+minutesToStr(_atd.horasMin) : '');
+      if(_selo) cAtr += `<div style="font-size:8px;font-weight:700;color:#1B5E20">${_selo}</div>`;
+    }
     const cExt  = extraMin>0  ? minutesToStr(extraMin) : '';
     const cFal  = faltaMin>0  ? minutesToStr(faltaMin) : '';
     const cNR   = naoRendMin>0? minutesToStr(naoRendMin):'';
@@ -33346,6 +33404,13 @@ function _buildFolhaHtmlFromRecord(emp, p){
       const _rt2='Refeição aprovada não paga — o intervalo foi batido';
       if(!obsdia){ obsdia=_rt2; obscor='#6A1B9A'; } else { obsdia=obsdia+' · '+_rt2; }
     }
+    // Atestado/abono do dia na Obs — por último, senão FERIADO/FÉRIAS sobrescreveriam. O
+    // papel que justifica o dia tem de estar NO documento, não só na tela. #atestado-abona-falta
+    if(_atd.itens.length){
+      const _atTxt='Atestado/abono: '+esc(_atd.itens.join(' · '));
+      if(!obsdia){ obsdia=_atTxt; obscor='#1B5E20'; }
+      else obsdia=obsdia+' · <span style="color:#1B5E20">'+_atTxt+'</span>';
+    }
     const rowBg=isWknd?'background:#F8F9FA;color:#999':'';
     const _cel='text-align:center;padding:3px 5px;border:1px solid #DEE2E6';
     tabelaDias+=`<tr style="${rowBg}">
@@ -33366,6 +33431,12 @@ function _buildFolhaHtmlFromRecord(emp, p){
   }
   // Formatador de totais (suporta > 24h, ex.: 345:34)
   const _hmTot=(mm)=>{const x=Math.max(0,Math.round(mm));return Math.floor(x/60)+':'+String(x%60).padStart(2,'0');};
+  // Atestado/abono do mês e o atraso que SOBRA pra descontar — mesma conta do recibo
+  // (max(0, descontável − horas de atestado)). A folha mostrava "Atrasos 3:56" seco,
+  // sem dizer que o atestado zera o desconto. #atestado-abona-falta
+  const _atMes  = _atestadoTotais(emp.id, mes, ano);
+  const _atrMes = _atrasoTotais(emp.id, mes, ano);
+  const _atrasoDescStr = _hmTot(Math.max(0, (_atrMes.minutosDesc||0) - (_atMes.horasMin||0)));
   const _totTrabStr=_hmTot(totTrab), _totPrevStr=_hmTot(totPrev), _totAtrasoStr=_hmTot(totAtraso),
         _totExtraStr=_hmTot(totExtra), _totFaltaStr=_hmTot(totFaltaMin), _totNaoRendStr=_hmTot(totNaoRend);
   const _obsFolha = (p.observacaoFolha||'').toString();
@@ -33474,7 +33545,8 @@ ${_segmentosLotacaoHtml(emp, mes, ano)}
 <div class="resumo-bar" style="flex-wrap:wrap">
   <div class="resumo-item"><div class="resumo-label">Horas Trabalhadas</div><div class="resumo-valor">${_totTrabStr}</div></div>
   <div class="resumo-item"><div class="resumo-label">Horas Previstas</div><div class="resumo-valor" style="color:#1a3a6b">${_totPrevStr}</div></div>
-  <div class="resumo-item alerta"><div class="resumo-label">Atrasos</div><div class="resumo-valor">${_totAtrasoStr}</div></div>
+  <div class="resumo-item alerta"><div class="resumo-label">Atrasos</div><div class="resumo-valor">${_totAtrasoStr}</div><div style="font-size:8px;font-weight:700;color:${_atrasoDescStr==='0:00'?'#1B5E20':'#c0392b'}">a descontar ${_atrasoDescStr}</div></div>
+  <div class="resumo-item"><div class="resumo-label">Atestados / Abonos</div><div class="resumo-valor" style="color:#1B5E20">${_hmTot(_atMes.horasMin)}</div><div style="font-size:8px;font-weight:700;color:#1B5E20">${_atMes.dias||0} dia(s) · abate atraso/falta</div></div>
   <div class="resumo-item"><div class="resumo-label">Horas Extras</div><div class="resumo-valor">${_totExtraStr}</div></div>
   <div class="resumo-item alerta"><div class="resumo-label">Faltas (${totFaltaQtd} dia${totFaltaQtd===1?'':'s'})</div><div class="resumo-valor">${_totFaltaStr}</div></div>
   <div class="resumo-item alerta"><div class="resumo-label">Refeições não rendidas${emp.semRefeicao?' (sozinho)':''}</div><div class="resumo-valor">${_totNaoRendStr}</div></div>

@@ -15963,6 +15963,14 @@ function renderColabDashboard(){
   const _aAprovar = hePendDias + refPendDias;
   // Atestados / abonos
   const at=_atestadoTotais(empId,mes,ano);
+  // Atraso que DESCONTA DE FATO: o abono/justificação já saiu do minutosDesc, mas as horas
+  // de atestado só eram abatidas depois (recibo e Contabilidade fazem max(0, desc − atestado)).
+  // Sem isto o card escrevia "· desconta" num mês em que o recibo desconta R$ 0,00 — card
+  // dizendo uma coisa e o pagamento outra. #atraso-fonte-unica #fix-atraso-justificado
+  const _atrasoEfetivoMin = Math.max(0, (atr.minutosDesc||0) - (at.horasMin||0));
+  const _atrasoSub = atr.count
+    ? `${atr.count} dia(s) · ${_atrasoEfetivoMin>0 ? 'desconta '+minutesToStr(_atrasoEfetivoMin) : 'sem desconto'}`
+    : '0 dia(s)';
   const _abs=(State.atestados||[]).filter(a=>a.employeeId===empId && a.mes==mes && a.ano==ano && a.status!=='pendente' && a.categoria==='abono');
   const abAbonDias=_abs.filter(a=>a.abona!==false).reduce((s,a)=>s+(parseInt(a.dias)||0),0);
   // Faltas (campos da folha já recalculados)
@@ -15980,7 +15988,7 @@ function renderColabDashboard(){
     <div style="margin:4px 0 14px">
       <div style="font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px"><i class="fa-solid fa-chart-simple" style="color:#1565C0"></i> Situação do mês — ${esc(emp.nome||'')}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        ${card('#C2410C','#FFF7ED','fa-user-clock', (atr.minutos>0?minutesToStr(atr.minutos):'0h'), 'Atrasos', `${atr.count||0} dia(s)${atr.minutosDesc>0?' · desconta':''}`)}
+        ${card('#C2410C','#FFF7ED','fa-user-clock', (atr.minutos>0?minutesToStr(atr.minutos):'0h'), 'Atrasos', _atrasoSub)}
         ${card('#0E7490','#ECFEFF','fa-bolt', (heAprovMin>0?minutesToStr(heAprovMin):'0h'), 'Horas extras', _aAprovar>0?`<span style="color:#E65100;font-weight:700">${_aAprovar} dia(s) a aprovar${refPendDias>0?` <span style="color:#6A1B9A">(${refPendDias} refeição)</span>`:''}</span>`:'todas aprovadas', _aAprovar>0?'openHEReview()':'')}
         ${card('#1B5E20','#E8F5E9','fa-notes-medical', `${at.dias||0} dia(s)`, 'Atestados', at.horasMin>0?(minutesToStr(at.horasMin)+' em horas'):'pagos')}
         ${card('#1565C0','#E3F2FD','fa-calendar-check', `${abAbonDias} abon.`, 'Abonos', `${at.diasNaoAbonados||0} não abonado(s)`)}

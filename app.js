@@ -14154,7 +14154,7 @@ function _atestadoTotais(empId, mes, ano){
   (State.atestados||[]).forEach(a=>{
     if(a.employeeId!==empId || a.mes!=mes || a.ano!=ano) return;
     if(a.status==='pendente') return; // só aprovados abatem
-    if(a.tipo==='horas'){ horasMin += Math.round((parseFloat(a.horas)||0)*60); return; }
+    if(a.tipo==='horas'){ horasMin += _atestadoMinutos(a); return; }
     const d = parseInt(a.dias)||0;
     // COBERTURA por colega: posto coberto, NÃO houve falta → paga o dia (entra em `dias`),
     // MAS é rastreada à parte p/ NÃO contar como ausência na Boa Permanência. #cobertura-colega
@@ -14186,8 +14186,10 @@ function _atestadoDoDia(empId, mes, ano, ymd){
          : a.categoria==='abono'    ? 'Abono'
          : 'Atestado médico');
     if(a.tipo==='horas'){
-      const m=Math.round((parseFloat(a.horas)||0)*60);
-      if(m>0){ out.horasMin+=m; out.itens.push(`${nome} · ${minutesToStr(m)}`); }
+      const m=_atestadoMinutos(a);
+      // Mostra o horário do papel quando existe — é ele que prova o intervalo. #atestado-abona-falta
+      const _hr=(a.horaInicio&&a.horaFim)?` (${a.horaInicio}→${a.horaFim})`:'';
+      if(m>0){ out.horasMin+=m; out.itens.push(`${nome}${_hr} · ${minutesToStr(m)}`); }
     } else {
       out.diaAbonado=true;
       out.itens.push(nome + (a.categoria==='abono' && a.abona===false ? ' (justifica, não paga)' : ''));
@@ -14207,7 +14209,44 @@ function onAtestadoTipoChange(){
   const horas=val('atest-tipo')==='horas';
   document.getElementById('atest-fim-wrap').style.display   = horas?'none':'';
   document.getElementById('atest-horas-wrap').style.display = horas?'':'none';
+  ['atest-hora-ini-wrap','atest-hora-fim-wrap'].forEach(w=>{
+    const el=document.getElementById(w); if(el) el.style.display = horas?'':'none';
+  });
   _atestRecalc();
+  _atestRecalcHoras();
+}
+
+// Minutos do atestado de horas a partir do HORÁRIO do papel. Com os dois horários
+// preenchidos o campo de minutos é automático e travado — digitar "2h" arredonda a favor
+// de quem lança, e 08:00→09:37 são 1h37min, não 2h. Declaração sem horário: deixa os dois
+// vazios e informa os minutos à mão. #atestado-abona-falta
+function _atestRecalcHoras(){
+  const info=document.getElementById('atest-horas-info');
+  const minEl=document.getElementById('atest-minutos');
+  if(val('atest-tipo')!=='horas'){ if(info) info.textContent=''; return; }
+  const ini=val('atest-hora-inicio'), fim=val('atest-hora-fim');
+  if(ini && fim){
+    let m=timeToMinutes(fim)-timeToMinutes(ini);
+    if(m<0) m+=24*60;                       // atestado que cruza a meia-noite (turno noturno)
+    m=Math.max(0,m);
+    if(minEl){ minEl.value=m||''; minEl.readOnly=true; minEl.style.background='#f1f5f9'; }
+    if(info) info.innerHTML=`<i class="fa-solid fa-clock"></i> <strong>${minutesToStr(m)}</strong> — calculado de ${ini} até ${fim}.`;
+  } else {
+    if(minEl){ minEl.readOnly=false; minEl.style.background=''; }
+    if(info) info.textContent=(ini||fim)
+      ? 'Preencha os dois horários para o cálculo automático.'
+      : 'Sem horário no papel? Informe os minutos à mão.';
+  }
+}
+
+// Minutos de um atestado de HORAS. Prefere `minutos` (calculado do horário do papel) e cai
+// no `horas` decimal dos registros antigos — que só aceitavam meia em meia hora. Fonte única
+// dos dois leitores (_atestadoTotais e _atestadoDoDia). #atestado-abona-falta
+function _atestadoMinutos(a){
+  if(!a) return 0;
+  const m=parseInt(a.minutos);
+  if(m>0) return m;
+  return Math.round((parseFloat(a.horas)||0)*60);
 }
 // Categoria do lançamento: 'medico' (atestado, sempre paga) ou 'abono' (justificativa
 // sem documento, com toggle "Abona o dia?"). Ajusta banner, CID, documento e motivo.
@@ -14275,7 +14314,10 @@ function openAtestadoModal(id){
   setVal('atest-cid', a?.cid||'');
   setVal('atest-inicio', a?.dataInicio||'');
   setVal('atest-fim', a?.dataFim||'');
-  setVal('atest-horas', a?.horas||'');
+  setVal('atest-hora-inicio', a?.horaInicio||'');
+  setVal('atest-hora-fim', a?.horaFim||'');
+  // Registro antigo só tem `horas` decimal — converte pra minutos p/ o campo novo.
+  setVal('atest-minutos', a?_atestadoMinutos(a)||'':'');
   setVal('atest-obs', a?.observacao||'');
   const arqInfo=document.getElementById('atest-arquivo-atual');
   arqInfo.innerHTML = a?.arquivoUrl
@@ -14300,9 +14342,13 @@ async function saveAtestado(){
   const id=val('atest-id');
   const existente = id ? (State.atestados||[]).find(x=>x.id===id) : null;
   let dias=0, horas=0, fim=inicio;
+  let minutos=0, horaInicio='', horaFim='';
   if(tipo==='horas'){
-    horas=numVal('atest-horas');
-    if(!(horas>0)){ toast('Informe as horas do atestado.','error'); return; }
+    horaInicio=val('atest-hora-inicio'); horaFim=val('atest-hora-fim');
+    minutos=parseInt(val('atest-minutos'))||0;
+    if(!(minutos>0)){ toast('Informe o horário do atestado (saiu às / voltou às) ou os minutos.','error'); return; }
+    // `horas` continua gravado (decimal) só p/ os leitores antigos; quem manda é `minutos`.
+    horas=+(minutos/60).toFixed(4);
   } else {
     fim=val('atest-fim')||inicio;
     dias=_diasEntreInclusivo(inicio, fim);
@@ -14332,7 +14378,8 @@ async function saveAtestado(){
       id:id||genId(), employeeId:empId, mes:m, ano:an,
       categoria, abona,
       tipo, dataInicio:inicio, dataFim:tipo==='horas'?inicio:fim,
-      dias, horas, cid:(categoria==='medico')?(val('atest-cid')||''):'', observacao:val('atest-obs')||'',
+      dias, horas, minutos, horaInicio, horaFim,
+      cid:(categoria==='medico')?(val('atest-cid')||''):'', observacao:val('atest-obs')||'',
       arquivoUrl, arquivoNome,
       origem:existente?.origem||(ehCobertura?'cobertura-gestor':(ehAbono?'abono-gestor':'gestor')),
       status:'aprovado',
@@ -14375,8 +14422,10 @@ function renderAtestadosFolha(){
   if(pend>0) resumo.innerHTML += `<br><i class="fa-solid fa-clock" style="color:#E65100"></i> ${pend} atestado(s) enviado(s) pelo app — <strong>aguardando aprovação</strong>.`;
   if(!arr.length){ lista.innerHTML=''; return; }
   lista.innerHTML=arr.map(a=>{
+    // Horário do papel à vista (08:00→09:37 · 1h37min) — "2h" arredondado escondia
+    // meia hora que ninguém conferia. #atestado-abona-falta
     const periodo = a.tipo==='horas'
-      ? `${formatDateBr(a.dataInicio)} · ${a.horas}h`
+      ? `${formatDateBr(a.dataInicio)}${(a.horaInicio&&a.horaFim)?` · ${a.horaInicio}→${a.horaFim}`:''} · ${minutesToStr(_atestadoMinutos(a))}`
       : (a.dataInicio===a.dataFim?formatDateBr(a.dataInicio):`${formatDateBr(a.dataInicio)} a ${formatDateBr(a.dataFim)} · ${a.dias} dia(s)`);
     const pendente=a.status==='pendente';
     const _ehCob = a.categoria==='cobertura';

@@ -5794,11 +5794,22 @@
           <label>Data de fim</label>
           <input type="date" id="atest-fim" onchange="_atestRecalc()">
         </div>
+        <!-- Atestado de HORAS: o horário do papel é a fonte. Digitar "2h" arredonda a
+             favor de quem lança; 08:00→09:37 são 1h37min e é isso que tem de valer. -->
+        <div class="form-group" id="atest-hora-ini-wrap" style="display:none">
+          <label>Saiu às <small style="color:#888">(horário do atestado)</small></label>
+          <input type="time" id="atest-hora-inicio" onchange="_atestRecalcHoras()">
+        </div>
+        <div class="form-group" id="atest-hora-fim-wrap" style="display:none">
+          <label>Voltou às</label>
+          <input type="time" id="atest-hora-fim" onchange="_atestRecalcHoras()">
+        </div>
         <div class="form-group form-group-sm" id="atest-horas-wrap" style="display:none">
-          <label>Horas</label>
-          <input type="number" id="atest-horas" min="0" step="0.5" placeholder="0">
+          <label>Minutos <small style="color:#888">(automático)</small></label>
+          <input type="number" id="atest-minutos" min="1" placeholder="Ex.: 97">
         </div>
       </div>
+      <div id="atest-horas-info" style="font-size:12px;color:#00695C;margin:-4px 0 8px;min-height:16px"></div>
       <div id="atest-dias-info" style="font-size:12px;color:#00695C;margin-bottom:8px"></div>
       <div class="form-group">
         <label id="atest-obs-label">Observação / Motivo</label>
@@ -7971,6 +7982,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260816b-atestado-no-espelho"></script>
+  <script src="app.js?v=20260816c-atestado-horario-quebrado"></script>
 </body>
 </html>

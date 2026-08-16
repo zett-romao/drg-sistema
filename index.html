@@ -39,14 +39,35 @@
         +'</div>';
       host.appendChild(d);
     }
-    function _drgBanner(){
-      if(document.getElementById('__drg_errbar')) return;
-      var b=document.createElement('div'); b.id='__drg_errbar';
-      b.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:2147483500;background:#C62828;color:#fff;font-family:Arial,sans-serif;font-size:13px;padding:10px 14px;display:flex;align-items:center;gap:10px;box-shadow:0 -2px 8px rgba(0,0,0,.2)';
-      b.innerHTML='<span style="flex:1">⚠️ Ocorreu um erro nesta ação. Se algo parecer travado, recarregue a página.</span>'
+    // O banner MOSTRA o erro real. "Ocorreu um erro nesta ação" sozinho obrigava a abrir o
+    // console pra descobrir o que quebrou — exatamente o que a regra 4 do projeto proíbe
+    // ("ERRO NA TELA É O ERRO REAL"). Empilha os erros seguintes na mesma barra e traz
+    // botão de copiar, pra mandar o texto sem digitar nada. #blindagem-erro
+    function _drgBanner(msg){
+      var b=document.getElementById('__drg_errbar');
+      if(b){
+        var lst=document.getElementById('__drg_errlist');
+        if(lst && msg && lst.textContent.indexOf(msg)<0) lst.textContent += '\n' + msg;
+        return;
+      }
+      b=document.createElement('div'); b.id='__drg_errbar';
+      b.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:2147483500;background:#C62828;color:#fff;font-family:Arial,sans-serif;font-size:13px;padding:10px 14px;box-shadow:0 -2px 8px rgba(0,0,0,.2)';
+      b.innerHTML='<div style="display:flex;align-items:center;gap:10px">'
+        +'<span style="flex:1">⚠️ Ocorreu um erro nesta ação. Se algo parecer travado, recarregue a página.</span>'
+        +'<button id="__drg_errcopy" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,.5);border-radius:4px;padding:5px 10px;font-size:12px;cursor:pointer">⧉ Copiar erro</button>'
         +'<button onclick="location.reload(true)" style="background:#fff;color:#C62828;border:none;border-radius:4px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer">↻ Recarregar</button>'
-        +'<button onclick="this.parentNode.remove()" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,.5);border-radius:4px;padding:5px 10px;font-size:12px;cursor:pointer">Fechar</button>';
+        +'<button onclick="this.parentNode.parentNode.remove()" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,.5);border-radius:4px;padding:5px 10px;font-size:12px;cursor:pointer">Fechar</button>'
+        +'</div>'
+        +'<pre id="__drg_errlist" style="margin:6px 0 0;font-size:11px;line-height:1.45;white-space:pre-wrap;word-break:break-word;max-height:96px;overflow:auto;background:rgba(0,0,0,.18);border-radius:4px;padding:6px 8px">'+_esc(msg||'sem detalhe')+'</pre>';
       (document.body||document.documentElement).appendChild(b);
+      var cp=document.getElementById('__drg_errcopy');
+      if(cp) cp.onclick=function(){
+        var t=(document.getElementById('__drg_errlist')||{}).textContent||'';
+        cp.disabled=true; cp.textContent='⏳ Copiando...';
+        var fim=function(ok){ cp.disabled=false; cp.textContent=ok?'✓ Copiado':'⧉ Selecione e copie'; };
+        try{ navigator.clipboard.writeText(t).then(function(){fim(true);},function(){fim(false);}); }
+        catch(_){ fim(false); }
+      };
     }
     window.addEventListener('error', function(e){
       var isResource = e && e.target && e.target.tagName && e.target!==window;
@@ -57,13 +78,13 @@
       window.__APP_ERRORS.push(m);
       try{ console.error('[DRG erro]', m, e&&e.error); }catch(_){}
       if(isAppJs && !window.__APP_BOOTED){ _drgFatal(m); }   // app.js não carregou = fatal
-      else if(!isResource){ _drgBanner(); }                  // erro em tempo de uso = banner
+      else if(!isResource){ _drgBanner(m); }                 // erro em tempo de uso = banner (com a mensagem)
     }, true);
     window.addEventListener('unhandledrejection', function(e){
       var m=(e&&e.reason&&(e.reason.message||e.reason))||'promessa rejeitada';
       window.__APP_ERRORS.push(String(m));
       try{ console.error('[DRG rejeição]', m); }catch(_){}
-      if(window.__APP_BOOTED) _drgBanner();
+      if(window.__APP_BOOTED) _drgBanner('promessa rejeitada: '+String(m));
     });
     // Trava de carregamento: o app.js marca __APP_BOOTED assim que executa.
     // Se em 9s não marcou, é porque não carregou (erro de sintaxe/rede) → avisa.
@@ -7982,6 +8003,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260816c-atestado-horario-quebrado"></script>
+  <script src="app.js?v=20260816d-erro-visivel"></script>
 </body>
 </html>

@@ -14173,7 +14173,7 @@ function _atestadoTotais(empId, mes, ano){
 // conta — igual a _atestadoTotais. Existe porque a folha impressa mostrava o atraso em
 // vermelho e NÃO mostrava o papel que o justifica: quem lia o documento cobrava a
 // colaboradora por um atraso que o recibo não desconta. #atestado-abona-falta
-function _atestadoDoDia(empId, mes, ano, ymd){
+function _atestadoCobreDia(empId, mes, ano, ymd){
   const out={horasMin:0, diaAbonado:false, itens:[]};
   if(!empId || !ymd) return out;
   (State.atestados||[]).forEach(a=>{
@@ -14241,7 +14241,7 @@ function _atestRecalcHoras(){
 
 // Minutos de um atestado de HORAS. Prefere `minutos` (calculado do horário do papel) e cai
 // no `horas` decimal dos registros antigos — que só aceitavam meia em meia hora. Fonte única
-// dos dois leitores (_atestadoTotais e _atestadoDoDia). #atestado-abona-falta
+// dos dois leitores (_atestadoTotais e _atestadoCobreDia). #atestado-abona-falta
 function _atestadoMinutos(a){
   if(!a) return 0;
   const m=parseInt(a.minutos);
@@ -32964,7 +32964,7 @@ function printFolhaPonto(isPreview=false){
     const cPrev = prevMin>0  ? minutesToStr(prevMin)  : '';
     // Atraso coberto por atestado/abono do MESMO dia: o número continua à vista (é fato
     // da batida), mas o documento diz que está abonado. #atestado-abona-falta
-    const _atd  = _atestadoDoDia(emp.id, mes, ano, _ymd);
+    const _atd  = _atestadoCobreDia(emp.id, mes, ano, _ymd);
     let   cAtr  = atrasoMin>0 ? minutesToStr(atrasoMin): '';
     if(cAtr){
       const _selo = (_atd.diaAbonado || _atd.horasMin>=atrasoMin) ? 'abonado'
@@ -33406,7 +33406,7 @@ function _buildFolhaHtmlFromRecord(emp, p){
     const cPrev = prevMin>0  ? minutesToStr(prevMin)  : '';
     // Atraso coberto por atestado/abono do MESMO dia: o número continua à vista (é fato
     // da batida), mas o documento diz que está abonado. #atestado-abona-falta
-    const _atd  = _atestadoDoDia(emp.id, mes, ano, _ymd);
+    const _atd  = _atestadoCobreDia(emp.id, mes, ano, _ymd);
     let   cAtr  = atrasoMin>0 ? minutesToStr(atrasoMin): '';
     if(cAtr){
       const _selo = (_atd.diaAbonado || _atd.horasMin>=atrasoMin) ? 'abonado'

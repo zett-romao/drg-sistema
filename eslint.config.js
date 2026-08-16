@@ -29,6 +29,11 @@ module.exports = [
     },
     rules: {
       'no-undef': 'error',       // <- o coração: variável/função que não existe
+      // DUAS funções com o mesmo nome: a de baixo vence calada e a de cima vira código
+      // MORTO. Foi assim que um `_atestadoDoDia(empId,mes,ano,ymd)` novo caiu no
+      // `_atestadoDoDia(empId,ymd)` velho do Monitor de Faltas e devolveu null na folha
+      // impressa. Teste de função isolada NUNCA pega isso — só o linter. #camada3
+      'no-redeclare': 'error',
       'no-dupe-keys': 'error',   // chave duplicada em objeto
       'no-dupe-args': 'error',
       'no-func-assign': 'error',

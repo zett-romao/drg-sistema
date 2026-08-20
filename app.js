@@ -93,7 +93,7 @@ const DB = {
   // Atualiza campos específicos de um documento (merge parcial)
   async merge(col, id, data) {
     const ref = this.col(col); if (!ref) return;
-    _dbAssertWrite(col);
+    _dbAssertWrite(col, data);   // `data` habilita a exceção de escala. #escala-sem-editar-cadastro
     if (col === 'payrolls') _assertPayrollId({ ...data, id }, 'DB.merge');   // 🔒 #folha-fantasma-proibida
     await ref.doc(id).set(data, {merge: true});
   },
@@ -36587,9 +36587,24 @@ function _filtrarEmpsPorEscopo(emps){
 const COLL_MODULE={employees:'employees',payrolls:'payroll',escalas:'escalas',rescisoes:'rescisao',decimoTerceiro:'decimoterceiro',ferias:'ferias',postos:'postos',contratos:'contratos',bancoHoras:'payroll',documentosEmpresa:'documentosEmpresa'};
 // Lança erro (e avisa o usuário) se o perfil atual não pode gravar na coleção.
 // Chamado dentro dos métodos de escrita do DB — rede de segurança do "só visualizar".
-function _dbAssertWrite(col){
+// Campos do doc do colaborador que são GESTÃO DE ESCALA, não cadastro: folga avulsa,
+// dia avulso, troca de plantão, cobertura entre colegas, compensação solo e período de
+// mudança. Todos moram dentro de `employees/<id>`, e por isso caíam na trava do módulo
+// Colaboradores. #escala-sem-editar-cadastro
+const EMP_CAMPOS_ESCALA=['overridesHorario','historicoEscalas','updatedAt'];
+function _dbAssertWrite(col, data){
   const mod=COLL_MODULE[col];
   if(!mod || !Auth.currentUser || canEditModule(mod)) return;
+  // Exceção ESTREITA: quem tem a permissão dedicada "Folgas / Dia avulso / Troca e
+  // mudança de escala" grava esses campos mesmo com Colaboradores em "somente ver" —
+  // senão a única saída seria dar edição do CADASTRO INTEIRO (salário, dados pessoais)
+  // a um supervisor que só precisa lançar troca de plantão. Qualquer outro campo no
+  // mesmo merge derruba a exceção. #escala-sem-editar-cadastro
+  if(col==='employees' && data && typeof data==='object' && !Array.isArray(data)){
+    const campos=Object.keys(data);
+    if(campos.length && campos.every(k=>EMP_CAMPOS_ESCALA.includes(k))
+       && campos.some(k=>k!=='updatedAt') && _podeGerirFolgasEscala()) return;
+  }
   toast('Seu perfil é somente de visualização — esta alteração não é permitida.','error');
   const err=new Error('view-only'); err._viewOnly=true; throw err;
 }

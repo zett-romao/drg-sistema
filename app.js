@@ -2364,6 +2364,22 @@ async function migrarPerfisParaUsuarios(){
   }catch(e){ toast('Erro na migração.','error'); }
 }
 
+// Põe o select "Tipo de acesso" no role realmente salvo (master / operador / 'p_<id>').
+// Se o perfil foi apagado do banco a opção não existe: cria uma opção "(perfil removido)"
+// com o MESMO value, para o master ver o que está lá em vez de o select escorregar para a
+// primeira opção e sobrescrever no Salvar. #usr-role-perfil
+function _setUsrRoleValue(role){
+  const sel=document.getElementById('usr-role'); if(!sel) return;
+  const r = role==='master' ? 'master'
+          : (role && String(role).startsWith('p_') ? String(role) : 'operador');
+  if(!Array.from(sel.options).some(o=>o.value===r)){
+    const opt=document.createElement('option');
+    opt.value=r; opt.textContent='Perfil removido ('+r.replace('p_','')+')';
+    sel.appendChild(opt);
+  }
+  sel.value=r;
+}
+
 function openUserModal(id=null){
   if(Auth.currentUser?.role!=='master') return;
   // Atualizar opções de perfil com perfis customizados
@@ -2388,7 +2404,10 @@ function openUserModal(id=null){
     titleEl.innerHTML='<i class="fa-solid fa-user-pen"></i> Editar Usuário';
     setVal('usr-id',u.id); setVal('usr-username',u.username);
     setVal('usr-email',u.email||'');
-    setVal('usr-role', u.role==='master'?'master':'operador'); setVal('usr-active',String(u.active));
+    // Reidrata o PERFIL salvo (role 'p_<id>'). Antes caía SEMPRE em 'operador': o select
+    // mostrava "Operador" para quem era Perfil, e como saveUser lê o select, o Salvar
+    // seguinte gravava role='operador' de verdade — o perfil morria em silêncio. #usr-role-perfil
+    _setUsrRoleValue(u.role); setVal('usr-active',String(u.active));
     setVal('usr-password',''); setVal('usr-password-confirm','');
     _renderUsrPostosCheckboxes(Array.isArray(u.postosResponsavel)?u.postosResponsavel:[]);
     _renderUsrPermissoes(getUserModules(u), getUserPerms(u)); _fillUsrCopiarSelect(u.id);   // #perm-por-usuario
@@ -4213,7 +4232,12 @@ function renderUsersTable(){
     const ehArq=!!arq[u.id];
     const _temPerm=!!(State.permissoesUsuarios||{})[u.username];
     const roleCls=u.role==='master'?'badge-master':(_temPerm||u.role&&u.role.startsWith('p_'))?'badge-gestor':'badge-operador';
-    const acessoLbl=u.role==='master'?'Master':(_temPerm?'Personalizado':roleLabel(u.role));
+    // Mostra o PERFIL quando existe (mesmo com lista própria) — senão o master salva
+    // "Supervisor" e a lista continua dizendo só "Personalizado". #usr-role-perfil
+    const _ehPerfil=!!(u.role&&u.role.startsWith('p_'));
+    const acessoLbl=u.role==='master'?'Master'
+      :(_ehPerfil?roleLabel(u.role)+(_temPerm?' · personalizado':'')
+                 :(_temPerm?'Personalizado':roleLabel(u.role)));
     const logToggle=u.role!=='master'&&isMaster?`<button class="btn-icon ${u.showLog?'btn-primary-icon':'btn-outline'}" onclick="toggleShowLog('${u.id}')" title="${u.showLog?'Revogar acesso ao log':'Dar acesso ao log'}"><i class="fa-solid fa-list-check"></i></button>`:'';
     // Arquivar só usuário INATIVO (não master, não padrão, não você mesmo); desarquivar sempre disponível no arquivado. #usuarios-arquivar
     const podeArquivar=isMaster && !u.active && u.role!=='master' && u.id!=='master-default' && u.id!==Auth.currentUser?.id;

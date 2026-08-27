@@ -17,7 +17,11 @@
 //                              Resend e da CONTA e e compartilhada pelos apps da
 //                              casa; script solto nao pode gastar sem declarar.
 //   RESEND_API_KEY           → chave do Resend (so vale com EMAIL_REAL="true")
+//   BREVO_API_KEY            → RESERVA: +300 envios/dia e cobre a queda do Resend
+//   EMAIL_PROVEDOR           → opcional: "brevo" inverte a ordem de tentativa
 //   MAIL_FROM                → ex.: "DRG-Kronos <avisos@drglobal.com.br>"
+//                              🔒 OBRIGATORIO para o Brevo: ele so aceita
+//                              remetente de dominio verificado na conta dele.
 // CRON TRIGGER: */10 * * * *  (a cada 10 min)
 // =====================================================================
 
@@ -359,19 +363,62 @@ async function enviarEmailResend(env, to, subject, html){
   if(!emailReal) return { ok:false, skip:true,
     motivo: env.RESEND_API_KEY
       ? 'EMAIL_REAL nao e "true": a RESEND_API_KEY existe e foi IGNORADA (defina EMAIL_REAL=true no painel da Cloudflare)'
-      : 'sem RESEND_API_KEY e sem EMAIL_REAL' };
-  if(!env.RESEND_API_KEY) return { ok:false, skip:true, motivo:'sem RESEND_API_KEY' };
+      : 'sem chave de e-mail (RESEND_API_KEY/BREVO_API_KEY) e sem EMAIL_REAL' };
+  /* 📮 BREVO como RESERVA (decisao do dono, 22/08/2026: conta propria por app).
+   * Resend 100/dia + Brevo 300/dia = ~400/dia so deste app. A ordem padrao e
+   * Resend primeiro; EMAIL_PROVEDOR="brevo" inverte. */
+  const ordem = String(env.EMAIL_PROVEDOR||'').toLowerCase()==='brevo'
+    ? ['brevo','resend'] : ['resend','brevo'];
+  const ligados = ordem.filter(p => p==='resend' ? env.RESEND_API_KEY : env.BREVO_API_KEY);
+  if(!ligados.length) return { ok:false, skip:true, motivo:'sem RESEND_API_KEY e sem BREVO_API_KEY' };
+
   const dest=(Array.isArray(to)?to:[to]).filter(Boolean);
   if(!dest.length) return { ok:false, skip:true, motivo:'sem destinatários' };
   const from=env.MAIL_FROM || 'DRG-Kronos <onboarding@resend.dev>';
-  try{
-    const res=await fetch('https://api.resend.com/emails',{
-      method:'POST',
-      headers:{ authorization:'Bearer '+env.RESEND_API_KEY, 'content-type':'application/json' },
-      body: JSON.stringify({ from, to:dest, subject, html })
-    });
-    return { ok:res.ok, status:res.status };
-  }catch(e){ return { ok:false, erro:String(e&&e.message||e) }; }
+
+  const falhas=[];
+  for(const prov of ligados){
+    try{
+      const res = prov==='brevo'
+        ? await _postBrevo(env, from, dest, subject, html)
+        : await _postResend(env, from, dest, subject, html);
+      if(res.ok) return { ok:true, status:res.status, provedor:prov };
+      falhas.push(prov+': '+(res.erro||res.status));
+      /* 🔒 400/422 e o NOSSO payload (destinatario invalido, remetente que nao
+         serve): repetiria igual no outro provedor e so queimaria a reserva. */
+      if(res.status===400 || res.status===422) return { ok:false, status:res.status, erro:res.erro };
+    }catch(e){ falhas.push(prov+': '+String(e&&e.message||e)); }  // rede: tenta o outro
+  }
+  return { ok:false, erro:falhas.join(' | ') };
+}
+async function _postResend(env, from, dest, subject, html){
+  const res=await fetch('https://api.resend.com/emails',{
+    method:'POST',
+    headers:{ authorization:'Bearer '+env.RESEND_API_KEY, 'content-type':'application/json' },
+    body: JSON.stringify({ from, to:dest, subject, html })
+  });
+  let erro=null; if(!res.ok){ try{ const j=await res.json(); erro=j&&(j.message||j.name); }catch(_){} }
+  return { ok:res.ok, status:res.status, erro };
+}
+async function _postBrevo(env, from, dest, subject, html){
+  /* 🔒 O Brevo so aceita remetente de dominio verificado NA CONTA DELE — o
+     onboarding@resend.dev nao passa. Parar antes da rede evita um 400 criptico
+     que ninguem liga ao remetente. */
+  if(!env.MAIL_FROM) return { ok:false, status:400, erro:'Brevo: defina MAIL_FROM com endereco do dominio verificado no Brevo' };
+  const m = String(from).match(/^\s*(.*?)\s*<\s*([^>]+)\s*>\s*$/);
+  const de = m ? { name:m[1]||undefined, email:m[2] } : { email:String(from).trim() };
+  const res=await fetch('https://api.brevo.com/v3/smtp/email',{
+    method:'POST',
+    headers:{ 'api-key':env.BREVO_API_KEY, 'content-type':'application/json', accept:'application/json' },
+    body: JSON.stringify({
+      sender: de.name ? { name:de.name, email:de.email } : { email:de.email },
+      to: dest.map(email => ({ email })),
+      subject,
+      htmlContent: html
+    })
+  });
+  let erro=null; if(!res.ok){ try{ const j=await res.json(); erro=j&&(j.message||j.code); }catch(_){} }
+  return { ok:res.ok, status:res.status, erro };
 }
 
 // ───────── Janela de notificações + disparo de pedido (push instantâneo) ───────── #janela-notif

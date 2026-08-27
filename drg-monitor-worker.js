@@ -331,6 +331,27 @@ async function enviarPush(env, sub){
 // {skip:true} e o fluxo segue (push + card no sistema cobrem o aviso). #autorizacao-master
 // ENV: RESEND_API_KEY (secret) · MAIL_FROM (ex.: "DRG-Kronos <avisos@seudominio.com.br>")
 async function enviarEmailResend(env, to, subject, html){
+  /* 🔒 ENVIO REAL E OPT-IN, NAO OPT-OUT. #cota-email
+   *
+   * A cota do Resend e da CONTA, compartilhada por varios apps da casa. Em
+   * 26/08/2026 a suite de testes do DRG-Guard estourou 200% da cota do dia
+   * mandando para enderecos de fixture — e cota estourada cala o que e critico
+   * de TODOS os apps, nao so do que gastou.
+   *
+   * A barreira que falhou la dependia de cada script LEMBRAR de zerar a chave.
+   * Aqui quem quer enviar DECLARA (EMAIL_REAL="true"); sem isso a chave e
+   * ignorada e o retorno e o mesmo {skip:true} que ja existia — o push e o card
+   * no sistema continuam cobrindo o aviso.
+   *
+   * 🔴 Este Worker NAO tem wrangler.toml no repo: a variavel entra A MAO no
+   *    painel da Cloudflare (Settings > Variables). Sem ela, o aviso de
+   *    autorizacao de pagamento e o de ferias a vencer param de sair por
+   *    e-mail. O motivo abaixo diz exatamente isso, para nao virar misterio. */
+  const emailReal = String(env.EMAIL_REAL || '').toLowerCase() === 'true';
+  if(!emailReal) return { ok:false, skip:true,
+    motivo: env.RESEND_API_KEY
+      ? 'EMAIL_REAL nao e "true": a RESEND_API_KEY existe e foi IGNORADA (defina EMAIL_REAL=true no painel da Cloudflare)'
+      : 'sem RESEND_API_KEY e sem EMAIL_REAL' };
   if(!env.RESEND_API_KEY) return { ok:false, skip:true, motivo:'sem RESEND_API_KEY' };
   const dest=(Array.isArray(to)?to:[to]).filter(Boolean);
   if(!dest.length) return { ok:false, skip:true, motivo:'sem destinatários' };

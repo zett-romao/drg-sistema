@@ -10,6 +10,14 @@
 //   VAPID_PUBLIC              → chave pública VAPID (base64url, 65 bytes)
 //   VAPID_PRIVATE            → chave privada VAPID (base64url, 32 bytes)
 //   VAPID_SUBJECT            → "mailto:voce@exemplo.com"
+//   EMAIL_REAL               → "true" LIBERA o envio de e-mail. 🔴 Sem ela a
+//                              RESEND_API_KEY e IGNORADA e o aviso de autorizacao
+//                              de pagamento / ferias a vencer NAO sai por e-mail.
+//                              E opt-in de proposito (#cota-email): a cota do
+//                              Resend e da CONTA e e compartilhada pelos apps da
+//                              casa; script solto nao pode gastar sem declarar.
+//   RESEND_API_KEY           → chave do Resend (so vale com EMAIL_REAL="true")
+//   MAIL_FROM                → ex.: "DRG-Kronos <avisos@drglobal.com.br>"
 // CRON TRIGGER: */10 * * * *  (a cada 10 min)
 // =====================================================================
 

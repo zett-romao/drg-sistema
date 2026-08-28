@@ -7412,6 +7412,13 @@
           <button class="btn btn-outline" onclick="plrLimparLista()" style="flex:1 1 140px">
             <i class="fa-solid fa-eraser"></i> Descartar lista
           </button>
+          <!-- Plano B: so aparece quando o leitor normal nao acha CPF nenhum.
+               E por clique de proposito — manda o arquivo (com dezenas de CPFs)
+               para a IA, e isso e decisao do dono. #plr-ia #lgpd -->
+          <button class="btn btn-outline" id="btn-plr-ia" onclick="plrLerComIA()" style="display:none;flex:1 1 220px;color:#6A1B9A;border-color:#CE93D8"
+            title="Envia este arquivo para a IA ler (Gemini). Use quando o leitor normal nao der conta: layout de outro contador ou PDF digitalizado. O resultado passa pela MESMA conferencia.">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> Tentar ler com IA
+          </button>
         </div>
       </div>
 
@@ -8217,6 +8224,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260827c-dossie-pagamentos"></script>
+  <script src="app.js?v=20260828a-plr-leitura-ia"></script>
 </body>
 </html>

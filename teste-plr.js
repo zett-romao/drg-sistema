@@ -227,6 +227,51 @@ function montarPdfFicticio() {
   }
 
   falhas.push(...pdfFalhas);
+
+  // ── Plano B: leitura por IA ────────────────────────────────────────────────
+  // A IA so PROPOE: o que ela devolve vira texto e passa pelo MESMO parser, pelo
+  // MESMO casamento por CPF e pela MESMA conferencia de totais. O teste garante
+  // que esse encadeamento continua valendo — inclusive quando a IA erra.
+  const IA_BLOCO = APP.slice(APP.indexOf('let _plrArquivoPendente'), APP.indexOf('function plrConferirLista('));
+  eval(IA_BLOCO);   // eslint-disable-line no-eval
+
+  console.log('\n== PLANO B (LEITURA POR IA) ==');
+  const respostaIA = {
+    linhas: [
+      { codigo: '145', nome: 'ADAO PEREIRA DA COSTA', cpf: '111.111.111-11', valor: '133,50' },
+      { codigo: '156', nome: 'BENEDITA SOUZA DOS ANJOS', cpf: '222.222.222-22', valor: '74,90' },
+    ],
+    quantidade: 2, total: '208,40',
+  };
+  const txtIA = _plrIATexto(respostaIA);
+  console.log(txtIA.split('\n').map(l => '   ' + JSON.stringify(l)).join('\n'));
+  const pIA = _plrParse(txtIA);
+  ok(pIA.linhas.length === 2, `IA: _plrParse leu ${pIA.linhas.length} linhas, esperado 2`);
+  ok(pIA.linhas[0].cpf === '11111111111' && pIA.linhas[0].valorArq === 133.5, 'IA: CPF/valor da 1a linha errados');
+  ok(pIA.linhas[0].codigo === '145', 'IA: perdeu o codigo do contador');
+  ok(pIA.countArq === 2 && Math.abs(pIA.totalArq - 208.40) < 0.005, 'IA: rodape nao foi repassado');
+
+  // 🔒 O caso que importa: a IA PERDE uma linha mas copia o rodape certo.
+  // A soma das linhas tem de DIVERGIR do total — e a conferencia acusa.
+  const iaFalha = { linhas: [respostaIA.linhas[0]], quantidade: 2, total: '208,40' };
+  const pFalha = _plrParse(_plrIATexto(iaFalha));
+  const somaFalha = pFalha.linhas.reduce((s, l) => s + l.valorArq, 0);
+  console.log(`   linha perdida -> lidas ${pFalha.linhas.length}, rodape diz ${pFalha.countArq}, soma ${somaFalha.toFixed(2)} x total ${pFalha.totalArq.toFixed(2)}`);
+  ok(pFalha.linhas.length === 1, 'IA com linha perdida: parse deveria ler 1 linha');
+  ok(Math.abs(pFalha.totalArq - somaFalha) > 0.005,
+     'linha perdida pela IA passou despercebida — a conferencia de totais nao acusaria');
+  ok(pFalha.countArq !== pFalha.linhas.length,
+     'a contagem do rodape deveria divergir do numero de linhas lidas');
+
+  // Sem rodape no documento, a IA NAO pode inventar total (soma dela nao vale prova).
+  const semRodape = _plrParse(_plrIATexto({ linhas: respostaIA.linhas, quantidade: null, total: null }));
+  ok(semRodape.linhas.length === 2, 'IA sem rodape: deveria ler as 2 linhas');
+  ok(semRodape.totalArq === 0, 'IA sem rodape: nao pode aparecer total nenhum');
+
+  // Resposta vazia ou malformada nao pode virar lista fantasma.
+  ok(_plrIATexto({ linhas: [] }) === '', 'resposta vazia da IA deveria gerar texto vazio');
+  ok(_plrIATexto(null) === '', 'resposta nula da IA deveria gerar texto vazio');
+
   console.log('\n' + (falhas.length ? 'FALHAS:\n - ' + falhas.join('\n - ') : 'OK — todos os testes da PLR passaram'));
   process.exit(falhas.length ? 1 : 0);
 })();

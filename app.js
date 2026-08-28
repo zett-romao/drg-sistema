@@ -19824,6 +19824,99 @@ function _plrMostrarConferencia(mostrar){
   if(btn) btn.disabled = !mostrar;
 }
 
+// ── Plano B: ler a relação com IA quando o leitor determinístico não dá conta ──
+// Entra em cena SÓ quando `_pdfParaTexto` (ou o texto do arquivo) não devolve
+// nenhuma linha com CPF: layout de outro contador, ou PDF digitalizado (imagem).
+//
+// 🔒 A IA PROPÕE, a conferência determinística CONFIRMA. O que ela devolve vira
+// TEXTO e passa pelo MESMO `_plrParse`, pelo MESMO casamento por CPF e pela MESMA
+// conferência de totais. A IA nunca lança pagamento e nunca escolhe colaborador.
+//
+// 🔒 É por CLIQUE, nunca automático: a relação leva CPF de dezenas de pessoas, e
+// mandar isso para fora é decisão do dono — não do sistema. #plr-ia #lgpd
+let _plrArquivoPendente = null;   // arquivo que o leitor determinístico não conseguiu ler
+let _plrViaIA = false;            // a lista carregada veio de leitura por IA?
+
+const PLR_IA_PROMPT = `Você é um sistema de leitura de RELAÇÃO DE PAGAMENTOS de folha brasileira (relatório de contabilidade, tipo "Relação Geral dos Líquidos"). Extraia a lista de colaboradores com PRECISÃO MÁXIMA.
+
+Retorne SOMENTE um JSON válido, sem markdown e sem comentários, neste formato exato:
+{"linhas":[{"codigo":"145","nome":"ADEILTON MOREIRA DE OLIVEIRA","cpf":"155.507.828-12","valor":"133,50"}],"quantidade":59,"total":"6.953,55"}
+
+REGRAS:
+- Uma entrada em "linhas" por COLABORADOR. Copie o que está escrito, sem corrigir e sem completar.
+- "codigo": o número de matrícula/código à esquerda do nome. Se não houver, use "".
+- "cpf": exatamente como impresso (com pontos e traço). NUNCA invente dígito: se não conseguir ler o CPF inteiro com certeza, NÃO inclua a linha.
+- "valor": o valor a pagar daquela pessoa, no formato brasileiro (vírgula decimal), sem "R$".
+- "quantidade" e "total": copie do RODAPÉ do documento (ex.: "Empregados: 59", "Total da Empresa: 6.953,55"). Se o rodapé não trouxer, use null — NÃO some você mesmo, e NÃO invente.
+- NÃO inclua cabeçalho, CNPJ da empresa, paginação, data de emissão nem a linha do sistema contábil.
+- Se o documento não for uma relação de pagamentos, devolva {"linhas":[],"quantidade":null,"total":null}.`;
+
+async function _plrLerComIA(file){
+  if(file.size > 8*1024*1024)
+    throw new Error('Arquivo grande demais para a leitura por IA (limite ~8 MB). Abra o arquivo, copie o texto e cole na caixa.');
+  const base64=await fileToBase64(file);
+  const mimeType=file.type || (/\.pdf$/i.test(file.name) ? 'application/pdf' : 'text/plain');
+
+  const resp=await fetch(GEMINI_PROXY_URL,{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ model:GEMINI_MODEL, prompt:PLR_IA_PROMPT, mimeType, base64Data:base64 })
+  });
+  if(!resp.ok){
+    const err=await resp.json().catch(()=>({error:'Resposta inválida do servidor'}));
+    throw new Error(err.error?.message||err.error||'Erro ao falar com a IA');
+  }
+  const data=await resp.json();
+  const text=data.candidates?.[0]?.content?.parts?.[0]?.text || data.content?.[0]?.text || '';
+  _registrarUsoIA('plr-relacao', data);
+
+  let parsed;
+  try{ parsed=_parseGeminiJson(text); }
+  catch(e){ throw new Error('A IA respondeu num formato que não consegui ler. Copie o texto do arquivo e cole na caixa.'); }
+  const linhas=Array.isArray(parsed&&parsed.linhas)?parsed.linhas:[];
+  if(!linhas.length)
+    throw new Error('A IA não achou nenhuma linha com CPF e valor neste arquivo. Confira se é mesmo a relação de pagamentos.');
+
+  return _plrIATexto(parsed);
+}
+
+// Converte a resposta da IA no TEXTO que o parser determinístico já lê — daí para
+// a frente o caminho é idêntico ao de quem colou.
+// 🔒 O rodapé entra como o DOCUMENTO traz (a IA foi instruída a copiar, nunca a
+// somar): é ele que denuncia linha que a IA deixou passar — a soma das linhas não
+// bate com o total do rodapé e a conferência acusa em vermelho. #plr-ia
+function _plrIATexto(parsed){
+  const linhas=Array.isArray(parsed&&parsed.linhas)?parsed.linhas:[];
+  const corpo=linhas.map(l=>[l&&l.codigo, l&&l.nome, l&&l.cpf, l&&l.valor]
+    .map(x=>String(x==null?'':x).trim()).filter(Boolean).join(' ')).filter(Boolean);
+  const total=(parsed&&parsed.total!=null)?String(parsed.total).trim():'';
+  const qtd=(parsed&&parsed.quantidade!=null)?String(parsed.quantidade).trim():'';
+  if(total||qtd) corpo.push(`Empregados: ${qtd||linhas.length} Total da Empresa: ${total}`.trim());
+  return corpo.join('\n');
+}
+
+// Botão "Tentar ler com IA" — aparece só depois que o leitor determinístico falha.
+async function plrLerComIA(){
+  const btn=document.getElementById('btn-plr-ia');
+  if(!_plrArquivoPendente){ toast('Suba o arquivo primeiro.','warning'); return; }
+  const htmlBtn=btn?btn.innerHTML:'';
+  if(btn){ btn.disabled=true; btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Lendo com IA... aguarde'; }
+  try{
+    const texto=await _plrLerComIA(_plrArquivoPendente);
+    setVal('plr-texto', texto);
+    _plrArquivoNome=_plrArquivoPendente.name;
+    _plrViaIA=true;
+    _plrArquivoPendente=null;
+    if(btn) btn.style.display='none';
+    toast('Lido por IA — confira linha a linha antes de lançar.','warning');
+    plrConferirLista();
+  }catch(e){
+    console.error('PLR IA',e);
+    toast((e&&e.message)||'Não consegui ler com IA.','error');
+  }finally{
+    if(btn){ btn.disabled=false; btn.innerHTML=htmlBtn; }
+  }
+}
+
 // Sobe o arquivo do contador: PDF, CSV ou TXT. O PDF é lido aqui mesmo
 // (`_pdfParaTexto`, sem biblioteca externa) e cai na mesma caixa de texto — daí
 // para a frente é o mesmo caminho de quem colou. Ao terminar, JÁ confere a lista:
@@ -19836,16 +19929,27 @@ async function plrArquivoEscolhido(ev){
   const lblHtml=lbl?lbl.innerHTML:'';
   const ehPdf=/\.pdf$/i.test(file.name) || file.type==='application/pdf';
   if(lbl) lbl.innerHTML=`<i class="fa-solid fa-spinner fa-spin"></i> ${ehPdf?'Lendo o PDF... aguarde':'Lendo o arquivo...'}`;
+  _plrArquivoPendente=null; _plrViaIA=false;
+  const btnIA=document.getElementById('btn-plr-ia');
+  if(btnIA) btnIA.style.display='none';
   try{
-    let texto;
+    let texto='';
     if(ehPdf){
       if(typeof DecompressionStream==='undefined')
         throw new Error('Este navegador não lê PDF aqui. Abra o PDF, selecione tudo (Ctrl+A), copie e cole na caixa acima.');
       texto=await _pdfParaTexto(await file.arrayBuffer());
-      if(!/\d{3}\.?\d{3}\.?\d{3}-?\d{2}/.test(texto))
-        throw new Error('Não achei texto neste PDF — provavelmente é digitalizado (imagem). Abra o PDF, selecione tudo (Ctrl+A), copie e cole na caixa acima.');
     } else {
       texto=await file.text();
+    }
+    if(!/\d{3}\.?\d{3}\.?\d{3}-?\d{2}/.test(texto)){
+      // Leitor determinístico não achou CPF nenhum: layout desconhecido ou PDF
+      // digitalizado. Guarda o arquivo e OFERECE a IA — não chama sozinho, porque
+      // isso mandaria dezenas de CPFs para fora sem o dono mandar. #plr-ia #lgpd
+      _plrArquivoPendente=file;
+      if(btnIA) btnIA.style.display='';
+      throw new Error(ehPdf
+        ? 'Não achei texto neste PDF (provavelmente é digitalizado, ou o layout é de outro contador). Use "Tentar ler com IA" abaixo, ou copie e cole na caixa.'
+        : 'Não achei nenhuma linha com CPF neste arquivo. Use "Tentar ler com IA" abaixo, ou copie e cole na caixa.');
     }
     setVal('plr-texto', texto);
     _plrArquivoNome=file.name;
@@ -19870,7 +19974,7 @@ function plrConferirLista(){
   _plrData=p.linhas.map(l=>({ ...l, valor:l.valorArq, editado:false, manual:false,
                               empId:'', empNome:'', matricula:'', pixKey:'', keyType:'',
                               matchPor:'', status:'nao-id', selecionado:false, forcarSelect:false }));
-  _plrArquivo={ totalArq:p.totalArq, countArq:p.countArq, ignoradas:p.ignoradas, nome:_plrArquivoNome };
+  _plrArquivo={ totalArq:p.totalArq, countArq:p.countArq, ignoradas:p.ignoradas, nome:_plrArquivoNome, viaIA:_plrViaIA };
   _plrCasar();
   _plrMostrarConferencia(true);
   refreshPlrTabela();
@@ -19879,6 +19983,8 @@ function plrConferirLista(){
 
 function plrLimparLista(){
   _plrData=[]; _plrArquivo=null; _plrArquivoNome='';
+  _plrViaIA=false; _plrArquivoPendente=null;
+  const _bIA=document.getElementById('btn-plr-ia'); if(_bIA) _bIA.style.display='none';
   setVal('plr-texto','');
   _plrMostrarConferencia(false);
   refreshPlrTabela();
@@ -20047,9 +20153,13 @@ function refreshPlrResumo(){
     leitura=`<div style="margin-top:6px;color:#c62828;font-weight:700">🔴 o arquivo diz ${countArq} colaborador(es) e foram lidas ${_plrData.length} linha(s).</div>`;
   }
 
+  // Leitura por IA NAO e deterministica: a tela tem de dizer isso, alto, toda vez.
+  const marcaIA=(_plrArquivo&&_plrArquivo.viaIA)
+    ? `<div style="margin-top:6px;background:#FFF3E0;border:1px solid #FFCC80;border-radius:6px;padding:6px 9px;color:#E65100;font-weight:600">🤖 Esta lista foi lida por IA — <strong>confira nome, CPF e valor linha a linha</strong> antes de lançar. O leitor normal não deu conta deste arquivo.</div>`
+    : '';
   el.innerHTML = linhaArq
     + `<div style="margin-top:2px"><strong>Vai lançar:</strong> ${sel.length} · <strong style="color:#00695C">${fmtMoney(totalSel)}</strong></div>`
-    + alerta + leitura;
+    + alerta + leitura + marcaIA;
 }
 
 function _plrLog(msg, cor='#81d4fa'){

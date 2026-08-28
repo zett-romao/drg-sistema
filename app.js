@@ -1583,6 +1583,7 @@ function showSection(name){
   if(name==='recibos'        && !mods.pagamentos)      return;
   if(name==='adiantamentos'  && !mods.pagamentos)      return;
   if(name==='aprovacoes'     && !mods.pagamentosLancar && !mods.pagamentosAprovar) return;
+  if(name==='dossie'         && !mods.pagamentosLancar && !mods.pagamentosAprovar) return;
   if(name==='decimoterceiro' && !mods.decimoterceiro)  return;
   if(name==='ferias'         && !mods.ferias)          return;
   if(name==='rescisao'       && !mods.rescisao)        return;
@@ -1618,7 +1619,7 @@ function showSection(name){
   if(navBtn)  navBtn.classList.add('active');
   applyNavGroupsState(name);
   const titles={dashboard:'Dashboard',employees:'Colaboradores',payroll:'Folha de Ponto',escalas:'Escalas',
-                pagamentos:'Pagamentos',beneficios:'Benefícios',recibos:'Recibos Enviados',adiantamentos:'Adiantamentos',aprovacoes:'Aprovações de Pagamentos',decimoterceiro:'13º Salário',ferias:'Férias',rescisao:'Rescisões',
+                pagamentos:'Pagamentos',beneficios:'Benefícios',recibos:'Recibos Enviados',adiantamentos:'Adiantamentos',aprovacoes:'Aprovações de Pagamentos',dossie:'Dossiê de Pagamentos',decimoterceiro:'13º Salário',ferias:'Férias',rescisao:'Rescisões',
                 contabilidade:'Contabilidade',banco:'Banco de Dados',users:'Usuários & Acessos',postos:'Postos de Trabalho',rubricas:'Rubricas',contratos:'Contratos',comunicacao:'Comunicação',autorizacoes:'Autorizações de Ponto',monitorfaltas:'Monitor de Faltas',estoque:'Estoque / EPIs',documentos:'Documentos do Colaborador',docsempresa:'Documentos da Empresa',configuracoes:'Configurações',lgpd:'Conformidade LGPD',relatorios:'Relatórios'};
   document.getElementById('topbar-title').textContent=titles[name]||name;
   const _secAnterior=State.currentSection;
@@ -1627,6 +1628,7 @@ function showSection(name){
   // Passa se JÁ estava na Folha: ação interna não reseta a competência escolhida.
   if(name==='payroll')   { initPayrollSection(_secAnterior==='payroll'); renderPayrollStats(); }
   if(name==='escalas')   renderEscalas();
+  if(name==='dossie')    renderDossie();
   if(name==='lgpd')      renderLGPD();
   if(name==='dashboard') renderDashboard();
   if(name==='pagamentos')      {
@@ -2254,6 +2256,8 @@ function applyUserSession(user){
   if(adiLi) adiLi.classList.toggle('hidden', !mods.pagamentos);
   const aprLi=document.getElementById('nav-aprovacoes-li');
   if(aprLi) aprLi.classList.toggle('hidden', !mods.pagamentosLancar && !mods.pagamentosAprovar);
+  const dosLi=document.getElementById('nav-dossie-li');
+  if(dosLi) dosLi.classList.toggle('hidden', !mods.pagamentosLancar && !mods.pagamentosAprovar);
   const decLi=document.getElementById('nav-decimoterceiro-li');
   if(decLi) decLi.classList.toggle('hidden', !mods.decimoterceiro);
   const ferLi=document.getElementById('nav-ferias-li');
@@ -6805,6 +6809,7 @@ async function saveDecimoTerceiro(){
   const rec={
     id:`${empId}_${ano}`,
     employeeId:empId, nomeEmp:emp.nome, ano,
+    mesesDireito:parseInt(val('dec-modal-meses-dir')||12)||12,   // reemitir o recibo depois precisa disto. #dossie
     status:val('dec-modal-status')||'pendente',
     obs:val('dec-modal-obs')||'',
     parc1Data:val('dec-modal-parc1-data')||'',
@@ -6832,62 +6837,25 @@ async function saveDecimoTerceiro(){
 }
 
 function printDecimoTerceiro(){
+  // 🔒 MOTOR ÚNICO do recibo — ver a nota em printFeriasModulo. #dossie
   const empId=val('dec-modal-emp-id'); if(!empId) return;
   const emp=State.employees.find(e=>e.id===empId); if(!emp) return;
-  const ano=val('dec-modal-ano')||currentAno();
-  const mesesDir=val('dec-modal-meses-dir')||12;
-  const bruto=parseFloat(val('dec-modal-bruto')||0);
-  const parc1=parseFloat(val('dec-modal-parc1')||0);
-  const parc2=parseFloat(val('dec-modal-parc2')||0);
-  const inss=parseFloat(val('dec-modal-inss')||0);
-  const irrf=parseFloat(val('dec-modal-irrf')||0);
-  const fgts=parseFloat(val('dec-modal-fgts')||0);
-  const liq=parseFloat(val('dec-modal-liquido')||0);
-  const p1data=val('dec-modal-parc1-data')||'—';
-  const p2data=val('dec-modal-parc2-data')||'—';
-  const mediaAdic=parseFloat(val('dec-modal-media-adic')||0);
-  const mediaDsr=parseFloat(val('dec-modal-media-dsr')||0);
-  const salBaseR=parseFloat(emp.salarioBase||0);
-  const w=window.open('','_blank');
-  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
-  <title>Recibo 13º Salário — ${emp.nome}</title>
-  <style>body{font-family:Arial,sans-serif;font-size:12px;color:#111;padding:20px}
-  h2{color:#1a3a6b;margin-bottom:4px}.empresa{color:#555;font-size:11px;margin-bottom:16px}
-  table{width:100%;border-collapse:collapse;margin-bottom:12px}th,td{border:1px solid #ccc;padding:5px 8px}
-  th{background:#1a3a6b;color:#fff;text-align:left}.prov{color:#1a7a1a}.desc{color:#c0392b}
-  .total-row{font-weight:700;background:#f0f4ff}
-  .assinatura{margin-top:40px;display:flex;justify-content:space-between}
-  .assinatura div{text-align:center;width:45%}.assinatura hr{margin-bottom:4px}
-  @media print{body{padding:10px}}</style></head><body>
-  <h2>RECIBO DE 13º SALÁRIO — ${ano}</h2>
-  <div class="empresa">${_e('nomeEmpresa')} — CNPJ: ${_e('cnpj')||'—'}${_e('cnae')?' — CNAE: '+_e('cnae'):''}${_empresaEnderecoLinha()?'<br><span style="font-size:11px;font-weight:400;color:#555">'+_empresaEnderecoLinha()+'</span>':''}</div>
-  <table>
-    <tr><th colspan="2">Dados do Colaborador</th></tr>
-    <tr><td><strong>Nome:</strong> ${emp.nome}</td><td><strong>Registro:</strong> ${emp.registro||'—'}</td></tr>
-    <tr><td><strong>Cargo:</strong> ${emp.cargo||emp.setor||'—'}</td><td><strong>Admissão:</strong> ${emp.dataAdmissao?formatDateBr(emp.dataAdmissao):'—'}</td></tr>
-    <tr><td><strong>Meses Trabalhados:</strong> ${mesesDir}/12</td><td><strong>Sal. Base:</strong> ${fmtMoney(salBaseR)}</td></tr>
-    ${(mediaAdic>0||mediaDsr>0)?`<tr><td colspan="2" style="font-size:11px;color:#555"><strong>Base de cálculo:</strong> Sal. Base ${fmtMoney(salBaseR)}${mediaAdic>0?` + Média adicionais variáveis ${fmtMoney(mediaAdic)}`:''}${mediaDsr>0?` + DSR s/ HE (Súm. 172) ${fmtMoney(mediaDsr)}`:''} = ${fmtMoney(salBaseR+mediaAdic+mediaDsr)} <span style="color:#1565C0">(Súmula 45/347 — médias habituais)</span></td></tr>`:''}
-  </table>
-  <table>
-    <tr><th>PARCELA</th><th>VALOR</th><th>DATA PGTO</th></tr>
-    <tr><td>1ª Parcela (50% s/ descontos)</td><td class="prov">${fmtMoney(parc1)}</td><td>${p1data}</td></tr>
-    <tr><td>2ª Parcela (líquido)</td><td class="prov">${fmtMoney(parc2)}</td><td>${p2data}</td></tr>
-    <tr class="total-row"><td>Total Bruto (referência)</td><td>${fmtMoney(bruto)}</td><td>—</td></tr>
-  </table>
-  <table>
-    <tr><th>ENCARGOS</th><th>VALOR</th></tr>
-    <tr><td class="desc">(-) INSS (sobre total bruto)</td><td class="desc">(${fmtMoney(inss)})</td></tr>
-    <tr><td class="desc">(-) IRRF (sobre 2ª parcela)</td><td class="desc">(${fmtMoney(irrf)})</td></tr>
-    <tr><td style="font-size:11px;color:#1a3a6b">(*) FGTS — Encargo Patronal (8%)</td><td style="color:#1a3a6b">${fmtMoney(fgts)}</td></tr>
-    <tr class="total-row"><td>TOTAL LÍQUIDO A RECEBER</td><td>${fmtMoney(liq)}</td></tr>
-  </table>
-  <div class="assinatura">
-    <div><hr>Assinatura do Colaborador<br><small>${emp.nome}</small></div>
-    <div><hr>Responsável / Empresa<br><small>${_e('nomeEmpresa')}</small></div>
-  </div>
-  <p style="text-align:center;font-size:10px;color:#999;margin-top:30px">Gerado por ${APP_VERSION} em ${new Date().toLocaleDateString('pt-BR')}</p>
-  </body></html>`);
-  w.document.close(); w.print();
+  const r={
+    ano:val('dec-modal-ano')||currentAno(),
+    mesesDireito:parseInt(val('dec-modal-meses-dir')||12)||12,
+    status:val('dec-modal-status')||'',
+    parc1Data:val('dec-modal-parc1-data')||'', parc2Data:val('dec-modal-parc2-data')||'',
+    mediaAdic:parseFloat(val('dec-modal-media-adic')||0),
+    mediaDsr:parseFloat(val('dec-modal-media-dsr')||0),
+    bruto:parseFloat(val('dec-modal-bruto')||0),
+    parc1:parseFloat(val('dec-modal-parc1')||0),
+    parc2:parseFloat(val('dec-modal-parc2')||0),
+    inss:parseFloat(val('dec-modal-inss')||0),
+    irrf:parseFloat(val('dec-modal-irrf')||0),
+    fgts:parseFloat(val('dec-modal-fgts')||0),
+    liquido:parseFloat(val('dec-modal-liquido')||0),
+  };
+  _abrirJanelaExport(_recibo13HTML(emp,r),'print',`Recibo_13_${(emp.nome||'').replace(/\s+/g,'_')}`);
 }
 
 function printDecimoTerceiroLista(){
@@ -7038,6 +7006,7 @@ async function saveFeriasModulo(){
   const rec={
     id:`${empId}_${ano}_${inicio.replace(/[\/\-]/g,'')}`,
     employeeId:empId, nomeEmp:emp.nome, ano, inicio, fim, abonoDias,
+    diasGozo:parseInt(val('fer-modal-dias-gozo')||0)||0,   // reemitir o recibo depois precisa disto. #dossie
     status:val('fer-modal-status')||'pendente',
     obs:val('fer-modal-obs')||'',
     mediaAdic:parseFloat(val('fer-modal-media-adic')||0),
@@ -7063,61 +7032,27 @@ async function saveFeriasModulo(){
 }
 
 function printFeriasModulo(){
+  // 🔒 MOTOR ÚNICO do recibo: monta o registro a partir do modal e chama o MESMO
+  // gerador que o dossiê usa. Antes esta função desenhava o recibo lendo os campos
+  // da tela — o documento só existia com o modal aberto e não dava para reemitir.
   const empId=val('fer-modal-emp-id'); if(!empId) return;
   const emp=State.employees.find(e=>e.id===empId); if(!emp) return;
-  const ano=val('fer-modal-ano')||currentAno();
-  const inicio=val('fer-modal-inicio')||'—', fim=val('fer-modal-fim')||'—';
-  const abonoDias=val('fer-modal-abono-dias')||0;
-  const diasGozo=val('fer-modal-dias-gozo')||30;
-  const salFruicao=parseFloat(val('fer-modal-sal-fruicao')||0);
-  const terco=parseFloat(val('fer-modal-terco')||0);
-  const abono=parseFloat(val('fer-modal-abono-val')||0);
-  const totalBruto=parseFloat(val('fer-modal-total-bruto')||0);
-  const inss=parseFloat(val('fer-modal-inss')||0);
-  const irrf=parseFloat(val('fer-modal-irrf')||0);
-  const totalLiq=parseFloat(val('fer-modal-total-liquido')||0);
-  const mediaAdic=parseFloat(val('fer-modal-media-adic')||0);
-  const mediaDsr=parseFloat(val('fer-modal-media-dsr')||0);
-  const salBaseR=parseFloat(emp.salarioBase||0);
-  const w=window.open('','_blank');
-  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
-  <title>Recibo de Férias — ${emp.nome}</title>
-  <style>body{font-family:Arial,sans-serif;font-size:12px;color:#111;padding:20px}
-  h2{color:#1a3a6b;margin-bottom:4px}.empresa{color:#555;font-size:11px;margin-bottom:16px}
-  table{width:100%;border-collapse:collapse;margin-bottom:12px}th,td{border:1px solid #ccc;padding:5px 8px}
-  th{background:#1a3a6b;color:#fff;text-align:left}.prov{color:#1a7a1a}.desc{color:#c0392b}
-  .total-row{font-weight:700;background:#f0f4ff}.nota{font-size:10px;color:#555;margin-top:4px}
-  .assinatura{margin-top:40px;display:flex;justify-content:space-between}
-  .assinatura div{text-align:center;width:45%}.assinatura hr{margin-bottom:4px}
-  @media print{body{padding:10px}}</style></head><body>
-  <h2>RECIBO DE FÉRIAS — ${ano}</h2>
-  <div class="empresa">${_e('nomeEmpresa')} — CNPJ: ${_e('cnpj')||'—'}${_e('cnae')?' — CNAE: '+_e('cnae'):''}${_empresaEnderecoLinha()?'<br><span style="font-size:11px;font-weight:400;color:#555">'+_empresaEnderecoLinha()+'</span>':''}</div>
-  <table>
-    <tr><th colspan="2">Dados do Colaborador</th></tr>
-    <tr><td><strong>Nome:</strong> ${emp.nome}</td><td><strong>Registro:</strong> ${emp.registro||'—'}</td></tr>
-    <tr><td><strong>Cargo:</strong> ${emp.cargo||emp.setor||'—'}</td><td><strong>Admissão:</strong> ${emp.dataAdmissao?formatDateBr(emp.dataAdmissao):'—'}</td></tr>
-    <tr><td><strong>Período de Gozo:</strong> ${inicio} a ${fim}</td><td><strong>Dias de Gozo:</strong> ${diasGozo} dias</td></tr>
-    ${parseInt(abonoDias)>0?`<tr><td><strong>Abono Pecuniário:</strong> ${abonoDias} dias</td><td><strong>Sal. Base:</strong> ${fmtMoney(salBaseR)}</td></tr>`:`<tr><td colspan="2"><strong>Sal. Base:</strong> ${fmtMoney(salBaseR)}</td></tr>`}
-    ${(mediaAdic>0||mediaDsr>0)?`<tr><td colspan="2" style="font-size:11px;color:#555"><strong>Base de cálculo:</strong> Sal. Base ${fmtMoney(salBaseR)}${mediaAdic>0?` + Média adicionais variáveis ${fmtMoney(mediaAdic)}`:''}${mediaDsr>0?` + DSR s/ HE (Súm. 172) ${fmtMoney(mediaDsr)}`:''} = ${fmtMoney(salBaseR+mediaAdic+mediaDsr)} <span style="color:#1565C0">(Súmula 45/347 — médias habituais)</span></td></tr>`:''}
-  </table>
-  <table>
-    <tr><th>DEMONSTRATIVO FINANCEIRO</th><th>VALOR</th></tr>
-    <tr><td class="prov">(+) Salário de Fruição (${diasGozo} dias)</td><td class="prov">${fmtMoney(salFruicao)}</td></tr>
-    <tr><td class="prov">(+) 1/3 Constitucional</td><td class="prov">${fmtMoney(terco)}</td></tr>
-    ${parseInt(abonoDias)>0?`<tr><td class="prov">(+) Abono Pecuniário (${abonoDias} dias — isento INSS)</td><td class="prov">${fmtMoney(abono)}</td></tr>`:''}
-    <tr class="total-row"><td>Total Bruto</td><td>${fmtMoney(totalBruto)}</td></tr>
-    <tr><td class="desc">(-) INSS</td><td class="desc">(${fmtMoney(inss)})</td></tr>
-    <tr><td class="desc">(-) IRRF</td><td class="desc">(${fmtMoney(irrf)})</td></tr>
-    <tr class="total-row"><td>TOTAL LÍQUIDO A RECEBER</td><td>${fmtMoney(totalLiq)}</td></tr>
-  </table>
-  <p class="nota">* Abono pecuniário não integra base de INSS (art. 144 da CLT). IRRF calculado sobre fruição + 1/3.</p>
-  <div class="assinatura">
-    <div><hr>Assinatura do Colaborador<br><small>${emp.nome}</small></div>
-    <div><hr>Responsável / Empresa<br><small>${_e('nomeEmpresa')}</small></div>
-  </div>
-  <p style="text-align:center;font-size:10px;color:#999;margin-top:30px">Gerado por ${APP_VERSION} em ${new Date().toLocaleDateString('pt-BR')}</p>
-  </body></html>`);
-  w.document.close(); w.print();
+  const r={
+    ano:val('fer-modal-ano')||currentAno(),
+    inicio:val('fer-modal-inicio')||'', fim:val('fer-modal-fim')||'',
+    diasGozo:parseInt(val('fer-modal-dias-gozo')||0)||0,
+    abonoDias:parseInt(val('fer-modal-abono-dias')||0)||0,
+    mediaAdic:parseFloat(val('fer-modal-media-adic')||0),
+    mediaDsr:parseFloat(val('fer-modal-media-dsr')||0),
+    salFruicao:parseFloat(val('fer-modal-sal-fruicao')||0),
+    terco:parseFloat(val('fer-modal-terco')||0),
+    abono:parseFloat(val('fer-modal-abono-val')||0),
+    totalBruto:parseFloat(val('fer-modal-total-bruto')||0),
+    inss:parseFloat(val('fer-modal-inss')||0),
+    irrf:parseFloat(val('fer-modal-irrf')||0),
+    totalLiquido:parseFloat(val('fer-modal-total-liquido')||0),
+  };
+  _abrirJanelaExport(_reciboFeriasHTML(emp,r),'print',`Recibo_Ferias_${(emp.nome||'').replace(/\s+/g,'_')}`);
 }
 
 // ============================================
@@ -18955,6 +18890,10 @@ async function _criarSolicitacaoPagamento(d){
     scheduleDate:  d.scheduleDate || '',
     competencia:   d.competencia || '',
     origem:        d.origem || 'avulso',
+    // Documento que justifica o pagamento (holerite, recibo de ferias, TRCT...).
+    // Sem isto o comprovante fica orfao e o dossie nao fecha. #dossie
+    docTipo:       d.docTipo || '',
+    docId:         d.docId   || '',
     status:        'pendente',
     criadoPor:     u.username || u.id || '',
     criadoPorNome: u.username || '',
@@ -19030,6 +18969,37 @@ function onPagAvulsoEmpChange(){
   const emp=State.employees.find(e=>e.id===val('pag-avulso-emp'));
   setVal('pag-avulso-pix', emp?.chavePix||'');
   setVal('pag-avulso-pix-tipo', (emp&&emp.chavePixTipo) || detectPixKeyType(emp?.chavePix||''));
+  pagAvulsoRefTipoChange();
+}
+
+// "Referente a": amarra o pagamento avulso ao documento que o justifica. E assim
+// que ferias, 13o e rescisao param de virar PIX orfao. #dossie
+function _pagAvulsoRefLabel(){
+  return ({ferias:'Ferias', decimoterceiro:'13o Salario', rescisao:'Rescisao'})[val('pag-avulso-ref-tipo')] || '';
+}
+function pagAvulsoRefTipoChange(){
+  const tipo=val('pag-avulso-ref-tipo')||'';
+  const sel=document.getElementById('pag-avulso-ref-id');
+  const wrap=document.getElementById('pag-avulso-ref-wrap');
+  if(!sel) return;
+  const empId=val('pag-avulso-emp');
+  let itens=[];
+  if(tipo==='ferias')
+    itens=(State.ferias||[]).filter(r=>r.employeeId===empId)
+      .sort((a,b)=>String(b.inicio||'').localeCompare(String(a.inicio||'')))
+      .map(r=>({id:r.id, lbl:`${r.ano||''} · ${r.inicio?formatDateBr(r.inicio):'?'} a ${r.fim?formatDateBr(r.fim):'?'} · ${fmtMoney(+r.totalLiquido||0)}`}));
+  else if(tipo==='decimoterceiro')
+    itens=(State.decimoTerceiro||[]).filter(r=>r.employeeId===empId)
+      .sort((a,b)=>(b.ano||0)-(a.ano||0))
+      .map(r=>({id:r.id, lbl:`${r.ano||''} · liquido ${fmtMoney(+r.liquido||0)}`}));
+  else if(tipo==='rescisao')
+    itens=(State.rescisoes||[]).filter(r=>r.employeeId===empId)
+      .sort((a,b)=>String(b.dataDemissao||'').localeCompare(String(a.dataDemissao||'')))
+      .map(r=>({id:r.id, lbl:`${r.dataDemissao?formatDateBr(r.dataDemissao):'sem data'} · ${fmtMoney((r.calc&&r.calc.liquido)||0)}`}));
+  if(wrap) wrap.style.display = tipo ? '' : 'none';
+  sel.innerHTML = itens.length
+    ? '<option value="">— escolha o registro —</option>'+itens.map(i=>`<option value="${i.id}">${esc(i.lbl)}</option>`).join('')
+    : '<option value="">nenhum registro deste tipo para o colaborador</option>';
 }
 
 async function confirmarPagamentoAvulso(){
@@ -19044,6 +19014,11 @@ async function confirmarPagamentoAvulso(){
   if(!(valor>0)){ toast('Informe um valor válido.','error'); return; }
   const pixKey=(val('pag-avulso-pix')||'').trim();
   if(!pixKey){ toast('Chave PIX não informada — cadastre no colaborador ou digite aqui.','error'); return; }
+  // Escolheu o tipo do documento mas não o registro: o pagamento sairia dizendo
+  // "Férias" sem apontar QUAIS férias — dossiê furado por construção. #dossie
+  if(val('pag-avulso-ref-tipo') && !val('pag-avulso-ref-id')){
+    toast('Escolha QUAL registro este pagamento quita (ou volte "Referente a" para Outro).','error'); return;
+  }
   const pixTipo=val('pag-avulso-pix-tipo')||detectPixKeyType(pixKey);
   const data=val('pag-avulso-data')||new Date().toISOString().substring(0,10);
   const btn=document.getElementById('pag-avulso-confirm');
@@ -19052,8 +19027,10 @@ async function confirmarPagamentoAvulso(){
     const sol=await _criarSolicitacaoPagamento({
       employeeId:emp.id, employeeNome:emp.nome, payrollId:'',
       valor, pixKey:_pixKeyParaAsaas(pixKey,pixTipo), keyType:pixTipo,
-      descricao:`Avulso — ${desc}`,
+      descricao:`${_pagAvulsoRefLabel()||'Avulso'} — ${desc}`,
       scheduleDate:data, origem:'avulso',
+      docTipo:val('pag-avulso-ref-tipo')||'avulso',
+      docId:val('pag-avulso-ref-id')||'',
     });
     Auth.log('PAGAMENTO_SOLICITADO', null, `Avulso | ${emp.nome} | R$ ${valor.toFixed(2)} | ${desc} | sol ${sol.id}`);
     toast('Pagamento avulso enviado para Aprovações — precisa ser aprovado com 2FA.','success');
@@ -20159,6 +20136,7 @@ async function executarPlrLote(){
           pixKey:_pixKeyParaAsaas(r.pixKey, r.keyType), keyType:r.keyType,
           descricao:`${label} — ${r.empNome}`,
           scheduleDate:data, competencia:comp, origem:'plr',
+          docTipo:'plr',
         });
         r.jaLancado=true; r.selecionado=false; _plrRecalcStatus(r,false);
         ok++; total+=valor;
@@ -20207,6 +20185,495 @@ async function executarPlrLote(){
     btn.onclick=executarPlrLote;
     _plrLog(`✗ ERRO: ${(e&&e.message)||e}`, '#ef9a9a');
     toast(`Erro ao lançar a PLR: ${(e&&e.message)||e}`,'error');
+  }
+}
+
+// ============================================
+// DOSSIÊ DE PAGAMENTO — recibo e comprovante SEMPRE juntos
+// ============================================
+// Pedido do dono (27/08/2026): "os documentos estão soltos no mundo, difícil
+// organizar processo trabalhista e auditoria". Pagou salário → o holerite tem de
+// estar junto; pagou férias → o recibo de férias; pagou PLR → o recibo da PLR.
+//
+// A regra: **não existe pagamento sem documento**. Toda solicitação de pagamento
+// sabe QUAL documento a justifica (`docTipo`/`docId`) e o dossiê monta o par
+// [recibo + comprovante do banco] em PDF, por colaborador, num ZIP com índice.
+//
+// 🔒 O documento é gerado a partir do REGISTRO GRAVADO, nunca dos campos da tela.
+// Era essa a raiz do "documento solto": o recibo de férias e o de 13º liam
+// `val('fer-modal-...')`, então só existiam enquanto o modal estava aberto — não
+// dava para reemitir depois, e quem não imprimiu na hora ficou sem nada. #dossie
+
+// ── Valor por extenso (recibo trabalhista sem isso é meio recibo) ────────────
+function _valorExtenso(v){
+  const n=Math.max(0, Math.round((+v||0)*100));
+  const reais=Math.floor(n/100), cent=n%100;
+  const U=['zero','um','dois','três','quatro','cinco','seis','sete','oito','nove','dez','onze','doze','treze','quatorze','quinze','dezesseis','dezessete','dezoito','dezenove'];
+  const D=['','','vinte','trinta','quarenta','cinquenta','sessenta','setenta','oitenta','noventa'];
+  const C=['','cento','duzentos','trezentos','quatrocentos','quinhentos','seiscentos','setecentos','oitocentos','novecentos'];
+  const ate999=x=>{
+    if(x===0) return '';
+    if(x===100) return 'cem';
+    const c=Math.floor(x/100), d=Math.floor((x%100)/10), u=x%10;
+    const p=[];
+    if(c) p.push(C[c]);
+    if(x%100<20 && x%100>0) p.push(U[x%100]);
+    else { if(d) p.push(D[d]); if(u) p.push(U[u]); }
+    return p.join(' e ');
+  };
+  const grupo=(x,sing,plur)=>{
+    if(!x) return '';
+    if(x===1 && sing==='mil') return 'mil';
+    return ate999(x)+' '+(x===1?sing:plur);
+  };
+  let txt;
+  if(reais===0) txt='zero real';
+  else {
+    const mi=Math.floor(reais/1000000), mil=Math.floor((reais%1000000)/1000), un=reais%1000;
+    let p=[grupo(mi,'milhão','milhões'), grupo(mil,'mil','mil')].filter(Boolean).join(' e ');
+    if(un){
+      // O "e" antes do último grupo só entra quando ele é menor que cem ou é
+      // centena redonda: "mil e cem", mas "seis mil novecentos e cinquenta e três".
+      const liga=(un<100 || un%100===0) ? ' e ' : ' ';
+      p = p ? p+liga+ate999(un) : ate999(un);
+    }
+    // Milhão/bilhão redondo pede "de": "um milhão DE reais".
+    const de=(mi>0 && mil===0 && un===0) ? ' de' : '';
+    txt=p+de+(reais===1?' real':' reais');
+  }
+  if(cent) txt+=' e '+ate999(cent)+(cent===1?' centavo':' centavos');
+  return txt;
+}
+
+// ── Recibos gerados do REGISTRO (reemitíveis para sempre) ───────────────────
+function _reciboCabecalhoHTML(titulo){
+  return `<h2>${titulo}</h2>
+  <div class="empresa">${esc(_e('nomeEmpresa'))} — CNPJ: ${esc(_e('cnpj')||'—')}${_e('cnae')?' — CNAE: '+esc(_e('cnae')):''}${_empresaEnderecoLinha()?'<br><span style="font-size:11px;font-weight:400;color:#555">'+_empresaEnderecoLinha()+'</span>':''}</div>`;
+}
+const _RECIBO_CSS=`body{font-family:Arial,sans-serif;font-size:12px;color:#111;padding:20px}
+h2{color:#1a3a6b;margin-bottom:4px}.empresa{color:#555;font-size:11px;margin-bottom:16px}
+table{width:100%;border-collapse:collapse;margin-bottom:12px}th,td{border:1px solid #ccc;padding:5px 8px}
+th{background:#1a3a6b;color:#fff;text-align:left}.prov{color:#1a7a1a}.desc{color:#c0392b}
+.total-row{font-weight:700;background:#f0f4ff}.nota{font-size:10px;color:#555;margin-top:4px}
+.assinatura{margin-top:40px;display:flex;justify-content:space-between}
+.assinatura div{text-align:center;width:45%}.assinatura hr{margin-bottom:4px}
+@media print{body{padding:10px}}`;
+function _reciboPaginaHTML(titulo, corpo){
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${esc(titulo)}</title>
+  <style>${_RECIBO_CSS}</style></head><body>${corpo}
+  <p style="text-align:center;font-size:10px;color:#999;margin-top:30px">Gerado por ${APP_VERSION} em ${new Date().toLocaleDateString('pt-BR')}</p>
+  </body></html>`;
+}
+function _reciboAssinaturaHTML(emp){
+  return `<div class="assinatura">
+    <div><hr>Assinatura do Colaborador<br><small>${esc(emp.nome||'')}</small></div>
+    <div><hr>Responsável / Empresa<br><small>${esc(_e('nomeEmpresa'))}</small></div>
+  </div>`;
+}
+function _reciboDadosColabHTML(emp, extras){
+  return `<table>
+    <tr><th colspan="2">Dados do Colaborador</th></tr>
+    <tr><td><strong>Nome:</strong> ${esc(emp.nome||'—')}</td><td><strong>Registro:</strong> ${esc(emp.registro||'—')}</td></tr>
+    <tr><td><strong>CPF:</strong> ${esc(emp.cpf||'—')}</td><td><strong>Admissão:</strong> ${emp.dataAdmissao?formatDateBr(emp.dataAdmissao):'—'}</td></tr>
+    <tr><td><strong>Cargo:</strong> ${esc(emp.cargo||emp.setor||'—')}</td><td><strong>Sal. Base:</strong> ${fmtMoney(+emp.salarioBase||0)}</td></tr>
+    ${extras||''}
+  </table>`;
+}
+
+// Dias de gozo: o registro guarda início e fim, não a contagem.
+function _feriasDiasGozo(r){
+  if(r && +r.diasGozo>0) return +r.diasGozo;
+  if(!r || !r.inicio || !r.fim) return 30;
+  const a=new Date(r.inicio+'T12:00:00'), b=new Date(r.fim+'T12:00:00');
+  const d=Math.round((b-a)/86400000)+1;
+  return (d>0 && d<=60) ? d : 30;
+}
+
+// 🔒 Recibo de FÉRIAS a partir do registro salvo (coleção `ferias`). #dossie
+function _reciboFeriasHTML(emp, r){
+  const dias=_feriasDiasGozo(r);
+  const abonoDias=+r.abonoDias||0;
+  const salBase=+emp.salarioBase||0, mediaAdic=+r.mediaAdic||0, mediaDsr=+r.mediaDsr||0;
+  const corpo=_reciboCabecalhoHTML(`RECIBO DE FÉRIAS — ${esc(String(r.ano||''))}`)
+  + _reciboDadosColabHTML(emp, `
+    <tr><td><strong>Período de Gozo:</strong> ${r.inicio?formatDateBr(r.inicio):'—'} a ${r.fim?formatDateBr(r.fim):'—'}</td><td><strong>Dias de Gozo:</strong> ${dias} dias</td></tr>
+    ${abonoDias>0?`<tr><td colspan="2"><strong>Abono Pecuniário:</strong> ${abonoDias} dias</td></tr>`:''}
+    ${(mediaAdic>0||mediaDsr>0)?`<tr><td colspan="2" style="font-size:11px;color:#555"><strong>Base de cálculo:</strong> Sal. Base ${fmtMoney(salBase)}${mediaAdic>0?` + Média adicionais variáveis ${fmtMoney(mediaAdic)}`:''}${mediaDsr>0?` + DSR s/ HE (Súm. 172) ${fmtMoney(mediaDsr)}`:''} = ${fmtMoney(salBase+mediaAdic+mediaDsr)} <span style="color:#1565C0">(Súmula 45/347 — médias habituais)</span></td></tr>`:''}`)
+  + `<table>
+    <tr><th>DEMONSTRATIVO FINANCEIRO</th><th>VALOR</th></tr>
+    <tr><td class="prov">(+) Salário de Fruição (${dias} dias)</td><td class="prov">${fmtMoney(+r.salFruicao||0)}</td></tr>
+    <tr><td class="prov">(+) 1/3 Constitucional</td><td class="prov">${fmtMoney(+r.terco||0)}</td></tr>
+    ${abonoDias>0?`<tr><td class="prov">(+) Abono Pecuniário (${abonoDias} dias — isento INSS)</td><td class="prov">${fmtMoney(+r.abono||0)}</td></tr>`:''}
+    <tr class="total-row"><td>Total Bruto</td><td>${fmtMoney(+r.totalBruto||0)}</td></tr>
+    <tr><td class="desc">(-) INSS</td><td class="desc">(${fmtMoney(+r.inss||0)})</td></tr>
+    <tr><td class="desc">(-) IRRF</td><td class="desc">(${fmtMoney(+r.irrf||0)})</td></tr>
+    <tr class="total-row"><td>TOTAL LÍQUIDO A RECEBER</td><td>${fmtMoney(+r.totalLiquido||0)}</td></tr>
+  </table>
+  <p class="nota">Valor líquido por extenso: <strong>${_valorExtenso(+r.totalLiquido||0)}</strong>.</p>
+  <p class="nota">* Abono pecuniário não integra base de INSS (art. 144 da CLT). IRRF calculado sobre fruição + 1/3.</p>`
+  + _reciboAssinaturaHTML(emp);
+  return _reciboPaginaHTML(`Recibo de Férias — ${emp.nome||''}`, corpo);
+}
+
+// 🔒 Recibo de 13º a partir do registro salvo (coleção `decimoTerceiro`). #dossie
+function _recibo13HTML(emp, r){
+  const salBase=+emp.salarioBase||0, mediaAdic=+r.mediaAdic||0, mediaDsr=+r.mediaDsr||0;
+  const corpo=_reciboCabecalhoHTML(`RECIBO DE 13º SALÁRIO — ${esc(String(r.ano||''))}`)
+  + _reciboDadosColabHTML(emp, `
+    <tr><td><strong>Meses Trabalhados:</strong> ${r.mesesDireito?esc(String(r.mesesDireito))+'/12':'—'}</td><td><strong>Status:</strong> ${esc(r.status||'—')}</td></tr>
+    ${(mediaAdic>0||mediaDsr>0)?`<tr><td colspan="2" style="font-size:11px;color:#555"><strong>Base de cálculo:</strong> Sal. Base ${fmtMoney(salBase)}${mediaAdic>0?` + Média adicionais variáveis ${fmtMoney(mediaAdic)}`:''}${mediaDsr>0?` + DSR s/ HE (Súm. 172) ${fmtMoney(mediaDsr)}`:''} = ${fmtMoney(salBase+mediaAdic+mediaDsr)} <span style="color:#1565C0">(Súmula 45/347 — médias habituais)</span></td></tr>`:''}`)
+  + `<table>
+    <tr><th>PARCELA</th><th>VALOR</th><th>DATA PGTO</th></tr>
+    <tr><td>1ª Parcela (50% s/ descontos)</td><td class="prov">${fmtMoney(+r.parc1||0)}</td><td>${r.parc1Data?formatDateBr(r.parc1Data):'—'}</td></tr>
+    <tr><td>2ª Parcela (líquido)</td><td class="prov">${fmtMoney(+r.parc2||0)}</td><td>${r.parc2Data?formatDateBr(r.parc2Data):'—'}</td></tr>
+    <tr class="total-row"><td>Total Bruto (referência)</td><td>${fmtMoney(+r.bruto||0)}</td><td>—</td></tr>
+  </table>
+  <table>
+    <tr><th>ENCARGOS</th><th>VALOR</th></tr>
+    <tr><td class="desc">(-) INSS (sobre total bruto)</td><td class="desc">(${fmtMoney(+r.inss||0)})</td></tr>
+    <tr><td class="desc">(-) IRRF (sobre 2ª parcela)</td><td class="desc">(${fmtMoney(+r.irrf||0)})</td></tr>
+    <tr><td style="font-size:11px;color:#1a3a6b">(*) FGTS — Encargo Patronal (8%)</td><td style="color:#1a3a6b">${fmtMoney(+r.fgts||0)}</td></tr>
+    <tr class="total-row"><td>TOTAL LÍQUIDO A RECEBER</td><td>${fmtMoney(+r.liquido||0)}</td></tr>
+  </table>
+  <p class="nota">Valor líquido por extenso: <strong>${_valorExtenso(+r.liquido||0)}</strong>.</p>`
+  + _reciboAssinaturaHTML(emp);
+  return _reciboPaginaHTML(`Recibo 13º Salário — ${emp.nome||''}`, corpo);
+}
+
+// Recibo GENÉRICO do pagamento — vale para PLR, avulso, horas extras vencidas,
+// abono e qualquer coisa que não tenha documento próprio. Traz a chave PIX usada,
+// o ID da transferência e o protocolo: é o que amarra recibo ↔ dinheiro. #dossie
+function _reciboPagamentoHTML(sol, emp){
+  const tipo=_pagTipoLabel(sol);
+  const dataPg=(sol.pagoEm||sol.scheduleDate||sol.criadoEm||'').slice(0,10);
+  const confirmado=(PAG_STATUS_CONFIRMADO||[]).indexOf(String(sol.asaasStatus||'').toLowerCase())>=0 || !!sol.asaasComprovante;
+  const situacao = sol.status==='pago'
+    ? (confirmado ? 'Pago' : PAG_TXT_AGUARDA)
+    : (sol.status==='pendente' ? 'Aguardando aprovação' : (sol.status||'—'));
+  const corpo=_reciboCabecalhoHTML(`RECIBO DE PAGAMENTO — ${esc(tipo.toUpperCase())}`)
+  + _reciboDadosColabHTML(emp)
+  + `<table>
+    <tr><th colspan="2">Pagamento</th></tr>
+    <tr><td><strong>Referente a:</strong> ${esc(sol.descricao||tipo)}</td><td><strong>Competência:</strong> ${esc(_pagCompetenciaLabel(sol))}</td></tr>
+    <tr><td><strong>Data:</strong> ${dataPg?formatDateBr(dataPg):'—'}</td><td><strong>Situação:</strong> ${esc(situacao)}</td></tr>
+    <tr><td><strong>Forma:</strong> PIX</td><td><strong>Chave:</strong> <span style="font-family:monospace">${esc(sol.pixKey||'—')}</span>${sol.keyType?' ('+esc(sol.keyType)+')':''}</td></tr>
+    <tr class="total-row"><td>VALOR</td><td>${fmtMoney(+sol.valor||0)}</td></tr>
+  </table>
+  <p class="nota">Valor por extenso: <strong>${_valorExtenso(+sol.valor||0)}</strong>.</p>
+  <p class="nota">Protocolo interno: <strong>${esc(sol.id||'—')}</strong>${sol.asaasTransferId?` · ID da transferência: <strong>${esc(sol.asaasTransferId)}</strong>`:''}${sol.asaasComprovante?' · comprovante do banco anexado ao dossiê':''}</p>
+  ${sol.status==='pago'&&!confirmado?`<p class="nota" style="color:#E65100"><strong>${esc(PAG_TXT_AGUARDA)}</strong> O valor só sai da conta depois da autorização no banco.</p>`:''}`
+  + _reciboAssinaturaHTML(emp);
+  return _reciboPaginaHTML(`Recibo — ${tipo} — ${emp.nome||''}`, corpo);
+}
+
+// ── Que documento justifica este pagamento ─────────────────────────────────
+const _PAG_TIPOS={
+  folha:'Salário', lote:'Salário', adiantamento:'Adiantamento',
+  beneficio:'Benefícios', 'beneficio-manual':'Benefícios', 'beneficio-bp':'Boa Permanência',
+  'banco-he-vencida':'Horas extras vencidas', plr:'PLR — Participação nos Lucros',
+  ferias:'Férias', decimoterceiro:'13º Salário', rescisao:'Rescisão', avulso:'Pagamento avulso',
+};
+function _pagTipoLabel(sol){
+  const ref=_pagDocRef(sol);
+  return _PAG_TIPOS[ref.tipo] || _PAG_TIPOS[sol&&sol.origem] || 'Pagamento avulso';
+}
+// Competência legível: cada origem grava a sua do seu jeito.
+function _pagCompetenciaLabel(sol){
+  const c=String((sol&&sol.competencia)||'').trim();
+  if(!c) return '—';
+  let m=c.match(/^PLR_(\d{4})-(\d{2})_P(\w)$/);
+  if(m) return `${m[2]}/${m[1]} · ${m[3]==='U'?'parcela única':m[3]+'ª parcela'}`;
+  m=c.match(/^BEN[A-Z]*_(\d{4}-\d{2}-\d{2})_(\d{4}-\d{2}-\d{2})$/);
+  if(m) return `${formatDateBr(m[1])} a ${formatDateBr(m[2])}`;
+  m=c.match(/^BHVENC_(\d{4}-\d{2}-\d{2})$/);
+  if(m) return formatDateBr(m[1]);
+  return c;
+}
+// docTipo/docId gravados mandam; sem eles, deduz pela origem (registros antigos).
+function _pagDocRef(sol){
+  if(!sol) return {tipo:'avulso', id:''};
+  if(sol.docTipo) return {tipo:sol.docTipo, id:sol.docId||sol.payrollId||''};
+  const o=String(sol.origem||'');
+  if(o==='folha'||o==='lote'||o==='adiantamento') return {tipo:(o==='adiantamento'?'adiantamento':'folha'), id:sol.payrollId||''};
+  if(o.indexOf('beneficio')===0) return {tipo:'beneficio', id:''};
+  if(o==='plr') return {tipo:'plr', id:''};
+  if(o==='banco-he-vencida') return {tipo:'banco-he-vencida', id:''};
+  return {tipo:'avulso', id:''};
+}
+
+// Resolve QUAL documento justifica o pagamento SEM montar o HTML — a lista chama
+// isto por linha, e gerar o recibo inteiro a cada render custaria caro à toa.
+// Devolve {titulo, tipo, reg} ou {falta:'motivo'}. "falta" é informação de
+// auditoria, não erro: a tela mostra o que está furado em vez de esconder. #dossie
+function _pagDocInfo(sol){
+  if(!sol) return {falta:'pagamento inexistente'};
+  const emp=(State.employees||[]).find(e=>e.id===sol.employeeId);
+  if(!emp) return {falta:'colaborador removido do cadastro'};
+  const ref=_pagDocRef(sol);
+  if(ref.tipo==='folha' || ref.tipo==='adiantamento'){
+    let p=ref.id ? (State.payrolls||[]).find(x=>x.id===ref.id) : null;
+    if(!p){
+      const m=String(sol.competencia||'').match(/^(\d{2})\/(\d{4})$/);
+      if(m && typeof _melhorPayroll==='function') p=_melhorPayroll(sol.employeeId, +m[1], +m[2]);
+    }
+    if(!p) return {falta:'folha da competência não encontrada'};
+    return {tipo:ref.tipo, emp, reg:p, titulo:`Holerite ${String(p.mes).padStart(2,'0')}/${p.ano}`};
+  }
+  if(ref.tipo==='ferias'){
+    const r=(State.ferias||[]).find(x=>x.id===ref.id);
+    return r ? {tipo:'ferias', emp, reg:r, titulo:`Recibo de Férias ${r.ano||''}`}
+             : {falta:'registro de férias não encontrado'};
+  }
+  if(ref.tipo==='decimoterceiro'){
+    const r=(State.decimoTerceiro||[]).find(x=>x.id===ref.id);
+    return r ? {tipo:'decimoterceiro', emp, reg:r, titulo:`Recibo 13º ${r.ano||''}`}
+             : {falta:'registro de 13º não encontrado'};
+  }
+  if(ref.tipo==='rescisao'){
+    const r=(State.rescisoes||[]).find(x=>x.id===ref.id);
+    return r ? {tipo:'rescisao', emp, reg:r, titulo:'TRCT — Rescisão'}
+             : {falta:'registro de rescisão não encontrado'};
+  }
+  if(ref.tipo==='beneficio'){
+    const r=(State.beneficioRecibos||[]).find(x=>x.id===ref.id)
+      || (State.beneficioRecibos||[]).find(x=>x.employeeId===sol.employeeId && x.competencia===sol.competencia);
+    return {tipo:'beneficio', emp, reg:r||null, titulo:'Recibo de Benefícios'};
+  }
+  return {tipo:'generico', emp, reg:null, titulo:`Recibo — ${_pagTipoLabel(sol)}`};
+}
+
+// Monta o HTML do documento (sob demanda: abrir na tela ou entrar no ZIP).
+function _pagDocumento(sol){
+  const info=_pagDocInfo(sol);
+  if(info.falta) return info;
+  const emp=info.emp;
+  try{
+    if(info.tipo==='folha'||info.tipo==='adiantamento')
+      return {titulo:info.titulo, html:_reciboOficialUmHTML(emp,info.reg,info.reg.mes,info.reg.ano,{})};
+    if(info.tipo==='ferias')          return {titulo:info.titulo, html:_reciboFeriasHTML(emp,info.reg)};
+    if(info.tipo==='decimoterceiro')  return {titulo:info.titulo, html:_recibo13HTML(emp,info.reg)};
+    if(info.tipo==='rescisao'){
+      const o=info.reg.calc||_calcRescisao({...info.reg, emp});
+      return {titulo:info.titulo, html:_trctHtml(info.reg,emp,o)};
+    }
+    if(info.tipo==='beneficio' && info.reg && info.reg.reciboHtml)
+      return {titulo:info.titulo, html:info.reg.reciboHtml};
+    return {titulo:info.titulo, html:_reciboPagamentoHTML(sol,emp)};
+  }catch(e){
+    console.error('dossie documento', sol && sol.id, e);
+    return {falta:(e&&e.message)||'erro ao montar o documento'};
+  }
+}
+
+function verDocumentoPagamento(solId){
+  const sol=(State.solicitacoes||[]).find(s=>s.id===solId);
+  if(!sol){ toast('Pagamento não encontrado.','error'); return; }
+  const d=_pagDocumento(sol);
+  if(d.falta){ toast(`Sem documento: ${d.falta}.`,'warning'); return; }
+  const nome=((sol.employeeNome||'doc').replace(/\s+/g,'_'));
+  if(typeof _abrirJanelaExport==='function') _abrirJanelaExport(d.html,'print',`${d.titulo}_${nome}`);
+  else { const w=window.open('','_blank'); w.document.write(d.html); w.document.close(); }
+}
+
+// ── Tela do dossiê ─────────────────────────────────────────────────────────
+let _dossieCache=[];
+
+function _dossieDataDoAto(s){
+  // 🔒 A data do dossiê é a do ATO (quando o dinheiro saiu), não a da criação.
+  return String(s.pagoEm||s.scheduleDate||s.criadoEm||'').slice(0,10);
+}
+function _dossieComprovanteOk(s){
+  return !!s.asaasComprovante;
+}
+
+function _dossieFiltrado(){
+  const de=val('dossie-de')||'', ate=val('dossie-ate')||'';
+  const empId=val('dossie-emp')||'';
+  const tipo=val('dossie-tipo')||'';
+  const soPend=!!(document.getElementById('dossie-so-pendencia')||{}).checked;
+  return (State.solicitacoes||[]).filter(s=>{
+    if(!s || s.status!=='pago') return false;          // dossiê = o que foi pago
+    const d=_dossieDataDoAto(s);
+    if(de && d < de) return false;
+    if(ate && d > ate) return false;
+    if(empId && s.employeeId!==empId) return false;
+    if(tipo && _pagDocRef(s).tipo!==tipo) return false;
+    if(soPend){
+      if(!_pagDocInfo(s).falta && _dossieComprovanteOk(s)) return false;
+    }
+    return true;
+  }).sort((a,b)=>{
+    const na=(a.employeeNome||''), nb=(b.employeeNome||'');
+    return na.localeCompare(nb,'pt-BR') || _dossieDataDoAto(a).localeCompare(_dossieDataDoAto(b));
+  });
+}
+
+function renderDossie(){
+  const tbody=document.getElementById('dossie-tbody'); if(!tbody) return;
+  // Preenche o select de colaboradores uma vez (mantendo a escolha atual).
+  const selEmp=document.getElementById('dossie-emp');
+  if(selEmp && selEmp.options.length<=1){
+    const atual=selEmp.value;
+    selEmp.innerHTML='<option value="">Todos os colaboradores</option>'+
+      [...(State.employees||[])].sort((a,b)=>String(a.nome||'').localeCompare(String(b.nome||''),'pt-BR'))
+        .map(e=>`<option value="${e.id}">${esc(e.nome||'—')}</option>`).join('');
+    selEmp.value=atual;
+  }
+  if(!val('dossie-de') && !val('dossie-ate')){
+    const hoje=new Date();
+    setVal('dossie-de', new Date(hoje.getFullYear(), hoje.getMonth()-2, 1).toISOString().slice(0,10));
+    setVal('dossie-ate', hoje.toISOString().slice(0,10));
+  }
+
+  const lista=_dossieFiltrado();
+  _dossieCache=lista;
+
+  let semDoc=0, semComp=0, total=0;
+  tbody.innerHTML = lista.length ? lista.map((s,i)=>{
+    const bg=i%2?'#f9fafb':'#fff';
+    const doc=_pagDocInfo(s);
+    const comp=_dossieComprovanteOk(s);
+    if(doc.falta) semDoc++;
+    if(!comp) semComp++;
+    total+=(+s.valor||0);
+    const docCel=doc.falta
+      ? `<span style="color:#c62828;font-size:11px" title="${esc(doc.falta)}"><i class="fa-solid fa-triangle-exclamation"></i> falta: ${esc(doc.falta)}</span>`
+      : `<button class="btn btn-sm btn-outline" style="font-size:11px;padding:3px 8px;color:#1a3a6b;border-color:#c5cae9" onclick="verDocumentoPagamento('${s.id}')"><i class="fa-solid fa-file-lines"></i> ${esc(doc.titulo)}</button>`;
+    const compCel=comp
+      ? `<a class="btn btn-sm" style="background:#00695C;color:#fff;border-color:#00695C;text-decoration:none;font-size:11px;padding:3px 8px" href="${esc(s.asaasComprovante)}" target="_blank" rel="noopener"><i class="fa-solid fa-receipt"></i> Comprovante</a>`
+      : (s.asaasTransferId
+          ? `<button class="btn btn-sm btn-outline" style="font-size:11px;padding:3px 8px;color:#00695C;border-color:#80cbc4" onclick="verComprovante('${s.id}',this)"><i class="fa-solid fa-cloud-arrow-down"></i> Buscar</button>`
+          : `<span style="color:#E65100;font-size:11px"><i class="fa-solid fa-hourglass-half"></i> ainda não emitido</span>`);
+    return `<tr style="background:${bg}">
+      <td style="padding:8px 10px"><strong>${esc(s.employeeNome||'—')}</strong></td>
+      <td style="padding:8px 10px">${esc(_pagTipoLabel(s))}</td>
+      <td style="padding:8px 10px">${esc(_pagCompetenciaLabel(s))}</td>
+      <td style="padding:8px 10px;white-space:nowrap">${_dossieDataDoAto(s)?formatDateBr(_dossieDataDoAto(s)):'—'}</td>
+      <td style="padding:8px 10px;text-align:right;font-weight:700;color:#00695C">${fmtMoney(+s.valor||0)}</td>
+      <td style="padding:8px 10px">${docCel}</td>
+      <td style="padding:8px 10px">${compCel}</td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="7" style="padding:26px;text-align:center;color:#999">Nenhum pagamento no recorte escolhido.${(val('dossie-emp')||val('dossie-tipo')||(document.getElementById('dossie-so-pendencia')||{}).checked)?' <strong>Há filtros ativos</strong> — limpe os filtros para ver tudo.':''}</td></tr>`;
+
+  const res=document.getElementById('dossie-resumo');
+  if(res){
+    res.innerHTML=`<strong>${lista.length}</strong> pagamento(s) · <strong style="color:#00695C">${fmtMoney(total)}</strong>`
+      + (semDoc?` &nbsp;|&nbsp; <span style="color:#c62828">${semDoc} sem documento</span>`:'')
+      + (semComp?` &nbsp;|&nbsp; <span style="color:#E65100">${semComp} sem comprovante do banco</span>`:'')
+      + ((!semDoc&&!semComp&&lista.length)?` &nbsp;|&nbsp; <span style="color:#2e7d32">✓ dossiê completo</span>`:'');
+  }
+  const btn=document.getElementById('btn-dossie-zip');
+  if(btn) btn.disabled=!lista.length;
+}
+
+function dossieLimparFiltros(){
+  setVal('dossie-emp',''); setVal('dossie-tipo','');
+  const c=document.getElementById('dossie-so-pendencia'); if(c) c.checked=false;
+  renderDossie();
+}
+
+// Nome de arquivo/pasta seguro (deburr antes de podar: "Férias" não pode virar "Frias").
+function _dossieSafe(s){
+  return String(s||'').normalize('NFD').replace(/[^\x20-\x7E]/g,'')
+    .replace(/[^a-zA-Z0-9 _-]/g,'').trim().replace(/\s+/g,'_') || 'sem_nome';
+}
+
+// ZIP: uma pasta por colaborador, recibo e comprovante lado a lado, mais o
+// índice em CSV. É o pacote que se entrega ao advogado ou ao auditor.
+async function baixarDossieZip(){
+  if(typeof JSZip==='undefined'){ toast('JSZip não carregado. Verifique a conexão.','error'); return; }
+  const lista=_dossieCache.slice();
+  if(!lista.length){ toast('Nada no recorte para baixar.','warning'); return; }
+  const btn=document.getElementById('btn-dossie-zip');
+  const htmlBtn=btn?btn.innerHTML:'';
+  if(btn){ btn.disabled=true; btn.innerHTML=`<i class="fa-solid fa-spinner fa-spin"></i> Montando 0/${lista.length}... aguarde`; }
+
+  const zip=new JSZip();
+  const usados={};
+  const idx=[['Colaborador','CPF','Matrícula','Tipo','Competência','Data do pagamento','Valor','Documento','Comprovante','ID da transferência','Protocolo']];
+  let okDoc=0, faltaDoc=0, okComp=0, faltaComp=0;
+  const problemas=[];
+
+  try{
+    for(let i=0;i<lista.length;i++){
+      const s=lista[i];
+      if(btn) btn.innerHTML=`<i class="fa-solid fa-spinner fa-spin"></i> Montando ${i+1}/${lista.length}... aguarde`;
+      const emp=(State.employees||[]).find(e=>e.id===s.employeeId)||{};
+      const pasta=_dossieSafe(s.employeeNome||emp.nome||'colaborador');
+      const data=_dossieDataDoAto(s);
+      const base=`${pasta}/${(data||'sem-data')}_${_dossieSafe(_pagTipoLabel(s))}`;
+      let nomeBase=base, n=2; while(usados[nomeBase]){ nomeBase=base+'_'+n; n++; } usados[nomeBase]=1;
+
+      // 1) o documento que justifica o pagamento
+      const doc=_pagDocumento(s);
+      let docNome='';
+      if(doc.falta){ faltaDoc++; problemas.push(`${s.employeeNome}: sem documento (${doc.falta})`);
+        zip.file(`${nomeBase}_SEM_DOCUMENTO.txt`, `Pagamento sem documento vinculado.\nMotivo: ${doc.falta}\nProtocolo: ${s.id}\nValor: ${fmtMoney(+s.valor||0)}\nData: ${data}\n`);
+      } else {
+        try{
+          zip.file(`${nomeBase}_recibo.pdf`, await _htmlParaPdfBlob(doc.html));
+          docNome=`${nomeBase}_recibo.pdf`; okDoc++;
+        }catch(e){ faltaDoc++; problemas.push(`${s.employeeNome}: falhou gerar o PDF do recibo — ${(e&&e.message)||e}`); }
+      }
+
+      // 2) o comprovante do banco
+      if(s.asaasComprovante){
+        try{
+          const resp=await fetch(s.asaasComprovante,{cache:'reload'});
+          if(!resp||!resp.ok) throw new Error(`HTTP ${resp?resp.status:'sem resposta'}`);
+          const blob=await resp.blob();
+          const ext=(blob.type&&blob.type.indexOf('pdf')>=0)?'pdf':((blob.type||'').split('/')[1]||'pdf').replace(/[^a-z0-9]/g,'').slice(0,4);
+          zip.file(`${nomeBase}_comprovante.${ext||'pdf'}`, blob);
+          okComp++;
+        }catch(e){
+          // 🔒 Comprovante que não baixa NÃO some calado: entra o link e o motivo.
+          faltaComp++;
+          zip.file(`${nomeBase}_comprovante_LINK.txt`, `O comprovante não pôde ser baixado pelo navegador.\nMotivo: ${(e&&e.message)||e}\nAbra pelo link:\n${s.asaasComprovante}\n`);
+          problemas.push(`${s.employeeNome}: comprovante não baixou (${(e&&e.message)||e})`);
+        }
+      } else {
+        faltaComp++;
+        zip.file(`${nomeBase}_comprovante_PENDENTE.txt`, `Comprovante do banco ainda não emitido para este pagamento.\nID da transferência: ${s.asaasTransferId||'—'}\nProtocolo: ${s.id}\n`);
+      }
+
+      idx.push([s.employeeNome||'', emp.cpf||'', emp.registro?String(emp.registro).padStart(4,'0'):'',
+        _pagTipoLabel(s), _pagCompetenciaLabel(s), data?formatDateBr(data):'',
+        (+s.valor||0).toFixed(2).replace('.',','),
+        doc.falta?('FALTA: '+doc.falta):(docNome?'OK':'FALHOU'),
+        s.asaasComprovante?'OK':'pendente', s.asaasTransferId||'', s.id||'']);
+    }
+
+    const csv='﻿'+idx.map(l=>l.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(';')).join('\r\n');
+    zip.file('INDICE.csv', csv);
+    zip.file('LEIA-ME.txt',
+      `DOSSIÊ DE PAGAMENTOS — ${_e('nomeEmpresa')}\n`+
+      `Gerado em ${new Date().toLocaleString('pt-BR')} por ${APP_VERSION}\n\n`+
+      `Uma pasta por colaborador. Em cada pagamento:\n`+
+      `  *_recibo.pdf ....... o documento que justifica o pagamento\n`+
+      `  *_comprovante.* .... o comprovante do banco\n`+
+      `  *_..._PENDENTE.txt . o que ainda falta (e por quê)\n\n`+
+      `INDICE.csv lista tudo, com valor, data do pagamento e o que está faltando.\n\n`+
+      `Total no recorte: ${lista.length} pagamento(s).\n`+
+      `Recibos gerados: ${okDoc} · sem documento: ${faltaDoc}\n`+
+      `Comprovantes anexados: ${okComp} · pendentes/não baixados: ${faltaComp}\n`+
+      (problemas.length?`\nPendências:\n- ${problemas.join('\n- ')}\n`:''));
+
+    const content=await zip.generateAsync({type:'blob'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(content);
+    a.download=`Dossie_pagamentos_${(val('dossie-de')||'').replace(/-/g,'')}_${(val('dossie-ate')||'').replace(/-/g,'')}.zip`;
+    a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },800);
+
+    try{ Auth.log('DOSSIE_ZIP', null, `${lista.length} pagamento(s) · ${okDoc} recibo(s) · ${okComp} comprovante(s)`); }catch(_){}
+    toast(`Dossiê baixado: ${lista.length} pagamento(s), ${okDoc} recibo(s), ${okComp} comprovante(s)`
+      + ((faltaDoc||faltaComp)?` — ${faltaDoc} sem documento e ${faltaComp} sem comprovante ficaram anotados no ZIP.`:'.'),
+      (faltaDoc||faltaComp)?'warning':'success');
+  }catch(e){
+    console.error('dossie zip',e);
+    toast(`Erro ao montar o dossiê: ${(e&&e.message)||e}`,'error');
+  }finally{
+    if(btn){ btn.disabled=false; btn.innerHTML=htmlBtn; }
   }
 }
 
@@ -23151,9 +23618,14 @@ function renderAprovacoes(){
     const sched=(s.scheduleDate||'').split('-').reverse().join('/');
     // Nome do colaborador clicavel → abre o cadastro (se o colaborador existe)
     const _empCad=State.employees.find(e=>e.id===s.employeeId);
-    const nomeCell=_empCad
+    const nomeCell=(_empCad
       ? `<strong style="color:var(--primary);cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px" onclick="openEmployeeModal('${s.employeeId}')" title="Abrir cadastro de ${(s.employeeNome||'').replace(/"/g,'&quot;')}">${s.employeeNome||'—'}</strong>`
-      : `<strong>${s.employeeNome||'—'}</strong>`;
+      : `<strong>${s.employeeNome||'—'}</strong>`)
+      // O documento que justifica o pagamento anda JUNTO com ele — é o que evita
+      // o comprovante órfão que ninguém casa depois, na auditoria. #dossie
+      + (()=>{ const d=_pagDocInfo(s); return d.falta
+          ? `<div style="font-size:10px;color:#c62828;margin-top:3px" title="${String(d.falta).replace(/"/g,'&quot;')}"><i class="fa-solid fa-triangle-exclamation"></i> sem documento: ${d.falta}</div>`
+          : `<div style="margin-top:3px"><button class="btn btn-sm btn-outline" style="font-size:10px;padding:2px 7px;color:#1a3a6b;border-color:#c5cae9" onclick="verDocumentoPagamento('${s.id}')" title="Abrir o documento que justifica este pagamento"><i class="fa-solid fa-file-lines"></i> ${d.titulo}</button></div>`; })();
     let acoes='—';
     if(s.status==='pendente'){
       acoes = podeAprovar
@@ -37978,6 +38450,9 @@ async function _carregarDadosPosLogin(){
     if(State.currentSection==='aprovacoes') renderAprovacoes();
     if(State.currentSection==='adiantamentos') renderAdiantamentos();
     if(State.currentSection==='dashboard') renderDashboard();
+    // O comprovante chega em 2º plano (auto-fetch); sem isto o dossiê continuaria
+    // dizendo "sem comprovante" numa tela já aberta. #dossie
+    if(State.currentSection==='dossie') renderDossie();
   });
   DB.listen('termosFerias', data => {   // termos de férias — atualiza status/carimbo ao vivo. #ferias-sign
     State.termosFerias = data;

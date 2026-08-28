@@ -4,7 +4,7 @@
   "version": "3.0.0",
   "description": "DRG-Kronos — checagem estática (sintaxe + no-undef). NÃO é um build: o app é HTML/JS puro servido pelo GitHub Pages. Estas deps existem só para o verificador (ESLint), que roda no GitHub Actions — node_modules nunca deve ser instalado na pasta do Drive.",
   "scripts": {
-    "check": "node -c app.js && node -c ponto-sw.js && eslint app.js ponto-sw.js && node teste-plr.js"
+    "check": "node -c app.js && node -c ponto-sw.js && eslint app.js ponto-sw.js && node teste-plr.js && node teste-dossie.js"
   },
   "devDependencies": {
     "eslint": "^9.0.0",

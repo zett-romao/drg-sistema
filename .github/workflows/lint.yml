@@ -42,6 +42,10 @@ jobs:
       # duplicidade. Roda contra o proprio app.js (nao contra uma copia). #plr
       - name: Motor da PLR (teste-plr.js)
         run: node teste-plr.js
+      # Dossie: qual documento justifica cada pagamento e o recibo montado a
+      # partir do REGISTRO (nao dos campos da tela). #dossie
+      - name: Dossie de pagamentos (teste-dossie.js)
+        run: node teste-dossie.js
 
       # 🔒 TRAVA DAS REGRAS DE PONTO (dono 2026-08-02, "trave onde for preciso para não
       # mexer mais"). Até aqui este teste dependia de alguém LEMBRAR de rodar à mão —

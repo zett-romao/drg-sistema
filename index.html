@@ -350,6 +350,12 @@
               <span>Aprovações</span>
             </a>
           </li>
+          <li id="nav-dossie-li" class="hidden">
+            <a class="nav-link" id="nav-dossie" onclick="showSection('dossie')">
+              <i class="fa-solid fa-folder-open"></i>
+              <span>Dossiê de Pagamentos</span>
+            </a>
+          </li>
           <li id="nav-recibos-li" class="hidden">
             <a class="nav-link" id="nav-recibos" onclick="showSection('recibos')">
               <i class="fa-solid fa-file-invoice-dollar"></i>
@@ -2580,6 +2586,70 @@
         </div>
       </section>
 
+      <!-- ===== DOSSIÊ DE PAGAMENTOS (recibo + comprovante juntos) ===== -->
+      <section id="section-dossie" class="section">
+        <div class="page-header">
+          <h2>Dossiê de Pagamentos</h2>
+          <p style="color:#666;font-size:13px;margin-top:2px">
+            Cada pagamento com o documento que o justifica e o comprovante do banco, lado a lado.
+            O ZIP sai com uma pasta por colaborador e um índice — é o pacote de auditoria e de processo trabalhista.
+          </p>
+        </div>
+        <div class="card">
+          <div class="card-header" style="flex-wrap:wrap;gap:10px">
+            <div class="form-row" style="align-items:flex-end;gap:10px;flex-wrap:wrap;margin:0">
+              <div class="form-group form-group-sm" style="flex:0 0 auto;margin:0">
+                <label>Pago de</label><input type="date" id="dossie-de" onchange="renderDossie()">
+              </div>
+              <div class="form-group form-group-sm" style="flex:0 0 auto;margin:0">
+                <label>até</label><input type="date" id="dossie-ate" onchange="renderDossie()">
+              </div>
+              <div class="form-group form-group-sm" style="flex:1 1 180px;margin:0">
+                <label>Colaborador</label>
+                <select id="dossie-emp" onchange="renderDossie()"><option value="">Todos os colaboradores</option></select>
+              </div>
+              <div class="form-group form-group-sm" style="flex:0 0 auto;margin:0">
+                <label>Tipo</label>
+                <select id="dossie-tipo" onchange="renderDossie()">
+                  <option value="">Todos os tipos</option>
+                  <option value="folha">Salário</option>
+                  <option value="adiantamento">Adiantamento</option>
+                  <option value="beneficio">Benefícios</option>
+                  <option value="plr">PLR</option>
+                  <option value="ferias">Férias</option>
+                  <option value="decimoterceiro">13º Salário</option>
+                  <option value="rescisao">Rescisão</option>
+                  <option value="banco-he-vencida">Horas extras vencidas</option>
+                  <option value="avulso">Avulso</option>
+                </select>
+              </div>
+              <label style="font-size:12px;color:#555;display:flex;align-items:center;gap:6px;padding-bottom:6px;cursor:pointer">
+                <input type="checkbox" id="dossie-so-pendencia" onchange="renderDossie()"> só o que está faltando
+              </label>
+              <button class="btn btn-outline btn-sm" onclick="dossieLimparFiltros()" style="margin-bottom:2px">
+                <i class="fa-solid fa-filter-circle-xmark"></i> Limpar filtros
+              </button>
+            </div>
+            <button class="btn btn-primary" id="btn-dossie-zip" onclick="baixarDossieZip()" disabled
+              style="background:#1a3a6b;border-color:#1a3a6b">
+              <i class="fa-solid fa-file-zipper"></i> Baixar dossiê (ZIP)
+            </button>
+          </div>
+          <div style="padding:10px 20px;background:#f8f9fc;border-bottom:1px solid var(--border-color,#e0e0e0);font-size:13px;color:#555" id="dossie-resumo"></div>
+          <div class="card-body" style="padding:0;overflow-x:auto">
+            <table class="data-table" style="min-width:900px">
+              <thead>
+                <tr>
+                  <th>Colaborador</th><th>Tipo</th><th>Competência</th><th>Pago em</th>
+                  <th style="text-align:right">Valor</th><th>Documento</th><th>Comprovante</th>
+                </tr>
+              </thead>
+              <tbody id="dossie-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
       <!-- ===== DOCUMENTOS DO COLABORADOR (enviados pelo app) ===== -->
       <section id="section-documentos" class="section">
         <div class="page-header">
@@ -4663,6 +4733,22 @@
       <div class="form-group">
         <label>Colaborador <span class="required">*</span></label>
         <select id="pag-avulso-emp" onchange="onPagAvulsoEmpChange()"></select>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Referente a</label>
+          <select id="pag-avulso-ref-tipo" onchange="pagAvulsoRefTipoChange()"
+            title="Amarra o pagamento ao documento que o justifica — e o recibo entra no dossie junto com o comprovante.">
+            <option value="">Outro (gera recibo de pagamento)</option>
+            <option value="ferias">Férias</option>
+            <option value="decimoterceiro">13º Salário</option>
+            <option value="rescisao">Rescisão</option>
+          </select>
+        </div>
+        <div class="form-group" id="pag-avulso-ref-wrap" style="display:none">
+          <label>Qual registro <span class="required">*</span></label>
+          <select id="pag-avulso-ref-id"></select>
+        </div>
       </div>
       <div class="form-group">
         <label>Descrição <span class="required">*</span></label>
@@ -8131,6 +8217,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260827b-plr-sobe-pdf"></script>
+  <script src="app.js?v=20260827c-dossie-pagamentos"></script>
 </body>
 </html>

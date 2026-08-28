@@ -19393,6 +19393,234 @@ async function executarPagamentoLote() {
 }
 
 // ============================================
+// LEITOR DE TEXTO DE PDF (sem biblioteca externa)
+// ============================================
+// Extrai o texto de um PDF com camada de texto — é o que permite SUBIR o PDF do
+// contador em vez de copiar e colar. Usa `DecompressionStream`, que já vem no
+// navegador: nada de CDN, nada para carregar, funciona offline.
+//
+// Serve para relatórios gerados por sistema (o caso real: "Relação Geral dos
+// Líquidos"). PDF digitalizado (imagem) NÃO tem texto para extrair — nesse caso
+// a tela manda copiar e colar, em vez de fingir que leu. #pdf-texto
+
+async function _pdfInflate(bytes, modo){
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream(modo||'deflate'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+// PDF é byte a byte: latin1 mantém a correspondência 1 char = 1 byte, então dá
+// para procurar marcadores com regex sem estragar o binário.
+function _pdfLatin1Bytes(s){
+  const a=new Uint8Array(s.length);
+  for(let i=0;i<s.length;i++) a[i]=s.charCodeAt(i)&0xff;
+  return a;
+}
+function _pdfBytesLatin1(b){
+  let s='';
+  for(let i=0;i<b.length;i+=8192) s+=String.fromCharCode.apply(null,b.subarray(i,i+8192));
+  return s;
+}
+
+// "N G obj ... endobj" -> {num:{dict,raw}}. O marcador de stream pode terminar em
+// CRLF, LF ou CR sozinho — CR sozinho está fora da spec, mas é o que o gerador do
+// relatório do contador usa; exigir \n devolve zero objeto.
+function _pdfObjetos(s){
+  const objs={};
+  const re=/(\d+)\s+(\d+)\s+obj\b/g;
+  let m;
+  while((m=re.exec(s))){
+    const ini=re.lastIndex;
+    const fim=s.indexOf('endobj',ini);
+    if(fim<0) continue;
+    const corpo=s.slice(ini,fim);
+    const mSt=corpo.match(/\bstream(\r\n|\r|\n)/);
+    if(!mSt){ objs[+m[1]]={dict:corpo, raw:null}; continue; }
+    const iSt=corpo.indexOf(mSt[0]);
+    const ini2=iSt+mSt[0].length;
+    let fim2=corpo.lastIndexOf('endstream');
+    if(fim2<ini2) fim2=corpo.length;
+    objs[+m[1]]={dict:corpo.slice(0,iSt), raw:corpo.slice(ini2,fim2)};
+  }
+  return objs;
+}
+
+// /Length pode ser direto (/Length 408) ou indireto (/Length 8 0 R).
+function _pdfLen(dict, objs){
+  const ind=dict.match(/\/Length\s+(\d+)\s+\d+\s+R/);
+  if(ind){ const o=objs[+ind[1]]; const n=o&&o.dict.match(/\d+/); return n?+n[0]:null; }
+  const dir=dict.match(/\/Length\s+(\d+)/);
+  return dir?+dir[1]:null;
+}
+
+async function _pdfStream(obj, objs){
+  if(!obj || obj.raw==null) return '';
+  // 🔒 Cortar no /Length é obrigatório: o byte de fim de linha que sobra antes de
+  // "endstream" faz o DecompressionStream recusar TUDO com "trailing junk" — e o
+  // PDF inteiro sai vazio, sem erro nenhum. #pdf-texto
+  let raw=obj.raw;
+  const len=_pdfLen(obj.dict, objs||{});
+  if(len!=null && len<=raw.length) raw=raw.slice(0,len);
+  else raw=raw.replace(/[\r\n\t ]+$/,'');
+  if(!/FlateDecode/.test(obj.dict)) return raw;
+  const bytes=_pdfLatin1Bytes(raw);
+  try{ return _pdfBytesLatin1(await _pdfInflate(bytes,'deflate')); }
+  catch(e){
+    try{ return _pdfBytesLatin1(await _pdfInflate(bytes,'deflate-raw')); }
+    catch(e2){ return ''; }
+  }
+}
+
+// ToUnicode: blocos bfchar/bfrange -> mapa "código do glifo" -> texto. Sem ele, a
+// fonte Identity-H (subset embutido) devolve números de glifo, não letras.
+function _pdfCMap(txt){
+  const map={};
+  const hex=h=>parseInt(h,16);
+  const uni=h=>{ let o=''; for(let i=0;i+3<h.length+1;i+=4) o+=String.fromCharCode(hex(h.substr(i,4))); return o; };
+  for(const bl of txt.match(/beginbfchar([\s\S]*?)endbfchar/g)||[]){
+    const re=/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g; let m;
+    while((m=re.exec(bl))) map[hex(m[1])]=uni(m[2]);
+  }
+  for(const bl of txt.match(/beginbfrange([\s\S]*?)endbfrange/g)||[]){
+    const re=/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*(?:<([0-9A-Fa-f]+)>|\[([\s\S]*?)\])/g; let m;
+    while((m=re.exec(bl))){
+      const lo=hex(m[1]), hi=hex(m[2]);
+      if(m[3]!=null){ const base=hex(m[3]); for(let c=lo;c<=hi;c++) map[c]=String.fromCharCode(base+(c-lo)); }
+      else (m[4].match(/<([0-9A-Fa-f]+)>/g)||[]).forEach((it,i)=>{ map[lo+i]=uni(it.slice(1,-1)); });
+    }
+  }
+  return map;
+}
+
+// Percorre o content stream juntando (x, y, texto). NÃO concatena na ordem de
+// leitura: o relatório escreve as colunas fora de ordem (nome, depois valor,
+// depois código) — a linha é remontada pela POSIÇÃO no papel, em _pdfLinhas.
+function _pdfItens(content, fontes, itens){
+  let cmap=null, x=0, y=0, lx=0, ly=0, leading=0;
+  const pilha=[];
+  let i=0;
+  const N=content.length;
+  const dec=(bruto)=>{
+    if(!cmap) return bruto;
+    let s='';
+    for(let k=0;k+1<bruto.length;k+=2){
+      const cod=(bruto.charCodeAt(k)<<8)|bruto.charCodeAt(k+1);
+      if(cmap[cod]!=null) s+=cmap[cod];
+    }
+    return s;
+  };
+  const hexStr=h=>{
+    h=h.replace(/[^0-9A-Fa-f]/g,''); let b='';
+    for(let k=0;k+1<h.length;k+=2) b+=String.fromCharCode(parseInt(h.substr(k,2),16));
+    return b;
+  };
+  const solta=s=>{ if(s) itens.push({x,y,s}); };
+
+  while(i<N){
+    const c=content[i];
+    if(c===' '||c==='\n'||c==='\r'||c==='\t'||c==='\0'){ i++; continue; }
+    if(c==='%'){ while(i<N && content[i]!=='\n' && content[i]!=='\r') i++; continue; }
+
+    if(c==='('){
+      let j=i+1, s='', nivel=1;
+      while(j<N){
+        const ch=content[j];
+        if(ch==='\\'){
+          const oct=content.substr(j+1,3).match(/^[0-7]{1,3}/);
+          if(oct){ s+=String.fromCharCode(parseInt(oct[0],8)); j+=1+oct[0].length; continue; }
+          s+=({n:'\n',r:'\r',t:'\t',b:'\b',f:'\f'})[content[j+1]]||content[j+1]; j+=2; continue;
+        }
+        if(ch==='(') nivel++;
+        if(ch===')'){ nivel--; if(!nivel){ j++; break; } }
+        s+=ch; j++;
+      }
+      i=j; pilha.push({t:'str',v:s}); continue;
+    }
+    if(c==='<' && content[i+1]==='<'){ i+=2; continue; }
+    if(c==='>' && content[i+1]==='>'){ i+=2; continue; }
+    if(c==='<'){ const f=content.indexOf('>',i); pilha.push({t:'str',v:hexStr(content.slice(i+1,f))}); i=f+1; continue; }
+    if(c==='['){
+      let j=i+1, p=1;
+      while(j<N && p){ if(content[j]==='[') p++; else if(content[j]===']') p--; j++; }
+      pilha.push({t:'arr',v:content.slice(i+1,j-1)}); i=j; continue;
+    }
+    if(c==='/'){ const m=content.slice(i).match(/^\/([^\s/[\]<>(){}]*)/); pilha.push({t:'name',v:m[1]}); i+=m[0].length; continue; }
+    const num=content.slice(i).match(/^[-+]?(\d+\.?\d*|\.\d+)/);
+    if(num){ pilha.push({t:'num',v:parseFloat(num[0])}); i+=num[0].length; continue; }
+    const op=content.slice(i).match(/^[A-Za-z*'"]+[01]?/);
+    if(!op){ i++; continue; }
+    i+=op[0].length;
+    const o=op[0];
+    const n=k=>{ const v=pilha[pilha.length-k]; return v&&v.t==='num'?v.v:0; };
+
+    if(o==='Tf'){ const nm=pilha[pilha.length-2]; cmap=(nm&&nm.t==='name'&&fontes[nm.v])||null; }
+    else if(o==='Tm'){ x=lx=n(2); y=ly=n(1); }
+    else if(o==='Td'){ x=lx=lx+n(2); y=ly=ly+n(1); }
+    else if(o==='TD'){ leading=-n(1); x=lx=lx+n(2); y=ly=ly+n(1); }
+    else if(o==='TL'){ leading=n(1); }
+    else if(o==='T*'){ x=lx; y=ly=ly-leading; }
+    else if(o==='BT'){ x=y=lx=ly=0; }
+    else if(o==='Tj'){ const s=pilha[pilha.length-1]; if(s&&s.t==='str') solta(dec(s.v)); }
+    else if(o==="'"||o==='"'){
+      x=lx; y=ly=ly-leading;
+      const s=pilha[pilha.length-1]; if(s&&s.t==='str') solta(dec(s.v));
+    }
+    else if(o==='TJ'){
+      const arr=pilha[pilha.length-1];
+      if(arr&&arr.t==='arr'){
+        const re=/<([0-9A-Fa-f\s]*)>|\(((?:\\.|[^\\()])*)\)|([-+]?[\d.]+)/g; let m2, s='';
+        while((m2=re.exec(arr.v))){
+          if(m2[1]!=null) s+=dec(hexStr(m2[1]));
+          else if(m2[2]!=null) s+=dec(m2[2].replace(/\\([0-7]{1,3})/g,(_,oc)=>String.fromCharCode(parseInt(oc,8))));
+          else if(parseFloat(m2[3])<-150) s+=' ';   // recuo grande = espaço entre palavras
+        }
+        solta(s);
+      }
+    }
+    pilha.length=0;
+  }
+}
+
+// Agrupa por linha (mesmo Y) e ordena por X — é isto que devolve
+// "145 ADEILTON ... 155.507.828-12 133,50" na ordem em que o olho lê.
+function _pdfLinhas(itens){
+  const linhas=[];
+  itens.forEach(it=>{
+    if(!it.s.trim()) return;
+    const alvo=linhas.find(l=>Math.abs(l.y-it.y)<=1.2);
+    if(alvo) alvo.itens.push(it); else linhas.push({y:it.y, itens:[it]});
+  });
+  return linhas
+    .sort((a,b)=>b.y-a.y)
+    .map(l=>l.itens.sort((a,b)=>a.x-b.x).map(i=>i.s).join(' ').replace(/\s+/g,' ').trim())
+    .filter(Boolean);
+}
+
+async function _pdfParaTexto(buf){
+  const s=_pdfBytesLatin1(new Uint8Array(buf));
+  if(s.slice(0,5)!=='%PDF-') throw new Error('O arquivo não parece um PDF.');
+  const objs=_pdfObjetos(s);
+
+  const fontes={};
+  for(const bloco of s.match(/\/Font\s*<<([\s\S]*?)>>/g)||[]){
+    const re=/\/([A-Za-z0-9]+)\s+(\d+)\s+\d+\s+R/g; let m;
+    while((m=re.exec(bloco))){
+      const fo=objs[+m[2]]; if(!fo) continue;
+      const tu=fo.dict.match(/\/ToUnicode\s+(\d+)\s+\d+\s+R/);
+      fontes[m[1]] = tu ? _pdfCMap(await _pdfStream(objs[+tu[1]], objs)) : null;
+    }
+  }
+
+  const itens=[];
+  for(const num of Object.keys(objs).map(Number).sort((a,b)=>a-b)){
+    if(objs[num].raw==null) continue;
+    if(/\/(ToUnicode|FontFile\d?|Subtype\s*\/Image)/.test(objs[num].dict)) continue;
+    const txt=await _pdfStream(objs[num], objs);
+    if(!txt || !/\b(Tj|TJ)\b/.test(txt)) continue;
+    _pdfItens(txt, fontes, itens);
+  }
+  return _pdfLinhas(itens).join('\n');
+}
+
+// ============================================
 // PLR — PARTICIPAÇÃO NOS LUCROS (lista da contabilidade → PIX)
 // ============================================
 // O Kronos NÃO calcula PLR: proporcionalidade por meses trabalhados e IRRF
@@ -19619,18 +19847,39 @@ function _plrMostrarConferencia(mostrar){
   if(btn) btn.disabled = !mostrar;
 }
 
-function plrArquivoEscolhido(ev){
+// Sobe o arquivo do contador: PDF, CSV ou TXT. O PDF é lido aqui mesmo
+// (`_pdfParaTexto`, sem biblioteca externa) e cai na mesma caixa de texto — daí
+// para a frente é o mesmo caminho de quem colou. Ao terminar, JÁ confere a lista:
+// subir arquivo e ficar olhando um botão parado é a regra nº 1 ao contrário.
+async function plrArquivoEscolhido(ev){
   const file=ev.target.files && ev.target.files[0];
   ev.target.value='';
   if(!file) return;
-  const reader=new FileReader();
-  reader.onload=e=>{
-    setVal('plr-texto', String(e.target.result||''));
+  const lbl=document.getElementById('lbl-plr-arquivo');
+  const lblHtml=lbl?lbl.innerHTML:'';
+  const ehPdf=/\.pdf$/i.test(file.name) || file.type==='application/pdf';
+  if(lbl) lbl.innerHTML=`<i class="fa-solid fa-spinner fa-spin"></i> ${ehPdf?'Lendo o PDF... aguarde':'Lendo o arquivo...'}`;
+  try{
+    let texto;
+    if(ehPdf){
+      if(typeof DecompressionStream==='undefined')
+        throw new Error('Este navegador não lê PDF aqui. Abra o PDF, selecione tudo (Ctrl+A), copie e cole na caixa acima.');
+      texto=await _pdfParaTexto(await file.arrayBuffer());
+      if(!/\d{3}\.?\d{3}\.?\d{3}-?\d{2}/.test(texto))
+        throw new Error('Não achei texto neste PDF — provavelmente é digitalizado (imagem). Abra o PDF, selecione tudo (Ctrl+A), copie e cole na caixa acima.');
+    } else {
+      texto=await file.text();
+    }
+    setVal('plr-texto', texto);
     _plrArquivoNome=file.name;
-    toast(`Arquivo "${file.name}" carregado — clique em "Conferir lista".`,'info');
-  };
-  reader.onerror=()=>toast('Erro ao ler o arquivo.','error');
-  reader.readAsText(file,'utf-8');
+    toast(`"${file.name}" carregado.`,'success');
+    plrConferirLista();
+  }catch(e){
+    console.error('PLR arquivo',e);
+    toast((e&&e.message)||'Erro ao ler o arquivo.','error');
+  }finally{
+    if(lbl) lbl.innerHTML=lblHtml;
+  }
 }
 
 function plrConferirLista(){

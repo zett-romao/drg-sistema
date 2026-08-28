@@ -148,5 +148,85 @@ State.solicitacoes = sel().map(r => ({ origem: 'plr', employeeId: r.empId,
 _plrCasar();
 ok(sel().length === PESSOAS.length - 4, 'a 2a parcela bloqueou a 1a — as parcelas sao independentes');
 
-console.log('\n' + (falhas.length ? 'FALHAS:\n - ' + falhas.join('\n - ') : 'OK — todos os testes da PLR passaram'));
-process.exit(falhas.length ? 1 : 0);
+// ── Leitor de PDF ───────────────────────────────────────────────────────────
+// Monta um PDF sintético com as TRES armadilhas do relatorio real:
+//   1) marcador "stream" terminado em CR sozinho (fora da spec, mas e o que o
+//      gerador do contador usa) — exigir \n devolve zero objeto;
+//   2) /Length indireto e byte de sobra antes de "endstream" — sem cortar no
+//      /Length o DecompressionStream recusa tudo com "trailing junk";
+//   3) fonte Identity-H (ToUnicode) e colunas escritas FORA DE ORDEM no papel.
+const zlib = require('zlib');
+const PDF_BLOCO = APP.slice(APP.indexOf('async function _pdfInflate('), APP.indexOf('function _plrDigitos('));
+eval(PDF_BLOCO);   // eslint-disable-line no-eval
+
+function montarPdfFicticio() {
+  // codigo do glifo = caractere - 0x1F (bfrange cobre de 0x0001 a 0x00E0)
+  const hexOf = s => s.split('').map(c => (c.charCodeAt(0) - 0x1f).toString(16).padStart(4, '0')).join('');
+  const cmap = [
+    '/CIDInit /ProcSet findresource begin 12 dict begin begincmap',
+    '1 begincodespacerange <0000> <FFFF> endcodespacerange',
+    '1 beginbfrange <0001> <00e0> <0020> endbfrange',
+    'endcmap end end',
+  ].join('\n');
+  // Cada celula tem seu proprio Tm; a ordem em que sao escritas NAO e a ordem
+  // que se le (valor antes do nome, codigo por ultimo).
+  const cel = (x, y, txt) => `1 0 0 1 ${x} ${y} Tm <${hexOf(txt)}> Tj`;
+  const conteudo = [
+    'BT', '/F1 9 Tf',
+    cel(200, 700, 'RELACAO GERAL DOS LIQUIDOS'),
+    cel(400, 660, '133,50'), cel(60, 660, 'ADAO PEREIRA DA COSTA'), cel(250, 660, '111.111.111-11'), cel(20, 660, '145'),
+    cel(400, 640, '74,90'), cel(60, 640, 'BENEDITA SOUZA DOS ANJOS'), cel(250, 640, '222.222.222-22'), cel(20, 640, '156'),
+    cel(20, 600, 'Empregados: 2 Total da Empresa: 208,40'),
+    'ET',
+  ].join('\r');
+
+  const zc = zlib.deflateSync(Buffer.from(cmap, 'latin1'));
+  const zk = zlib.deflateSync(Buffer.from(conteudo, 'latin1'));
+  const partes = [
+    Buffer.from('%PDF-1.3\n', 'latin1'),
+    Buffer.from('1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n', 'latin1'),
+    Buffer.from('2 0 obj << /Type /Pages /Count 1 /Kids [3 0 R] >> endobj\n', 'latin1'),
+    Buffer.from('3 0 obj << /Type /Page /Parent 2 0 R /Resources << /Font <</F1 4 0 R >> >> /Contents 6 0 R >> endobj\n', 'latin1'),
+    Buffer.from('4 0 obj << /Type /Font /Subtype /Type0 /Encoding /Identity-H /ToUnicode 5 0 R >> endobj\n', 'latin1'),
+    Buffer.from(`5 0 obj << /Filter /FlateDecode /Length ${zc.length} >>\r\nstream\r`, 'latin1'), zc,
+    Buffer.from('\r\nendstream endobj\n', 'latin1'),
+    Buffer.from('6 0 obj << /Filter /FlateDecode /Length 7 0 R >>\rstream\r', 'latin1'), zk,   // CR sozinho + /Length indireto
+    Buffer.from('\r\nendstream endobj\n', 'latin1'),
+    Buffer.from(`7 0 obj ${zk.length} endobj\n`, 'latin1'),
+    Buffer.from('trailer << /Root 1 0 R >>\n%%EOF\n', 'latin1'),
+  ];
+  return Buffer.concat(partes);
+}
+
+(async () => {
+  const pdfFalhas = [];
+  const okp = (c, m) => { if (!c) pdfFalhas.push(m); };
+  try {
+    const buf = montarPdfFicticio();
+    const texto = await _pdfParaTexto(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.length));
+    const linhas = texto.split('\n');
+    console.log('\n== LEITOR DE PDF ==');
+    linhas.forEach(l => console.log('  ', JSON.stringify(l)));
+
+    okp(linhas.length === 4, `extraiu ${linhas.length} linhas do PDF, esperado 4`);
+    okp(/^145 ADAO PEREIRA DA COSTA 111\.111\.111-11 133,50$/.test(linhas[1] || ''),
+        'a linha nao foi remontada na ordem do papel (colunas fora de ordem)');
+    okp((linhas[0] || '').includes('RELACAO GERAL'), 'cabecalho perdido');
+
+    const pp = _plrParse(texto);
+    okp(pp.linhas.length === 2, `_plrParse leu ${pp.linhas.length} linhas do PDF, esperado 2`);
+    okp(pp.countArq === 2 && Math.abs(pp.totalArq - 208.40) < 0.005, 'rodape do PDF nao foi capturado');
+    okp(pp.linhas[0] && pp.linhas[0].cpf === '11111111111' && pp.linhas[0].valorArq === 133.5,
+        'codigo/CPF/valor errados na leitura do PDF');
+
+    // Arquivo que nao e PDF tem de falhar dizendo o porque, nao devolver vazio.
+    try { await _pdfParaTexto(Buffer.from('isto nao e um pdf').buffer); pdfFalhas.push('aceitou arquivo que nao e PDF'); }
+    catch (e) { okp(/não parece um PDF/.test(e.message), 'mensagem de arquivo invalido pouco clara'); }
+  } catch (e) {
+    pdfFalhas.push('leitor de PDF lancou excecao: ' + e.message);
+  }
+
+  falhas.push(...pdfFalhas);
+  console.log('\n' + (falhas.length ? 'FALHAS:\n - ' + falhas.join('\n - ') : 'OK — todos os testes da PLR passaram'));
+  process.exit(falhas.length ? 1 : 0);
+})();

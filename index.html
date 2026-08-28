@@ -7318,9 +7318,10 @@
           <button class="btn btn-primary" id="btn-plr-conferir" onclick="plrConferirLista()" style="background:#4527A0;border-color:#4527A0;flex:1 1 180px">
             <i class="fa-solid fa-list-check"></i> Conferir lista
           </button>
-          <label class="btn btn-outline" style="flex:1 1 180px;text-align:center;cursor:pointer;margin:0">
-            <i class="fa-solid fa-file-arrow-up"></i> Subir CSV / TXT
-            <input type="file" accept=".csv,.txt" style="display:none" onchange="plrArquivoEscolhido(event)">
+          <label class="btn btn-outline" id="lbl-plr-arquivo" style="flex:1 1 180px;text-align:center;cursor:pointer;margin:0"
+            title="O PDF do contador e lido aqui mesmo, sem copiar e colar. CSV e TXT tambem servem.">
+            <i class="fa-solid fa-file-arrow-up"></i> Subir arquivo (PDF, CSV, TXT)
+            <input type="file" accept=".pdf,.csv,.txt" style="display:none" onchange="plrArquivoEscolhido(event)">
           </label>
           <button class="btn btn-outline" onclick="plrLimparLista()" style="flex:1 1 140px">
             <i class="fa-solid fa-eraser"></i> Descartar lista
@@ -8130,6 +8131,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260827a-plr-participacao-lucros"></script>
+  <script src="app.js?v=20260827b-plr-sobe-pdf"></script>
 </body>
 </html>

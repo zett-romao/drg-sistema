@@ -214,7 +214,76 @@
     }
   }
 
+  // ---- 4. Pergunta de sim/nao — NUNCA o confirm() do navegador --------
+  /* O confirm()/alert() nativo pode ser DESLIGADO pelo proprio navegador. Depois
+   * de alguns dialogos seguidos, o Chrome/Edge mostra a caixinha "Impedir que
+   * esta pagina crie caixas de dialogo adicionais"; marcada uma vez, confirm()
+   * passa a devolver `false` NA HORA, sem perguntar nada. O codigo le isso como
+   * "o usuario cancelou" e nao faz nada — clique mudo, o unico caminho do app
+   * que escapa da regra nº 1, porque o silencio acontece ANTES da acao.
+   *
+   * Caso real (DRG-Hidro, 28/07/2026): o botao "A caixa esta cheia agora" nao
+   * fazia NADA no navegador do dono, com backend, rota e conta intactos — o
+   * clique morria no confirm(). Um modal do proprio app nao tem esse botao de
+   * mudo: se o navegador engolir alguma coisa, quem some e a tela inteira.
+   *
+   * Portado do DRG-Hidro (v0.31.0). Aqui ele entra pelas acoes NOVAS; as
+   * chamadas antigas de confirm() do app seguem como estavam.
+   *
+   *   if (!await drgConfirmar('Excluir isto?', { ok: 'Excluir', perigo: true })) return;
+   */
+  function drgConfirmar(texto, opts) {
+    opts = opts || {};
+    return new Promise(function (resolve) {
+      var ov = document.createElement('div');
+      ov.className = 'drg-conf-ov';
+      var linhas = String(texto).split('\n').map(function (l) {
+        var d = document.createElement('p');
+        d.className = 'drg-conf-p';
+        d.textContent = l;
+        return d.outerHTML;
+      }).join('');
+      ov.innerHTML =
+        '<div class="drg-conf" role="dialog" aria-modal="true">' +
+          '<button type="button" class="drg-conf-x" data-noguard="1" data-r="0" aria-label="Fechar">✕</button>' +
+          '<h3 class="drg-conf-h"></h3>' +
+          '<div class="drg-conf-txt">' + linhas + '</div>' +
+          '<div class="drg-conf-btns">' +
+            '<button type="button" class="drg-conf-nao" data-noguard="1" data-r="0"></button>' +
+            '<button type="button" class="drg-conf-sim' + (opts.perigo ? ' drg-conf-perigo' : '') + '" data-noguard="1" data-r="1"></button>' +
+          '</div>' +
+        '</div>';
+      // Titulo e rotulos por textContent: titulo de registro traz nome digitado.
+      ov.querySelector('.drg-conf-h').textContent = opts.titulo || 'Confirmar';
+      ov.querySelector('.drg-conf-nao').textContent = opts.cancelar || 'Cancelar';
+      ov.querySelector('.drg-conf-sim').textContent = opts.ok || 'Confirmar';
+
+      var fechado = false;
+      function fim(valor) {
+        if (fechado) return;
+        fechado = true;
+        document.removeEventListener('keydown', tecla, true);
+        if (ov.parentNode) ov.parentNode.removeChild(ov);
+        resolve(valor);
+      }
+      function tecla(ev) {
+        if (ev.key === 'Escape') { ev.stopPropagation(); fim(false); }
+        else if (ev.key === 'Enter') { ev.preventDefault(); fim(true); }
+      }
+      ov.addEventListener('click', function (ev) {
+        if (ev.target === ov) return fim(false);              // clique fora
+        var b = ev.target.closest && ev.target.closest('[data-r]');
+        if (b) fim(b.dataset.r === '1');
+      });
+      document.addEventListener('keydown', tecla, true);
+      document.body.appendChild(ov);
+      var sim = ov.querySelector('.drg-conf-sim');
+      if (sim) sim.focus();
+    });
+  }
+
   global.drgSubmit = drgSubmit;
   global.drgMsg = drgMsg;
   global.drgMsgLimpa = drgMsgLimpa;
+  global.drgConfirmar = drgConfirmar;
 })(window);

@@ -4423,6 +4423,7 @@ const LOG_TYPES={
   PAGAMENTO_APROVADO:      {label:'Pagamento aprovado',       cls:'ev-pagamento', icon:'fa-circle-check'},
   PAGAMENTO_RECUSADO:      {label:'Pagamento recusado',       cls:'ev-alerta',    icon:'fa-circle-xmark'},
   PAGAMENTO_ESTORNADO:     {label:'Pagamento estornado',      cls:'ev-alerta',    icon:'fa-rotate-left'},
+  PAGAMENTO_EXCLUIDO:      {label:'Solicitação excluída',     cls:'ev-alerta',    icon:'fa-trash-can'},
   PAGAMENTO_MANUAL:        {label:'Pagamento manual',         cls:'ev-pagamento', icon:'fa-money-bill'},
   PAGAMENTO_MANUAL_DESFEITO:{label:'Pagamento manual desfeito',cls:'ev-alerta',   icon:'fa-rotate-left'},
   PAGAMENTO_INCLUSAO_AUTORIZADA:{label:'Inclusão autorizada (Master)',cls:'ev-pagamento',icon:'fa-shield-halved'},
@@ -20812,6 +20813,24 @@ function _pagAvisoAguarda(s){
   if(!_pagAguardaAutz(s)) return '';
   return `<div style="font-size:11px;color:#E65100;font-weight:600;margin-bottom:4px"><i class="fa-solid fa-hourglass-half"></i> ${PAG_TXT_AGUARDA}</div>`;
 }
+/* Os botões da linha já decidida (recusada, estornada, com erro): Relançar e
+   Excluir, LADO A LADO. É ali que a pessoa está olhando quando decide o que
+   fazer com aquela linha — foi onde o dono pediu o Excluir (28/08/2026).
+   Um lugar só para os três status: antes o "Relançar" estava copiado em três
+   trechos quase iguais, e um botão novo teria de nascer copiado três vezes. */
+function _aprBotoesLinha(s){
+  const podeRelancar = !!getUserModules(Auth.currentUser).pagamentosLancar
+    && (s.status==='erro'||s.status==='recusado'||s.status==='estornado');
+  const relanc = podeRelancar
+    ? `<button class="btn btn-sm btn-outline" style="color:#1565C0;border-color:#90CAF9;font-size:11px;padding:3px 9px" onclick="refazerSolicitacao('${s.id}')" title="Cria uma NOVA solicitação pendente com os mesmos dados"><i class="fa-solid fa-arrows-rotate"></i> Relançar</button>`
+    : '';
+  const excluir = _aprPodeExcluirStatus(s)
+    ? `<button class="btn btn-sm btn-outline" style="color:#c62828;border-color:#ef9a9a;font-size:11px;padding:3px 9px" onclick="excluirSolicitacao('${s.id}',this)" title="Apaga esta solicitação — a linha some da lista. Fica registrado no log quem apagou e com quais dados."><i class="fa-solid fa-trash-can"></i> Excluir</button>`
+    : '';
+  return (relanc||excluir)
+    ? `<div style="margin-top:5px;display:flex;gap:6px;flex-wrap:wrap">${relanc}${excluir}</div>`
+    : '';
+}
 function _aprovacaoStatusBadge(st, sol){
   if(sol && _pagAguardaAutz(sol))
     return `<span title="${PAG_TXT_AGUARDA}" style="background:#FFF8E1;color:#E65100;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:600"><i class="fa-solid fa-paper-plane"></i> Ordem enviada</span>`;
@@ -23760,26 +23779,17 @@ function renderAprovacoes(){
         acoes=`${_pagAvisoAguarda(s)}<span style="font-size:11px;color:#00695C">${_pagAguardaAutz(s)?'':'pago'}</span>${estornarBtn}`;
       }
     } else if(s.status==='estornado'){
-      const refazBtn = mods.pagamentosLancar
-        ? `<div style="margin-top:5px"><button class="btn btn-sm btn-outline" style="color:#1565C0;border-color:#90CAF9;font-size:11px;padding:3px 9px" onclick="refazerSolicitacao('${s.id}')" title="Cria uma NOVA solicitação pendente com os mesmos dados"><i class="fa-solid fa-arrows-rotate"></i> Relançar</button></div>`
-        : '';
       acoes=`<span style="font-size:11px;color:#E65100" title="${(s.motivoEstorno||'').replace(/"/g,'&quot;')}"><i class="fa-solid fa-rotate-left"></i> ${s.motivoEstorno||'estornado'}</span>`
         + (s.estornadoEm?`<div style="font-size:10px;color:#aaa;margin-top:2px">por ${s.estornadoPorNome||'—'} · ${(s.estornadoEm||'').substring(0,10).split('-').reverse().join('/')}</div>`:'')
-        + refazBtn;
+        + _aprBotoesLinha(s);
     } else if(s.status==='recusado'){
-      const refazBtn = mods.pagamentosLancar
-        ? `<div style="margin-top:5px"><button class="btn btn-sm btn-outline" style="color:#1565C0;border-color:#90CAF9;font-size:11px;padding:3px 9px" onclick="refazerSolicitacao('${s.id}')" title="Cria uma NOVA solicitação pendente com os mesmos dados"><i class="fa-solid fa-arrows-rotate"></i> Relançar</button></div>`
-        : '';
-      acoes=`<span style="font-size:11px;color:#c62828">${(s.motivoRecusa||'recusado')}</span>` + refazBtn;
+      acoes=`<span style="font-size:11px;color:#c62828">${(s.motivoRecusa||'recusado')}</span>` + _aprBotoesLinha(s);
     } else if(s.status==='erro'){
-      const refazBtn = mods.pagamentosLancar
-        ? `<button class="btn btn-sm btn-outline" style="color:#1565C0;border-color:#90CAF9;font-size:11px;padding:3px 9px;margin-left:4px" onclick="refazerSolicitacao('${s.id}')" title="Cria uma NOVA solicitação pendente (em vez de retentar a mesma)"><i class="fa-solid fa-arrows-rotate"></i> Relançar</button>`
-        : '';
-      acoes = podeAprovar
+      acoes = (podeAprovar
         ? `<button class="btn btn-sm" style="background:#e65100;color:#fff;border-color:#e65100;margin-right:4px" onclick="openAprovarPagamento('${s.id}')" title="${(s.erro||'').replace(/"/g,'')}"><i class="fa-solid fa-rotate-right"></i> Tentar de novo</button>`
           + `<button class="btn btn-sm btn-outline" style="color:#c62828;border-color:#ef9a9a" onclick="recusarSolicitacao('${s.id}')" title="${(s.erro||'').replace(/"/g,'')}"><i class="fa-solid fa-ban"></i> Recusar</button>`
-          + refazBtn
-        : `<span style="font-size:11px;color:#c62828">${s.erro||'erro'}</span>`;
+        : `<span style="font-size:11px;color:#c62828">${s.erro||'erro'}</span>`)
+        + _aprBotoesLinha(s);
     }
     return `<tr style="background:${bg}">
       <td style="padding:9px 6px;text-align:center">${selecionavel?`<input type="checkbox" class="apr-row-check" data-id="${s.id}" ${_aprSelecionados.has(s.id)?'checked':''} onclick="_aprToggleSel('${s.id}',this.checked)">`:''}</td>
@@ -23812,11 +23822,22 @@ function _aprPodeAprovarStatus(s){
 function _aprPodeRefazerStatus(s){
   return !!getUserModules(Auth.currentUser).pagamentosLancar && (s.status==='erro'||s.status==='recusado'||s.status==='estornado');
 }
+/* 🗑️ EXCLUIR: vale SÓ para o que nunca virou dinheiro — recusado, estornado
+   (o valor voltou) e com erro. Mesma permissão de quem lança, que é quem
+   limpa a própria fila. #excluir-solicitacao
+   🔒 'pago' NUNCA: o PIX saiu da conta e a linha é a prova do que foi pago —
+      pagamento indevido se resolve em "Estornar", não sumindo com ele.
+   🔒 'pendente' NUNCA: ela está na fila de decisão de OUTRA pessoa; quem não
+      quer que siga usa "Recusar", que deixa motivo e autor no registro. */
+function _aprPodeExcluirStatus(s){
+  return !!getUserModules(Auth.currentUser).pagamentosLancar
+      && (s.status==='erro'||s.status==='recusado'||s.status==='estornado');
+}
 function _aprListaSelecionavel(){
-  return (State.solicitacoes||[]).filter(s=> _aprPodeAprovarStatus(s) || _aprPodeRefazerStatus(s));
+  return (State.solicitacoes||[]).filter(s=> _aprPodeAprovarStatus(s) || _aprPodeRefazerStatus(s) || _aprPodeExcluirStatus(s));
 }
 function _aprSelecionadas(){
-  return (State.solicitacoes||[]).filter(s=>_aprSelecionados.has(s.id) && (_aprPodeAprovarStatus(s)||_aprPodeRefazerStatus(s)));
+  return (State.solicitacoes||[]).filter(s=>_aprSelecionados.has(s.id) && (_aprPodeAprovarStatus(s)||_aprPodeRefazerStatus(s)||_aprPodeExcluirStatus(s)));
 }
 function _aprToggleSel(id, checked){
   if(checked) _aprSelecionados.add(id); else _aprSelecionados.delete(id);
@@ -23847,6 +23868,10 @@ function _aprAtualizarLoteBar(){
   const bRc=document.getElementById('btn-apr-lote-recusar'); if(bRc) bRc.style.display=nAprov?'':'none';
   const bRf=document.getElementById('btn-apr-lote-refazer');
   if(bRf){ bRf.style.display=nRefz?'':'none'; const rc=document.getElementById('apr-lote-refazer-n'); if(rc) rc.textContent=nRefz; }
+  // Excluir em lote: 68 recusadas na tela não se limpam de uma em uma. #excluir-solicitacao
+  const nExcl=sel.filter(_aprPodeExcluirStatus).length;
+  const bEx=document.getElementById('btn-apr-lote-excluir');
+  if(bEx){ bEx.style.display=nExcl?'':'none'; const xc=document.getElementById('apr-lote-excluir-n'); if(xc) xc.textContent=nExcl; }
   const all=document.getElementById('apr-check-all');
   if(all){
     const checks=document.querySelectorAll('.apr-row-check');
@@ -24256,6 +24281,104 @@ async function refazerSolicitacao(id){
     toast(`Lançamento relançado — nova solicitação pendente criada. Vá em Aprovações p/ aprovar.`,'success');
     renderAprovacoes();
   }catch(e){ toast('Erro ao relançar: '+(e.message||e),'error'); }
+}
+
+// ── 🗑️ EXCLUIR SOLICITAÇÃO ────────────────────────────────────────────────
+/* Pedido do dono (28/08/2026), na tela de Aprovações com 68 recusadas listadas:
+ * *"deveria ter a opção de excluir, né? coloque o botão ali do lado do
+ * relançar"*. Recusada que fica para sempre na tela vira ruído — e ruído
+ * esconde a linha que importa.
+ *
+ * 🔒 A LINHA SOME, O FATO NÃO. O que se apaga é a SOLICITAÇÃO — um pedido que
+ *    nunca virou dinheiro. ANTES de apagar, o registro inteiro (colaborador,
+ *    valor, chave PIX, competência, quem lançou, quem decidiu e o motivo) vai
+ *    para o log de acesso. Sem isso, "sumiu um lançamento de R$ 837,00" não
+ *    teria resposta seis meses depois — e é justamente aí que se pergunta.
+ * 🔒 A pergunta é do APP (`drgConfirmar`), não o `confirm()` do navegador: o
+ *    nativo pode estar silenciado ("impedir que esta página crie caixas de
+ *    diálogo") e devolver `false` sozinho. O botão mais destrutivo da tela
+ *    viraria um clique mudo. #confirm-mudo
+ */
+function _aprMotivoDe(s){
+  return s.status==='estornado' ? (s.motivoEstorno||'')
+       : s.status==='recusado'  ? (s.motivoRecusa||'')
+       : (s.erro||'');
+}
+/* O que fica no log depois que a linha some. Tem de bastar para reconstruir a
+   solicitação inteira: sem valor e chave PIX, "sumiu um lançamento" não se apura. */
+function _aprResumoLog(s){
+  return `${s.employeeNome||s.employeeId||'—'} | R$ ${(s.valor||0).toFixed(2)} | ${String(s.status||'').toUpperCase()}`
+    + ` | PIX ${s.pixKey||'—'} | prev. ${s.scheduleDate||'—'} | comp. ${s.competencia||'—'}`
+    + ` | lançado por ${s.criadoPorNome||'—'} em ${(s.criadoEm||'').substring(0,10)}`
+    + (s.aprovadoPorNome?` | decidido por ${s.aprovadoPorNome}`:'')
+    + (_aprMotivoDe(s)?` | motivo: ${_aprMotivoDe(s)}`:'')
+    + ` | id ${s.id}`;
+}
+async function excluirSolicitacao(id, btn){
+  const s=(State.solicitacoes||[]).find(x=>x.id===id);
+  if(!s){ toast('Solicitação não encontrada.','error'); return; }
+  if(!_aprPodeExcluirStatus(s)){
+    toast(s.status==='pago'     ? 'Pagamento já efetuado não se exclui — o PIX saiu da conta. Use "Estornar".'
+        : s.status==='pendente' ? 'Solicitação pendente não se exclui — use "Recusar", que registra o motivo.'
+        : 'Você não tem permissão para excluir lançamentos.','error');
+    return;
+  }
+  const motivo=_aprMotivoDe(s);
+  const ok=await drgConfirmar(
+    `${s.employeeNome||'—'} — ${fmtMoney(s.valor||0)}\n`
+    + `${String(s.status).toUpperCase()}${motivo?' · '+motivo:''}\n`
+    + `PIX: ${s.pixKey||'—'}\n\n`
+    + 'A linha some da lista e não volta. Fica registrado no log quem excluiu, quando e com quais dados.',
+    { titulo:'Excluir esta solicitação?', ok:'Excluir', cancelar:'Manter', perigo:true });
+  if(!ok) return;
+  // Regra nº 1: trava e avisa ANTES do await — clique repetido aqui é exclusão
+  // repetida, e a segunda encontraria a linha já apagada.
+  const htmlOrig = btn ? btn.innerHTML : '';
+  if(btn){ btn.disabled=true; btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Excluindo...'; }
+  try{
+    // O log ANTES de apagar: se a escrita do log falhar, a linha ainda existe.
+    Auth.log('PAGAMENTO_EXCLUIDO',null,_aprResumoLog(s));
+    await DB.remove('solicitacoesPagamento', id);
+    State.solicitacoes=(State.solicitacoes||[]).filter(x=>x.id!==id);
+    _aprSelecionados.delete(id);
+    toast(`Solicitação de ${s.employeeNome||'—'} excluída.`,'success');
+    renderAprovacoes();
+  }catch(e){
+    if(btn){ btn.disabled=false; btn.innerHTML=htmlOrig; }
+    toast('Erro ao excluir: '+(e.message||e),'error');
+  }
+}
+/* Em lote: a tela que motivou o pedido tinha 68 recusadas selecionadas. Uma a
+   uma seriam 68 cliques e 68 perguntas. */
+async function excluirLote(){
+  const sel=_aprSelecionadas().filter(_aprPodeExcluirStatus);
+  if(!sel.length){ toast('Selecione ao menos um lançamento recusado, estornado ou com erro.','warning'); return; }
+  const total=sel.reduce((a,s)=>a+(s.valor||0),0);
+  const amostra=sel.slice(0,6).map(s=>`• ${s.employeeNome||'—'} — ${fmtMoney(s.valor||0)} (${s.status})`).join('\n');
+  const ok=await drgConfirmar(
+    `${sel.length} solicitação(ões) — total ${fmtMoney(total)}\n\n${amostra}${sel.length>6?`\n… e mais ${sel.length-6}`:''}\n\n`
+    + 'As linhas somem da lista e não voltam. Cada uma fica registrada no log com valor, chave PIX e quem excluiu.',
+    { titulo:'Excluir as selecionadas?', ok:`Excluir ${sel.length}`, cancelar:'Manter', perigo:true });
+  if(!ok) return;
+  const btn=document.getElementById('btn-apr-lote-excluir');
+  const htmlOrig=btn?btn.innerHTML:'';
+  if(btn){ btn.disabled=true; btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Excluindo...'; }
+  let okN=0, fail=0; const erros=[];
+  for(let i=0;i<sel.length;i++){
+    const s=sel[i];
+    if(btn) btn.innerHTML=`<i class="fa-solid fa-spinner fa-spin"></i> Excluindo ${i+1}/${sel.length}...`;
+    try{
+      Auth.log('PAGAMENTO_EXCLUIDO',null,_aprResumoLog(s)+' | lote');
+      await DB.remove('solicitacoesPagamento', s.id);
+      State.solicitacoes=(State.solicitacoes||[]).filter(x=>x.id!==s.id);
+      _aprSelecionados.delete(s.id); okN++;
+    }catch(e){ fail++; erros.push(`${s.employeeNome||s.id}: ${e.message||e}`); }
+  }
+  if(btn){ btn.disabled=false; btn.innerHTML=htmlOrig; }
+  // 🔒 O que falhou sai DITO, com nome: "63 de 68" calado faria as 5 restantes
+  //    passarem por já excluídas na próxima olhada na tela.
+  toast(`${okN} excluída(s)${fail?` · ${fail} não excluída(s): ${erros.slice(0,3).join(' / ')}`:''}.`, fail?'warning':'success');
+  renderAprovacoes();
 }
 
 // ============================================

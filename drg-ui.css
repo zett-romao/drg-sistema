@@ -43,3 +43,34 @@ button:disabled, .button:disabled { opacity: .6; cursor: not-allowed; }
 .drg-palavra-inteira, .drg-palavra-inteira * {
   word-break: normal; overflow-wrap: break-word; hyphens: none;
 }
+
+/* ── Pergunta de sim/nao (drgConfirmar) ──────────────────────────────────
+   Substitui o confirm() do navegador, que pode ser silenciado ("Impedir que
+   esta pagina crie caixas de dialogo adicionais") e transformar o clique em
+   NADA. z-index alto de proposito: costuma abrir por cima de outro modal. */
+.drg-conf-ov {
+  position: fixed; inset: 0; z-index: 99999; background: rgba(0,0,0,.5);
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+  overflow-y: auto;
+}
+.drg-conf {
+  position: relative; background: #fff; border-radius: 14px; padding: 22px 20px 18px;
+  width: 100%; max-width: 440px; box-shadow: 0 18px 48px rgba(0,0,0,.28);
+  font-family: inherit; animation: drg-conf-entra .12s ease-out;
+}
+@keyframes drg-conf-entra { from { transform: translateY(6px); opacity: .6 } to { transform: none; opacity: 1 } }
+@media (prefers-reduced-motion: reduce) { .drg-conf { animation: none } }
+.drg-conf-x {
+  position: absolute; top: 8px; right: 10px; border: none; background: transparent;
+  font-size: 20px; line-height: 1; color: #6b7886; cursor: pointer; padding: 4px 6px;
+}
+.drg-conf-h { margin: 0 24px 10px 0; font-size: 17px; color: #12324f; }
+.drg-conf-txt { color: #35485c; font-size: 14.5px; line-height: 1.5; }
+.drg-conf-p { margin: 0 0 8px; }
+.drg-conf-p:empty { height: 4px; margin: 0; }
+/* Botoes preenchem a linha, mesma altura (padrao DR Systems). */
+.drg-conf-btns { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-top: 18px; }
+.drg-conf-btns button { padding: 12px; border-radius: 9px; font-size: 15px; font-weight: 700; cursor: pointer; }
+.drg-conf-nao { border: 1px solid #d6dee7; background: #f4f7fb; color: #35485c; }
+.drg-conf-sim { border: 1px solid #0b5cab; background: #0b5cab; color: #fff; }
+.drg-conf-sim.drg-conf-perigo { border-color: #b3261e; background: #b3261e; }

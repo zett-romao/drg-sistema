@@ -16,6 +16,8 @@ const externos = {
   html2canvas: 'readonly',        // html2canvas (CDN) — recibo em PNG/PDF
   QRCode: 'readonly', qrcode: 'readonly',   // qrcode (CDN)
   __APP_BOOTED: 'writable', __APP_ERRORS: 'writable',  // blindagem (#blindagem-erro)
+  // kit de UI da familia (drg-ui.js, carregado antes do app.js no index.html)
+  drgConfirmar: 'readonly', drgSubmit: 'readonly', drgMsg: 'readonly', drgMsgLimpa: 'readonly',
 };
 
 module.exports = [

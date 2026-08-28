@@ -3675,12 +3675,12 @@ function exportarCsvPagamentos(){
 // Coluna (bucket) de cada pagamento pela origem. #relatorios
 function _relBucket(origem){
   return {folha:'Salário',lote:'Salário',adiantamento:'Adiantamento',beneficio:'Benefícios','beneficio-manual':'Benefícios',
-    'beneficio-bp':'BP','banco-he-vencida':'Horas extras',avulso:'Avulso'}[origem] || 'Outros';
+    'beneficio-bp':'BP','banco-he-vencida':'Horas extras',avulso:'Avulso',plr:'PLR'}[origem] || 'Outros';
 }
 function gerarFechamentoMensal(){
   const mes=+val('fech-mes')||currentMes(), ano=+val('fech-ano')||currentAno();
   const emps={}; (State.employees||[]).forEach(e=>emps[e.id]=e);
-  const COLS=['Salário','Adiantamento','Benefícios','BP','Horas extras','Avulso','Outros'];
+  const COLS=['Salário','Adiantamento','Benefícios','BP','Horas extras','PLR','Avulso','Outros'];
   const porEmp={};   // empId → { nome, matr, buckets{}, total }
   const totCol={}; COLS.forEach(c=>totCol[c]=0); let totGeral=0;
   (State.solicitacoes||[]).forEach(s=>{
@@ -19390,6 +19390,575 @@ async function executarPagamentoLote() {
 
   // Atualiza tabela para refletir os solicitados
   refreshLoteTabela();
+}
+
+// ============================================
+// PLR — PARTICIPAÇÃO NOS LUCROS (lista da contabilidade → PIX)
+// ============================================
+// O Kronos NÃO calcula PLR: proporcionalidade por meses trabalhados e IRRF
+// exclusivo são do contador e chegam prontos, já LÍQUIDOS, na "Relação Geral dos
+// Líquidos". Aqui a lista é colada, casada com o cadastro e vira solicitação de
+// pagamento — que só sai da conta depois do 2FA em Aprovações, como todo PIX.
+//
+// 🔒 O arquivo diz QUANTO. O cadastro diz PARA ONDE: a chave usada é sempre
+// emp.chavePix. Chave que venha no arquivo é ignorada de propósito. #plr
+//
+// Sem confirm() nativo neste fluxo: a própria tela de conferência (com totais e
+// diferença) É a confirmação — e diálogo nativo pode estar desligado no
+// navegador e engolir o clique em silêncio. #clique-mudo
+
+let _plrData = [];        // linhas da lista, já casadas com o cadastro
+let _plrArquivo = null;   // {totalArq, countArq, ignoradas, nome}
+let _plrArquivoNome = '';
+
+const _PLR_SELO = {
+  'pronto'      : {t:'✓ Pronto',         bg:'#E8F5E9', c:'#2e7d32'},
+  'sem-pix'     : {t:'Sem chave PIX',    bg:'#FFF3E0', c:'#E65100'},
+  'nao-id'      : {t:'Não identificado', bg:'#FFF3E0', c:'#E65100'},
+  'divergencia' : {t:'Nome divergente',  bg:'#FFEBEE', c:'#c62828'},
+  'desligado'   : {t:'Desligado',        bg:'#E3F2FD', c:'#1565C0'},
+  'sem-valor'   : {t:'Valor zerado',     bg:'#FFF3E0', c:'#E65100'},
+  'ja-lancado'  : {t:'Já lançado',       bg:'#ECEFF1', c:'#546E7A'},
+};
+
+function _plrDigitos(s){ return String(s||'').replace(/\D/g,''); }
+
+// Nome comparável: sem acento, sem pontuação, caixa alta, espaço simples.
+// NFD separa a letra do acento; jogar fora tudo que não é ASCII derruba só o
+// acento e preserva a letra-base (JOÃO → JOAO), sem depender de escape unicode
+// no fonte — que já se perdeu em conversão de encoding neste projeto.
+function _plrNorm(s){
+  return String(s||'').normalize('NFD').replace(/[^\x20-\x7E]/g,'').toUpperCase()
+    .replace(/[^A-Z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+}
+
+// "1.234,56" (pt-BR, como sai do contador) e "1234.56" (CSV cru). A vírgula manda
+// quando existe; sem vírgula, ponto só é milhar no padrão 1.234.567.
+function _plrValorBr(s){
+  const t=String(s||'').trim();
+  if(!t) return 0;
+  if(t.includes(',')) return parseFloat(t.replace(/\./g,'').replace(',','.'))||0;
+  if(/^\d{1,3}(\.\d{3})+$/.test(t)) return parseFloat(t.replace(/\./g,''))||0;
+  return parseFloat(t)||0;
+}
+
+// CPF com fronteira de dígito dos dois lados — senão os 11 primeiros dígitos de um
+// CNPJ sem máscara passariam por CPF e o cabeçalho da empresa viraria pagamento.
+const _PLR_CPF_RE  = /(?:^|[^\d])(\d{3}\.\d{3}\.\d{3}-\d{2}|\d{11})(?:[^\d]|$)/;
+const _PLR_CNPJ_RE = /\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/;
+
+// Lê o texto colado do relatório do contador e também CSV/TXT (; , ou TAB).
+// Vira lançamento a linha que tem CPF; cabeçalho, paginação e rodapé são
+// descartados — MENOS o rodapé de conferência ("Empregados: 59 / Total da
+// Empresa: 6.953,55"), que é capturado justamente pra acusar diferença depois.
+function _plrParse(txt){
+  const r={linhas:[], totalArq:0, countArq:0, ignoradas:0};
+  String(txt||'').split(/\r?\n/).forEach(raw=>{
+    const linha=String(raw).replace(/\t/g,' ').trim();
+    if(!linha) return;
+
+    const mTot=linha.match(/total\s+da\s+empresa\s*:?\s*R?\$?\s*([\d.,]+)/i);
+    if(mTot) r.totalArq=_plrValorBr(mTot[1]);
+    const mCnt=linha.match(/empregados\s*:\s*(\d+)/i);
+    if(mCnt) r.countArq=parseInt(mCnt[1],10)||0;
+    if(mTot||mCnt) return;
+
+    if(_PLR_CNPJ_RE.test(linha)) return;              // cabeçalho da empresa
+    const mCpf=linha.match(_PLR_CPF_RE);
+    if(!mCpf){ r.ignoradas++; return; }
+    const cpf=_plrDigitos(mCpf[1]);
+    if(cpf.length!==11){ r.ignoradas++; return; }
+
+    const pos    = linha.indexOf(mCpf[1]);
+    const antes  = linha.slice(0,pos);
+    const depois = linha.slice(pos+mCpf[1].length);
+
+    // Valor = último número DEPOIS do CPF (onde ele fica no relatório e no CSV).
+    let valor=0;
+    const toks=depois.match(/-?\d[\d.]*(?:,\d{1,2})?/g);
+    if(toks && toks.length) valor=_plrValorBr(toks[toks.length-1]);
+    if(!valor){                                        // layout com o valor antes do CPF
+      const t2=antes.match(/\d[\d.]*,\d{2}/g);
+      if(t2 && t2.length) valor=_plrValorBr(t2[t2.length-1]);
+    }
+
+    // Código do contador = primeiro número da linha, antes do nome.
+    const mCod=antes.match(/^[\s"';,]*(\d{1,6})(?=\D|$)/);
+    const codigo=mCod?mCod[1]:'';
+    const nome=antes.replace(/^[\s"';,]*\d{1,6}\s*[;,\s]/,'')
+                    .replace(/["';,]+/g,' ').replace(/\s+/g,' ').trim();
+
+    r.linhas.push({codigo, nomeArq:nome, cpf, valorArq:valor});
+  });
+  return r;
+}
+
+function _plrCompetencia(){
+  const mes=String(val('plr-mes')||currentMes()).padStart(2,'0');
+  const ano=val('plr-ano')||currentAno();
+  const p=val('plr-parcela')||'1';
+  return `PLR_${ano}-${mes}_P${p}`;
+}
+function _plrLabel(){
+  const mes=String(val('plr-mes')||currentMes()).padStart(2,'0');
+  const ano=val('plr-ano')||currentAno();
+  const p=val('plr-parcela')||'1';
+  return `PLR ${mes}/${ano} — ${p==='U'?'parcela única':p+'ª parcela'}`;
+}
+
+// Selecionável = casou, tem chave, tem valor e ainda não foi lançado.
+// Divergência e desligado SÃO selecionáveis: só não nascem marcados — marcar na
+// mão é a confirmação explícita do dono.
+function _plrSelecionavel(r){
+  return !!(r.empId && !r.jaLancado && r.pixKey && (+r.valor||0)>0);
+}
+
+function _plrRecalcStatus(r, resetSel){
+  if(!r.empId)                 r.status='nao-id';
+  else if(r.jaLancado)         r.status='ja-lancado';
+  else if(!r.pixKey)           r.status='sem-pix';
+  else if(!((+r.valor||0)>0))  r.status='sem-valor';
+  else if(r.divergencia)       r.status='divergencia';
+  else if(r.desligado)         r.status='desligado';
+  else                         r.status='pronto';
+  if(resetSel) r.selecionado = (r.status==='pronto');
+  if(!_plrSelecionavel(r)) r.selecionado = false;
+}
+
+function _plrAplicarEmp(r, emp, comp){
+  comp = comp || _plrCompetencia();
+  if(!emp){
+    r.empId=''; r.empNome=''; r.matricula=''; r.pixKey=''; r.keyType='';
+    r.desligado=false; r.divergencia=false; r.jaLancado=false;
+    _plrRecalcStatus(r, true);
+    return;
+  }
+  r.empId     = emp.id;
+  r.empNome   = emp.nome||'';
+  r.matricula = emp.registro ? String(emp.registro).padStart(4,'0') : '';
+  const chave = String(emp.chavePix||'').trim();
+  r.pixKey    = chave;
+  r.keyType   = emp.chavePixTipo || detectPixKeyType(chave);
+  r.desligado    = ((emp.status||'ativo')!=='ativo');
+  r.statusEmp    = emp.status||'ativo';
+  r.dataDemissao = emp.dataDemissao||'';
+  // Nome do arquivo × nome do cadastro: um contendo o outro basta (o relatório do
+  // contador às vezes trunca). Divergiu de verdade → o dono confirma na mão.
+  const a=_plrNorm(r.nomeArq), b=_plrNorm(emp.nome);
+  r.divergencia = !!(a && b && !a.includes(b) && !b.includes(a));
+  // Dedup: pendente ou pago na MESMA competência+parcela trava. Recusado e
+  // estornado NÃO travam — esses precisam ser refeitos. #plr
+  r.jaLancado = (State.solicitacoes||[]).some(s => s && s.origem==='plr'
+    && s.employeeId===emp.id && s.competencia===comp
+    && (s.status==='pendente' || s.status==='pago'));
+  _plrRecalcStatus(r, true);
+}
+
+// Casa a lista com o cadastro. CPF é a chave forte; o código do contador só vale
+// depois de gravado no colaborador (plrCodigoContabil, aprendido no 1º lote); o
+// nome só quando é ÚNICO — nome ambíguo cai como "não identificado" de propósito,
+// porque casar errado aqui é pagar a pessoa errada.
+function _plrCasar(){
+  const emps=(State.employees||[]);
+  const porCpf={}, porCod={}, porNome={};
+  const push=(m,k,e)=>{ if(!k) return; (m[k]=m[k]||[]).push(e); };
+  emps.forEach(e=>{
+    const c=_plrDigitos(e.cpf); if(c.length===11) push(porCpf,c,e);
+    push(porCod, String(e.plrCodigoContabil||'').trim(), e);
+    push(porNome, _plrNorm(e.nome), e);
+  });
+  const comp=_plrCompetencia();
+  _plrData.forEach(r=>{
+    if(r.manual){                                   // escolha do dono manda
+      _plrAplicarEmp(r, emps.find(e=>e.id===r.empId), comp);
+      return;
+    }
+    let cand=null, por='';
+    if(porCpf[r.cpf] && porCpf[r.cpf].length===1){ cand=porCpf[r.cpf][0]; por='CPF'; }
+    if(!cand && r.codigo && porCod[r.codigo] && porCod[r.codigo].length===1){
+      cand=porCod[r.codigo][0]; por='código';
+    }
+    if(!cand){
+      const n=_plrNorm(r.nomeArq);
+      if(n && porNome[n] && porNome[n].length===1){ cand=porNome[n][0]; por='nome'; }
+    }
+    r.matchPor = cand ? por : '';
+    _plrAplicarEmp(r, cand, comp);
+  });
+}
+
+function openPlrModal(){
+  if(!getUserModules(Auth.currentUser).pagamentosLancar){
+    toast('Você não tem permissão para lançar pagamentos.','error'); return;
+  }
+  const hoje=new Date().toISOString().split('T')[0];
+  if(!val('plr-mes'))  setVal('plr-mes',  String(currentMes()));
+  if(!val('plr-ano'))  setVal('plr-ano',  String(currentAno()));
+  if(!val('plr-data')) setVal('plr-data', hoje);
+
+  const prog=document.getElementById('plr-progresso'); if(prog) prog.style.display='none';
+  const log=document.getElementById('plr-progress-log'); if(log) log.innerHTML='';
+  const bar=document.getElementById('plr-progress-bar'); if(bar) bar.style.width='0%';
+
+  const btn=document.getElementById('btn-plr-lancar');
+  if(btn){ btn.disabled=true; btn.onclick=executarPlrLote;
+           btn.innerHTML='<i class="fa-solid fa-paper-plane"></i> Lançar Solicitações'; }
+
+  // Volta do cadastro (foi lá pôr a chave PIX): a lista continua carregada e é
+  // RECASADA, pra chave nova entrar sem precisar colar tudo de novo. #plr
+  if(_plrData.length){ _plrCasar(); _plrMostrarConferencia(true); }
+  else _plrMostrarConferencia(false);
+  refreshPlrTabela();
+  document.getElementById('modal-plr').classList.remove('hidden');
+}
+
+function _plrMostrarConferencia(mostrar){
+  const el=document.getElementById('plr-passo-conferir');
+  if(el) el.style.display = mostrar ? '' : 'none';
+  const btn=document.getElementById('btn-plr-lancar');
+  if(btn) btn.disabled = !mostrar;
+}
+
+function plrArquivoEscolhido(ev){
+  const file=ev.target.files && ev.target.files[0];
+  ev.target.value='';
+  if(!file) return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    setVal('plr-texto', String(e.target.result||''));
+    _plrArquivoNome=file.name;
+    toast(`Arquivo "${file.name}" carregado — clique em "Conferir lista".`,'info');
+  };
+  reader.onerror=()=>toast('Erro ao ler o arquivo.','error');
+  reader.readAsText(file,'utf-8');
+}
+
+function plrConferirLista(){
+  const txt=val('plr-texto')||'';
+  if(!txt.trim()){ toast('Cole a lista da contabilidade (ou suba o arquivo) primeiro.','warning'); return; }
+  const p=_plrParse(txt);
+  if(!p.linhas.length){
+    toast('Nenhuma linha com CPF foi reconhecida. O texto precisa ter código, nome, CPF e valor.','error');
+    return;
+  }
+  _plrData=p.linhas.map(l=>({ ...l, valor:l.valorArq, editado:false, manual:false,
+                              empId:'', empNome:'', matricula:'', pixKey:'', keyType:'',
+                              matchPor:'', status:'nao-id', selecionado:false, forcarSelect:false }));
+  _plrArquivo={ totalArq:p.totalArq, countArq:p.countArq, ignoradas:p.ignoradas, nome:_plrArquivoNome };
+  _plrCasar();
+  _plrMostrarConferencia(true);
+  refreshPlrTabela();
+  toast(`${p.linhas.length} linha(s) lida(s). Confira a tabela antes de lançar.`,'success');
+}
+
+function plrLimparLista(){
+  _plrData=[]; _plrArquivo=null; _plrArquivoNome='';
+  setVal('plr-texto','');
+  _plrMostrarConferencia(false);
+  refreshPlrTabela();
+  toast('Lista descartada — cole outra.','info');
+}
+
+function _plrOpcoesEmp(sel){
+  const emps=[...(State.employees||[])].sort((a,b)=>String(a.nome||'').localeCompare(String(b.nome||''),'pt-BR'));
+  return '<option value="">— escolher colaborador —</option>' + emps.map(e=>{
+    const matr=e.registro?String(e.registro).padStart(4,'0'):'';
+    const off=((e.status||'ativo')!=='ativo')?' (desligado)':'';
+    return `<option value="${e.id}" ${e.id===sel?'selected':''}>${esc(e.nome||'—')}${matr?' · '+matr:''}${off}</option>`;
+  }).join('');
+}
+
+function plrSetEmp(idx, empId){
+  const r=_plrData[idx]; if(!r) return;
+  r.manual=!!empId; r.empId=empId; r.matchPor=empId?'manual':'';
+  r.forcarSelect=false;
+  _plrAplicarEmp(r, (State.employees||[]).find(e=>e.id===empId), _plrCompetencia());
+  refreshPlrTabela();
+}
+function plrTrocarEmp(idx){
+  const r=_plrData[idx]; if(!r) return;
+  r.forcarSelect=true; refreshPlrTabela();
+}
+
+// Valor editado NÃO redesenha a tabela — só o resumo. Redesenhar aqui apagaria o
+// que o dono está digitando nas outras linhas. #render-apaga-formulario
+function plrEditarValor(idx, v){
+  const r=_plrData[idx]; if(!r) return;
+  const novo=parseFloat(String(v).replace(',','.'))||0;
+  r.valor=novo;
+  r.editado=Math.abs(novo-(+r.valorArq||0))>0.004;
+  const eraSel=r.selecionado;
+  _plrRecalcStatus(r,false);
+  if(r.status==='pronto' && !eraSel) r.selecionado=true;
+  refreshPlrResumo();
+}
+
+function plrToggleLinha(idx, checked){
+  const r=_plrData[idx]; if(!r) return;
+  r.selecionado = checked && _plrSelecionavel(r);
+  refreshPlrResumo();
+}
+
+function plrSelectAll(checked){
+  _plrData.forEach(r=>{ r.selecionado = checked && _plrSelecionavel(r); });
+  refreshPlrTabela();
+}
+
+// Sem chave PIX: NÃO se digita chave de dinheiro numa tela de lote. Vai ao
+// cadastro do colaborador; ao voltar, a lista continua carregada e recasa sozinha.
+function plrCadastrarChave(idx){
+  const r=_plrData[idx]; if(!r || !r.empId) return;
+  closeModal('modal-plr');
+  toast('Cadastre a chave em Benefícios e volte em Pagamentos → PLR: a lista continua carregada.','info');
+  _alertaAbrirEmp(r.empId,'tab-beneficios');
+}
+
+function refreshPlrTabela(){
+  const tbody=document.getElementById('plr-tbody'); if(!tbody) return;
+  if(!_plrData.length){
+    tbody.innerHTML='<tr><td colspan="6" style="padding:26px;text-align:center;color:#999">Cole a lista acima e clique em <strong>Conferir lista</strong>.</td></tr>';
+    refreshPlrResumo(); return;
+  }
+  tbody.innerHTML=_plrData.map((r,i)=>{
+    const bg=i%2?'#f9fafb':'#fff';
+    const selo=_PLR_SELO[r.status]||_PLR_SELO['nao-id'];
+    const podeMarcar=_plrSelecionavel(r);
+    const cpfFmt=r.cpf.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/,'$1.$2.$3-$4');
+
+    // Coluna do colaborador: casado → nome do CADASTRO + como casou; senão, select.
+    let colab;
+    if(!r.empId || r.forcarSelect){
+      colab=`<select style="width:100%;font-size:12px;padding:4px" onchange="plrSetEmp(${i}, this.value)">${_plrOpcoesEmp(r.empId)}</select>
+             <div style="font-size:11px;color:#888;margin-top:3px">arquivo: ${esc(r.nomeArq)}${r.codigo?' · cód. '+esc(r.codigo):''}</div>`;
+    } else {
+      const como=r.matchPor==='manual'?'escolhido à mão':`casou por ${r.matchPor}`;
+      const extra=r.divergencia
+        ? `<div style="font-size:11px;color:#c62828">arquivo diz: ${esc(r.nomeArq)}</div>` : '';
+      const dem=r.desligado
+        ? `<div style="font-size:11px;color:#1565C0">desligado${r.dataDemissao?' em '+formatDateBr(r.dataDemissao):''}</div>` : '';
+      colab=`<strong>${esc(r.empNome)}</strong> <span style="font-size:11px;color:#aaa">${r.matricula||''}</span>
+             <button title="Trocar colaborador" onclick="plrTrocarEmp(${i})" style="padding:0 4px;font-size:12px;color:#888;background:none;border:none;cursor:pointer">⇄</button>
+             <div style="font-size:11px;color:#999">${como}${r.codigo?' · cód. '+esc(r.codigo):''}</div>${extra}${dem}`;
+    }
+
+    const pixCol = r.empId
+      ? (r.pixKey
+          ? `<span style="font-family:monospace;font-size:11px;color:#00695C">${esc(r.pixKey)}</span><div style="font-size:10px;color:#aaa">${esc(r.keyType||'')}</div>`
+          : `<button class="btn btn-sm btn-outline" style="font-size:11px;padding:3px 8px;color:#E65100;border-color:#FFCC80" onclick="plrCadastrarChave(${i})"><i class="fa-solid fa-key"></i> Cadastrar chave</button>`)
+      : '<span style="color:#ccc">—</span>';
+
+    return `<tr style="background:${bg};opacity:${r.status==='ja-lancado'?.6:1}">
+      <td style="padding:8px 10px;text-align:center">
+        <input type="checkbox" ${r.selecionado?'checked':''} ${podeMarcar?'':'disabled'}
+          onchange="plrToggleLinha(${i}, this.checked)"></td>
+      <td style="padding:8px 10px">${colab}</td>
+      <td style="padding:8px 10px;font-family:monospace;font-size:11px;color:#666">${cpfFmt}</td>
+      <td style="padding:8px 10px;text-align:right">
+        <input type="number" step="0.01" min="0" value="${(+r.valor||0).toFixed(2)}"
+          onchange="plrEditarValor(${i}, this.value)"
+          style="width:92px;text-align:right;font-weight:700;color:#00695C;padding:4px;border:1px solid #ddd;border-radius:6px">
+        ${r.editado?`<div style="font-size:10px;color:#E65100">✏️ alterado (arquivo: ${fmtMoney(r.valorArq)})</div>`:''}
+      </td>
+      <td style="padding:8px 10px">${pixCol}</td>
+      <td style="padding:8px 10px;text-align:center">
+        <span style="background:${selo.bg};color:${selo.c};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">${selo.t}</span>
+      </td>
+    </tr>`;
+  }).join('');
+  refreshPlrResumo();
+}
+
+// A conferência que impede lançar a menos em silêncio: compara o que vai sair com
+// o rodapé do arquivo E com a soma das linhas lidas. Se essas duas divergirem,
+// alguma linha não foi lida — isso é erro de leitura, não escolha do dono. #plr
+function refreshPlrResumo(){
+  const el=document.getElementById('plr-resumo'); if(!el) return;
+  const btn=document.getElementById('btn-plr-lancar');
+
+  const sel=_plrData.filter(r=>r.selecionado && _plrSelecionavel(r));
+  const totalSel=sel.reduce((s,r)=>s+(+r.valor||0),0);
+  const totalLinhas=_plrData.reduce((s,r)=>s+(+r.valor||0),0);
+  const totalArq=(_plrArquivo&&_plrArquivo.totalArq)||0;
+  const countArq=(_plrArquivo&&_plrArquivo.countArq)||0;
+
+  const cnt=document.getElementById('plr-counter');
+  if(cnt) cnt.textContent=`${sel.length} selecionado(s) · ${fmtMoney(totalSel)}`;
+  if(btn && !btn.dataset.plrRodando) btn.disabled=(sel.length===0);
+
+  if(!_plrData.length){ el.innerHTML=''; return; }
+
+  const linhaArq = (totalArq||countArq)
+    ? `<div><strong>Arquivo:</strong> ${countArq||_plrData.length} colaborador(es) · ${fmtMoney(totalArq||totalLinhas)}</div>`
+    : `<div><strong>Lista lida:</strong> ${_plrData.length} linha(s) · ${fmtMoney(totalLinhas)}</div>`;
+
+  // Motivos da diferença, por status, com o dinheiro de cada motivo.
+  const fora={};
+  _plrData.forEach(r=>{
+    if(r.selecionado && _plrSelecionavel(r)) return;
+    fora[r.status]=fora[r.status]||{n:0,v:0};
+    fora[r.status].n++; fora[r.status].v+=(+r.valor||0);
+  });
+  const rotulo={'sem-pix':'sem chave PIX','nao-id':'não identificado(s)',
+                'divergencia':'nome divergente (não confirmado)','desligado':'desligado(s) não marcado(s)',
+                'sem-valor':'valor zerado','ja-lancado':'já lançado(s)','pronto':'desmarcado(s)'};
+  const motivos=Object.keys(fora).map(k=>`${fora[k].n} ${rotulo[k]||k} (${fmtMoney(fora[k].v)})`);
+
+  const base=totalArq||totalLinhas;
+  const dif=base-totalSel;
+  let alerta;
+  if(Math.abs(dif)>0.004){
+    alerta=`<div style="margin-top:6px;color:#E65100;font-weight:600">⚠️ diferença de ${fmtMoney(Math.abs(dif))} em relação ${totalArq?'ao total do arquivo':'à lista lida'}</div>`;
+    if(motivos.length) alerta+=`<div style="font-size:12px;color:#777;margin-top:2px">↳ ${motivos.join(' · ')}</div>`;
+  } else {
+    alerta=`<div style="margin-top:6px;color:#2e7d32;font-weight:600">✓ bate com ${totalArq?'o total do arquivo':'a lista lida'}</div>`;
+  }
+
+  // Rodapé do arquivo × linhas lidas: divergiu = leitura incompleta.
+  let leitura='';
+  if(totalArq && Math.abs(totalArq-totalLinhas)>0.004){
+    leitura=`<div style="margin-top:6px;color:#c62828;font-weight:700">🔴 o rodapé do arquivo soma ${fmtMoney(totalArq)} e as linhas lidas somam ${fmtMoney(totalLinhas)} — confira o texto colado antes de lançar.</div>`;
+  } else if(countArq && countArq!==_plrData.length){
+    leitura=`<div style="margin-top:6px;color:#c62828;font-weight:700">🔴 o arquivo diz ${countArq} colaborador(es) e foram lidas ${_plrData.length} linha(s).</div>`;
+  }
+
+  el.innerHTML = linhaArq
+    + `<div style="margin-top:2px"><strong>Vai lançar:</strong> ${sel.length} · <strong style="color:#00695C">${fmtMoney(totalSel)}</strong></div>`
+    + alerta + leitura;
+}
+
+function _plrLog(msg, cor='#81d4fa'){
+  const el=document.getElementById('plr-progress-log'); if(!el) return;
+  const ts=new Date().toLocaleTimeString('pt-BR');
+  el.innerHTML+=`<span style="color:#aaa">[${ts}]</span> <span style="color:${cor}">${msg}</span>\n`;
+  el.scrollTop=el.scrollHeight;
+}
+
+// Aprende o código do contador no colaborador, pra 2ª parcela (e os próximos anos)
+// casarem de primeira. Best-effort: quem só tem "Colaboradores: ver" não grava no
+// cadastro — e isso NUNCA pode derrubar o pagamento. #plr
+async function _plrMemorizarCodigos(linhas){
+  if(typeof canEditModule==='function' && !canEditModule('employees')) return 0;
+  let n=0;
+  for(const r of linhas){
+    if(!r.manual || !r.codigo || !r.empId) continue;
+    const emp=(State.employees||[]).find(e=>e.id===r.empId);
+    if(!emp || String(emp.plrCodigoContabil||'')===String(r.codigo)) continue;
+    try{ await DB.merge('employees', r.empId, {plrCodigoContabil:String(r.codigo)}); n++; }
+    catch(_){ /* silencioso de propósito: é conveniência, não dinheiro */ }
+  }
+  return n;
+}
+
+// Carimba a DATA de pagamento da parcela no card da CCT (o alerta do painel vira ✅
+// sozinho). 🔒 O VALOR da CCT não é tocado — regra travada. #plr
+async function _plrMarcarCct(){
+  const marcar=document.getElementById('plr-cct-marcar');
+  if(!marcar || !marcar.checked) return false;
+  if(!State.cct) return false;
+  const p=parseInt(val('plr-parcela')||'1',10);
+  if(p!==1 && p!==2) return false;
+  try{
+    const cct={...State.cct};
+    cct[`plrP${p}DataPagamento`]=val('plr-data')||new Date().toISOString().split('T')[0];
+    cct.updatedAt=new Date().toISOString();
+    await DB.save('cct',cct);
+    State.cct=cct;
+    if(typeof renderDashboard==='function') renderDashboard();
+    return true;
+  }catch(e){ console.error('plr cct',e); return false; }
+}
+
+async function executarPlrLote(){
+  if(!getUserModules(Auth.currentUser).pagamentosLancar){
+    toast('Você não tem permissão para lançar pagamentos.','error'); return;
+  }
+  const btn=document.getElementById('btn-plr-lancar');
+  const selecionados=_plrData.filter(r=>r.selecionado && _plrSelecionavel(r));
+  if(!selecionados.length){ toast('Nenhuma linha selecionada.','warning'); return; }
+
+  // Trava ANTES do await — clique repetido aqui é PIX repetido. #botao-nunca-mudo
+  btn.disabled=true;
+  btn.dataset.plrRodando='1';
+  btn.innerHTML=`<i class="fa-solid fa-spinner fa-spin"></i> Lançando 0/${selecionados.length}... aguarde`;
+  document.getElementById('plr-progresso').style.display='block';
+  document.getElementById('plr-progress-log').innerHTML='';
+  document.getElementById('plr-progress-bar').style.width='0%';
+
+  const comp=_plrCompetencia(), label=_plrLabel();
+  const data=val('plr-data')||new Date().toISOString().split('T')[0];
+  _plrLog(`${label} — criando ${selecionados.length} solicitação(ões)...`, '#fff176');
+
+  let ok=0, erros=0, total=0;
+  try{
+    for(let i=0;i<selecionados.length;i++){
+      const r=selecionados[i];
+      const valor=+r.valor||0;
+      // Recontrola a duplicidade LINHA A LINHA: entre a conferência e o clique o
+      // listener pode ter trazido uma solicitação criada em outra aba.
+      const dup=(State.solicitacoes||[]).some(s=>s && s.origem==='plr'
+        && s.employeeId===r.empId && s.competencia===comp
+        && (s.status==='pendente'||s.status==='pago'));
+      if(dup){
+        r.jaLancado=true; _plrRecalcStatus(r,false);
+        _plrLog(`⚠ ${r.empNome}: já existe solicitação desta PLR — pulado`, '#ffcc02');
+        continue;
+      }
+      try{
+        const sol=await _criarSolicitacaoPagamento({
+          employeeId:r.empId, employeeNome:r.empNome, payrollId:'',
+          valor,
+          pixKey:_pixKeyParaAsaas(r.pixKey, r.keyType), keyType:r.keyType,
+          descricao:`${label} — ${r.empNome}`,
+          scheduleDate:data, competencia:comp, origem:'plr',
+        });
+        r.jaLancado=true; r.selecionado=false; _plrRecalcStatus(r,false);
+        ok++; total+=valor;
+        _plrLog(`✓ ${r.empNome}: ${fmtMoney(valor)} solicitado (sol ${sol.id})`, '#a5d6a7');
+        Auth.log('PAGAMENTO_SOLICITADO', null,
+          `${label} | ${r.empNome} | R$ ${valor.toFixed(2)} | PIX ${r.pixKey} | ${data} | sol ${sol.id}`);
+      }catch(e){
+        erros++;
+        _plrLog(`✗ ${r.empNome}: ERRO — ${(e&&e.message)||e}`, '#ef9a9a');
+      }
+      document.getElementById('plr-progress-bar').style.width=`${Math.round(((i+1)/selecionados.length)*100)}%`;
+      btn.innerHTML=`<i class="fa-solid fa-spinner fa-spin"></i> Lançando ${i+1}/${selecionados.length}... aguarde`;
+    }
+
+    const memor=await _plrMemorizarCodigos(_plrData);
+    if(memor) _plrLog(`↳ ${memor} código(s) do contador memorizado(s) no cadastro pra próxima parcela.`, '#b0bec5');
+
+    if(ok>0 && await _plrMarcarCct())
+      _plrLog(`↳ ${val('plr-parcela')}ª parcela marcada como paga no card da CCT.`, '#b0bec5');
+
+    _plrLog(`\nConcluído: ${ok} solicitação(ões) · ${fmtMoney(total)}${erros?` · ${erros} com erro`:''}`,
+            erros?'#ffcc02':'#fff176');
+    refreshPlrTabela();
+
+    delete btn.dataset.plrRodando;
+    btn.disabled=false;
+    if(ok>0 && !erros){
+      btn.innerHTML='<i class="fa-solid fa-check"></i> Concluído — ir para Aprovações';
+      btn.onclick=()=>{ closeModal('modal-plr'); showSection('aprovacoes'); };
+      toast(`${ok} solicitação(ões) de PLR criada(s) — ${fmtMoney(total)}. Aprove em "Aprovações de Pagamentos" (2FA).`,'success');
+    } else if(ok>0){
+      btn.innerHTML='<i class="fa-solid fa-paper-plane"></i> Tentar novamente (linhas com erro)';
+      btn.onclick=executarPlrLote;
+      toast(`${ok} criada(s), ${erros} com erro — veja o log.`,'warning');
+    } else {
+      btn.innerHTML='<i class="fa-solid fa-paper-plane"></i> Lançar Solicitações';
+      btn.onclick=executarPlrLote;
+      toast(`Nenhuma solicitação criada — ${erros} erro(s). Veja o log.`,'error');
+    }
+  }catch(e){
+    // Falha fora do laço (rede/permissão): destrava e diz o motivo real.
+    console.error('PLR lote',e);
+    delete btn.dataset.plrRodando;
+    btn.disabled=false;
+    btn.innerHTML='<i class="fa-solid fa-paper-plane"></i> Lançar Solicitações';
+    btn.onclick=executarPlrLote;
+    _plrLog(`✗ ERRO: ${(e&&e.message)||e}`, '#ef9a9a');
+    toast(`Erro ao lançar a PLR: ${(e&&e.message)||e}`,'error');
+  }
 }
 
 // ============================================

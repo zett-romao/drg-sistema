@@ -1943,6 +1943,9 @@
               <button class="btn btn-primary" onclick="openPagarEmLote()" style="background:#00695C;border-color:#00695C">
                 <i class="fa-brands fa-pix"></i> Pagar Todos via PIX
               </button>
+              <button class="btn btn-primary" onclick="openPlrModal()" style="background:#4527A0;border-color:#4527A0" title="Cola a lista de PLR da contabilidade e lanca um PIX por colaborador, com a chave PIX do cadastro.">
+                <i class="fa-solid fa-hand-holding-dollar"></i> PLR / Participação nos Lucros
+              </button>
             </div>
           </div>
           <div class="card-body" style="padding:0;overflow-x:auto">
@@ -7256,6 +7259,130 @@
   </div>
 </div>
 
+<!-- ===== MODAL: PLR — PARTICIPAÇÃO NOS LUCROS ===== -->
+<!-- A lista vem PRONTA da contabilidade (já líquida). O Kronos só casa com o
+     cadastro e paga. A chave PIX é sempre a do cadastro do colaborador. #plr -->
+<div class="modal-overlay hidden" id="modal-plr" onclick="closeModal('modal-plr', event)">
+  <div class="modal-dialog" style="max-width:960px;width:96vw">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-hand-holding-dollar" style="color:#4527A0"></i> PLR — Participação nos Lucros</h3>
+      <button class="modal-close" onclick="closeModal('modal-plr')"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body" style="padding:0">
+
+      <!-- 1) Competência, parcela e data -->
+      <div style="padding:14px 20px;border-bottom:1px solid var(--border-color,#e0e0e0)">
+        <div class="form-row" style="align-items:flex-end;gap:12px;flex-wrap:wrap">
+          <div class="form-group form-group-sm" style="flex:0 0 auto">
+            <label>Competência</label>
+            <select id="plr-mes" onchange="if(_plrData.length){_plrCasar();refreshPlrTabela();}">
+              <option value="1">Janeiro</option><option value="2">Fevereiro</option>
+              <option value="3">Março</option><option value="4">Abril</option>
+              <option value="5">Maio</option><option value="6">Junho</option>
+              <option value="7">Julho</option><option value="8">Agosto</option>
+              <option value="9">Setembro</option><option value="10">Outubro</option>
+              <option value="11">Novembro</option><option value="12">Dezembro</option>
+            </select>
+          </div>
+          <div class="form-group form-group-sm" style="flex:0 0 90px">
+            <label>Ano</label>
+            <input type="number" id="plr-ano" min="2020" max="2100" step="1"
+              onchange="if(_plrData.length){_plrCasar();refreshPlrTabela();}">
+          </div>
+          <div class="form-group form-group-sm" style="flex:0 0 auto">
+            <label>Parcela</label>
+            <select id="plr-parcela" onchange="if(_plrData.length){_plrCasar();refreshPlrTabela();}">
+              <option value="1">1ª parcela</option>
+              <option value="2">2ª parcela</option>
+              <option value="U">Parcela única</option>
+            </select>
+          </div>
+          <div class="form-group form-group-sm" style="flex:0 0 auto">
+            <label>Data do pagamento</label>
+            <input type="date" id="plr-data">
+          </div>
+        </div>
+        <div style="margin-top:8px;font-size:12px;color:#4527A0;background:#EDE7F6;border-radius:8px;padding:8px 10px">
+          <i class="fa-solid fa-lock"></i> O arquivo diz <strong>quanto</strong>. O cadastro diz <strong>para onde</strong>:
+          a chave PIX usada é sempre a cadastrada no colaborador.
+        </div>
+      </div>
+
+      <!-- 2) Colar a lista -->
+      <div style="padding:14px 20px;border-bottom:1px solid var(--border-color,#e0e0e0)">
+        <label style="font-size:13px;font-weight:600;color:#1a3a6b">Cole a relação da contabilidade (código, nome, CPF e valor)</label>
+        <textarea id="plr-texto" rows="5" spellcheck="false"
+          style="width:100%;margin-top:6px;font-family:monospace;font-size:12px;padding:8px;border:1px solid #ddd;border-radius:8px"
+          placeholder="145 ADEILTON MOREIRA DE OLIVEIRA    155.507.828-12    133,50&#10;156 ALEXANDRE MAGNO DO NASCIMENTO   027.243.347-01     74,90&#10;..."></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+          <button class="btn btn-primary" id="btn-plr-conferir" onclick="plrConferirLista()" style="background:#4527A0;border-color:#4527A0;flex:1 1 180px">
+            <i class="fa-solid fa-list-check"></i> Conferir lista
+          </button>
+          <label class="btn btn-outline" style="flex:1 1 180px;text-align:center;cursor:pointer;margin:0">
+            <i class="fa-solid fa-file-arrow-up"></i> Subir CSV / TXT
+            <input type="file" accept=".csv,.txt" style="display:none" onchange="plrArquivoEscolhido(event)">
+          </label>
+          <button class="btn btn-outline" onclick="plrLimparLista()" style="flex:1 1 140px">
+            <i class="fa-solid fa-eraser"></i> Descartar lista
+          </button>
+        </div>
+      </div>
+
+      <!-- 3) Conferência -->
+      <div id="plr-passo-conferir" style="display:none">
+        <div style="padding:12px 20px;background:#f8f9fc;border-bottom:1px solid var(--border-color,#e0e0e0)">
+          <div id="plr-resumo" style="font-size:13px;color:#555"></div>
+          <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn btn-outline btn-sm" onclick="plrSelectAll(true)"><i class="fa-solid fa-check-double"></i> Marcar todos</button>
+            <button class="btn btn-outline btn-sm" onclick="plrSelectAll(false)"><i class="fa-solid fa-xmark"></i> Desmarcar</button>
+          </div>
+        </div>
+        <div style="overflow:auto;max-height:340px">
+          <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:720px">
+            <thead>
+              <tr style="background:#f8f9fc;position:sticky;top:0;z-index:1">
+                <th style="padding:8px 10px;text-align:center;width:36px"></th>
+                <th style="padding:8px 10px;text-align:left">Colaborador</th>
+                <th style="padding:8px 10px;text-align:left">CPF</th>
+                <th style="padding:8px 10px;text-align:right;color:#00695C">Valor</th>
+                <th style="padding:8px 10px;text-align:left">Chave PIX (do cadastro)</th>
+                <th style="padding:8px 10px;text-align:center">Situação</th>
+              </tr>
+            </thead>
+            <tbody id="plr-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 4) Progresso -->
+      <div id="plr-progresso" style="display:none;padding:16px 20px;border-top:1px solid var(--border-color,#e0e0e0)">
+        <div style="font-size:13px;font-weight:600;color:#1a3a6b;margin-bottom:8px">
+          <i class="fa-solid fa-spinner fa-spin"></i> Lançando as solicitações...
+        </div>
+        <div style="background:#f4f6fa;border-radius:8px;height:8px;overflow:hidden;margin-bottom:8px">
+          <div id="plr-progress-bar" style="height:100%;background:linear-gradient(90deg,#4527A0,#7E57C2);width:0%;transition:width .3s"></div>
+        </div>
+        <div id="plr-progress-log" style="font-size:12px;font-family:monospace;background:#1a1a2e;color:#81d4fa;border-radius:8px;padding:12px;max-height:150px;overflow-y:auto;line-height:1.8;white-space:pre-wrap"></div>
+      </div>
+
+    </div>
+    <div class="modal-footer" style="justify-content:space-between;flex-wrap:wrap;gap:10px">
+      <label style="font-size:12px;color:#555;display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="checkbox" id="plr-cct-marcar" checked>
+        Marcar a parcela como paga no card da CCT
+      </label>
+      <div style="display:flex;gap:8px;flex:1 1 260px;justify-content:flex-end">
+        <button class="btn btn-outline" onclick="closeModal('modal-plr')" style="flex:0 1 120px">Fechar</button>
+        <button class="btn btn-primary" id="btn-plr-lancar" onclick="executarPlrLote()" disabled
+          style="background:#4527A0;border-color:#4527A0;flex:1 1 220px">
+          <i class="fa-solid fa-paper-plane"></i> Lançar Solicitações
+        </button>
+      </div>
+    </div>
+    <div style="padding:0 20px 12px;text-align:right;font-size:12px;color:#888" id="plr-counter"></div>
+  </div>
+</div>
+
 <!-- ===== MODAL: PAGAR COLABORADOR VIA ASAAS ===== -->
 <div class="modal-overlay hidden" id="modal-asaas-pagar" onclick="closeModal('modal-asaas-pagar', event)">
   <div class="modal-dialog">
@@ -8003,6 +8130,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260820b-escala-sem-editar-cadastro"></script>
+  <script src="app.js?v=20260827a-plr-participacao-lucros"></script>
 </body>
 </html>

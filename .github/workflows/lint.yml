@@ -38,6 +38,10 @@ jobs:
         run: npm install --no-audit --no-fund eslint@9 globals@15
       - name: ESLint (no-undef)
         run: npx eslint app.js ponto-sw.js
+      # Motor da PLR: le a relacao do contador, casa com o cadastro e trava
+      # duplicidade. Roda contra o proprio app.js (nao contra uma copia). #plr
+      - name: Motor da PLR (teste-plr.js)
+        run: node teste-plr.js
 
       # 🔒 TRAVA DAS REGRAS DE PONTO (dono 2026-08-02, "trave onde for preciso para não
       # mexer mais"). Até aqui este teste dependia de alguém LEMBRAR de rodar à mão —

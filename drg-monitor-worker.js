@@ -377,7 +377,12 @@ async function enviarEmailResend(env, to, subject, html){
   /* 🔒 Padrao de emergencia e endereco REAL: o onboarding@resend.dev so entrega
      para o dono da conta, entao um MAIL_FROM esquecido viraria e-mail que chega
      so para voce e some para o resto. #cota-email */
-  const from=env.MAIL_FROM || 'DRG-Kronos <avisos@drglobal.com.br>';
+  /* 🔒 Remetente de TESTE e recusado, venha de onde vier: o onboarding@resend.dev
+     so entrega para o dono da conta Resend, e variavel gravada no painel VENCE o
+     padrao — trocar so o padrao deixaria o valor velho valendo. */
+  const _deTeste = env.MAIL_FROM && /onboarding@resend\.dev/i.test(env.MAIL_FROM);
+  if(_deTeste) console.warn('[email] MAIL_FROM esta com o remetente de TESTE do Resend — IGNORADO.');
+  const from=(!_deTeste && env.MAIL_FROM) || 'DRG-Kronos <avisos@drglobal.com.br>';
 
   const falhas=[];
   for(const prov of ligados){

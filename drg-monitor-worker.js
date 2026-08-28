@@ -374,7 +374,10 @@ async function enviarEmailResend(env, to, subject, html){
 
   const dest=(Array.isArray(to)?to:[to]).filter(Boolean);
   if(!dest.length) return { ok:false, skip:true, motivo:'sem destinatários' };
-  const from=env.MAIL_FROM || 'DRG-Kronos <onboarding@resend.dev>';
+  /* 🔒 Padrao de emergencia e endereco REAL: o onboarding@resend.dev so entrega
+     para o dono da conta, entao um MAIL_FROM esquecido viraria e-mail que chega
+     so para voce e some para o resto. #cota-email */
+  const from=env.MAIL_FROM || 'DRG-Kronos <avisos@drglobal.com.br>';
 
   const falhas=[];
   for(const prov of ligados){

@@ -23261,9 +23261,176 @@ function _comuAddFiltroAvancado(){
 
 // ── Editor rico da Comunicação (negrito/itálico/sublinhado/alinhamento/fonte) ──
 function _rtbCmd(cmd, valArg){
-  const ed=document.getElementById('comu-corpo'); if(!ed) return;
-  ed.focus();
+  const ed=_rtbFocusSel(); if(!ed) return;
   try{ document.execCommand(cmd, false, valArg!=null?valArg:undefined); }catch(_){}
+  _rtbSaveSel();
+}
+
+// ── Emojis da Comunicação ──────────────────────────────────────────────────
+// 🔒 REGRA DO DONO: nada de capetinha aqui. Emoji de diabo ("smiling face with
+// horns" e cia.), caveira e monstro estão BANIDOS desta lista de propósito —
+// não reintroduza "porque o pacote padrão tem".
+const EMOJI_CATS = [
+  { id:'rostos', tab:'😀', nome:'Rostos', lista:[
+    '😀','😃','😄','😁','😆','😊','🙂','😉','😌','😍','🥰','😘','🤗','🤩','🥳','😎',
+    '🤓','🧐','🤔','🤨','😐','😑','😶','🙄','😏','😴','😪','🥱','🤤','😷','🤒','🤕',
+    '🤧','🥵','🥶','😥','😢','😭','😞','😔','😟','🙁','😣','😖','😫','😩','😤','😠',
+    '😡','🤯','😳','🥺','😱','😨','😰','😅','😬','🙃','😜','🤪','🤭','🤫','😇','🫡'
+  ]},
+  { id:'gestos', tab:'👍', nome:'Gestos', lista:[
+    '👍','👎','👌','✌️','🤞','🤝','🙏','👏','🙌','💪','👋','☝️','👆','👇','👉','👈',
+    '✍️','🤙','👀','🫰','🧑‍💼','👷','👮','🕵️','🧹','🚶','🏃','🧑‍🔧','👨‍💻','🤷','🙋','🫂'
+  ]},
+  { id:'trabalho', tab:'📅', nome:'Trabalho', lista:[
+    '📅','🗓️','⏰','⏱️','⏳','🕐','📌','📎','🖇️','📝','✏️','🖊️','📄','📃','📑','📊',
+    '📈','📉','📋','🗂️','📁','📂','🗃️','🗄️','💼','🏢','🖥️','💻','⌨️','🖨️','📱','☎️',
+    '📞','📧','✉️','📨','📤','📥','🔍','🔎','💰','💵','💳','🧾','🏦','🎓','🛠️','🔧'
+  ]},
+  { id:'sinais', tab:'✅', nome:'Sinais', lista:[
+    '✅','❌','⭕','❗','❕','❓','❔','⚠️','🚫','⛔','🔴','🟠','🟡','🟢','🔵','⚪',
+    '⚫','🔺','🔻','▶️','⏸️','🔒','🔓','🔔','🔕','📢','📣','💬','🗨️','💭','ℹ️','🆗',
+    '🆕','🔁','➕','➖','💲','🔝','#️⃣','1️⃣','2️⃣','3️⃣'
+  ]},
+  { id:'diversos', tab:'🎉', nome:'Diversos', lista:[
+    '🎉','🎊','🎁','🎂','🍰','☕','🍵','🍽️','🍕','🍔','🥗','🍫','🧃','🚗','🚌','🚑',
+    '🚒','🚧','🏠','🏥','🏫','⚽','🏆','🥇','🎯','🎵','🛏️','🧯','🚪','🔑','🗝️','🩺',
+    '💊','🧰','🧼','🚿','🌳','🐶','🐱','☔','🧊'
+  ]},
+  { id:'simbolos', tab:'❤️', nome:'Símbolos', lista:[
+    '❤️','🧡','💛','💚','💙','💜','🤍','💖','✨','⭐','🌟','💫','🔥','💧','☀️','🌤️',
+    '⛅','🌧️','⛈️','❄️','🌈','🌙','💯','🚀','👑','🌱','🍀','🎗️','♻️','⚖️','🔗','🏷️'
+  ]}
+];
+const EMOJI_RECENTES_KEY = 'drgKronosEmojiRecentes';
+let _emojiCatAtual = 'recentes';
+let _emojiAlvo     = 'corpo';   // 'corpo' | 'assunto'
+
+function _emojiRecentes(){
+  try{ const a=JSON.parse(localStorage.getItem(EMOJI_RECENTES_KEY)||'[]'); return Array.isArray(a)?a.slice(0,20):[]; }
+  catch(_){ return []; }
+}
+function _emojiGuardaRecente(ch){
+  try{
+    const a=_emojiRecentes().filter(e=>e!==ch); a.unshift(ch);
+    localStorage.setItem(EMOJI_RECENTES_KEY, JSON.stringify(a.slice(0,20)));
+  }catch(_){}
+}
+
+// Guarda a última posição do cursor dentro do editor rico. Os botões usam
+// onmousedown/preventDefault, mas em celular e em alguns navegadores a seleção
+// se perde mesmo assim — sem isto o emoji cairia no lugar errado.
+let _rtbRange = null;
+function _rtbSaveSel(){
+  const ed=document.getElementById('comu-corpo'); if(!ed) return;
+  const s=window.getSelection(); if(!s || !s.rangeCount) return;
+  const r=s.getRangeAt(0);
+  if(ed.contains(r.commonAncestorContainer)) _rtbRange=r.cloneRange();
+}
+function _rtbFocusSel(){
+  const ed=document.getElementById('comu-corpo'); if(!ed) return null;
+  ed.focus();
+  const s=window.getSelection();
+  if(s && s.rangeCount && ed.contains(s.getRangeAt(0).commonAncestorContainer)) return ed; // cursor já está no editor
+  let r;
+  if(_rtbRange && ed.contains(_rtbRange.commonAncestorContainer)) r=_rtbRange;
+  else { r=document.createRange(); r.selectNodeContents(ed); r.collapse(false); }
+  try{ s.removeAllRanges(); s.addRange(r); }catch(_){}
+  return ed;
+}
+
+function _emojiRenderGrade(){
+  const grade=document.getElementById('comu-emoji-grade'); if(!grade) return;
+  let lista;
+  if(_emojiCatAtual==='recentes'){
+    lista=_emojiRecentes();
+    if(!lista.length){ _emojiCatAtual='rostos'; lista=EMOJI_CATS[0].lista; }
+  } else {
+    lista=(EMOJI_CATS.find(c=>c.id===_emojiCatAtual)||EMOJI_CATS[0]).lista;
+  }
+  grade.innerHTML = lista.map(e=>
+    `<button type="button" class="emoji-cell" title="${e}" onmousedown="event.preventDefault()" onclick="_emojiInserir('${e}')">${e}</button>`
+  ).join('');
+  document.querySelectorAll('#comu-emoji-tabs .emoji-tab').forEach(b=>{
+    b.classList.toggle('ativa', b.dataset.cat===_emojiCatAtual);
+  });
+}
+function _emojiTab(cat){ _emojiCatAtual=cat; _emojiRenderGrade(); }
+
+function _emojiAbrir(alvo, trigger){
+  const painel=document.getElementById('comu-emoji-painel'); if(!painel) return;
+  const aberto=!painel.classList.contains('hidden');
+  if(aberto && _emojiAlvo===(alvo||'corpo')){ _emojiFechar(); return; }
+  _emojiAlvo = alvo || 'corpo';
+  if(_emojiCatAtual==='recentes' && !_emojiRecentes().length) _emojiCatAtual='rostos';
+  _emojiRenderGrade();
+  const rot=document.getElementById('comu-emoji-alvo');
+  if(rot) rot.textContent = (_emojiAlvo==='assunto') ? 'no assunto' : 'na mensagem';
+  painel.classList.remove('hidden');
+  // posiciona logo abaixo do botão que abriu, sem estourar a largura do modal
+  const zona=document.getElementById('comu-emoji-zone');
+  if(zona && trigger){
+    const zr=zona.getBoundingClientRect(), tr=trigger.getBoundingClientRect();
+    const larg=painel.offsetWidth || 300;
+    painel.style.top  = (tr.bottom - zr.top + 6)+'px';
+    painel.style.left = Math.max(0, Math.min(tr.left - zr.left, zona.clientWidth - larg))+'px';
+  }
+  document.addEventListener('mousedown', _emojiCliqueFora, true);
+  document.addEventListener('touchstart', _emojiCliqueFora, true);
+  document.addEventListener('keydown',   _emojiEsc,        true);
+}
+function _emojiFechar(){
+  const painel=document.getElementById('comu-emoji-painel');
+  if(painel) painel.classList.add('hidden');
+  document.removeEventListener('mousedown', _emojiCliqueFora, true);
+  document.removeEventListener('touchstart', _emojiCliqueFora, true);
+  document.removeEventListener('keydown',   _emojiEsc,        true);
+}
+function _emojiCliqueFora(ev){
+  const painel=document.getElementById('comu-emoji-painel');
+  if(!painel || painel.classList.contains('hidden') || painel.offsetParent===null){ _emojiFechar(); return; }
+  const alvo=ev.target;
+  if(painel.contains(alvo)) return;
+  if(alvo && alvo.closest && alvo.closest('.emoji-trigger')) return;
+  _emojiFechar();
+}
+function _emojiEsc(ev){
+  if(ev.key!=='Escape') return;
+  const painel=document.getElementById('comu-emoji-painel');
+  if(!painel || painel.classList.contains('hidden') || painel.offsetParent===null){ _emojiFechar(); return; } // modal fechou com o painel aberto
+  ev.stopPropagation();       // Esc fecha só o painel, não o modal inteiro
+  _emojiFechar();
+}
+
+function _emojiInserir(ch){
+  _emojiGuardaRecente(ch);
+  if(_emojiAlvo==='assunto'){
+    const inp=document.getElementById('comu-assunto');
+    if(inp){
+      const max=inp.maxLength>0?inp.maxLength:Infinity;
+      const ini=inp.selectionStart!=null?inp.selectionStart:inp.value.length;
+      const fim=inp.selectionEnd  !=null?inp.selectionEnd  :ini;
+      const novo=inp.value.slice(0,ini)+ch+inp.value.slice(fim);
+      if(novo.length>max){ toast('O assunto chegou ao limite de caracteres.','warning'); return; }
+      inp.value=novo;
+      inp.focus();
+      try{ inp.setSelectionRange(ini+ch.length, ini+ch.length); }catch(_){}
+    }
+  } else {
+    const ed=_rtbFocusSel(); if(!ed) return;
+    let ok=false;
+    try{ ok=document.execCommand('insertText', false, ch); }catch(_){ ok=false; }
+    if(!ok){
+      const s=window.getSelection();
+      if(s && s.rangeCount){
+        const r=s.getRangeAt(0); r.deleteContents();
+        const no=document.createTextNode(ch); r.insertNode(no);
+        r.setStartAfter(no); r.collapse(true);
+        s.removeAllRanges(); s.addRange(r);
+      } else { ed.appendChild(document.createTextNode(ch)); }
+    }
+    _rtbSaveSel();
+  }
+  if(_emojiCatAtual==='recentes') _emojiRenderGrade();
 }
 // Sanitiza o HTML da mensagem: mantém só formatação segura, remove script/eventos/etc.
 function _sanitizeMsgHtml(html){

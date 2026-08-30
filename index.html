@@ -7718,8 +7718,11 @@
         <label>Destinatários (<span id="comu-dest-count">0</span>)</label>
         <div id="comu-dest-list" style="min-height:38px;padding:8px;background:#f8fafc;border:1px solid var(--border);border-radius:6px;display:flex;flex-wrap:wrap;gap:6px"></div>
       </div>
+      <div id="comu-emoji-zone" style="position:relative">
       <div class="form-group">
-        <label>Assunto <span class="required">*</span></label>
+        <label>Assunto <span class="required">*</span>
+          <button type="button" class="emoji-trigger emoji-btn-label" title="Inserir emoji no assunto" onmousedown="event.preventDefault()" onclick="_emojiAbrir('assunto', this)">😊</button>
+        </label>
         <input type="text" id="comu-assunto" maxlength="150" placeholder="Ex.: Lembrete de reunião, Comunicado interno, etc.">
       </div>
       <div class="form-group">
@@ -7731,6 +7734,28 @@
           #comu-rtb .rtb-sep{width:1px;background:#e2e8f0;margin:2px 4px}
           #comu-rtb select{height:30px;border:1px solid #e2e8f0;border-radius:5px;font-size:12px;cursor:pointer;padding:0 4px}
           #comu-corpo:empty:before{content:attr(data-placeholder);color:#94a3b8}
+          .emoji-btn-label{border:1px solid #e2e8f0;background:#fff;border-radius:5px;cursor:pointer;font-size:13px;line-height:1;padding:3px 7px;margin-left:8px;vertical-align:middle}
+          .emoji-btn-label:hover{background:#eef2ff;border-color:#c7d2fe}
+          .emoji-trigger:active{transform:scale(.92)}
+          #comu-emoji-painel{position:absolute;z-index:60;width:min(320px,90vw);background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 12px 30px rgba(0,0,0,.18);padding:8px}
+          #comu-emoji-painel.hidden{display:none}
+          #comu-emoji-painel .emoji-head{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:11.5px;color:#64748b;padding:0 2px 6px}
+          #comu-emoji-painel .emoji-head b{color:#1976D2}
+          #comu-emoji-painel .emoji-x{border:none;background:transparent;cursor:pointer;color:#64748b;font-size:14px;width:28px;height:28px;border-radius:6px;flex-shrink:0}
+          #comu-emoji-painel .emoji-x:hover{background:#f1f5f9;color:#0f172a}
+          #comu-emoji-tabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid #e2e8f0;padding-bottom:6px;margin-bottom:6px}
+          #comu-emoji-tabs .emoji-tab{width:34px;height:32px;border:1px solid transparent;background:transparent;border-radius:6px;cursor:pointer;font-size:16px;line-height:1}
+          #comu-emoji-tabs .emoji-tab:hover{background:#f1f5f9}
+          #comu-emoji-tabs .emoji-tab.ativa{background:#e0e7ff;border-color:#c7d2fe}
+          #comu-emoji-grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(36px,1fr));gap:2px;max-height:200px;overflow-y:auto}
+          #comu-emoji-grade .emoji-cell{height:36px;border:none;background:transparent;border-radius:6px;cursor:pointer;font-size:19px;line-height:1;display:flex;align-items:center;justify-content:center}
+          #comu-emoji-grade .emoji-cell:hover{background:#eef2ff}
+          #comu-emoji-grade .emoji-cell:active{transform:scale(.9)}
+          @media (hover:none){
+            #comu-emoji-grade{grid-template-columns:repeat(auto-fill,minmax(40px,1fr));max-height:44vh}
+            #comu-emoji-grade .emoji-cell{height:40px}
+            #comu-emoji-tabs .emoji-tab{width:40px;height:38px}
+          }
         </style>
         <div id="comu-rtb">
           <button type="button" class="rtb-btn" title="Negrito" onmousedown="event.preventDefault()" onclick="_rtbCmd('bold')"><i class="fa-solid fa-bold"></i></button>
@@ -7751,9 +7776,28 @@
             <option value="6">Muito grande</option>
           </select>
           <button type="button" class="rtb-btn" title="Limpar formatação" onmousedown="event.preventDefault()" onclick="_rtbCmd('removeFormat')"><i class="fa-solid fa-eraser"></i></button>
+          <span class="rtb-sep"></span>
+          <button type="button" class="rtb-btn emoji-trigger" title="Inserir emoji" onmousedown="event.preventDefault()" onclick="_emojiAbrir('corpo', this)" style="font-size:16px">😊</button>
         </div>
-        <div id="comu-corpo" contenteditable="true" data-placeholder="Escreva a mensagem..." style="width:100%;min-height:130px;max-height:320px;overflow-y:auto;padding:9px 11px;border:1px solid var(--border);border-radius:0 0 6px 6px;font-size:13px;line-height:1.5;background:#fff"></div>
+        <div id="comu-emoji-painel" class="hidden">
+          <div class="emoji-head">
+            <span>Inserir emoji <b id="comu-emoji-alvo">na mensagem</b></span>
+            <button type="button" class="emoji-x" title="Fechar" onclick="_emojiFechar()"><i class="fa-solid fa-xmark"></i></button>
+          </div>
+          <div id="comu-emoji-tabs">
+            <button type="button" class="emoji-tab" data-cat="recentes" title="Recentes"  onmousedown="event.preventDefault()" onclick="_emojiTab('recentes')">🕘</button>
+            <button type="button" class="emoji-tab" data-cat="rostos"   title="Rostos"    onmousedown="event.preventDefault()" onclick="_emojiTab('rostos')">😀</button>
+            <button type="button" class="emoji-tab" data-cat="gestos"   title="Gestos"    onmousedown="event.preventDefault()" onclick="_emojiTab('gestos')">👍</button>
+            <button type="button" class="emoji-tab" data-cat="trabalho" title="Trabalho"  onmousedown="event.preventDefault()" onclick="_emojiTab('trabalho')">📅</button>
+            <button type="button" class="emoji-tab" data-cat="sinais"   title="Sinais"    onmousedown="event.preventDefault()" onclick="_emojiTab('sinais')">✅</button>
+            <button type="button" class="emoji-tab" data-cat="diversos" title="Diversos"  onmousedown="event.preventDefault()" onclick="_emojiTab('diversos')">🎉</button>
+            <button type="button" class="emoji-tab" data-cat="simbolos" title="Símbolos"  onmousedown="event.preventDefault()" onclick="_emojiTab('simbolos')">❤️</button>
+          </div>
+          <div id="comu-emoji-grade"></div>
+        </div>
+        <div id="comu-corpo" contenteditable="true" data-placeholder="Escreva a mensagem..." onkeyup="_rtbSaveSel()" onmouseup="_rtbSaveSel()" oninput="_rtbSaveSel()" onblur="_rtbSaveSel()" style="width:100%;min-height:130px;max-height:320px;overflow-y:auto;padding:9px 11px;border:1px solid var(--border);border-radius:0 0 6px 6px;font-size:13px;line-height:1.5;background:#fff"></div>
       </div>
+      </div><!-- /comu-emoji-zone -->
       <div class="form-group">
         <label>Anexo (opcional) <small style="color:var(--text-muted);font-weight:400">— PDF, imagem ou documento (até 10 MB)</small></label>
         <input type="file" id="comu-anexo" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx">
@@ -8225,6 +8269,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260828b-excluir-solicitacao"></script>
+  <script src="app.js?v=20260830a-emojis-comunicacao"></script>
 </body>
 </html>

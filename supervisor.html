@@ -975,6 +975,14 @@ async function _gravarBatidaNaFolha(p, horarioEfetivo){
   else { docId = _payrollIdDet(empId, mes, ano); dias=[]; createdAt=new Date().toISOString(); }
   let entry = dias.find(d => d.dia === dia);
   if(!entry){ entry = { dia, diaSem: (p.diaSem!=null?p.diaSem:new Date(ano,mes-1,dia).getDay()), entrada:'', saida:'', intIni:'', intFim:'' }; dias.push(entry); }
+  // 🔒 APROVAR NÃO APAGA BATIDA. O campo já preenchido significa que o dia andou depois
+  // que o pedido foi criado (o colaborador bateu por outro caminho, ou o dia já foi
+  // ajustado). Gravar por cima destruiria um registro que é prova trabalhista — e era o
+  // que este `entry[tp] = ...` fazia, sem a trava `if(!entry[tp])` que o fluxo do gestor
+  // (app.js `_autzRegistrarEResolver`) sempre teve. Quem corrige horário é o "Editar dia",
+  // que grava com origem `supervisor` e bloco de auditoria. #slot-errado-stale
+  if (entry[tp] && entry[tp] !== horarioEfetivo)
+    throw new Error(`${NOMES_BATIDA[tp]||tp} deste dia já está registrada às ${entry[tp]}. Use "Editar dia" para corrigir — autorizar não sobrescreve batida.`);
   entry[tp] = horarioEfetivo;
   entry[tp+'_origem'] = 'app';
   entry[tp+'_foraHorario'] = true;

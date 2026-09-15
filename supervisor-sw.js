@@ -5,7 +5,7 @@
 // ============================================================
 // 🔒 TROCOU A LOGO (ou qualquer imagem)? TEM QUE BUMPAR ESTE CACHE — imagem é
 // cache-first aqui, o `?v=` não resolve. Mesmo detalhe explicado no ponto-sw.js.
-const CACHE = 'drg-sup-v18-20260802a-motivo-real';
+const CACHE = 'drg-sup-v19-20260915a-nao-sobrescreve-batida';
 const ASSETS = [
   'supervisor.html',
   'supervisor-manifest.json',

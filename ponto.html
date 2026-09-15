@@ -187,6 +187,7 @@
     .toast.show{transform:translateX(-50%) translateY(0)}
     .toast.success{background:#16a34a}
     .toast.error{background:#dc2626}
+    .toast.warning{background:#E65100}
 
     /* LOADING */
     .spinner-wrap{text-align:center;padding:40px;color:#94a3b8;font-size:13px}
@@ -625,6 +626,9 @@ const PUNCH_CFG = {
   intFim:   { label:'Fim Intervalo',       icon:'🟠', cls:'intFim'  },
   saida:    { label:'Bater Saída',         icon:'🔵', cls:'saida'   },
   completo: { label:'Ponto Completo',      icon:'✅', cls:'completo'},
+  // Leitura da folha FALHOU: o app não sabe o que já foi batido hoje, então não
+  // oferece batida nenhuma — oferece tentar de novo. #slot-errado-stale
+  erroLeitura:{ label:'Tentar de novo',    icon:'🔄', cls:'completo'},
 };
 
 // ─── AUTH (espera o estado inicial — pode ser null se ainda não logou) ───────
@@ -1194,6 +1198,14 @@ function _horariosEscalaDiaPonto(fonte, e, escala, diaSem){
   return { entrada, saida, intIni, intFim };
 }
 
+// 🔒 "NÃO CONSEGUI LER" ≠ "NÃO TEM BATIDA". Os dois terminavam em `currentPayroll = null`,
+// e null faz `getDiaHoje()` devolver {} → o dia inteiro parece vazio → o botão volta a
+// dizer ENTRADA mesmo com a entrada da manhã já gravada no banco. Foi assim que a batida
+// das 07h do Deraldo (14/09/2026) virou "Entrada 13:13": a folha não carregou, ele bateu,
+// e o app escreveu 13:13 por cima. Agora a falha de leitura é um ESTADO próprio: o botão
+// não decide nada enquanto ela durar. #slot-errado-stale
+let _folhaLeituraFalhou = false;
+
 async function carregarPayroll() {
   // Usa a competência da jornada atual (turno noturno cruza meia-noite) — o ponto
   // do dia 26+ cai na competência do mês seguinte (fechamento no dia 25).
@@ -1209,9 +1221,11 @@ async function carregarPayroll() {
       .where('ano', '==', ano)
       .get();
     currentPayroll = snap.empty ? null : _pickPayrollDoc(snap.docs);
+    _folhaLeituraFalhou = false;
   } catch (e) {
     console.error(e);
     currentPayroll = null;
+    _folhaLeituraFalhou = true;   // ← não é folha vazia: é folha DESCONHECIDA. #slot-errado-stale
   }
 }
 
@@ -1233,7 +1247,9 @@ async function _relerPayrollAntesDeGravar(){
       .where('ano','==',comp.ano)
       .get();
     if(!snap.empty) currentPayroll = _pickPayrollDoc(snap.docs);
-  }catch(e){ console.warn('releitura da folha antes de gravar', e); }
+    _folhaLeituraFalhou = false;
+    return true;
+  }catch(e){ console.warn('releitura da folha antes de gravar', e); return false; }
 }
 
 // Dia da JORNADA — turno noturno: registros após a meia-noite pertencem
@@ -1403,7 +1419,9 @@ function getProxima() {
 }
 
 function renderBotao() {
-  const prox = getProxima();
+  // Folha não carregou → o botão NÃO chuta "ENTRADA". Sem saber o que já foi batido,
+  // qualquer slot que ele ofereça pode escrever por cima de uma batida real. #slot-errado-stale
+  const prox = _folhaLeituraFalhou ? 'erroLeitura' : getProxima();
   const cfg  = PUNCH_CFG[prox];
   const btn  = document.getElementById('punch-btn');
   btn.className = 'punch-btn ' + cfg.cls;
@@ -2066,6 +2084,21 @@ function mostrarTelaEspera(docId, prox, hora){
 
 // ─── BATER PONTO ──────────────────────────────────────────────────────────────
 async function baterPonto() {
+  // 🔒 FOLHA DESCONHECIDA → NÃO BATE. Se a leitura falhou, o app não sabe o que já foi
+  // registrado hoje; bater às cegas foi exatamente o que apagou a entrada das 07h do
+  // Deraldo (14/09/2026). Aqui o toque vira "recarregar", com resposta visível. #slot-errado-stale
+  if (_folhaLeituraFalhou) {
+    const btnR = document.getElementById('punch-btn');
+    if (btnR) { btnR.disabled = true;
+      btnR.innerHTML = '<span class="punch-btn-icon">⏳</span><span class="punch-btn-text">Carregando seu dia... aguarde</span>'; }
+    const _ok = await _relerPayrollAntesDeGravar();
+    if (btnR) btnR.disabled = false;
+    renderHoje(); renderBotao();
+    toast(_ok ? '✅ Dia carregado. Confira o botão e registre.'
+              : '❌ Não consegui carregar seu dia. Verifique a internet e toque de novo.',
+          _ok ? 'success' : 'error');
+    return;
+  }
   const prox = getProxima();
   if (prox === 'completo') { toast('Todos os registros do dia já foram feitos! ✅'); return; }
 
@@ -2139,6 +2172,21 @@ async function baterPonto() {
   // sobrescrito por uma cópia velha da sessão). #ajuste-dia-supervisor
   await _relerPayrollAntesDeGravar();
 
+  // 🔒 O DESTINO DA BATIDA SE DECIDE COM A FOLHA FRESCA. O `prox` lá de cima saiu do
+  // `getProxima()` sobre a cópia da SESSÃO — e a releitura acima só consertava o ARRAY,
+  // nunca o CAMPO. Com a cópia velha (ou nula, quando a leitura tinha falhado) o dia
+  // parecia vazio e a batida da tarde caía em ENTRADA, por cima da batida da manhã.
+  // Mudou o destino entre o toque e a gravação? NÃO grava — devolve pro colaborador
+  // conferir, que é o único desfecho que não destrói registro. #slot-errado-stale
+  const proxFresh = getProxima();
+  if (proxFresh !== prox) {
+    renderHoje(); renderBotao();
+    btn.disabled = false;
+    const _falta = (PUNCH_CFG[proxFresh] || {}).label || proxFresh;
+    toast(`⚠ Seu dia mudou enquanto você registrava — agora falta: ${_falta}. Nada foi gravado, toque de novo.`, 'warning');
+    return;
+  }
+
   try {
     // Copia array de dias
     const dias   = [...(currentPayroll?.pontoManualDias || [])];
@@ -2146,6 +2194,17 @@ async function baterPonto() {
     if (!dayEntry) {
       dayEntry = { dia, diaSem: dsem, entrada:'', saida:'', intIni:'', intFim:'' };
       dias.push(dayEntry);
+    }
+    // 🔒 BATIDA NUNCA SOBRESCREVE BATIDA — segunda barreira do mesmo bug. Venha o slot
+    // errado por onde vier (cópia velha, corrida entre dois aparelhos, toque duplo), campo
+    // JÁ preenchido não se apaga em silêncio: o registro anterior é prova trabalhista.
+    // O fluxo equivalente do gestor já tinha a trava (`if(!entry[tp])` em app.js); aqui
+    // faltava. Correção legítima → o supervisor ajusta o dia no painel dele. #slot-errado-stale
+    if (dayEntry[prox]) {
+      btn.disabled = false;
+      renderHoje(); renderBotao();
+      toast(`⚠ ${_nomesPonto[prox] || prox} já registrada às ${dayEntry[prox]}. Nada foi alterado — fale com seu supervisor se estiver errado.`, 'warning');
+      return;
     }
     dayEntry[prox] = hora;
     // Marca origem da batida (app vs manual pelo operador no gestor)

@@ -108,6 +108,15 @@
 
   function vincular(alvo, promessa) {
     if (!promessa || typeof promessa.then !== 'function') return;
+    // A tela ja travou o botao por conta propria (acao()/drgSubmit): o ciclo e
+    // dela. Se o vigia tambem travasse, guardaria o "⏳ Salvando..." da tela como
+    // texto original e o devolveria DEPOIS que a tela restaurou "Salvar" —
+    // botao preso em "⏳" para sempre.
+    if (!alvo.travado && alvo.btn.disabled) {
+      clearTimeout(alvo.timer);
+      destravar(alvo);
+      return;
+    }
     clearTimeout(alvo.timer);
     alvo.pendentes++;
     travar(alvo);

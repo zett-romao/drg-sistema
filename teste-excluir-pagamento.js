@@ -106,7 +106,7 @@ ok(/id="btn-apr-lote-excluir"[^>]*onclick="excluirLote\(\)"/.test(HTML),
 ok(/id="apr-lote-excluir-n"/.test(HTML), 'com o contador do que esta selecionado');
 ok(/global\.drgConfirmar = drgConfirmar/.test(UIJS), 'drgConfirmar tem de estar publicado no window');
 ok(/\.drg-conf-ov/.test(UICSS), 'e o CSS do modal tem de existir, senao a pergunta sai sem caixa');
-ok(/drg-ui\.js\?v=3/.test(HTML) && /drg-ui\.css\?v=3/.test(HTML),
+ok(/drg-ui\.js\?v=([3-9]|\d{2,})\b/.test(HTML) && /drg-ui\.css\?v=3/.test(HTML),
   'o cache-buster do kit de UI tem de subir junto com o drgConfirmar novo');
 
 console.log('\n' + (falhas.length

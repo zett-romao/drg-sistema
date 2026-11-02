@@ -26728,7 +26728,7 @@ async function cancelarAdmCobranca(tenantId, cobId, modo) {
     if (modo === 'recorrente') {
       await _asaasReq('DELETE', `/subscriptions/${cobId}`);
     } else {
-      await _asaasReq('POST', `/payments/${cobId}/cancel`);
+      await _asaasReq('DELETE', `/payments/${cobId}`);   // 🔧 o Asaas não tem /cancel
     }
     // Atualiza status no Firestore
     const t = _admTenants.find(x => x.id === tenantId);

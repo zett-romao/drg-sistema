@@ -931,6 +931,26 @@ async function handleOperatorLogin(body, token, env, ip){
 
   const cfg  = await fsGetDoc('operator/config', token);
 
+  // 🔑 ESQUECI A SENHA (02/11/2026, dono: "precisa melhorar a entrada do painel do operador com opção
+  // de recuperar senha"): com o código de recuperação (Secret RECOVERY_CODE, o mesmo do master) o
+  // operador define uma senha NOVA, digitada por ele. Código errado conta no rate-limit do IP.
+  if (body.recoveryCode !== undefined) {
+    if (!env.RECOVERY_CODE) return { ok:false, erro:'Recuperação indisponível: o código de recuperação não está configurado no servidor.' };
+    if (!timingSafeEqual(String(body.recoveryCode || ''), env.RECOVERY_CODE)) {
+      await rlFail(env, opK);
+      return { ok:false, erro:'código de recuperação incorreto' };
+    }
+    if (password.length < 8) return { ok:false, erro:'a senha nova precisa ter pelo menos 8 caracteres' };
+    await fsSetDoc('operator/config', {
+      senhaHash: await hashPassword(password),
+      criadoEm: (cfg && cfg.criadoEm) || new Date().toISOString(),
+      senhaRedefinidaEm: new Date().toISOString(),
+    }, token);
+    await rlClear(env, opK);
+    const ct = await mintCustomToken('operator-default', { role: 'operator', drg: true }, env);
+    return { ok:true, customToken: ct, senhaRedefinida:true };
+  }
+
   if (!cfg) {
     // BOOTSTRAP PROTEGIDO (Frente C, etapa 4): no 1º acesso a senha do operador
     // só é criada se vier o código de bootstrap (= RECOVERY_CODE). Sem isso,

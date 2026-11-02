@@ -178,6 +178,12 @@
     /* Nada faz a página rolar pro lado (mesmo padrão do app principal). */
     html, body { overflow-x: hidden; max-width: 100%; }
     @supports (overflow-x: clip) { html, body { overflow-x: clip; } }
+    .op-senha-box { position: relative; margin-bottom: 10px; }
+    .op-senha-box input { width: 100%; padding-right: 44px !important; margin-bottom: 0 !important; box-sizing: border-box; }
+    .op-olho { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 40px; height: 40px; border: none; background: transparent; color: #64748b; cursor: pointer; font-size: 16px; border-radius: 8px; }
+    .op-olho:hover { color: var(--primary); background: #eef3fb; }
+    .op-link { display: inline-block; margin-top: 12px; font-size: 13px; color: var(--primary); text-decoration: none; }
+    .op-link:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -188,9 +194,32 @@
     <img src="logo.png?v=3" alt="DRG">
     <h2>DRG-Kronos</h2>
     <p>Painel do Operador — acesso restrito</p>
-    <input type="password" id="op-senha" placeholder="Senha do operador" onkeydown="if(event.key==='Enter') doLogin()">
-    <button class="btn-login" onclick="doLogin()"><i class="fa-solid fa-right-to-bracket"></i> Entrar</button>
-    <div id="login-error"></div>
+    <div id="op-form-entrar">
+      <div class="op-senha-box">
+        <input type="password" id="op-senha" placeholder="Senha do operador" autocomplete="current-password" onkeydown="if(event.key==='Enter') doLogin(document.getElementById('op-btn-entrar'))">
+        <button type="button" class="op-olho" onclick="opRevelar('op-senha', this)" title="Mostrar senha" aria-label="Mostrar senha"><i class="fa-solid fa-eye"></i></button>
+      </div>
+      <button type="button" class="btn-login" id="op-btn-entrar" onclick="doLogin(this)"><i class="fa-solid fa-right-to-bracket"></i> Entrar</button>
+      <a href="#" class="op-link" onclick="opTelaRecuperar(true);return false">Esqueci a senha</a>
+    </div>
+    <div id="op-form-recuperar" style="display:none">
+      <p style="font-size:13px;color:#555;margin:0 0 10px">Digite o <b>código de recuperação</b> do sistema e escolha uma senha nova.</p>
+      <div class="op-senha-box">
+        <input type="password" id="op-rec-codigo" placeholder="Código de recuperação" autocomplete="off">
+        <button type="button" class="op-olho" onclick="opRevelar('op-rec-codigo', this)" title="Mostrar" aria-label="Mostrar código"><i class="fa-solid fa-eye"></i></button>
+      </div>
+      <div class="op-senha-box">
+        <input type="password" id="op-rec-nova" placeholder="Senha nova (mínimo 8)" autocomplete="new-password">
+        <button type="button" class="op-olho" onclick="opRevelar('op-rec-nova', this)" title="Mostrar senha" aria-label="Mostrar senha nova"><i class="fa-solid fa-eye"></i></button>
+      </div>
+      <div class="op-senha-box">
+        <input type="password" id="op-rec-conf" placeholder="Repita a senha nova" autocomplete="new-password" onkeydown="if(event.key==='Enter') opRecuperar(document.getElementById('op-btn-recuperar'))">
+        <button type="button" class="op-olho" onclick="opRevelar('op-rec-conf', this)" title="Mostrar senha" aria-label="Mostrar confirmação"><i class="fa-solid fa-eye"></i></button>
+      </div>
+      <button type="button" class="btn-login" id="op-btn-recuperar" onclick="opRecuperar(this)"><i class="fa-solid fa-key"></i> Redefinir e entrar</button>
+      <a href="#" class="op-link" onclick="opTelaRecuperar(false);return false">← Voltar para a senha</a>
+    </div>
+    <div id="login-error" class="form-msg"></div>
   </div>
 </div>
 
@@ -254,9 +283,12 @@
     <div class="card" style="margin-top:16px">
       <div class="card-header">
         <h2><i class="fa-solid fa-file-invoice-dollar"></i> Cobranças das licenças</h2>
-        <select id="op-fat-tenant" onchange="renderCobrancasTodas()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px">
-          <option value="">Todos os clientes</option>
-        </select>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <select id="op-fat-tenant" onchange="renderCobrancasTodas()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+            <option value="">Todos os clientes</option>
+          </select>
+          <button type="button" class="btn btn-outline btn-sm" onclick="atualizarStatusCobrancas(this)"><i class="fa-solid fa-rotate"></i> Atualizar status</button>
+        </div>
       </div>
       <div class="table-wrap">
         <table>
@@ -527,29 +559,54 @@ function tenantsCol() {
 // Login pelo Worker drg-aprovacao: senha conferida no servidor, devolve custom
 // token; o cliente troca por sessão Firebase real via signInWithCustomToken.
 // S3 da blindagem — não usa mais signInAnonymously.
-async function doLogin() {
+// 👁 Revela/oculta o campo (senha, código). O ícone acompanha.
+function opRevelar(id, btn) {
+  const el = document.getElementById(id); if (!el) return;
+  const mostrar = el.type === 'password';
+  el.type = mostrar ? 'text' : 'password';
+  if (btn) { btn.innerHTML = mostrar ? '<i class="fa-solid fa-eye-slash"></i>' : '<i class="fa-solid fa-eye"></i>'; btn.title = mostrar ? 'Ocultar' : 'Mostrar senha'; }
+}
+function opTelaRecuperar(sim) {
+  document.getElementById('op-form-entrar').style.display = sim ? 'none' : '';
+  document.getElementById('op-form-recuperar').style.display = sim ? '' : 'none';
+  drgMsgLimpa('login-error');
+  const foco = document.getElementById(sim ? 'op-rec-codigo' : 'op-senha'); if (foco) foco.focus();
+}
+async function _opEntrar(corpo) {
+  if (!initFirebase()) throw new Error('Erro ao conectar ao Firebase.');
+  const r = await fetch(APROVACAO_WORKER + '/operator-login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok || !data.ok || !data.customToken) throw new Error(data.erro || data.error || 'Erro ao entrar.');
+  await firebase.auth().signInWithCustomToken(data.customToken);
+  return data;
+}
+async function doLogin(btn) {
   const senha = document.getElementById('op-senha').value.trim();
-  const errEl = document.getElementById('login-error');
-  errEl.textContent = '';
-  if (!senha) { errEl.textContent = 'Digite a senha.'; return; }
-  if (!initFirebase()) { errEl.textContent = 'Erro ao conectar ao Firebase.'; return; }
-
+  if (!senha) { drgMsg('login-error', 'erro', 'Digite a senha.'); return; }
+  if (btn) btn.innerHTML = '⏳ Entrando... aguarde';
   try {
-    const r = await fetch(APROVACAO_WORKER + '/operator-login', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ password: senha }),
-    });
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok || !data.ok || !data.customToken) {
-      errEl.textContent = data.erro || data.error || 'Erro ao entrar.';
-      return;
-    }
-    await firebase.auth().signInWithCustomToken(data.customToken);
+    await drgSubmit(btn, async () => { await _opEntrar({ password: senha }); return 'Senha conferida.'; }, { msg: 'login-error' });
     enterPanel();
-  } catch(e) {
-    errEl.textContent = 'Erro de conexão: ' + (e.message || e);
-  }
+  } catch (_) { /* a mensagem do servidor já está na tela */ }
+  finally { if (btn) btn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> Entrar'; }
+}
+async function opRecuperar(btn) {
+  const codigo = document.getElementById('op-rec-codigo').value.trim();
+  const nova = document.getElementById('op-rec-nova').value;
+  const conf = document.getElementById('op-rec-conf').value;
+  if (!codigo) { drgMsg('login-error', 'erro', 'Digite o código de recuperação.'); return; }
+  if (nova.length < 8) { drgMsg('login-error', 'erro', 'A senha nova precisa ter pelo menos 8 caracteres.'); return; }
+  if (nova !== conf) { drgMsg('login-error', 'erro', 'As duas senhas novas não são iguais.'); return; }
+  if (btn) btn.innerHTML = '⏳ Redefinindo... aguarde';
+  try {
+    await drgSubmit(btn, async () => { await _opEntrar({ password: nova, recoveryCode: codigo }); return 'Senha nova definida.'; }, { msg: 'login-error' });
+    ['op-rec-codigo', 'op-rec-nova', 'op-rec-conf'].forEach(id => { document.getElementById(id).value = ''; });
+    opTelaRecuperar(false);
+    enterPanel();
+  } catch (_) { /* mensagem já na tela */ }
+  finally { if (btn) btn.innerHTML = '<i class="fa-solid fa-key"></i> Redefinir e entrar'; }
 }
 
 function enterPanel() {
@@ -1046,7 +1103,7 @@ async function _asaasReq(method, path, body) {
   const data = await r.json().catch(() => ({}));
   if (!r.ok) {
     const msg = data.errors?.[0]?.description || data.description || data.error || r.statusText;
-    throw new Error(msg);
+    throw new Error(msg || `Asaas respondeu HTTP ${r.status} em ${method} ${path}`);
   }
   return data;
 }
@@ -1205,8 +1262,18 @@ async function cancelarCobranca(btn, tenantId, cobId, modo) {
   if (!cobId) { drgMsg('op-fat-msg', 'erro', 'Cobrança sem ID — não dá para cancelar por aqui.'); return; }
   if (!await drgConfirmar('Cancelar esta cobrança no Asaas? A ação não pode ser desfeita.', { ok: 'Cancelar cobrança', perigo: true })) return;
   await drgSubmit(btn, async () => {
-    if (modo === 'recorrente') await _asaasReq('DELETE', `/subscriptions/${cobId}`);
-    else await _asaasReq('POST', `/payments/${cobId}/cancel`);
+    // 🔧 02/11/2026: o endereço antigo (POST /payments/{id}/cancel) não existe no Asaas — o certo é
+    // DELETE /payments/{id}. E antes confere: cobrança já excluída lá só tem o status daqui atualizado.
+    let jaExcluida = false;
+    if (modo !== 'recorrente') {
+      const atual = await _asaasReq('GET', `/payments/${cobId}`).catch(() => null);
+      jaExcluida = !!(atual && atual.deleted);
+      if (atual && ['RECEIVED', 'CONFIRMED', 'RECEIVED_IN_CASH'].includes(atual.status)) throw new Error('Esta cobrança já foi PAGA no Asaas — não dá para cancelar. Use "Atualizar status".');
+    }
+    if (!jaExcluida) {
+      if (modo === 'recorrente') await _asaasReq('DELETE', `/subscriptions/${cobId}`);
+      else await _asaasReq('DELETE', `/payments/${cobId}`);
+    }
     const t = _tenants.find(x => x.id === tenantId);
     if (t) {
       const cobrancas = (t.cobrancas || []).map(c => c.id === cobId ? { ...c, status: 'CANCELLED' } : c);
@@ -1214,7 +1281,30 @@ async function cancelarCobranca(btn, tenantId, cobId, modo) {
       t.cobrancas = cobrancas;
     }
     renderCobrancasTodas();
-    return 'Cobrança cancelada no Asaas.';
+    return jaExcluida ? 'Ela já estava excluída no Asaas — o status aqui foi atualizado para cancelada.' : 'Cobrança cancelada no Asaas.';
+  }, { msg: 'op-fat-msg' }).catch(() => {});
+}
+
+// ↻ Sincroniza com o Asaas o status das cobranças avulsas em aberto (antes o status ficava parado no da
+// criação — o pago não aparecia pago, o excluído lá seguia PENDING aqui).
+async function atualizarStatusCobrancas(btn) {
+  await drgSubmit(btn, async () => {
+    let conferidas = 0, mudaram = 0;
+    for (const t of _tenants) {
+      const lista = t.cobrancas || [];
+      let alterou = false;
+      for (const c of lista) {
+        if (!c.id || c.modo === 'recorrente' || ['RECEIVED', 'CONFIRMED', 'CANCELLED', 'RECEIVED_IN_CASH'].includes(c.status)) continue;
+        const a = await _asaasReq('GET', `/payments/${c.id}`).catch(() => null);
+        if (!a) continue;
+        conferidas++;
+        const novo = a.deleted ? 'CANCELLED' : a.status;
+        if (novo && novo !== c.status) { c.status = novo; alterou = true; mudaram++; }
+      }
+      if (alterou) await tenantRef(t.id).set({ cobrancas: lista }, { merge: true });
+    }
+    renderCobrancasTodas();
+    return `${conferidas} cobrança(s) conferida(s) no Asaas; ${mudaram} mudaram de status.`;
   }, { msg: 'op-fat-msg' }).catch(() => {});
 }
 

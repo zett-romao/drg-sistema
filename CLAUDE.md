@@ -627,6 +627,8 @@ node --check ponto-sw.js
 
 - **2026-11-02**: **Painel do Operador — entrada e cobranças.** Login com 👁 revelar senha, botão com ciclo ("⏳ Entrando...") e **Esqueci a senha**: código de recuperação (Secret `RECOVERY_CODE`) + senha nova digitada pelo dono → rota `/operator-login` com `recoveryCode` regrava `operator/config.senhaHash` (código errado conta no rate-limit). 🔧 Cancelar cobrança usava `POST /payments/{id}/cancel`, que **não existe no Asaas** (o certo é `DELETE /payments/{id}`) — e confere antes: já excluída lá só atualiza o status aqui. Novo **↻ Atualizar status** sincroniza as avulsas com o Asaas (antes o status ficava o da criação). `_asaasReq` agora sempre diz o HTTP quando o Asaas responde sem texto.
 
+- **2026-11-02**: **🧩 Kronos no Contrato de Plataforma DR Systems v1** (dono: *"já faça algo que irá receber a suíte inteira"*). O `aprovacao-worker.js` responde `GET /drs/v1/info|licencas|planos` e `POST /drs/v1/licencas/{id}/acao` sobre `operator/tenants/lista`, com token próprio (Secret **`DRS_PLATAFORMA_TOKEN`**, gerado na DR Systems Central › 🧩 Apps). Tradução: arquivado→arquivado · bloqueado→suspenso · inadimplente→inadimplente · trial→trial · resto→ativo; `definir` grava `validade`/`planoFaixa`/`maxFuncionarios`/`mensalidade`. Nunca apaga (excluir segue só no `operator.html`). Rotas `/drs/` aceitam GET e ficam ANTES da trava "só POST". Contrato em `DRG-BuscaNFe/docs/PLATAFORMA-CONTRATO.md`. **Exige publicar o Worker + Secret.**
+
 ## Sobre o usuário (Donizete)
 
 - **Nome:** Donizete Romão — dono da **D.R. Global Gestão de Condomínios e BPO** (gestão de condomínios, imóveis e BPO)

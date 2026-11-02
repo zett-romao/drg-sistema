@@ -35,6 +35,8 @@
  *   /faturamento/enviar    { idToken, faturas:[…] }            → [master raiz] manda as faturas dos condomínios ao DRG-BuscaNFe
  *   /faturamento/previa    { idToken, fatura }                  → [master raiz] PDF da prévia (base64), sem gravar
  *   /faturamento/lista     { idToken, competencia? }            → [master raiz] situação no BuscaNFe (boleto, NFS-e, pago)
+ *   GET  /drs/v1/info | /drs/v1/licencas | /drs/v1/planos       → [Central DR Systems, token drs_] contrato de plataforma
+ *   POST /drs/v1/licencas/{id}/acao                              → [Central] ativar · suspender · reativar · arquivar · definir
  *
  * SECRETS no Cloudflare (Settings → Variables and Secrets):
  *   FIREBASE_SERVICE_ACCOUNT  → JSON da conta de serviço
@@ -43,6 +45,7 @@
  *   ASAAS_WEBHOOK_TOKEN       → token do webhook Asaas (mesmo valor no painel Asaas → Integrações → Webhooks)
  *   BUSCANFE_TOKEN            → token de integração do DRG-BuscaNFe (nome DRG-Kronos) — faturamento dos condomínios
  *   BUSCANFE_URL              → (opcional) padrão https://drg-buscanfe.onrender.com
+ *   DRS_PLATAFORMA_TOKEN      → token drs_… da DR Systems Central (🧩 Apps › Kronos › Conectar)
  * ============================================================
  */
 
@@ -1423,14 +1426,94 @@ async function handleFatLista(auth, body, token, env){
   return { ok:true, faturas: (j.faturas || []).filter(_refKronos) };
 }
 
+// ── 🧩 CONTRATO DE PLATAFORMA DR SYSTEMS v1 (02/11/2026) ─────────
+// Do dono: "o kronos não vai para a plataforma, para eu administrar todos os apps por lá?" — a
+// DR Systems Central administra as licenças de TODOS os apps pelo mesmo contrato
+// (DRG-BuscaNFe/docs/PLATAFORMA-CONTRATO.md). Aqui o Kronos o implementa sobre a lista de clientes
+// do operador (operator/tenants/lista). 🔒 Token próprio: Secret DRS_PLATAFORMA_TOKEN, gerado na
+// Central (🧩 Apps › Conectar). 🔒 Nunca apaga cliente — "excluir de vez" segue só no operator.html.
+// Tradução dos status do Kronos para o vocabulário do contrato:
+//   arquivado → arquivado · bloqueado → suspenso · inadimplente:true → inadimplente ·
+//   status/plano trial → trial · o resto → ativo
+function _drsJson(obj, status){
+  return new Response(JSON.stringify(obj), { status: status || 200, headers: { 'Content-Type': 'application/json' } });
+}
+function _drsStatus(t){
+  if (t.status === 'arquivado') return 'arquivado';
+  if (t.status === 'bloqueado') return 'suspenso';
+  if (t.inadimplente === true && !t.isentoInadimplencia) return 'inadimplente';
+  if (t.status === 'trial' || t.plano === 'trial') return 'trial';
+  return 'ativo';
+}
+function _drsLicenca(t){
+  const lim = Number(t.maxFuncionarios);
+  const mens = t.mensalidade != null && t.mensalidade !== '' ? Number(t.mensalidade) : (t.planoValor != null ? Number(t.planoValor) : null);
+  return {
+    id: String(t.id || ''), nome: t.nome || '', documento: String(t.cnpj || t.id || '').replace(/\D/g, ''),
+    status: _drsStatus(t), plano: t.planoFaixa || t.plano || '',
+    limite: lim > 0 ? lim : null, validade: t.validade || null,
+    mensalidade: Number.isFinite(mens) ? mens : null,
+    contato: { email: t.email || '', telefone: t.telefone || '' },
+    criadoEm: t.criadoEm || null,
+  };
+}
+async function handleDrs(request, url, env){
+  const tk = (request.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '').trim();
+  if (!env.DRS_PLATAFORMA_TOKEN || !tk || !timingSafeEqual(tk, env.DRS_PLATAFORMA_TOKEN))
+    return _drsJson({ ok:false, erro:'token da plataforma inválido' }, 401);
+  const token = await getAccessToken(env);
+  const rota = url.pathname;
+  if (request.method === 'GET' && rota === '/drs/v1/info')
+    return _drsJson({ contrato:1, app:'kronos', nome:'DRG-Kronos', versao:'3.0', recursos:['licencas','acoes','planos'], unidadeLimite:'funcionários' });
+  if (request.method === 'GET' && rota === '/drs/v1/licencas') {
+    const lista = await fsListCollection('operator/tenants/lista', token);
+    return _drsJson({ licencas: lista.map(_drsLicenca) });
+  }
+  if (request.method === 'GET' && rota === '/drs/v1/planos')
+    return _drsJson({ planos: await fsGetDoc('configuracoes/planos', token) });
+  const m = rota.match(/^\/drs\/v1\/licencas\/([^/]+)\/acao$/);
+  if (request.method === 'POST' && m) {
+    const id = decodeURIComponent(m[1]);
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) return _drsJson({ ok:false, erro:'id inválido' }, 400);
+    const caminho = 'operator/tenants/lista/' + id;
+    const meta = await fsGetDoc(caminho, token);
+    if (!meta) return _drsJson({ ok:false, erro:'licença não encontrada no Kronos' }, 404);
+    const b = await request.json().catch(() => ({}));
+    const agora = new Date().toISOString();
+    let patch;
+    if (b.acao === 'ativar' || b.acao === 'reativar') patch = { status:'ativo', inadimplente:false, msgBloqueio:'' };
+    else if (b.acao === 'suspender') patch = { status:'bloqueado', msgBloqueio: String(b.motivo || 'Acesso suspenso pela DR Systems. Fale com o suporte.').slice(0, 300), bloqueadoEm: agora };
+    else if (b.acao === 'arquivar') patch = { status:'arquivado', arquivadoEm: agora };
+    else if (b.acao === 'definir') {
+      patch = {};
+      if (b.validade != null) { if (!/^\d{4}-\d{2}-\d{2}$/.test(String(b.validade))) return _drsJson({ ok:false, erro:'validade AAAA-MM-DD' }, 400); patch.validade = String(b.validade); }
+      if (b.plano != null && b.plano !== '') patch.planoFaixa = String(b.plano).slice(0, 60);
+      if (b.limite != null && b.limite !== '') { const n = parseInt(b.limite, 10); if (!(n >= 0)) return _drsJson({ ok:false, erro:'limite inválido' }, 400); patch.maxFuncionarios = n; }
+      if (b.mensalidade != null && b.mensalidade !== '') { const n = Number(b.mensalidade); if (!(n >= 0)) return _drsJson({ ok:false, erro:'mensalidade inválida' }, 400); patch.mensalidade = n; }
+      if (!Object.keys(patch).length) return _drsJson({ ok:false, erro:'nada para definir' }, 400);
+    }
+    else return _drsJson({ ok:false, erro:'ação desconhecida' }, 400);
+    patch.plataformaAtualizadoEm = agora;
+    await fsUpdate(caminho, patch, token);
+    const novo = await fsGetDoc(caminho, token);
+    return _drsJson({ ok:true, licenca: _drsLicenca(Object.assign({ id }, novo || {})) });
+  }
+  return _drsJson({ ok:false, erro:'rota do contrato não encontrada' }, 404);
+}
+
 // ── Roteador ─────────────────────────────────────────────────
 export default {
   async fetch(request, env){
     const origin = request.headers.get('Origin') || '';
     if (request.method === 'OPTIONS') return new Response(null, { headers: corsHeaders(origin) });
+    const url = new URL(request.url);
+    // 🧩 Contrato de Plataforma DR Systems (servidor a servidor, GET e POST, token próprio)
+    if (url.pathname.startsWith('/drs/')) {
+      try { return await handleDrs(request, url, env); }
+      catch (e) { return _drsJson({ ok:false, erro: String((e && e.message) || e).slice(0, 300) }, 500); }
+    }
     if (request.method !== 'POST')    return json({ error: 'método não permitido' }, 405, origin);
 
-    const url = new URL(request.url);
     try {
       const body  = await request.json().catch(() => ({}));
 

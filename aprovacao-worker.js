@@ -32,12 +32,17 @@
  *   /usuarios/salvar       { idToken, user, novaSenha? }        → [master] cria/edita usuário
  *   /usuarios/excluir      { idToken, id }                      → [master] exclui usuário
  *   /usuarios/trocar-senha { idToken, currentPassword, newPassword } → troca a própria senha
+ *   /faturamento/enviar    { idToken, faturas:[…] }            → [master raiz] manda as faturas dos condomínios ao DRG-BuscaNFe
+ *   /faturamento/previa    { idToken, fatura }                  → [master raiz] PDF da prévia (base64), sem gravar
+ *   /faturamento/lista     { idToken, competencia? }            → [master raiz] situação no BuscaNFe (boleto, NFS-e, pago)
  *
  * SECRETS no Cloudflare (Settings → Variables and Secrets):
  *   FIREBASE_SERVICE_ACCOUNT  → JSON da conta de serviço
  *   RECOVERY_CODE             → código secreto de recuperação do master
  *   ASAAS_API_KEY             → chave da API Asaas de PRODUÇÃO ($aact_...)
  *   ASAAS_WEBHOOK_TOKEN       → token do webhook Asaas (mesmo valor no painel Asaas → Integrações → Webhooks)
+ *   BUSCANFE_TOKEN            → token de integração do DRG-BuscaNFe (nome DRG-Kronos) — faturamento dos condomínios
+ *   BUSCANFE_URL              → (opcional) padrão https://drg-buscanfe.onrender.com
  * ============================================================
  */
 
@@ -1339,6 +1344,60 @@ async function handleAprovarPagamento(auth, body, token, env){
   return { ok: true, asaasTransferId: resp.id || '', status: resp.status || 'PENDING' };
 }
 
+// ── 🏢 Faturamento dos contratos de condomínio (01/11/2026) ──────
+// Do dono: "tenho alguns contratos de condominios no kronos, estou querendo gerar tudo
+// automaticamente por aqui também ... emissão nota, nota de débito e boleto pix no asaas".
+// O Kronos monta a fatura do contrato e ESTE Worker a entrega ao DRG-BuscaNFe (que emite a NFS-e
+// de Barueri, a nota de débito e o boleto com Pix no Asaas). 🔒 O token do BuscaNFe mora SÓ aqui,
+// no Secret BUSCANFE_TOKEN — o Firestore é legível pelo escritório. 🔒 Só o master da DR Global
+// (raiz, sem tenant): o token é da DR, cliente do Kronos não fatura por ele.
+const BUSCANFE_URL_PADRAO = 'https://drg-buscanfe.onrender.com';
+async function exigirMasterRaiz(auth, token){
+  if (auth.tenantId) return { erro: 'o faturamento dos condomínios é exclusivo da DR Global' };
+  const m = await exigirMaster(auth, token);
+  return m.erro ? { erro: 'apenas o master fatura os condomínios' } : m;
+}
+function bnf(env, caminho, opts){
+  if (!env.BUSCANFE_TOKEN) throw new Error('Falta o Secret BUSCANFE_TOKEN no Worker drg-aprovacao (gere em BuscaNFe › ⚙️ Configurações › 🧾 Faturas, com o nome DRG-Kronos).');
+  const base = String(env.BUSCANFE_URL || BUSCANFE_URL_PADRAO).replace(/\/+$/, '');
+  return fetch(base + '/api/integracao' + caminho, Object.assign({}, opts || {}, {
+    headers: { Authorization: 'Bearer ' + env.BUSCANFE_TOKEN, 'Content-Type': 'application/json' } }));
+}
+const _refKronos = (f) => /^kronos:/.test(String((f && f.ref) || ''));
+async function handleFatEnviar(auth, body, token, env){
+  const m = await exigirMasterRaiz(auth, token); if (m.erro) return { ok:false, erro:m.erro };
+  const lista = Array.isArray(body.faturas) ? body.faturas : [];
+  if (!lista.length) return { ok:false, erro:'nenhuma fatura para enviar' };
+  if (lista.length > 40) return { ok:false, erro:'no máximo 40 faturas por envio' };   // limite de subrequests do Worker
+  const resultados = [];
+  for (const f of lista) {
+    if (!_refKronos(f)) { resultados.push({ ref: f && f.ref, ok:false, erro:'ref precisa começar com kronos:' }); continue; }
+    try {
+      const r = await bnf(env, '/faturas', { method:'POST', body: JSON.stringify(f) });
+      const j = await r.json().catch(() => ({}));
+      resultados.push(r.ok ? Object.assign({ ref:f.ref, ok:true }, j) : { ref:f.ref, ok:false, erro: j.erro || ('BuscaNFe respondeu ' + r.status) });
+    } catch (e) { resultados.push({ ref:f.ref, ok:false, erro: String(e.message || e) }); }
+  }
+  return { ok:true, resultados };
+}
+async function handleFatPrevia(auth, body, token, env){
+  const m = await exigirMasterRaiz(auth, token); if (m.erro) return { ok:false, erro:m.erro };
+  if (!_refKronos(body.fatura)) return { ok:false, erro:'ref precisa começar com kronos:' };
+  const r = await bnf(env, '/faturas/previa', { method:'POST', body: JSON.stringify(body.fatura) });
+  if (!r.ok) { const j = await r.json().catch(() => ({})); return { ok:false, erro: j.erro || ('BuscaNFe respondeu ' + r.status) }; }
+  const bytes = new Uint8Array(await r.arrayBuffer());
+  let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return { ok:true, pdfBase64: btoa(bin) };
+}
+async function handleFatLista(auth, body, token, env){
+  const m = await exigirMasterRaiz(auth, token); if (m.erro) return { ok:false, erro:m.erro };
+  const comp = /^\d{4}-\d{2}$/.test(String(body.competencia || '')) ? body.competencia : '';
+  const r = await bnf(env, '/faturas' + (comp ? '?competencia=' + comp : ''), { method:'GET' });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) return { ok:false, erro: j.erro || ('BuscaNFe respondeu ' + r.status) };
+  return { ok:true, faturas: (j.faturas || []).filter(_refKronos) };
+}
+
 // ── Roteador ─────────────────────────────────────────────────
 export default {
   async fetch(request, env){
@@ -1397,6 +1456,9 @@ export default {
       if (url.pathname === '/usuarios/salvar')       return json(await handleUsuariosSalvar(auth, body, token), 200, origin);
       if (url.pathname === '/usuarios/excluir')      return json(await handleUsuariosExcluir(auth, body, token), 200, origin);
       if (url.pathname === '/usuarios/trocar-senha') return json(await handleTrocarSenha(auth, body, token), 200, origin);
+      if (url.pathname === '/faturamento/enviar') return json(await handleFatEnviar(auth, body, token, env), 200, origin);
+      if (url.pathname === '/faturamento/previa') return json(await handleFatPrevia(auth, body, token, env), 200, origin);
+      if (url.pathname === '/faturamento/lista')  return json(await handleFatLista(auth, body, token, env), 200, origin);
 
       return json({ error: 'rota desconhecida' }, 404, origin);
     } catch (e) {

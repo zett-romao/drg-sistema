@@ -1589,6 +1589,9 @@
           <button class="contrato-tab" id="adm-tab-btn-contratos" onclick="switchAdminTab('contratos')">
             <i class="fa-solid fa-file-signature"></i> Contratos de Serviço
           </button>
+          <button class="contrato-tab" id="adm-tab-btn-fatcond" onclick="switchAdminTab('fatcond')">
+            <i class="fa-solid fa-file-invoice-dollar" style="color:#2e7d32"></i> Faturar condomínios
+          </button>
         </div>
 
         <!-- ── ABA: TENANTS ── -->
@@ -1667,6 +1670,68 @@
               </div>
             </div>
           </div>
+        </div>
+
+        <!-- ── ABA: FATURAR CONDOMÍNIOS (🏢 01/11/2026) ── -->
+        <div id="adm-tab-fatcond" style="display:none;margin-top:16px">
+          <div class="card" style="padding:16px">
+            <p style="margin:0 0 12px;font-size:13px;color:var(--text-muted)">
+              Cada contrato com <b>💰 Faturamento</b> ligado vira, na competência escolhida, uma fatura no <b>DRG-BuscaNFe</b>:
+              <b>NFS-e</b> de Barueri (serviços) + <b>nota de débito</b> (reembolso) + <b>boleto com Pix</b> no Asaas, com multa e juros.
+              Reenviar a mesma competência <b>atualiza</b> a fatura — nunca duplica.
+            </p>
+            <div class="form-row" style="align-items:flex-end">
+              <div class="form-group">
+                <label>Competência</label>
+                <input type="month" id="fatc-comp" onchange="renderFatCondominios()">
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px">
+              <button type="button" class="btn btn-outline" onclick="fatAtualizarSituacao(this)"><i class="fa-solid fa-rotate"></i> Ver situação no BuscaNFe</button>
+              <button type="button" class="btn btn-primary" onclick="fatEnviar(this)"><i class="fa-solid fa-paper-plane"></i> Gerar e enviar faturas</button>
+            </div>
+            <div class="form-msg" id="fatc-msg"></div>
+          </div>
+          <div class="card" style="margin-top:12px" id="fatc-lista"><div class="empty-row" style="padding:18px">Carregando…</div></div>
+
+          <details class="card" style="margin-top:12px;padding:12px 16px">
+            <summary style="cursor:pointer;font-weight:600"><i class="fa-solid fa-sliders"></i> Padrões do faturamento (valem para todo contrato que deixar o campo em branco)</summary>
+            <div class="form-row" style="margin-top:12px">
+              <div class="form-group"><label>Competência faturada</label>
+                <select id="fatp-competencia"><option value="anterior">Mês anterior (serviço já prestado)</option><option value="corrente">Mês corrente</option></select></div>
+              <div class="form-group"><label>Vencimento no mês</label>
+                <select id="fatp-vencimentoMes"><option value="seguinte">Seguinte à competência</option><option value="mesmo">Da própria competência</option></select></div>
+              <div class="form-group"><label>Dia do vencimento</label><input type="number" id="fatp-diaVencimento" min="1" max="31"></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label>Multa por atraso (%)</label><input type="text" inputmode="decimal" id="fatp-multa"></div>
+              <div class="form-group"><label>Juros por atraso (% ao mês)</label><input type="text" inputmode="decimal" id="fatp-juros"></div>
+              <div class="form-group"><label>Descrição da nota de débito</label><input type="text" id="fatp-descricaoNotaDebito"></div>
+            </div>
+            <div class="form-group"><label>Histórico padrão da NFS-e <span style="font-size:11px;color:var(--text-muted);font-weight:400">— variáveis: {servicos} {condominio} {competencia} {objeto} {contrato}</span></label>
+              <textarea id="fatp-historico" rows="2"></textarea></div>
+            <div class="divider"><span>Códigos fiscais da NFS-e (definidos pelo contador)</span></div>
+            <div class="form-row">
+              <div class="form-group"><label>Código do serviço (Barueri, 9 díg.)</label><input type="text" id="fatp-codServico" maxlength="9" inputmode="numeric"></div>
+              <div class="form-group"><label>NBS (9)</label><input type="text" id="fatp-nbs" maxlength="9" inputmode="numeric"></div>
+              <div class="form-group"><label>Indicador da operação (6)</label><input type="text" id="fatp-indOp" maxlength="6" inputmode="numeric"></div>
+              <div class="form-group"><label>cClassTrib (6)</label><input type="text" id="fatp-cClassTrib" maxlength="6" inputmode="numeric"></div>
+              <div class="form-group"><label>CST IBS/CBS (3)</label><input type="text" id="fatp-cst" maxlength="3" inputmode="numeric"></div>
+            </div>
+            <div class="divider"><span>Retenções na fonte (% sobre a NFS-e — o condomínio recolhe e paga o líquido)</span></div>
+            <div class="form-row">
+              <div class="form-group"><label>INSS (%)</label><input type="text" inputmode="decimal" id="fatp-ret-inss"></div>
+              <div class="form-group"><label>IRRF (%)</label><input type="text" inputmode="decimal" id="fatp-ret-irrf"></div>
+              <div class="form-group"><label>PIS (%)</label><input type="text" inputmode="decimal" id="fatp-ret-pis"></div>
+              <div class="form-group"><label>COFINS (%)</label><input type="text" inputmode="decimal" id="fatp-ret-cofins"></div>
+              <div class="form-group"><label>CSLL (%)</label><input type="text" inputmode="decimal" id="fatp-ret-csll"></div>
+            </div>
+            <label style="display:flex;gap:8px;align-items:center;margin:4px 0 12px"><input type="checkbox" id="fatp-emitirNfse"> Emitir a NFS-e automaticamente (quando os 5 códigos estiverem completos)</label>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px">
+              <button type="button" class="btn btn-primary" onclick="fatSalvarPadroes(this)"><i class="fa-solid fa-floppy-disk"></i> Salvar padrões</button>
+            </div>
+            <div class="form-msg" id="fatp-msg"></div>
+          </details>
         </div>
 
         <!-- ── ABA: CONTRATOS DE SERVIÇO ── -->
@@ -6698,6 +6763,10 @@
           <label>E-mail</label>
           <input type="email" id="contrato-email" placeholder="contato@empresa.com.br">
         </div>
+        <div class="form-group">
+          <label>Telefone</label>
+          <input type="tel" id="contrato-telefone" placeholder="(11) 0000-0000">
+        </div>
       </div>
 
       <div class="form-row">
@@ -6745,6 +6814,43 @@
           <input type="date" id="contrato-fim">
         </div>
       </div>
+
+      <div class="divider"><span><i class="fa-solid fa-file-invoice-dollar" style="color:#2e7d32"></i> 💰 Faturamento (NFS-e + nota de débito + boleto com Pix)</span></div>
+      <label style="display:flex;gap:8px;align-items:center;font-weight:600;margin-bottom:8px"><input type="checkbox" id="contrato-fat-ativo"> Faturar este contrato todo mês pelo BuscaNFe</label>
+      <div class="form-group"><label>Serviços do contrato</label>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:6px"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="contrato-fat-sv-portaria"> Portaria</label><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="contrato-fat-sv-limpeza"> Limpeza</label><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="contrato-fat-sv-manutencao"> Manutenção</label><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="contrato-fat-sv-zeladoria"> Zeladoria</label><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="contrato-fat-sv-jardinagem"> Jardinagem</label><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="contrato-fat-sv-auxAdm"> Auxiliar de administração</label></div></div>
+      <p style="font-size:11px;color:var(--text-muted);margin:0 0 8px">Campo em branco = usa o padrão da aba <b>Faturar condomínios</b>. Valor da NFS-e em branco = valor mensal − nota de débito.</p>
+      <div class="form-row">
+        <div class="form-group"><label>Valor da NFS-e (R$)</label><input type="text" inputmode="decimal" id="contrato-fat-valorNfse" placeholder="mensal − nota de débito"></div>
+        <div class="form-group"><label>Valor da nota de débito (R$)</label><input type="text" inputmode="decimal" id="contrato-fat-valorNotaDebito" placeholder="0,00"></div>
+        <div class="form-group form-group-2"><label>Descrição da nota de débito</label><input type="text" id="contrato-fat-descricaoNotaDebito" placeholder="padrão"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Competência</label><select id="contrato-fat-competencia"><option value="">padrão</option><option value="anterior">Mês anterior</option><option value="corrente">Mês corrente</option></select></div>
+        <div class="form-group"><label>Vencimento</label><select id="contrato-fat-vencimentoMes"><option value="">padrão</option><option value="seguinte">Mês seguinte</option><option value="mesmo">Mesmo mês</option></select></div>
+        <div class="form-group"><label>Dia</label><input type="number" id="contrato-fat-diaVencimento" min="1" max="31" placeholder="padrão"></div>
+        <div class="form-group"><label>Multa (%)</label><input type="text" inputmode="decimal" id="contrato-fat-multa" placeholder="padrão"></div>
+        <div class="form-group"><label>Juros (% a.m.)</label><input type="text" inputmode="decimal" id="contrato-fat-juros" placeholder="padrão"></div>
+      </div>
+      <div class="form-group"><label>Histórico da NFS-e</label><textarea id="contrato-fat-historico" rows="2"></textarea></div>
+      <div class="form-group"><label>E-mail de cobrança <span style="font-size:11px;color:var(--text-muted);font-weight:400">— em branco usa o e-mail do cliente</span></label><input type="email" id="contrato-fat-emailCobranca"></div>
+      <details style="margin-bottom:10px"><summary style="cursor:pointer;font-size:13px;font-weight:600">Códigos fiscais e retenções deste contrato (só se forem diferentes do padrão)</summary>
+        <div class="form-row" style="margin-top:8px">
+          <div class="form-group"><label>Cód. serviço (9)</label><input type="text" id="contrato-fat-codServico" maxlength="9" inputmode="numeric" placeholder="padrão"></div>
+          <div class="form-group"><label>NBS (9)</label><input type="text" id="contrato-fat-nbs" maxlength="9" inputmode="numeric" placeholder="padrão"></div>
+          <div class="form-group"><label>indOp (6)</label><input type="text" id="contrato-fat-indOp" maxlength="6" inputmode="numeric" placeholder="padrão"></div>
+          <div class="form-group"><label>cClassTrib (6)</label><input type="text" id="contrato-fat-cClassTrib" maxlength="6" inputmode="numeric" placeholder="padrão"></div>
+          <div class="form-group"><label>CST (3)</label><input type="text" id="contrato-fat-cst" maxlength="3" inputmode="numeric" placeholder="padrão"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>INSS (%)</label><input type="text" inputmode="decimal" id="contrato-fat-ret-inss" placeholder="padrão"></div>
+          <div class="form-group"><label>IRRF (%)</label><input type="text" inputmode="decimal" id="contrato-fat-ret-irrf" placeholder="padrão"></div>
+          <div class="form-group"><label>PIS (%)</label><input type="text" inputmode="decimal" id="contrato-fat-ret-pis" placeholder="padrão"></div>
+          <div class="form-group"><label>COFINS (%)</label><input type="text" inputmode="decimal" id="contrato-fat-ret-cofins" placeholder="padrão"></div>
+          <div class="form-group"><label>CSLL (%)</label><input type="text" inputmode="decimal" id="contrato-fat-ret-csll" placeholder="padrão"></div>
+        </div>
+        <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="contrato-fat-emitirNfse"> Emitir a NFS-e automaticamente</label>
+      </details>
 
       <div class="form-group">
         <label>Observações</label>
@@ -8269,6 +8375,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20260830a-emojis-comunicacao"></script>
+  <script src="app.js?v=20261101a-faturar-condominios"></script>
 </body>
 </html>

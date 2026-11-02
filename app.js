@@ -26473,7 +26473,7 @@ function _admTenantsCol() {
 
 // ── Troca de abas ────────────────────────────────────────────────────────────
 function switchAdminTab(tab) {
-  ['tenants','faturamento','contratos'].forEach(t => {
+  ['tenants','faturamento','contratos','fatcond'].forEach(t => {
     const content = document.getElementById(`adm-tab-${t}`);
     const btn     = document.getElementById(`adm-tab-btn-${t}`);
     if (content) content.style.display = t === tab ? '' : 'none';
@@ -26481,6 +26481,7 @@ function switchAdminTab(tab) {
   });
   if (tab === 'faturamento') renderAdminFaturamento();
   if (tab === 'contratos')   renderContratosTable();
+  if (tab === 'fatcond')     { fatAbrirPadroes(); renderFatCondominios(); }
 }
 
 // ── Carrega tenants do Firestore ─────────────────────────────────────────────
@@ -26978,6 +26979,7 @@ function openContratoModal(id=null){
     setVal('contrato-reajuste', c.dataReajuste||'');
     setVal('contrato-fim', c.dataFim||'');
     setVal('contrato-obs', c.observacoes||'');
+    _fatPreencherModal(c);   // 🏢 bloco 💰 Faturamento
     // Limpar status CNPJ
     const cnpjSt=document.getElementById('contrato-cnpj-status');
     if(cnpjSt) cnpjSt.style.display='none';
@@ -26999,8 +27001,9 @@ function openContratoModal(id=null){
     ['contrato-id','contrato-cnpj','contrato-razao','contrato-endereco','contrato-email',
      'contrato-responsavel','contrato-cpf-responsavel',
      'contrato-posto','contrato-valor','contrato-objeto','contrato-inicio',
-     'contrato-reajuste','contrato-fim','contrato-obs','contrato-arquivo-url','contrato-arquivo-nome']
+     'contrato-reajuste','contrato-fim','contrato-obs','contrato-arquivo-url','contrato-arquivo-nome','contrato-telefone']
       .forEach(id=>setVal(id,''));
+    _fatPreencherModal(null);   // 🏢 bloco 💰 Faturamento
     const cnpjSt=document.getElementById('contrato-cnpj-status');
     if(cnpjSt) cnpjSt.style.display='none';
     const atualDiv=document.getElementById('contrato-arquivo-atual');
@@ -27050,6 +27053,8 @@ async function saveContrato(){
   if(!razao){ toast('Informe a Razão Social do cliente.','error'); return; }
   if(!objeto){ toast('Informe o objeto do contrato.','error'); return; }
   if(!inicio){ toast('Informe a data de início.','error'); return; }
+  let faturamento;
+  try { faturamento=_fatLerModal(); } catch(e){ toast(e.message,'error'); return; }
   const existingContratoId=val('contrato-id');
   const postoId=val('contrato-posto');
   const posto=postoId?State.postos.find(p=>p.id===postoId):null;
@@ -27064,6 +27069,7 @@ async function saveContrato(){
     razaoSocial:    razao,
     endereco:       val('contrato-endereco').trim(),
     email:          val('contrato-email').trim(),
+    telefone:       val('contrato-telefone').trim(),   // 🔧 o posto copiava o telefone para um campo que não existia
     responsavel:    val('contrato-responsavel').trim(),
     cpfResponsavel: val('contrato-cpf-responsavel').trim(),
     // Dados do contrato
@@ -27078,6 +27084,7 @@ async function saveContrato(){
     arquivoUrl:     val('contrato-arquivo-url')||'',
     arquivoNome:    val('contrato-arquivo-nome')||'',
     status:         inativo?'inativo':'ativo',
+    faturamento,    // 🏢 parâmetros de faturamento do contrato
     updatedAt:      new Date().toISOString()
   };
   try {
@@ -27095,6 +27102,288 @@ function confirmDeleteContrato(id){
     if(c) Auth.log('CONTRATO_DELETED', null, c.razaoSocial||id);
     toast('Contrato excluído.');
   }).catch(()=>toast('Erro ao excluir.','error'));
+}
+
+// ============================================================
+// 🏢 FATURAMENTO DOS CONTRATOS DE CONDOMÍNIO (01/11/2026)
+// ============================================================
+// Do dono: "tenho alguns contratos de condominios no kronos, estou querendo gerar tudo
+// automaticamente por aqui também ... emissão nota, nota de débito e boleto pix no asaas. no
+// kronos precisamos pensar em parametrizar as datas de competencia e vencimento, multa e juros
+// por atraso, historico da nota, que é padrão, valor da nota de debito, valor da nfe".
+// Serviços dos contratos: portaria, limpeza, manutenção, zeladoria, jardinagem e aux. de administração.
+//
+// Como funciona: cada contrato tem um bloco `faturamento` (o que não for preenchido vem dos
+// PADRÕES em configuracoes/faturamento). A aba "Faturar condomínios" monta a fatura do mês
+// (NFS-e = serviços · nota de débito = reembolso · retenções · multa/juros) e o Worker
+// drg-aprovacao a entrega ao DRG-BuscaNFe, que emite a NFS-e de Barueri e o boleto com Pix no
+// Asaas. 🔒 ref = kronos:contrato:<id>:<AAAA-MM> → reenviar ATUALIZA a mesma fatura, nunca duplica.
+// 🔒 Sem os 5 códigos fiscais (serviço Barueri, NBS, indOp, cClassTrib, CST) a NFS-e NÃO sai
+//    sozinha: a fatura e o boleto saem, e a nota fica "manual" até o contador definir os códigos.
+const FAT_SERVICOS = [['portaria','Portaria'],['limpeza','Limpeza'],['manutencao','Manutenção'],['zeladoria','Zeladoria'],['jardinagem','Jardinagem'],['auxAdm','Auxiliar de administração']];
+const FAT_RETENCOES = [['inss','INSS'],['irrf','IRRF'],['pis','PIS'],['cofins','COFINS'],['csll','CSLL']];
+const FAT_PADRAO = {
+  competencia:'anterior', vencimentoMes:'seguinte', diaVencimento:10, multa:2, juros:1, emitirNfse:true,
+  historico:'Prestacao de servicos de {servicos} no {condominio} - competencia {competencia}. Contrato: {objeto}',
+  descricaoNotaDebito:'Reembolso de despesas',
+  codServico:'', nbs:'', indOp:'', cClassTrib:'', cst:'',
+  retencoes:{ inss:0, irrf:0, pis:0, cofins:0, csll:0 },
+};
+let _fatCfg = null;          // padrões (configuracoes/faturamento)
+let _fatSituacao = {};       // ref → fatura no BuscaNFe
+const _fatIbge = {};         // CEP → código IBGE (ViaCEP)
+
+const _r2 = (v) => Math.round((Number(v)||0)*100)/100;
+const _soDig = (v) => String(v==null?'':v).replace(/\D/g,'');
+const _brl = (v) => 'R$ '+_r2(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+async function _fatCarregarCfg(){
+  if(_fatCfg) return _fatCfg;
+  let d=null; try{ d=await DB.getDoc('configuracoes','faturamento'); }catch(_){}
+  _fatCfg=Object.assign({}, FAT_PADRAO, d||{}, { retencoes:Object.assign({}, FAT_PADRAO.retencoes, (d&&d.retencoes)||{}) });
+  return _fatCfg;
+}
+// O contrato manda; campo vazio cai no padrão.
+function _fatParam(c){
+  const cfg=_fatCfg||FAT_PADRAO; const f=(c&&c.faturamento)||{};
+  const vazio=(v)=>v===undefined||v===null||v==='';
+  const o={};
+  for(const k of Object.keys(FAT_PADRAO)) if(k!=='retencoes') o[k]=vazio(f[k])?cfg[k]:f[k];
+  o.retencoes={};
+  for(const [k] of FAT_RETENCOES){ const v=f.retencoes&&f.retencoes[k]; o.retencoes[k]=Number(vazio(v)?(cfg.retencoes||{})[k]:v)||0; }
+  o.ativo=!!f.ativo; o.servicos=Array.isArray(f.servicos)?f.servicos:[];
+  o.valorNotaDebito=_r2(f.valorNotaDebito); o.valorNfse=_r2(f.valorNfse);
+  o.emailCobranca=f.emailCobranca||''; o.telefone=f.telefone||'';
+  return o;
+}
+function _fatCompPadrao(){
+  const cfg=_fatCfg||FAT_PADRAO; const d=new Date();
+  if(cfg.competencia==='anterior') d.setMonth(d.getMonth()-1);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+}
+function _fatVencimento(comp, p){
+  let [a,m]=comp.split('-').map(Number);
+  if(p.vencimentoMes==='seguinte'){ m++; if(m>12){ m=1; a++; } }
+  const ult=new Date(a,m,0).getDate();
+  const dia=Math.min(Math.max(1,parseInt(p.diaVencimento,10)||10), ult);
+  return `${a}-${String(m).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
+}
+function _fatServicosTexto(p){
+  const nomes=FAT_SERVICOS.filter(([k])=>p.servicos.includes(k)).map(([,n])=>n.toLowerCase());
+  if(!nomes.length) return 'servicos contratados';
+  return nomes.length===1?nomes[0]:nomes.slice(0,-1).join(', ')+' e '+nomes[nomes.length-1];
+}
+async function _fatIbgeDoCep(cep){
+  cep=_soDig(cep); if(cep.length!==8) return '';
+  if(_fatIbge[cep]!==undefined) return _fatIbge[cep];
+  try{ const r=await fetch(`https://viacep.com.br/ws/${cep}/json/`); const j=await r.json(); _fatIbge[cep]=(j&&j.ibge)||''; }
+  catch(_){ _fatIbge[cep]=''; }
+  return _fatIbge[cep];
+}
+// Monta a fatura de UM contrato. Devolve { payload, pend:[bloqueia], avisos:[], resumo }.
+async function _fatMontar(c, comp){
+  const p=_fatParam(c); const pend=[]; const avisos=[];
+  const posto=State.postos.find(x=>x.id===c.postoId) || State.postos.find(x=>(x.nomeFantasia||x.razaoSocial)===c.postoNome) || null;
+  const nd=_r2(p.valorNotaDebito);
+  const nfse=p.valorNfse>0 ? _r2(p.valorNfse) : _r2((Number(c.valorMensal)||0)-nd);
+  const cnpj=_soDig(c.cnpj);
+  if(cnpj.length!==14 && cnpj.length!==11) pend.push('sem CNPJ do condomínio (o boleto exige)');
+  if(!(nfse>0) && !(nd>0)) pend.push('sem valor (valor mensal, NFS-e ou nota de débito)');
+  if(nfse<0) pend.push('a nota de débito é maior que o valor mensal');
+  const [a,m]=comp.split('-'); const compBr=`${m}/${a}`;
+  const servTxt=_fatServicosTexto(p);
+  const itens=[];
+  if(nfse>0) itens.push({ descricao:`Servicos de ${servTxt} - competencia ${compBr}`.slice(0,200), valor:nfse, tipo:'servico' });
+  if(nd>0)   itens.push({ descricao:`${p.descricaoNotaDebito||'Reembolso de despesas'} - competencia ${compBr}`.slice(0,200), valor:nd, tipo:'reembolso' });
+  const retencoes={};
+  for(const [k] of FAT_RETENCOES){ const v=_r2(nfse*(p.retencoes[k]||0)/100); if(v>0) retencoes[k]=v; }
+  const totRet=_r2(Object.values(retencoes).reduce((s,v)=>s+v,0));
+  const historico=String(p.historico||'').replace(/\{servicos\}/g,servTxt).replace(/\{competencia\}/g,compBr)
+    .replace(/\{condominio\}/g,c.razaoSocial||c.postoNome||'').replace(/\{contrato\}/g,c.id||'').replace(/\{objeto\}/g,c.objeto||'');
+  const codigos={ codServico:_soDig(p.codServico), nbs:_soDig(p.nbs), indOp:_soDig(p.indOp), cClassTrib:_soDig(p.cClassTrib), cst:_soDig(p.cst) };
+  const temCodigos=codigos.codServico.length===9&&codigos.nbs.length===9&&codigos.indOp.length===6&&codigos.cClassTrib.length===6&&codigos.cst.length===3;
+  let emitir=!!p.emitirNfse && nfse>0;
+  if(emitir && !temCodigos){ emitir=false; avisos.push('sem os 5 códigos fiscais: a NFS-e fica para emissão manual'); }
+  let local=null;
+  if(posto && posto.cep && posto.endereco){
+    local={ logradouro:posto.endereco, numero:posto.numero||'S/N', complemento:posto.complemento||'', bairro:posto.bairro||'',
+      cidade:posto.cidade||'', uf:posto.estado||'', cep:_soDig(posto.cep), ibge:await _fatIbgeDoCep(posto.cep) };
+    if(!local.bairro||!local.cidade||!local.uf||local.cep.length!==8){ local=null; }
+  }
+  if(emitir && !local){ emitir=false; avisos.push('endereço do posto incompleto (CEP, rua, bairro, cidade, UF): a NFS-e fica manual'); }
+  const nfseObj={ emitir, natureza:servTxt, historico };
+  if(temCodigos) nfseObj.servico=codigos;
+  if(local) nfseObj.local=local;
+  if(totRet>0) nfseObj.retencoes=retencoes;
+  const payload={
+    ref:`kronos:contrato:${c.id}:${comp}`,
+    tomador:{ nome:c.razaoSocial||c.postoNome||'', cnpj, email:p.emailCobranca||c.email||'', endereco:c.endereco||'', telefone:_soDig(p.telefone||c.telefone||(posto&&posto.telefone)||'') },
+    competencia:comp, vencimento:_fatVencimento(comp,p),
+    itens, total:_r2(nfse+nd), boleto:true,
+    observacao:(c.objeto||'').slice(0,300),
+    cobranca:{ multa:Number(p.multa)||0, juros:Number(p.juros)||0 },
+    nfse:nfseObj,
+  };
+  return { payload, pend, avisos, resumo:{ nfse, nd, totRet, liquido:_r2(nfse+nd-totRet), vencimento:payload.vencimento } };
+}
+
+// ── Aba "Faturar condomínios" ────────────────────────────────
+function _fatContratosAtivos(){
+  return (State.contratos||[]).filter(c=>c.status!=='inativo' && c.faturamento && c.faturamento.ativo)
+    .sort((a,b)=>(a.postoNome||a.razaoSocial||'').localeCompare(b.postoNome||b.razaoSocial||''));
+}
+async function renderFatCondominios(){
+  const box=document.getElementById('fatc-lista'); if(!box) return;
+  await _fatCarregarCfg();
+  const compEl=document.getElementById('fatc-comp');
+  if(compEl && !compEl.value) compEl.value=_fatCompPadrao();
+  const comp=(compEl&&compEl.value)||_fatCompPadrao();
+  const lista=_fatContratosAtivos();
+  if(!lista.length){
+    box.innerHTML='<div class="empty-row" style="padding:18px">Nenhum contrato com faturamento ligado. Abra o contrato em <b>Contratos de Serviço</b> › bloco 💰 Faturamento e marque "Faturar este contrato".</div>';
+    return;
+  }
+  const linhas=[];
+  for(const c of lista){
+    const m=await _fatMontar(c, comp);
+    const s=_fatSituacao[m.payload.ref];
+    const sit=s ? `<a href="${esc(s.pdf)}" target="_blank" rel="noopener">Fatura ${esc(s.numero)}</a>`
+        + (s.boleto?` · <a href="${esc(s.boleto)}" target="_blank" rel="noopener">boleto</a>`:'')
+        + ` · ${esc(s.status)}${s.nfse&&s.nfse.numero?` · NFS-e nº ${esc(s.nfse.numero)}`:(s.nfse?` · NFS-e ${esc(s.nfse.status)}`:'')}`
+      : '<span style="color:var(--text-muted)">não enviada</span>';
+    const alertas=[...m.pend.map(x=>`<div style="color:var(--danger);font-weight:600">⛔ ${esc(x)}</div>`), ...m.avisos.map(x=>`<div style="color:#b26a00">⚠ ${esc(x)}</div>`)].join('');
+    linhas.push(`<tr>
+      <td><input type="checkbox" class="fatc-sel" value="${esc(c.id)}" ${m.pend.length?'disabled':'checked'}></td>
+      <td><b>${esc(c.postoNome||c.razaoSocial||'')}</b><div style="font-size:11px;color:var(--text-muted)">${esc(c.cnpj||'sem CNPJ')}</div>${alertas}</td>
+      <td style="text-align:right">${_brl(m.resumo.nfse)}</td><td style="text-align:right">${_brl(m.resumo.nd)}</td>
+      <td style="text-align:right">${m.resumo.totRet?'- '+_brl(m.resumo.totRet):'—'}</td>
+      <td style="text-align:right"><b>${_brl(m.resumo.liquido)}</b></td>
+      <td>${m.resumo.vencimento.split('-').reverse().join('/')}</td>
+      <td style="font-size:12px">${sit}<div class="form-msg" id="fatc-msg-${esc(c.id)}"></div></td>
+      <td><button type="button" class="btn btn-outline btn-sm" onclick="fatPrevia(this,'${esc(c.id)}')"><i class="fa-solid fa-eye"></i> Prévia</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="openContratoModal('${esc(c.id)}')"><i class="fa-solid fa-pen"></i></button></td>
+    </tr>`);
+  }
+  box.innerHTML=`<div style="overflow-x:auto"><table class="data-table"><thead><tr><th></th><th>Condomínio</th><th>NFS-e</th><th>Nota de débito</th><th>Retenções</th><th>Boleto (líquido)</th><th>Vencimento</th><th>Situação no BuscaNFe</th><th></th></tr></thead><tbody>${linhas.join('')}</tbody></table></div>`;
+}
+async function fatAtualizarSituacao(btn){
+  const comp=val('fatc-comp');
+  await drgSubmit(btn, async()=>{
+    const r=await _aprovacaoReq('/faturamento/lista',{ competencia:comp });
+    if(!r.ok) throw new Error(r.erro||'Não consegui ler o BuscaNFe.');
+    _fatSituacao={}; (r.faturas||[]).forEach(f=>{ _fatSituacao[f.ref]=f; });
+    await renderFatCondominios();
+    return `${(r.faturas||[]).length} fatura(s) de ${comp.split('-').reverse().join('/')} no BuscaNFe.`;
+  }, { msg:'fatc-msg' }).catch(()=>{});
+}
+async function fatPrevia(btn, id){
+  const c=(State.contratos||[]).find(x=>x.id===id); if(!c) return;
+  const comp=val('fatc-comp')||_fatCompPadrao();
+  await drgSubmit(btn, async()=>{
+    const m=await _fatMontar(c, comp);
+    if(m.pend.length) throw new Error(m.pend.join(' · '));
+    const r=await _aprovacaoReq('/faturamento/previa',{ fatura:m.payload });
+    if(!r.ok) throw new Error(r.erro||'Prévia indisponível.');
+    const bin=atob(r.pdfBase64); const u8=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i);
+    window.open(URL.createObjectURL(new Blob([u8],{type:'application/pdf'})),'_blank');
+    return 'Prévia aberta em outra aba (nada foi gravado).';
+  }, { msg:'fatc-msg-'+id }).catch(()=>{});
+}
+async function fatEnviar(btn){
+  const comp=val('fatc-comp');
+  if(!/^\d{4}-\d{2}$/.test(comp)){ drgMsg('fatc-msg','erro','Escolha a competência.'); return; }
+  const ids=[...document.querySelectorAll('.fatc-sel:checked')].map(x=>x.value);
+  if(!ids.length){ drgMsg('fatc-msg','erro','Marque ao menos um condomínio.'); return; }
+  if(!await drgConfirmar(`Gerar e enviar ${ids.length} fatura(s) de ${comp.split('-').reverse().join('/')} ao BuscaNFe?\nSai o boleto (com Pix) no Asaas e, onde os códigos fiscais estiverem completos, a NFS-e de Barueri.`, { ok:'Gerar e enviar' })) return;
+  const orig=btn.innerHTML; btn.innerHTML=`⏳ Enviando... aguarde ~${Math.max(5,ids.length*4)}s`;
+  try{
+    await drgSubmit(btn, async()=>{
+      const faturas=[];
+      for(const id of ids){ const c=State.contratos.find(x=>x.id===id); const m=await _fatMontar(c, comp); if(!m.pend.length) faturas.push(m.payload); }
+      const r=await _aprovacaoReq('/faturamento/enviar',{ faturas });
+      if(!r.ok) throw new Error(r.erro||'Envio recusado.');
+      const erros=(r.resultados||[]).filter(x=>!x.ok);
+      (r.resultados||[]).forEach(x=>{ if(x.ok) _fatSituacao[x.ref]=Object.assign({}, _fatSituacao[x.ref]||{}, x); });
+      Auth.log('FATURAMENTO_CONDOMINIOS', null, `${comp}: ${faturas.length-erros.length} enviada(s), ${erros.length} com erro`);
+      await renderFatCondominios();
+      (r.resultados||[]).forEach(x=>{
+        const id=String(x.ref||'').split(':')[2];
+        if(id) drgMsg('fatc-msg-'+id, x.ok?'ok':'erro', x.ok?(`Fatura ${x.numero||''} gerada`+(x.aviso?` — ${x.aviso}`:'')):x.erro);
+      });
+      if(erros.length) throw new Error(`${erros.length} de ${faturas.length} não foram aceitas — veja a mensagem em cada linha.`);
+      return `${faturas.length} fatura(s) gerada(s) no BuscaNFe.`;
+    }, { msg:'fatc-msg' });
+  }catch(_){}finally{ btn.innerHTML=orig; }
+}
+
+// ── Padrões (configuracoes/faturamento) ──────────────────────
+async function fatAbrirPadroes(){
+  const cfg=await _fatCarregarCfg();
+  ['competencia','vencimentoMes','diaVencimento','multa','juros','historico','descricaoNotaDebito','codServico','nbs','indOp','cClassTrib','cst']
+    .forEach(k=>setVal('fatp-'+k, cfg[k]));
+  const em=document.getElementById('fatp-emitirNfse'); if(em) em.checked=cfg.emitirNfse!==false;
+  FAT_RETENCOES.forEach(([k])=>setVal('fatp-ret-'+k, (cfg.retencoes||{})[k]||''));
+}
+async function fatSalvarPadroes(btn){
+  await drgSubmit(btn, async()=>{
+    const d={
+      competencia:val('fatp-competencia')==='corrente'?'corrente':'anterior',
+      vencimentoMes:val('fatp-vencimentoMes')==='mesmo'?'mesmo':'seguinte',
+      diaVencimento:Math.min(31,Math.max(1,parseInt(val('fatp-diaVencimento'),10)||10)),
+      multa:Number(val('fatp-multa').replace(',','.'))||0, juros:Number(val('fatp-juros').replace(',','.'))||0,
+      emitirNfse:!!(document.getElementById('fatp-emitirNfse')||{}).checked,
+      historico:val('fatp-historico'), descricaoNotaDebito:val('fatp-descricaoNotaDebito'),
+      codServico:_soDig(val('fatp-codServico')), nbs:_soDig(val('fatp-nbs')), indOp:_soDig(val('fatp-indOp')), cClassTrib:_soDig(val('fatp-cClassTrib')), cst:_soDig(val('fatp-cst')),
+      retencoes:Object.fromEntries(FAT_RETENCOES.map(([k])=>[k, Number(val('fatp-ret-'+k).replace(',','.'))||0])),
+      atualizadoEm:new Date().toISOString(),
+    };
+    if(d.multa>20) throw new Error('Multa acima de 20% — confira o valor.');
+    if(d.juros>10) throw new Error('Juros acima de 10% ao mês — confira o valor.');
+    const cods=[['codServico',9],['nbs',9],['indOp',6],['cClassTrib',6],['cst',3]].filter(([k])=>d[k]);
+    for(const [k,n] of cods) if(d[k].length!==n) throw new Error(`O código ${k} precisa ter ${n} dígitos.`);
+    if(d.cst && d.cClassTrib && !d.cClassTrib.startsWith(d.cst)) throw new Error('O CST tem de ser os 3 primeiros dígitos do cClassTrib.');
+    await DB.saveDoc('configuracoes','faturamento', d);
+    _fatCfg=null; await _fatCarregarCfg(); await renderFatCondominios();
+    Auth.log('FATURAMENTO_PADROES', null, 'padrões de faturamento dos condomínios');
+    return 'Padrões salvos — valem para todo contrato que deixar o campo em branco.';
+  }, { msg:'fatp-msg' }).catch(()=>{});
+}
+
+// ── Bloco "💰 Faturamento" no modal do contrato ──────────────
+function _fatPreencherModal(c){
+  const f=(c&&c.faturamento)||{};
+  const at=document.getElementById('contrato-fat-ativo'); if(at) at.checked=!!f.ativo;
+  const em=document.getElementById('contrato-fat-emitirNfse'); if(em) em.checked=f.emitirNfse!==false;
+  FAT_SERVICOS.forEach(([k])=>{ const el=document.getElementById('contrato-fat-sv-'+k); if(el) el.checked=(f.servicos||[]).includes(k); });
+  ['valorNfse','valorNotaDebito','descricaoNotaDebito','diaVencimento','multa','juros','historico','codServico','nbs','indOp','cClassTrib','cst','emailCobranca']
+    .forEach(k=>setVal('contrato-fat-'+k, f[k]==null?'':f[k]));
+  FAT_RETENCOES.forEach(([k])=>setVal('contrato-fat-ret-'+k, f.retencoes&&f.retencoes[k]!=null&&f.retencoes[k]!==''?f.retencoes[k]:''));
+  setVal('contrato-fat-competencia', f.competencia||''); setVal('contrato-fat-vencimentoMes', f.vencimentoMes||'');
+  setVal('contrato-telefone', f.telefone||c&&c.telefone||'');
+  _fatCarregarCfg().then(cfg=>{ const ph=document.getElementById('contrato-fat-historico'); if(ph) ph.placeholder='Em branco = padrão: '+cfg.historico; }).catch(()=>{});
+}
+function _fatLerModal(){
+  const num=(id)=>{ const v=val(id).replace(',','.'); return v===''?'':Number(v)||0; };
+  const f={
+    ativo:!!(document.getElementById('contrato-fat-ativo')||{}).checked,
+    emitirNfse:!!(document.getElementById('contrato-fat-emitirNfse')||{}).checked,
+    servicos:FAT_SERVICOS.map(([k])=>k).filter(k=>(document.getElementById('contrato-fat-sv-'+k)||{}).checked),
+    valorNfse:num('contrato-fat-valorNfse'), valorNotaDebito:num('contrato-fat-valorNotaDebito'),
+    descricaoNotaDebito:val('contrato-fat-descricaoNotaDebito'),
+    competencia:val('contrato-fat-competencia'), vencimentoMes:val('contrato-fat-vencimentoMes'),
+    diaVencimento:val('contrato-fat-diaVencimento')===''?'':Math.min(31,Math.max(1,parseInt(val('contrato-fat-diaVencimento'),10)||10)),
+    multa:num('contrato-fat-multa'), juros:num('contrato-fat-juros'),
+    historico:val('contrato-fat-historico'),
+    codServico:_soDig(val('contrato-fat-codServico')), nbs:_soDig(val('contrato-fat-nbs')), indOp:_soDig(val('contrato-fat-indOp')),
+    cClassTrib:_soDig(val('contrato-fat-cClassTrib')), cst:_soDig(val('contrato-fat-cst')),
+    retencoes:Object.fromEntries(FAT_RETENCOES.map(([k])=>[k, num('contrato-fat-ret-'+k)])),
+    emailCobranca:val('contrato-fat-emailCobranca'), telefone:val('contrato-telefone'),
+  };
+  if(f.ativo && !f.servicos.length) throw new Error('Marque ao menos um serviço do contrato (portaria, limpeza…) para faturar.');
+  if(f.multa!==''&&f.multa>20) throw new Error('Multa acima de 20% — confira.');
+  if(f.juros!==''&&f.juros>10) throw new Error('Juros acima de 10% ao mês — confira.');
+  for(const [k,n] of [['codServico',9],['nbs',9],['indOp',6],['cClassTrib',6],['cst',3]]) if(f[k] && f[k].length!==n) throw new Error(`O código ${k} precisa ter ${n} dígitos.`);
+  return f;
 }
 
 // ============================================

@@ -1592,6 +1592,7 @@ function showSection(name){
   if(name==='postos'         && !mods.postos)       return;
   if(name==='rubricas'       && !mods.pagamentos && Auth.currentUser?.role!=='master') return;
   if(name==='contratos'      && !mods.contratos)    return;
+  if(name==='clientesdr'     && !mods.contratos)    return;
   if(name==='comunicacao'    && !mods.comunicacao)  return;
   if(name==='autorizacoes'   && !mods.autorizarPonto) return;
   if(name==='monitorfaltas'  && !mods.monitorarFaltas) return;
@@ -1620,7 +1621,7 @@ function showSection(name){
   applyNavGroupsState(name);
   const titles={dashboard:'Dashboard',employees:'Colaboradores',payroll:'Folha de Ponto',escalas:'Escalas',
                 pagamentos:'Pagamentos',beneficios:'Benefícios',recibos:'Recibos Enviados',adiantamentos:'Adiantamentos',aprovacoes:'Aprovações de Pagamentos',dossie:'Dossiê de Pagamentos',decimoterceiro:'13º Salário',ferias:'Férias',rescisao:'Rescisões',
-                contabilidade:'Contabilidade',banco:'Banco de Dados',users:'Usuários & Acessos',postos:'Postos de Trabalho',rubricas:'Rubricas',contratos:'Contratos',comunicacao:'Comunicação',autorizacoes:'Autorizações de Ponto',monitorfaltas:'Monitor de Faltas',estoque:'Estoque / EPIs',documentos:'Documentos do Colaborador',docsempresa:'Documentos da Empresa',configuracoes:'Configurações',lgpd:'Conformidade LGPD',relatorios:'Relatórios'};
+                contabilidade:'Contabilidade',banco:'Banco de Dados',users:'Usuários & Acessos',postos:'Postos de Trabalho',rubricas:'Rubricas',contratos:'Administração do Kronos',clientesdr:'Clientes D.R. Global',comunicacao:'Comunicação',autorizacoes:'Autorizações de Ponto',monitorfaltas:'Monitor de Faltas',estoque:'Estoque / EPIs',documentos:'Documentos do Colaborador',docsempresa:'Documentos da Empresa',configuracoes:'Configurações',lgpd:'Conformidade LGPD',relatorios:'Relatórios'};
   document.getElementById('topbar-title').textContent=titles[name]||name;
   const _secAnterior=State.currentSection;
   State.currentSection=name;
@@ -1665,6 +1666,10 @@ function showSection(name){
   if(name==='configuracoes')  renderConfiguracoes();
   if(name==='postos')    renderPostosTable();
   if(name==='rubricas')  renderRubricas();
+  if(name==='clientesdr') {   // 🏢 contratos e faturamento dos condomínios da D.R. Global
+    switchAdminTab('contratos');
+    populateContratoPostoSelect();
+  }
   if(name==='contratos') {
     // Garante aba Tenants ativa e carrega dados
     switchAdminTab('tenants');
@@ -2269,7 +2274,8 @@ function applyUserSession(user){
   const contratosLi=document.getElementById('nav-contratos-li');
   if(contratosLi) contratosLi.classList.toggle('hidden', !mods.contratos);
   // 🏢 atalhos diretos (dono: "não sei onde esta gestão de clientes ... colocar em um local mais fácil")
-  ['nav-contcond-li','nav-fatcond-li'].forEach(id=>{ const li=document.getElementById(id); if(li) li.classList.toggle('hidden', !mods.contratos); });
+  const cliDrLi=document.getElementById('nav-clientesdr-li');   // 🏢 condomínios da D.R. Global (≠ clientes do Kronos)
+  if(cliDrLi) cliDrLi.classList.toggle('hidden', !mods.contratos);
   const estoqueLi=document.getElementById('nav-estoque-li');
   if(estoqueLi) estoqueLi.classList.toggle('hidden', !mods.estoque);
   const relLi=document.getElementById('nav-relatorios-li');
@@ -26474,14 +26480,6 @@ function _admTenantsCol() {
 }
 
 // ── Troca de abas ────────────────────────────────────────────────────────────
-// 🏢 Atalho do menu: abre a Administração já na aba pedida (Contratos ou Faturar condomínios) e
-// marca o item do menu clicado — showSection('contratos') sozinho abre na aba de licenças do Kronos.
-function abrirAdminAba(tab, navId){
-  showSection('contratos');
-  switchAdminTab(tab);
-  document.querySelectorAll('.nav-link').forEach(n=>n.classList.remove('active'));
-  const nav=document.getElementById(navId); if(nav) nav.classList.add('active');
-}
 function switchAdminTab(tab) {
   ['tenants','faturamento','contratos','fatcond'].forEach(t => {
     const content = document.getElementById(`adm-tab-${t}`);

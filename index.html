@@ -408,22 +408,16 @@
               <span>Postos de Trabalho</span>
             </a>
           </li>
-          <li id="nav-contcond-li" class="hidden">
-            <a class="nav-link" id="nav-contcond" onclick="abrirAdminAba('contratos','nav-contcond')">
-              <i class="fa-solid fa-file-signature"></i>
-              <span>Contratos dos condomínios</span>
-            </a>
-          </li>
-          <li id="nav-fatcond-li" class="hidden">
-            <a class="nav-link" id="nav-fatcond" onclick="abrirAdminAba('fatcond','nav-fatcond')">
-              <i class="fa-solid fa-file-invoice-dollar"></i>
-              <span>Faturar condomínios</span>
+          <li id="nav-clientesdr-li" class="hidden">
+            <a class="nav-link" id="nav-clientesdr" onclick="showSection('clientesdr')">
+              <i class="fa-solid fa-building-user"></i>
+              <span>Clientes D.R. Global</span>
             </a>
           </li>
           <li id="nav-contratos-li" class="hidden">
             <a class="nav-link" id="nav-contratos" onclick="showSection('contratos')">
               <i class="fa-solid fa-shield-halved"></i>
-              <span>Administração</span>
+              <span>Administração do Kronos</span>
             </a>
           </li>
           <li id="nav-estoque-li" class="hidden">
@@ -1585,7 +1579,7 @@
         <div class="page-header">
           <div>
             <h2><i class="fa-solid fa-shield-halved" style="color:var(--primary)"></i> Administração</h2>
-            <p>Gestão de clientes, faturamento e contratos de serviço — acesso exclusivo master</p>
+            <p>Clientes do sistema Kronos (licenças) e cobrança das licenças — acesso exclusivo master. Os condomínios da D.R. Global ficam em Operação › Clientes D.R. Global.</p>
           </div>
           <div id="adm-header-actions" style="display:flex;gap:8px"></div>
         </div>
@@ -1593,16 +1587,10 @@
         <!-- Abas principais -->
         <div class="contrato-tabs" style="margin-bottom:0">
           <button class="contrato-tab active" id="adm-tab-btn-tenants" onclick="switchAdminTab('tenants')">
-            <i class="fa-solid fa-server"></i> Clientes / Tenants
+            <i class="fa-solid fa-server"></i> Clientes do Kronos (licenças)
           </button>
           <button class="contrato-tab" id="adm-tab-btn-faturamento" onclick="switchAdminTab('faturamento')">
-            <i class="fa-solid fa-bolt" style="color:#2e7d32"></i> Faturamento
-          </button>
-          <button class="contrato-tab" id="adm-tab-btn-contratos" onclick="switchAdminTab('contratos')">
-            <i class="fa-solid fa-file-signature"></i> Contratos de Serviço
-          </button>
-          <button class="contrato-tab" id="adm-tab-btn-fatcond" onclick="switchAdminTab('fatcond')">
-            <i class="fa-solid fa-file-invoice-dollar" style="color:#2e7d32"></i> Faturar condomínios
+            <i class="fa-solid fa-bolt" style="color:#2e7d32"></i> Cobrança das licenças
           </button>
         </div>
 
@@ -1684,6 +1672,27 @@
           </div>
         </div>
 
+      </section>
+
+      <!-- ===== CLIENTES D.R. GLOBAL (🏢 02/11/2026) =====
+           Dono: "estes condominios, são clientes dr global, não são clientes do kronos, entendeu?" —
+           os condomínios atendidos pela D.R. Global (prestadora) ficam AQUI; a Administração fica só com
+           as licenças do sistema Kronos. Os ids adm-tab-* foram mantidos: switchAdminTab segue valendo. -->
+      <section id="section-clientesdr" class="section">
+        <div class="page-header">
+          <div>
+            <h2><i class="fa-solid fa-building-user" style="color:#2e7d32"></i> Clientes D.R. Global</h2>
+            <p>Condomínios atendidos pela D.R. Global — contratos de serviço e faturamento (NFS-e, nota de débito e boleto com Pix)</p>
+          </div>
+        </div>
+        <div class="contrato-tabs" style="margin-bottom:0">
+          <button class="contrato-tab active" id="adm-tab-btn-contratos" onclick="switchAdminTab('contratos')">
+            <i class="fa-solid fa-file-signature"></i> Contratos
+          </button>
+          <button class="contrato-tab" id="adm-tab-btn-fatcond" onclick="switchAdminTab('fatcond')">
+            <i class="fa-solid fa-file-invoice-dollar" style="color:#2e7d32"></i> Faturar
+          </button>
+        </div>
         <!-- ── ABA: FATURAR CONDOMÍNIOS (🏢 01/11/2026) ── -->
         <div id="adm-tab-fatcond" style="display:none;margin-top:16px">
           <div class="card" style="padding:16px">
@@ -8391,6 +8400,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20261102a-menu-faturamento"></script>
+  <script src="app.js?v=20261102b-clientes-drglobal"></script>
 </body>
 </html>

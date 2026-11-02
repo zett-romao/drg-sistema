@@ -719,6 +719,12 @@ async function renderPlanosPrecos(){
   if(!el) return;
   // Cliente (tenant) assina; só o dono/raiz edita a tabela de preços. #planos-precos
   if(DB.tenantId) return renderAssinaturaCliente(el);
+  // 🏪 02/11/2026: a tabela de planos do Kronos é da DR Systems (quem vende), não da D.R. Global
+  // (cliente licenciado) — ela agora se edita no Painel do Operador. Mesmo documento
+  // configuracoes/planos: nada se perdeu, só mudou de tela.
+  el.innerHTML = `<p style="font-size:13px;color:#444;margin:0">Os planos e preços do Kronos agora ficam no <b>Painel do Operador</b> (venda e cobrança das licenças), separados da gestão da D.R. Global.</p>
+    <a class="btn btn-outline btn-sm" style="margin-top:10px" href="operator.html" target="_blank" rel="noopener"><i class="fa-solid fa-headset"></i> Abrir o Painel do Operador</a>`;
+  return;
   if(!State.planos){
     try{ State.planos = await DB.getDoc('configuracoes','planos'); }catch(_){ State.planos=null; }
     if(!State.planos || !Array.isArray(State.planos.faixas) || !State.planos.faixas.length) State.planos = _planosDefault();
@@ -2271,8 +2277,12 @@ function applyUserSession(user){
   if(rescLi) rescLi.classList.toggle('hidden', !mods.rescisao);
   const contLi=document.getElementById('nav-contabilidade-li');
   if(contLi) contLi.classList.toggle('hidden', !mods.contabilidade);
+  // 🏪 02/11/2026 — a venda e a cobrança das licenças do Kronos foram para o Painel do Operador
+  // (dono: "tudo que é da parte de venda e administração de licenças deve ir para a plataforma, e o
+  // gerenciamento exclusivamente da dr global deve ficar nesta cópia do kronos"). O item some do menu;
+  // o código da seção (section-contratos) fica guardado até a etapa 2 (plataforma DR Systems).
   const contratosLi=document.getElementById('nav-contratos-li');
-  if(contratosLi) contratosLi.classList.toggle('hidden', !mods.contratos);
+  if(contratosLi) contratosLi.classList.add('hidden');
   // 🏢 atalhos diretos (dono: "não sei onde esta gestão de clientes ... colocar em um local mais fácil")
   const cliDrLi=document.getElementById('nav-clientesdr-li');   // 🏢 condomínios da D.R. Global (≠ clientes do Kronos)
   if(cliDrLi) cliDrLi.classList.toggle('hidden', !mods.contratos);
@@ -26834,13 +26844,13 @@ async function executarAdmCobranca() {
         customer: customerId, billingType: tipo,
         value: valor, nextDueDate: venc,
         cycle: ciclo,
-        description: descricao, externalReference: tenantId,
+        description: descricao, externalReference: 'kronos:' + tenantId,
       });
     } else {
       cob = await _asaasPost('/payments', {
         customer: customerId, billingType: tipo,
         value: valor, dueDate: venc,
-        description: descricao, externalReference: tenantId,
+        description: descricao, externalReference: 'kronos:' + tenantId,
       });
     }
 

@@ -248,6 +248,31 @@
       </div>
     </div>
 
+    <!-- 🏪 02/11/2026: a venda e a cobrança das licenças do Kronos moram SÓ aqui (saíram do app da
+         D.R. Global, que é um cliente licenciado — dono: "tudo que é da parte de venda e administração
+         de licenças deve ir para a plataforma"). -->
+    <div class="card" style="margin-top:16px">
+      <div class="card-header">
+        <h2><i class="fa-solid fa-file-invoice-dollar"></i> Cobranças das licenças</h2>
+        <select id="op-fat-tenant" onchange="renderCobrancasTodas()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+          <option value="">Todos os clientes</option>
+        </select>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Cliente</th><th>Descrição</th><th>Valor</th><th>Vencimento</th><th>Tipo</th><th>Status</th><th>Ações</th></tr></thead>
+          <tbody id="op-fat-tbody"></tbody>
+        </table>
+      </div>
+      <div class="form-msg" id="op-fat-msg" style="margin:0 16px 12px"></div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="card-header"><h2><i class="fa-solid fa-tags"></i> Planos &amp; preços do Kronos</h2></div>
+      <div id="op-planos-body" style="padding:16px;font-size:13px;color:var(--muted)">Carregando planos…</div>
+      <div class="form-msg" id="op-planos-msg" style="margin:0 16px 12px"></div>
+    </div>
+
   </div>
 </div>
 
@@ -534,6 +559,7 @@ function enterPanel() {
   document.getElementById('op-data').textContent =
     new Date().toLocaleDateString('pt-BR', {weekday:'long',year:'numeric',month:'long',day:'numeric'});
   loadTenants();
+  carregarPlanos();
 }
 
 function doLogout() {
@@ -556,6 +582,7 @@ async function loadTenants() {
   }
   renderStats();
   renderTenants();
+  renderCobrancasTodas();
 }
 
 // ─── STATS ────────────────────────────────────────────────────────────────────
@@ -1006,9 +1033,13 @@ function setRedBorderFavicon() {
 const ASAAS_WORKER = 'https://drg-asaas.zett-romao.workers.dev';
 
 async function _asaasReq(method, path, body) {
+  // 🔧 02/11/2026: o proxy drg-asaas exige o idToken do Firebase (#asaas-auth). Sem isto toda
+  // cobrança gerada pelo painel voltava 401 — só a aba antiga do app conseguia cobrar.
+  const fu = firebase.auth().currentUser;
+  if (!fu) throw new Error('Sessão expirada — entre de novo no painel.');
   const opts = {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (await fu.getIdToken()) },
   };
   if (body) opts.body = JSON.stringify(body);
   const r = await fetch(ASAAS_WORKER + path, opts);
@@ -1128,9 +1159,130 @@ function _renderHistoricoCobrancas(t) {
       <div style="display:flex;align-items:center;gap:8px">
         <span style="color:${cor};font-weight:600">${c.status||'?'}</span>
         ${c.invoiceUrl ? `<a href="${c.invoiceUrl}" target="_blank" style="font-size:11px;color:#1a3a6b"><i class="fa-solid fa-external-link-alt"></i></a>` : ''}
+        ${['PENDING','OVERDUE'].includes(c.status) ? `<button type="button" class="btn btn-outline btn-sm" style="color:#c62828" onclick="cancelarCobranca(this,'${String(t.id).replace(/'/g,'')}','${String(c.id||'').replace(/'/g,'')}','${String(c.modo||'avulsa').replace(/'/g,'')}')"><i class="fa-solid fa-ban"></i></button>` : ''}
       </div>
     </div>`;
   }).join('');
+}
+
+// ─── 🏪 COBRANÇAS DAS LICENÇAS (consolidado) — trazido do app da D.R. Global (02/11/2026) ───
+const _escO = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const _brlO = (v) => 'R$ ' + (Number(v)||0).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+function renderCobrancasTodas() {
+  const sel = document.getElementById('op-fat-tenant');
+  if (sel) {
+    const atual = sel.value;
+    sel.innerHTML = '<option value="">Todos os clientes</option>' + _tenants.map(t => `<option value="${_escO(t.id)}">${_escO(t.nome || t.id)}</option>`).join('');
+    sel.value = atual;
+  }
+  const filtro = sel ? sel.value : '';
+  const tbody = document.getElementById('op-fat-tbody'); if (!tbody) return;
+  const rows = [];
+  (filtro ? _tenants.filter(t => t.id === filtro) : _tenants).forEach(t => (t.cobrancas || []).forEach(c => rows.push({ ...c, tenantNome: t.nome, tenantId: t.id })));
+  rows.sort((a, b) => (b.criadoEm || '') > (a.criadoEm || '') ? 1 : -1);
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:14px">Nenhuma cobrança registrada.</td></tr>'; return; }
+  tbody.innerHTML = rows.slice(0, 200).map(r => {
+    const cor = r.status === 'RECEIVED' || r.status === 'CONFIRMED' ? '#2e7d32' : r.status === 'OVERDUE' ? '#c62828' : r.status === 'CANCELLED' ? '#888' : '#e65100';
+    const link = r.invoiceUrl || r.bankSlipUrl || '';
+    const cancelavel = ['PENDING', 'OVERDUE'].includes(r.status);
+    const q = (v) => String(v || '').replace(/'/g, '');
+    return `<tr>
+      <td><strong>${_escO(r.tenantNome)}</strong></td>
+      <td style="font-size:12px">${_escO(r.descricao || '—')}</td>
+      <td style="font-weight:700">${_brlO(r.valor)}</td>
+      <td style="font-size:12px">${_escO((r.vencimento || '').split('-').reverse().join('/'))}</td>
+      <td style="font-size:11px">${r.modo === 'recorrente' ? '♻ Recorrente' : _escO(r.tipo || '—')}</td>
+      <td style="color:${cor};font-weight:600;font-size:12px">${_escO(r.status || '?')}</td>
+      <td style="white-space:nowrap">
+        <button type="button" class="btn btn-outline btn-sm" onclick="gerarCobrancaTenant('${q(r.tenantId)}')" title="Nova cobrança"><i class="fa-solid fa-bolt" style="color:#2e7d32"></i></button>
+        ${link ? `<a class="btn btn-outline btn-sm" href="${_escO(link)}" target="_blank" rel="noopener" title="Abrir link de pagamento"><i class="fa-solid fa-external-link-alt"></i></a>` : ''}
+        ${cancelavel ? `<button type="button" class="btn btn-outline btn-sm" style="color:#c62828" onclick="cancelarCobranca(this,'${q(r.tenantId)}','${q(r.id)}','${q(r.modo || 'avulsa')}')" title="Cancelar cobrança"><i class="fa-solid fa-ban"></i></button>` : ''}
+      </td>
+    </tr>`;
+  }).join('');
+}
+async function cancelarCobranca(btn, tenantId, cobId, modo) {
+  if (!cobId) { drgMsg('op-fat-msg', 'erro', 'Cobrança sem ID — não dá para cancelar por aqui.'); return; }
+  if (!await drgConfirmar('Cancelar esta cobrança no Asaas? A ação não pode ser desfeita.', { ok: 'Cancelar cobrança', perigo: true })) return;
+  await drgSubmit(btn, async () => {
+    if (modo === 'recorrente') await _asaasReq('DELETE', `/subscriptions/${cobId}`);
+    else await _asaasReq('POST', `/payments/${cobId}/cancel`);
+    const t = _tenants.find(x => x.id === tenantId);
+    if (t) {
+      const cobrancas = (t.cobrancas || []).map(c => c.id === cobId ? { ...c, status: 'CANCELLED' } : c);
+      await tenantRef(tenantId).set({ cobrancas }, { merge: true });
+      t.cobrancas = cobrancas;
+    }
+    renderCobrancasTodas();
+    return 'Cobrança cancelada no Asaas.';
+  }, { msg: 'op-fat-msg' }).catch(() => {});
+}
+
+// ─── 🏪 PLANOS & PREÇOS DO KRONOS (configuracoes/planos da raiz) — trazido do app (02/11/2026) ───
+// O Worker lê daqui o período grátis (cadastro), a tabela pública (/planos-publicos) e o preço da
+// assinatura (/assinar-plano). Mesma estrutura de antes: nada muda para quem já usa.
+let _planos = null;
+function _planosPadrao() {
+  return { trialDias: 180, toleranciaInadimplenciaDias: 5, faixas: [
+    { nome: 'Start', min: 0, max: 10, mensal: 39, anual: 390 },
+    { nome: 'Essencial', min: 11, max: 25, mensal: 79, anual: 790 },
+    { nome: 'Profissional', min: 26, max: 50, mensal: 149, anual: 1490 },
+    { nome: 'Empresarial', min: 51, max: 100, mensal: 249, anual: 2490 },
+    { nome: 'Acima de 100', min: 101, max: null, mensal: 0, anual: 0 } ] };
+}
+async function carregarPlanos() {
+  try { const d = await fs.collection('configuracoes').doc('planos').get(); _planos = d.exists ? d.data() : null; } catch (e) { _planos = null; }
+  if (!_planos || !Array.isArray(_planos.faixas) || !_planos.faixas.length) _planos = _planosPadrao();
+  pintarPlanos();
+}
+function pintarPlanos() {
+  const el = document.getElementById('op-planos-body'); if (!el) return;
+  const p = _planos || _planosPadrao();
+  const inp = (i, campo, v, extra) => `<input data-pl="${campo}" data-i="${i}" value="${_escO(v)}" ${extra || ''} style="width:100%;padding:6px;border:1px solid var(--border);border-radius:5px">`;
+  el.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:12px;color:#333">
+      <label>Período grátis (dias)<input id="op-pl-trial" type="number" min="0" value="${p.trialDias == null ? 180 : p.trialDias}" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:5px"></label>
+      <label>Tolerância de inadimplência (dias)<input id="op-pl-tol" type="number" min="0" value="${p.toleranciaInadimplenciaDias == null ? 5 : p.toleranciaInadimplenciaDias}" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:5px"></label>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Plano</th><th>De (func.)</th><th>Até (func.)</th><th>Mensal (R$)</th><th>Anual (R$)</th><th></th></tr></thead>
+      <tbody>${(p.faixas || []).map((f, i) => `<tr>
+        <td>${inp(i, 'nome', f.nome || '')}</td>
+        <td>${inp(i, 'min', f.min == null ? 0 : f.min, 'type="number" min="0"')}</td>
+        <td>${inp(i, 'max', f.max == null ? '' : f.max, 'type="number" min="0" placeholder="∞"')}</td>
+        <td>${inp(i, 'mensal', f.mensal == null ? 0 : f.mensal, 'type="number" min="0" step="0.01"')}</td>
+        <td>${inp(i, 'anual', f.anual == null ? 0 : f.anual, 'type="number" min="0" step="0.01"')}</td>
+        <td><button type="button" class="btn btn-outline btn-sm" style="color:#c62828" onclick="removerFaixa(${i})" title="Remover faixa"><i class="fa-solid fa-trash"></i></button></td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:12px">
+      <button type="button" class="btn btn-outline" onclick="adicionarFaixa()"><i class="fa-solid fa-plus"></i> Adicionar faixa</button>
+      <button type="button" class="btn btn-primary" onclick="salvarPlanos(this)"><i class="fa-solid fa-floppy-disk"></i> Salvar planos</button>
+    </div>
+    <p style="font-size:11px;color:var(--muted);margin-top:8px">"Até" vazio na última faixa = sem limite. Anual sugerido = 10× o mensal.</p>`;
+}
+function _coletarPlanos() {
+  const p = _planos || _planosPadrao();
+  const td = document.getElementById('op-pl-trial'); if (td) p.trialDias = Math.max(0, parseInt(td.value) || 0);
+  const tol = document.getElementById('op-pl-tol'); if (tol) p.toleranciaInadimplenciaDias = Math.max(0, parseInt(tol.value) || 0);
+  document.querySelectorAll('#op-planos-body [data-pl]').forEach(el => {
+    const i = +el.dataset.i, campo = el.dataset.pl; if (!p.faixas[i]) return;
+    if (campo === 'nome') p.faixas[i].nome = el.value.trim();
+    else if (campo === 'max') p.faixas[i].max = el.value === '' ? null : Math.max(0, parseInt(el.value) || 0);
+    else p.faixas[i][campo] = Math.max(0, parseFloat(el.value) || 0);
+  });
+  _planos = p; return p;
+}
+function adicionarFaixa() { _coletarPlanos(); _planos.faixas.push({ nome: 'Nova faixa', min: 0, max: null, mensal: 0, anual: 0 }); pintarPlanos(); }
+function removerFaixa(i) { _coletarPlanos(); _planos.faixas.splice(i, 1); pintarPlanos(); }
+async function salvarPlanos(btn) {
+  await drgSubmit(btn, async () => {
+    const p = _coletarPlanos();
+    if (!p.faixas.length) throw new Error('Deixe ao menos uma faixa.');
+    p.updatedAt = new Date().toISOString();
+    await fs.collection('configuracoes').doc('planos').set(p, { merge: true });
+    return 'Planos e preços salvos — já valem no cadastro e na assinatura.';
+  }, { msg: 'op-planos-msg' }).catch(() => {});
 }
 
 function setCobrancaTipo(modo) {
@@ -1201,7 +1353,7 @@ async function executarCobranca() {
         customer: customerId, billingType: tipo,
         value: valor, nextDueDate: venc,
         cycle: ciclo,
-        description: descricao, externalReference: tenantId,
+        description: descricao, externalReference: 'kronos:' + tenantId,   // 🔧 sem o prefixo o webhook ignorava o pagamento
       });
     } else {
       cob = await _asaasPost('/payments', {
@@ -1210,7 +1362,7 @@ async function executarCobranca() {
         value:             valor,
         dueDate:           venc,
         description:       descricao,
-        externalReference: tenantId,
+        externalReference: 'kronos:' + tenantId,   // 🔧 sem o prefixo o webhook ignorava o pagamento
       });
     }
 
@@ -1232,6 +1384,7 @@ async function executarCobranca() {
     });
     await tenantRef(tenantId).set({ cobrancas: cobrancas.slice(0, 50) }, { merge: true });
     if (t) t.cobrancas = cobrancas;
+    renderCobrancasTodas();
     _renderHistoricoCobrancas(t);
 
     // 4. Link de pagamento

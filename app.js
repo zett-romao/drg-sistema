@@ -2268,6 +2268,8 @@ function applyUserSession(user){
   if(contLi) contLi.classList.toggle('hidden', !mods.contabilidade);
   const contratosLi=document.getElementById('nav-contratos-li');
   if(contratosLi) contratosLi.classList.toggle('hidden', !mods.contratos);
+  // 🏢 atalhos diretos (dono: "não sei onde esta gestão de clientes ... colocar em um local mais fácil")
+  ['nav-contcond-li','nav-fatcond-li'].forEach(id=>{ const li=document.getElementById(id); if(li) li.classList.toggle('hidden', !mods.contratos); });
   const estoqueLi=document.getElementById('nav-estoque-li');
   if(estoqueLi) estoqueLi.classList.toggle('hidden', !mods.estoque);
   const relLi=document.getElementById('nav-relatorios-li');
@@ -26472,6 +26474,14 @@ function _admTenantsCol() {
 }
 
 // ── Troca de abas ────────────────────────────────────────────────────────────
+// 🏢 Atalho do menu: abre a Administração já na aba pedida (Contratos ou Faturar condomínios) e
+// marca o item do menu clicado — showSection('contratos') sozinho abre na aba de licenças do Kronos.
+function abrirAdminAba(tab, navId){
+  showSection('contratos');
+  switchAdminTab(tab);
+  document.querySelectorAll('.nav-link').forEach(n=>n.classList.remove('active'));
+  const nav=document.getElementById(navId); if(nav) nav.classList.add('active');
+}
 function switchAdminTab(tab) {
   ['tenants','faturamento','contratos','fatcond'].forEach(t => {
     const content = document.getElementById(`adm-tab-${t}`);

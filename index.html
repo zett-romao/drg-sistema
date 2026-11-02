@@ -1691,6 +1691,9 @@
               <button type="button" class="btn btn-primary" onclick="fatEnviar(this)"><i class="fa-solid fa-paper-plane"></i> Gerar e enviar faturas</button>
             </div>
             <div class="form-msg" id="fatc-msg"></div>
+            <div id="fatc-desligado" style="display:none;margin-top:10px;padding:10px 12px;border-radius:8px;background:#fff8e1;border:1px solid #ffe082;color:#7a5200;font-weight:600">
+              ⏸️ Faturamento DESLIGADO — confira os contratos e a prévia, parametrize os <b>Padrões</b> (abaixo) com o contador e marque <b>"Faturamento ligado"</b>. Até lá nada é enviado.
+            </div>
           </div>
           <div class="card" style="margin-top:12px" id="fatc-lista"><div class="empty-row" style="padding:18px">Carregando…</div></div>
 
@@ -1726,7 +1729,8 @@
               <div class="form-group"><label>COFINS (%)</label><input type="text" inputmode="decimal" id="fatp-ret-cofins"></div>
               <div class="form-group"><label>CSLL (%)</label><input type="text" inputmode="decimal" id="fatp-ret-csll"></div>
             </div>
-            <label style="display:flex;gap:8px;align-items:center;margin:4px 0 12px"><input type="checkbox" id="fatp-emitirNfse"> Emitir a NFS-e automaticamente (quando os 5 códigos estiverem completos)</label>
+            <label style="display:flex;gap:8px;align-items:center;margin:4px 0 8px"><input type="checkbox" id="fatp-emitirNfse"> Emitir a NFS-e automaticamente (quando os 5 códigos estiverem completos)</label>
+            <label style="display:flex;gap:8px;align-items:center;margin:0 0 12px;padding:10px 12px;border:2px solid #2e7d32;border-radius:8px;font-weight:700"><input type="checkbox" id="fatp-ligado"> 🟢 Faturamento ligado — liberar o envio das faturas ao BuscaNFe</label>
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px">
               <button type="button" class="btn btn-primary" onclick="fatSalvarPadroes(this)"><i class="fa-solid fa-floppy-disk"></i> Salvar padrões</button>
             </div>
@@ -8375,6 +8379,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20261101a-faturar-condominios"></script>
+  <script src="app.js?v=20261101b-faturamento-chave"></script>
 </body>
 </html>

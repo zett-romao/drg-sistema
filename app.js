@@ -27123,6 +27123,7 @@ function confirmDeleteContrato(id){
 const FAT_SERVICOS = [['portaria','Portaria'],['limpeza','Limpeza'],['manutencao','Manutenção'],['zeladoria','Zeladoria'],['jardinagem','Jardinagem'],['auxAdm','Auxiliar de administração']];
 const FAT_RETENCOES = [['inss','INSS'],['irrf','IRRF'],['pis','PIS'],['cofins','COFINS'],['csll','CSLL']];
 const FAT_PADRAO = {
+  ligado:false,   // 🔒 chave geral: nasce DESLIGADA; o dono liga depois de parametrizar (o Worker também confere)
   competencia:'anterior', vencimentoMes:'seguinte', diaVencimento:10, multa:2, juros:1, emitirNfse:true,
   historico:'Prestacao de servicos de {servicos} no {condominio} - competencia {competencia}. Contrato: {objeto}',
   descricaoNotaDebito:'Reembolso de despesas',
@@ -27238,6 +27239,8 @@ async function renderFatCondominios(){
   const compEl=document.getElementById('fatc-comp');
   if(compEl && !compEl.value) compEl.value=_fatCompPadrao();
   const comp=(compEl&&compEl.value)||_fatCompPadrao();
+  const aviso=document.getElementById('fatc-desligado');
+  if(aviso) aviso.style.display=(_fatCfg&&_fatCfg.ligado)?'none':'';
   const lista=_fatContratosAtivos();
   if(!lista.length){
     box.innerHTML='<div class="empty-row" style="padding:18px">Nenhum contrato com faturamento ligado. Abra o contrato em <b>Contratos de Serviço</b> › bloco 💰 Faturamento e marque "Faturar este contrato".</div>';
@@ -27292,6 +27295,8 @@ async function fatPrevia(btn, id){
 async function fatEnviar(btn){
   const comp=val('fatc-comp');
   if(!/^\d{4}-\d{2}$/.test(comp)){ drgMsg('fatc-msg','erro','Escolha a competência.'); return; }
+  await _fatCarregarCfg();
+  if(!_fatCfg.ligado){ drgMsg('fatc-msg','erro','O faturamento está DESLIGADO. Parametrize e ligue em Padrões › "Faturamento ligado". A prévia funciona normalmente.'); return; }
   const ids=[...document.querySelectorAll('.fatc-sel:checked')].map(x=>x.value);
   if(!ids.length){ drgMsg('fatc-msg','erro','Marque ao menos um condomínio.'); return; }
   if(!await drgConfirmar(`Gerar e enviar ${ids.length} fatura(s) de ${comp.split('-').reverse().join('/')} ao BuscaNFe?\nSai o boleto (com Pix) no Asaas e, onde os códigos fiscais estiverem completos, a NFS-e de Barueri.`, { ok:'Gerar e enviar' })) return;
@@ -27322,11 +27327,13 @@ async function fatAbrirPadroes(){
   ['competencia','vencimentoMes','diaVencimento','multa','juros','historico','descricaoNotaDebito','codServico','nbs','indOp','cClassTrib','cst']
     .forEach(k=>setVal('fatp-'+k, cfg[k]));
   const em=document.getElementById('fatp-emitirNfse'); if(em) em.checked=cfg.emitirNfse!==false;
+  const lg=document.getElementById('fatp-ligado'); if(lg) lg.checked=cfg.ligado===true;
   FAT_RETENCOES.forEach(([k])=>setVal('fatp-ret-'+k, (cfg.retencoes||{})[k]||''));
 }
 async function fatSalvarPadroes(btn){
   await drgSubmit(btn, async()=>{
     const d={
+      ligado:!!(document.getElementById('fatp-ligado')||{}).checked,
       competencia:val('fatp-competencia')==='corrente'?'corrente':'anterior',
       vencimentoMes:val('fatp-vencimentoMes')==='mesmo'?'mesmo':'seguinte',
       diaVencimento:Math.min(31,Math.max(1,parseInt(val('fatp-diaVencimento'),10)||10)),
@@ -27345,7 +27352,7 @@ async function fatSalvarPadroes(btn){
     await DB.saveDoc('configuracoes','faturamento', d);
     _fatCfg=null; await _fatCarregarCfg(); await renderFatCondominios();
     Auth.log('FATURAMENTO_PADROES', null, 'padrões de faturamento dos condomínios');
-    return 'Padrões salvos — valem para todo contrato que deixar o campo em branco.';
+    return d.ligado ? 'Padrões salvos. Faturamento LIGADO — o envio está liberado.' : 'Padrões salvos. Faturamento segue DESLIGADO (só prévia).';
   }, { msg:'fatp-msg' }).catch(()=>{});
 }
 

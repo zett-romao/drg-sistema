@@ -1366,6 +1366,11 @@ function bnf(env, caminho, opts){
 const _refKronos = (f) => /^kronos:/.test(String((f && f.ref) || ''));
 async function handleFatEnviar(auth, body, token, env){
   const m = await exigirMasterRaiz(auth, token); if (m.erro) return { ok:false, erro:m.erro };
+  // 🔒 CHAVE GERAL (dono: "deixe um mecanismo para eu ligar o faturamento do kronos depois que eu
+  // parametrizar"): enquanto `configuracoes/faturamento.ligado` não for true, NADA é enviado — a trava
+  // vale aqui no servidor, não só no botão da tela. Prévia e situação continuam livres (não geram nada).
+  const cfgFat = await fsGetDoc('configuracoes/faturamento', token);
+  if (!cfgFat || cfgFat.ligado !== true) return { ok:false, erro:'O faturamento dos condomínios está DESLIGADO. Ligue em Faturar condomínios › Padrões › "Faturamento ligado" depois de parametrizar.' };
   const lista = Array.isArray(body.faturas) ? body.faturas : [];
   if (!lista.length) return { ok:false, erro:'nenhuma fatura para enviar' };
   if (lista.length > 40) return { ok:false, erro:'no máximo 40 faturas por envio' };   // limite de subrequests do Worker

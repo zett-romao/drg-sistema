@@ -2166,7 +2166,7 @@ function openRecoveryModal(){
   modal.classList.remove('hidden');
   setVal('recovery-email',''); setVal('recovery-code',''); setVal('recovery-pass',''); setVal('recovery-pass2','');
   const b1=document.getElementById('recovery-btn1'), b2=document.getElementById('recovery-btn2');
-  if(b1){ b1.disabled=false; b1.innerHTML='<i class="fa-solid fa-paper-plane"></i> Enviar código por e-mail'; }
+  if(b1){ b1.disabled=false; b1.innerHTML='<i class="fa-solid fa-paper-plane"></i> Enviar código'; }
   if(b2){ b2.disabled=false; b2.innerHTML='<i class="fa-solid fa-unlock"></i> Redefinir senha'; }
   _recStep(1);
   setTimeout(()=>{ const e=document.getElementById('recovery-email'); if(e) e.focus(); },50);

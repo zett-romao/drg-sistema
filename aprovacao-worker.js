@@ -19,7 +19,9 @@
  *   /mfa/confirm       { idToken, code }                → ativa o 2FA validando 1 código
  *   /mfa/status        { idToken }                      → diz se o 2FA está ativo
  *   /aprovar-pagamento { idToken, code, solicitacaoId } → valida 2FA + permissão e dispara o PIX
- *   /recuperar-acesso  { code }                         → [PÚBLICA] reseta o master se o código bater
+ *   /recuperar-acesso  { code }                         → [PÚBLICA] LEGADO: reseta o master se o Secret RECOVERY_CODE bater
+ *   /recuperar-acesso/solicitar { email, tenantId? }    → [PÚBLICA] manda código de 6 dígitos p/ o e-mail do master (10 min)
+ *   /recuperar-acesso/confirmar { email, code, novaSenha, tenantId? } → [PÚBLICA] confere o código e grava a senha nova
  *   /login             { username, password }           → [PÚBLICA] verifica a senha e devolve custom token
  *   /ponto-login       { matricula, pin }               → [PÚBLICA] valida colaborador e devolve custom token (role: colaborador)
  *   /operator-login    { password }                     → [PÚBLICA] valida a senha do Painel do Operador e devolve custom token (role: operator)
@@ -40,7 +42,13 @@
  *
  * SECRETS no Cloudflare (Settings → Variables and Secrets):
  *   FIREBASE_SERVICE_ACCOUNT  → JSON da conta de serviço
- *   RECOVERY_CODE             → código secreto de recuperação do master
+ *   RECOVERY_CODE             → código secreto de recuperação (LEGADO no master; ainda usado no Painel do Operador)
+ *   EMAIL_REAL                → "true" LIBERA o envio de e-mail (opt-in, #cota-email — mesmo padrão do drg-monitor)
+ *   RESEND_API_KEY            → chave do Resend (recuperação de acesso por e-mail)
+ *   BREVO_API_KEY             → reserva do Resend (opcional)
+ *   EMAIL_PROVEDOR            → opcional: "brevo" inverte a ordem de tentativa
+ *   MAIL_FROM                 → ex.: "DRG-Kronos <avisos@drglobal.com.br>" (obrigatório p/ Brevo)
+ *   KV RATELIMIT              → binding do KV `drg-ratelimit` (guarda o código de recuperação por 10 min)
  *   ASAAS_API_KEY             → chave da API Asaas de PRODUÇÃO ($aact_...)
  *   ASAAS_WEBHOOK_TOKEN       → token do webhook Asaas (mesmo valor no painel Asaas → Integrações → Webhooks)
  *   BUSCANFE_TOKEN            → token de integração do DRG-BuscaNFe (nome DRG-Kronos) — faturamento dos condomínios
@@ -696,6 +704,154 @@ async function handleRecuperarAcesso(body, env, token){
     active:true, forceChange:true, recuperadoEm:new Date().toISOString(),
   }, token);
   return { ok:true, username:'admin', senha };
+}
+
+// ── Recuperação de acesso por E-MAIL (09/11/2026, dono: "altere isso para redefinir
+// pro email"). Substitui, na tela, o código fixo RECOVERY_CODE (que ele não tinha como
+// lembrar: Secret do Cloudflare não se lê depois de salvo). Fluxo em 2 passos:
+//   1. /recuperar-acesso/solicitar { email }  → acha o MASTER com esse e-mail, gera um
+//      código de 6 dígitos, guarda SÓ O HASH no KV RATELIMIT por 10 min e manda por e-mail.
+//   2. /recuperar-acesso/confirmar { email, code, novaSenha } → confere (constant-time),
+//      no máximo 5 erros por código, e grava a senha NOVA digitada pelo dono (🔐 senha é
+//      sempre digitada por ele — não existe mais senha temporária na tela).
+// Rate-limit: por IP e por e-mail (RL_MAX pedidos / RL_WINDOW). Multi-tenant: tenantId
+// da URL → procura em tenants/{id}/users. #recuperacao-email
+const REC_TTL      = 600;   // 10 min de validade do código
+const REC_MAX_ERRO = 5;     // erros antes de queimar o código
+
+function _recEmailOk(e){ return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e); }
+function _recMascarar(e){
+  const [u,d] = String(e).split('@');
+  const um = u.length <= 2 ? u[0] + '*' : u.slice(0,2) + '*'.repeat(Math.max(1, u.length-2));
+  const dp = d.split('.'); const dm = dp[0].length <= 1 ? dp[0] : dp[0][0] + '*'.repeat(Math.max(1, dp[0].length-1));
+  return um + '@' + [dm].concat(dp.slice(1)).join('.');
+}
+function _recUsersColl(tenantId){ return tenantId ? ('tenants/' + tenantId + '/users') : 'users'; }
+// Acha o(s) master(es) ativos com esse e-mail. Lista a coleção (≤300) — é o que `users` tem.
+async function _recAcharMaster(email, tenantId, token){
+  const todos = await fsListCollection(_recUsersColl(tenantId), token);
+  return todos.filter(u => u && u.role === 'master' && u.active !== false
+                        && String(u.email || '').trim().toLowerCase() === email);
+}
+function _recGerarCodigo(){
+  const n = crypto.getRandomValues(new Uint32Array(1))[0] % 1000000;
+  return String(n).padStart(6, '0');
+}
+async function handleRecuperarSolicitar(body, env, token, ip){
+  const email    = String(body.email || '').trim().toLowerCase();
+  const tenantId = String(body.tenantId || '').replace(/[^a-zA-Z0-9]/g, '');
+  if (!_recEmailOk(email)) return { ok:false, erro:'informe um e-mail válido' };
+  if (!env.RATELIMIT) return { ok:false, erro:'Recuperação indisponível: o KV RATELIMIT não está vinculado ao Worker drg-aprovacao.' };
+  const kIp = 'rec:ip:' + (ip || 'noip'), kMail = 'rec:mail:' + email;
+  if (await rlBlocked(env, kIp) || await rlBlocked(env, kMail)) return { ok:false, erro: RL_MSG };
+  await rlFail(env, kIp); await rlFail(env, kMail);   // cada PEDIDO conta — limita o disparo de e-mails
+  const masters = await _recAcharMaster(email, tenantId, token);
+  if (!masters.length) return { ok:false, erro:'Nenhum usuário master ativo está cadastrado com este e-mail. Confira o e-mail em Usuários (ou peça a outro master).' };
+  const code = _recGerarCodigo();
+  const hash = await sha256hex(code + ':' + email + ':' + tenantId);
+  await env.RATELIMIT.put('rec:code:' + tenantId + ':' + email,
+    JSON.stringify({ hash, erros:0, exp: Date.now() + REC_TTL*1000 }), { expirationTtl: REC_TTL });
+  const quando = new Date().toLocaleString('pt-BR', { timeZone:'America/Sao_Paulo' });
+  const nomes  = masters.map(m => m.username).join(', ');
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;color:#1F2937">
+      <h2 style="color:#1A237E;margin:0 0 12px">DRG-Kronos — Recuperação de acesso</h2>
+      <p>Recebemos um pedido para redefinir a senha do acesso master <strong>${nomes}</strong>.</p>
+      <p>Seu código de recuperação é:</p>
+      <p style="font-size:32px;letter-spacing:8px;font-weight:700;color:#1A237E;margin:8px 0 16px">${code}</p>
+      <p>Ele vale por <strong>10 minutos</strong>. Digite-o na tela "Recuperar acesso" e escolha a senha nova.</p>
+      <p style="font-size:12px;color:#6B7280;margin-top:20px">Pedido feito em ${quando} (IP ${ip || 'desconhecido'}).
+      Se não foi você, ignore este e-mail: sem o código ninguém altera a senha.</p>
+    </div>`;
+  const envio = await enviarEmail(env, email, 'DRG-Kronos — seu código de recuperação: ' + code, html);
+  if (!envio.ok) {
+    try { await env.RATELIMIT.delete('rec:code:' + tenantId + ':' + email); } catch (_) {}
+    return { ok:false, erro:'Não foi possível enviar o e-mail: ' + (envio.erro || envio.motivo || 'falha no provedor') };
+  }
+  return { ok:true, emailMascarado:_recMascarar(email), validadeMin: REC_TTL/60, usuarios: masters.map(m => m.username) };
+}
+async function handleRecuperarConfirmar(body, env, token, ip){
+  const email     = String(body.email || '').trim().toLowerCase();
+  const tenantId  = String(body.tenantId || '').replace(/[^a-zA-Z0-9]/g, '');
+  const code      = String(body.code || '').replace(/\D/g, '');
+  const novaSenha = String(body.novaSenha || '');
+  if (!_recEmailOk(email))  return { ok:false, erro:'informe o e-mail' };
+  if (code.length !== 6)    return { ok:false, erro:'o código tem 6 dígitos' };
+  if (novaSenha.length < 8) return { ok:false, erro:'a senha nova precisa ter pelo menos 8 caracteres' };
+  if (!env.RATELIMIT) return { ok:false, erro:'Recuperação indisponível: o KV RATELIMIT não está vinculado ao Worker drg-aprovacao.' };
+  const kIp = 'rec:ip:' + (ip || 'noip');
+  if (await rlBlocked(env, kIp)) return { ok:false, erro: RL_MSG };
+  const kCode = 'rec:code:' + tenantId + ':' + email;
+  let reg = null; try { reg = JSON.parse(await env.RATELIMIT.get(kCode) || 'null'); } catch (_) {}
+  if (!reg || !reg.hash || Date.now() > reg.exp) return { ok:false, erro:'Código expirado ou não solicitado. Peça um código novo.', expirado:true };
+  const hash = await sha256hex(code + ':' + email + ':' + tenantId);
+  if (!timingSafeEqual(hash, reg.hash)) {
+    reg.erros = (reg.erros || 0) + 1;
+    if (reg.erros >= REC_MAX_ERRO) {
+      try { await env.RATELIMIT.delete(kCode); } catch (_) {}
+      await rlFail(env, kIp);
+      return { ok:false, erro:'Código errado 5 vezes — ele foi cancelado. Peça um código novo.', expirado:true };
+    }
+    try { await env.RATELIMIT.put(kCode, JSON.stringify(reg), { expirationTtl: Math.max(60, Math.ceil((reg.exp - Date.now())/1000)) }); } catch (_) {}
+    return { ok:false, erro:`código incorreto (${REC_MAX_ERRO - reg.erros} tentativa(s) restante(s))` };
+  }
+  const masters = await _recAcharMaster(email, tenantId, token);
+  if (!masters.length) return { ok:false, erro:'usuário master não encontrado' };
+  const passwordHash = await hashPassword(novaSenha);   // PBKDF2 (#pbkdf2)
+  const agora = new Date().toISOString();
+  const coll  = _recUsersColl(tenantId);
+  for (const m of masters) {
+    await fsUpdate(coll + '/' + m.id, { passwordHash, active:true, forceChange:false, recuperadoEm: agora, recuperadoPor:'email' }, token);
+    await rlClear(env, 'login:' + String(m.username || '').toLowerCase());   // destrava o login se estava bloqueado
+  }
+  try { await env.RATELIMIT.delete(kCode); } catch (_) {}
+  return { ok:true, usuarios: masters.map(m => m.username), username: masters[0].username };
+}
+
+// ── E-mail (Resend, Brevo de reserva) — cópia fiel do drg-monitor-worker. #cota-email ──
+// 🔒 ENVIO REAL É OPT-IN: sem EMAIL_REAL="true" a chave é IGNORADA (a cota do Resend é da
+// conta inteira, compartilhada pelos apps da casa). Este Worker não tem wrangler.toml:
+// EMAIL_REAL, RESEND_API_KEY e MAIL_FROM entram À MÃO no painel da Cloudflare.
+async function enviarEmail(env, to, subject, html){
+  const emailReal = String(env.EMAIL_REAL || '').toLowerCase() === 'true';
+  if (!emailReal) return { ok:false, skip:true,
+    motivo: env.RESEND_API_KEY
+      ? 'EMAIL_REAL não é "true" no Worker drg-aprovacao: a RESEND_API_KEY existe e foi IGNORADA'
+      : 'Worker drg-aprovacao sem EMAIL_REAL="true" e sem RESEND_API_KEY/BREVO_API_KEY (Settings → Variables and Secrets)' };
+  const ordem   = String(env.EMAIL_PROVEDOR || '').toLowerCase() === 'brevo' ? ['brevo','resend'] : ['resend','brevo'];
+  const ligados = ordem.filter(p => p === 'resend' ? env.RESEND_API_KEY : env.BREVO_API_KEY);
+  if (!ligados.length) return { ok:false, skip:true, motivo:'sem RESEND_API_KEY e sem BREVO_API_KEY no Worker drg-aprovacao' };
+  const dest = (Array.isArray(to) ? to : [to]).filter(Boolean);
+  if (!dest.length) return { ok:false, skip:true, motivo:'sem destinatários' };
+  const _deTeste = env.MAIL_FROM && /onboarding@resend\.dev/i.test(env.MAIL_FROM);
+  const from = (!_deTeste && env.MAIL_FROM) || 'DRG-Kronos <avisos@drglobal.com.br>';
+  const falhas = [];
+  for (const prov of ligados) {
+    try {
+      let res;
+      if (prov === 'brevo') {
+        if (!env.MAIL_FROM) { falhas.push('brevo: defina MAIL_FROM com endereço do domínio verificado'); continue; }
+        const m  = String(from).match(/^\s*(.*?)\s*<\s*([^>]+)\s*>\s*$/);
+        const de = m ? { name:m[1] || undefined, email:m[2] } : { email:String(from).trim() };
+        const r  = await fetch('https://api.brevo.com/v3/smtp/email', {
+          method:'POST', headers:{ 'api-key':env.BREVO_API_KEY, 'content-type':'application/json', accept:'application/json' },
+          body: JSON.stringify({ sender: de.name ? { name:de.name, email:de.email } : { email:de.email },
+                                 to: dest.map(email => ({ email })), subject, htmlContent: html }) });
+        let erro = null; if (!r.ok) { try { const j = await r.json(); erro = j && (j.message || j.code); } catch (_) {} }
+        res = { ok:r.ok, status:r.status, erro };
+      } else {
+        const r = await fetch('https://api.resend.com/emails', {
+          method:'POST', headers:{ authorization:'Bearer ' + env.RESEND_API_KEY, 'content-type':'application/json' },
+          body: JSON.stringify({ from, to:dest, subject, html }) });
+        let erro = null; if (!r.ok) { try { const j = await r.json(); erro = j && (j.message || j.name); } catch (_) {} }
+        res = { ok:r.ok, status:r.status, erro };
+      }
+      if (res.ok) return { ok:true, status:res.status, provedor:prov };
+      falhas.push(prov + ': ' + (res.erro || res.status));
+      if (res.status === 400 || res.status === 422) return { ok:false, status:res.status, erro:res.erro };  // payload nosso: não repete
+    } catch (e) { falhas.push(prov + ': ' + String(e && e.message || e)); }
+  }
+  return { ok:false, erro: falhas.join(' | ') };
 }
 
 // ── Recibo público (rota pública) ────────────────────────────
@@ -1521,6 +1677,14 @@ export default {
       if (url.pathname === '/recuperar-acesso') {
         const t = await getAccessToken(env);
         return json(await handleRecuperarAcesso(body, env, t), 200, origin);
+      }
+      if (url.pathname === '/recuperar-acesso/solicitar') {   // #recuperacao-email
+        const t = await getAccessToken(env);
+        return json(await handleRecuperarSolicitar(body, env, t, request.headers.get('CF-Connecting-IP') || ''), 200, origin);
+      }
+      if (url.pathname === '/recuperar-acesso/confirmar') {
+        const t = await getAccessToken(env);
+        return json(await handleRecuperarConfirmar(body, env, t, request.headers.get('CF-Connecting-IP') || ''), 200, origin);
       }
       if (url.pathname === '/recibo-publico') {
         const t = await getAccessToken(env);

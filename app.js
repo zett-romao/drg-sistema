@@ -2138,20 +2138,43 @@ async function mfaConfirm(){
 }
 
 // ============================================
-// RECUPERAÇÃO DE ACESSO
+// RECUPERAÇÃO DE ACESSO — por E-MAIL (09/11/2026) #recuperacao-email
 // ============================================
-// O código de recuperação NÃO fica mais no cliente — é um Secret no Worker
-// (RECOVERY_CODE). doRecovery() chama a rota pública /recuperar-acesso.
+// Antes: código fixo (Secret RECOVERY_CODE no Worker) que o dono não tinha como
+// lembrar — Secret do Cloudflare não se lê depois de salvo. Agora, 2 passos:
+//   1. e-mail do master → Worker /recuperar-acesso/solicitar manda código de 6 dígitos
+//   2. código + senha NOVA (digitada por ele) → Worker /recuperar-acesso/confirmar grava
+// Nada de senha temporária na tela: 🔐 senha é sempre digitada pelo dono.
 
+function _recShowErr(msg){
+  const errEl=document.getElementById('recovery-error'), errMsg=document.getElementById('recovery-error-msg');
+  if(!errEl) return;
+  if(!msg){ errEl.classList.add('hidden'); return; }
+  errMsg.textContent=msg; errEl.classList.remove('hidden');
+}
+function _recStep(n){
+  document.getElementById('recovery-step1').classList.toggle('hidden', n!==1);
+  document.getElementById('recovery-step2').classList.toggle('hidden', n!==2);
+  document.getElementById('recovery-btn1').classList.toggle('hidden', n!==1);
+  document.getElementById('recovery-btn2').classList.toggle('hidden', n!==2);
+  _recShowErr('');
+  document.getElementById('recovery-success').classList.add('hidden');
+}
 function openRecoveryModal(){
   const modal=document.getElementById('modal-recovery');
   if(!modal) return;
   modal.classList.remove('hidden');
-  setVal('recovery-code','');
-  document.getElementById('recovery-error').classList.add('hidden');
-  document.getElementById('recovery-success').classList.add('hidden');
-  const btn=document.getElementById('recovery-btn');
-  if(btn){ btn.style.display=''; btn.disabled=false; btn.innerHTML='<i class="fa-solid fa-unlock"></i> Restaurar Acesso'; }
+  setVal('recovery-email',''); setVal('recovery-code',''); setVal('recovery-pass',''); setVal('recovery-pass2','');
+  const b1=document.getElementById('recovery-btn1'), b2=document.getElementById('recovery-btn2');
+  if(b1){ b1.disabled=false; b1.innerHTML='<i class="fa-solid fa-paper-plane"></i> Enviar código por e-mail'; }
+  if(b2){ b2.disabled=false; b2.innerHTML='<i class="fa-solid fa-unlock"></i> Redefinir senha'; }
+  _recStep(1);
+  setTimeout(()=>{ const e=document.getElementById('recovery-email'); if(e) e.focus(); },50);
+}
+function recoveryVoltar(){
+  setVal('recovery-code',''); setVal('recovery-pass',''); setVal('recovery-pass2','');
+  _recStep(1);
+  setTimeout(()=>{ const e=document.getElementById('recovery-email'); if(e) e.focus(); },50);
 }
 
 // Chamada ao Worker SEM exigir login — para rotas públicas (recuperação).
@@ -2165,28 +2188,60 @@ async function _workerReqPublic(path, body){
   return data;
 }
 
-async function doRecovery(){
-  const code=val('recovery-code');
-  const errEl=document.getElementById('recovery-error');
-  const errMsg=document.getElementById('recovery-error-msg');
-  const successEl=document.getElementById('recovery-success');
-  errEl.classList.add('hidden');
-  successEl.classList.add('hidden');
-  if(!code){ errMsg.textContent='Digite o código de recuperação.'; errEl.classList.remove('hidden'); return; }
-  const btn=document.getElementById('recovery-btn');
-  if(btn){ btn.disabled=true; btn.innerHTML='<i class="fa-solid fa-circle-notch fa-spin"></i> Restaurando...'; }
+// Passo 1 — pede o código. Botão trava ANTES do await (regra nº 1).
+async function recoverySolicitar(){
+  const email=(val('recovery-email')||'').toLowerCase();
+  _recShowErr('');
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ _recShowErr('Informe um e-mail válido.'); return; }
+  const btn=document.getElementById('recovery-btn1');
+  const htmlOrig=btn?btn.innerHTML:'';
+  if(btn){ btn.disabled=true; btn.innerHTML='<i class="fa-solid fa-circle-notch fa-spin"></i> Enviando... aguarde'; }
   try {
-    // A verificação do código e o reset acontecem no Worker (servidor).
-    const r=await _workerReqPublic('/recuperar-acesso',{code});
-    if(!r.ok) throw new Error(r.erro||'Não foi possível restaurar o acesso.');
-    document.getElementById('recovery-new-user').textContent=r.username||'admin';
-    document.getElementById('recovery-new-pass').textContent=r.senha||'';
-    successEl.classList.remove('hidden');
-    if(btn){ btn.style.display='none'; }
+    const r=await _workerReqPublic('/recuperar-acesso/solicitar',{ email, tenantId: DB.tenantId||'' });
+    if(!r.ok) throw new Error(r.erro||'Não foi possível enviar o código.');
+    document.getElementById('recovery-email-mask').textContent=r.emailMascarado||email;
+    document.getElementById('recovery-validade').textContent=r.validadeMin||10;
+    _recStep(2);
+    setTimeout(()=>{ const c=document.getElementById('recovery-code'); if(c) c.focus(); },50);
   } catch(e){
-    errMsg.textContent=(e&&e.message)||'Erro ao restaurar acesso. Verifique a conexão.';
-    errEl.classList.remove('hidden');
-    if(btn){ btn.disabled=false; btn.innerHTML='<i class="fa-solid fa-unlock"></i> Restaurar Acesso'; }
+    _recShowErr((e&&e.message)||'Erro ao enviar o código. Verifique a conexão.');
+  } finally {
+    if(btn){ btn.disabled=false; btn.innerHTML=htmlOrig; }
+  }
+}
+
+// Passo 2 — confere o código e grava a senha nova.
+async function recoveryConfirmar(){
+  const email=(val('recovery-email')||'').toLowerCase();
+  const code=(val('recovery-code')||'').replace(/\D/g,'');
+  const p1=document.getElementById('recovery-pass').value, p2=document.getElementById('recovery-pass2').value;
+  _recShowErr('');
+  if(code.length!==6){ _recShowErr('Digite os 6 dígitos do código recebido por e-mail.'); return; }
+  if(p1.length<8){ _recShowErr('A senha nova precisa ter pelo menos 8 caracteres.'); return; }
+  if(p1!==p2){ _recShowErr('As senhas não coincidem.'); return; }
+  const btn=document.getElementById('recovery-btn2');
+  const htmlOrig=btn?btn.innerHTML:'';
+  if(btn){ btn.disabled=true; btn.innerHTML='<i class="fa-solid fa-circle-notch fa-spin"></i> Redefinindo... aguarde'; }
+  try {
+    const r=await _workerReqPublic('/recuperar-acesso/confirmar',{ email, code, novaSenha:p1, tenantId: DB.tenantId||'' });
+    if(!r.ok){
+      if(r.expirado){ _recStep(1); }   // código morreu → volta ao passo 1 com a mensagem
+      throw new Error(r.erro||'Não foi possível redefinir a senha.');
+    }
+    document.getElementById('recovery-new-user').textContent=r.username||'admin';
+    document.getElementById('recovery-step2').classList.add('hidden');
+    document.getElementById('recovery-btn2').classList.add('hidden');
+    document.getElementById('recovery-success').classList.remove('hidden');
+    // A tela se resolve sozinha: preenche o usuário no login e fecha em 2,5s.
+    setVal('login-username', r.username||'');
+    setVal('login-password','');
+    setTimeout(()=>{
+      closeModal('modal-recovery');
+      const lp=document.getElementById('login-password'); if(lp) lp.focus();
+    }, 2500);
+  } catch(e){
+    _recShowErr((e&&e.message)||'Erro ao redefinir a senha. Verifique a conexão.');
+    if(btn){ btn.disabled=false; btn.innerHTML=htmlOrig; }
   }
 }
 

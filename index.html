@@ -181,37 +181,68 @@
   </div>
 </div>
 
-<!-- ===== MODAL: RECUPERAR ACESSO ===== -->
-<div class="modal-overlay hidden" id="modal-recovery" style="z-index:9999">
-  <div class="modal-dialog" style="max-width:400px">
+<!-- ===== MODAL: RECUPERAR ACESSO (por e-mail, 2 passos) #recuperacao-email ===== -->
+<div class="modal-overlay hidden" id="modal-recovery" style="z-index:9999" onclick="closeModal('modal-recovery', event)">
+  <div class="modal-dialog" style="max-width:420px">
     <div class="modal-header" style="background:linear-gradient(135deg,#1A237E,#283593)">
       <h3 style="color:#fff"><i class="fa-solid fa-key"></i> Recuperar Acesso Master</h3>
+      <button class="modal-close" onclick="closeModal('modal-recovery')" style="color:#fff"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <div class="modal-body">
-      <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">
-        Digite o código de recuperação para criar um novo acesso master.
-        O código foi definido na configuração do sistema.
-      </p>
-      <div class="form-group">
-        <label>Código de Recuperação</label>
-        <input type="password" id="recovery-code" placeholder="••••••••••" autocomplete="off">
-      </div>
-      <div id="recovery-error" class="hidden" style="background:#FFF3F3;border:1px solid #FFCDD2;border-radius:6px;padding:10px;font-size:13px;color:#B71C1C;margin-top:8px">
-        <i class="fa-solid fa-triangle-exclamation"></i> <span id="recovery-error-msg"></span>
-      </div>
-      <div id="recovery-success" class="hidden" style="background:#F1F8E9;border:1px solid #A5D6A7;border-radius:8px;padding:14px;margin-top:8px">
-        <div style="font-size:13px;font-weight:700;color:#1B5E20;margin-bottom:8px"><i class="fa-solid fa-circle-check"></i> Acesso restaurado!</div>
-        <div style="font-size:13px;color:#2E7D32">
-          <div>Usuário: <strong id="recovery-new-user"></strong></div>
-          <div>Senha: <strong id="recovery-new-pass"></strong></div>
-          <div style="margin-top:8px;font-size:12px;color:#558B2F">⚠️ Altere a senha imediatamente após entrar.</div>
+      <!-- PASSO 1: e-mail -->
+      <div id="recovery-step1">
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px">
+          Informe o <strong>e-mail cadastrado no usuário master</strong>. Enviaremos um código de 6 dígitos
+          para você definir uma senha nova.
+        </p>
+        <div class="form-group">
+          <label>E-mail do master</label>
+          <input type="email" id="recovery-email" placeholder="seu@email.com" autocomplete="email" inputmode="email"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();recoverySolicitar();}">
         </div>
       </div>
+      <!-- PASSO 2: código + senha nova -->
+      <div id="recovery-step2" class="hidden">
+        <div style="background:#E8F0FE;border:1px solid #C5D5F7;border-radius:8px;padding:10px 12px;font-size:13px;color:#1A237E;margin-bottom:14px">
+          <i class="fa-solid fa-envelope-circle-check"></i> Código enviado para <strong id="recovery-email-mask"></strong>.
+          Vale por <strong id="recovery-validade">10</strong> minutos. Confira também a caixa de spam.
+        </div>
+        <div class="form-group">
+          <label>Código recebido por e-mail</label>
+          <input type="text" id="recovery-code" placeholder="000000" inputmode="numeric" maxlength="6" autocomplete="one-time-code"
+                 style="font-size:22px;letter-spacing:6px;text-align:center" oninput="this.value=this.value.replace(/\D/g,'')">
+        </div>
+        <div class="form-group">
+          <label>Senha nova (mín. 8 caracteres)</label>
+          <div style="display:flex;gap:6px">
+            <input type="password" id="recovery-pass" placeholder="••••••••" autocomplete="new-password" style="flex:1">
+            <button type="button" class="btn btn-outline" style="padding:0 12px" onclick="togglePassVisibility('recovery-pass',this)" title="Mostrar/ocultar"><i class="fa-solid fa-eye"></i></button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Confirmar senha nova</label>
+          <input type="password" id="recovery-pass2" placeholder="••••••••" autocomplete="new-password"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();recoveryConfirmar();}">
+        </div>
+        <button type="button" onclick="recoveryVoltar()" style="background:none;border:none;color:#1565C0;font-size:12px;cursor:pointer;text-decoration:underline;padding:0">
+          <i class="fa-solid fa-rotate-right"></i> Não recebeu? Enviar de novo / trocar e-mail
+        </button>
+      </div>
+      <div id="recovery-error" class="hidden" style="background:#FFF3F3;border:1px solid #FFCDD2;border-radius:6px;padding:10px;font-size:13px;color:#B71C1C;margin-top:10px">
+        <i class="fa-solid fa-triangle-exclamation"></i> <span id="recovery-error-msg"></span>
+      </div>
+      <div id="recovery-success" class="hidden" style="background:#F1F8E9;border:1px solid #A5D6A7;border-radius:8px;padding:14px;margin-top:10px">
+        <div style="font-size:14px;font-weight:700;color:#1B5E20;margin-bottom:6px"><i class="fa-solid fa-circle-check"></i> Senha redefinida!</div>
+        <div style="font-size:13px;color:#2E7D32">Entre com o usuário <strong id="recovery-new-user"></strong> e a senha nova que você acabou de criar.</div>
+      </div>
     </div>
-    <div class="modal-footer">
+    <div class="modal-footer" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px">
       <button class="btn btn-outline" onclick="closeModal('modal-recovery')">Fechar</button>
-      <button class="btn btn-primary" id="recovery-btn" onclick="doRecovery()">
-        <i class="fa-solid fa-unlock"></i> Restaurar Acesso
+      <button class="btn btn-primary" id="recovery-btn1" onclick="recoverySolicitar()">
+        <i class="fa-solid fa-paper-plane"></i> Enviar código por e-mail
+      </button>
+      <button class="btn btn-primary hidden" id="recovery-btn2" onclick="recoveryConfirmar()">
+        <i class="fa-solid fa-unlock"></i> Redefinir senha
       </button>
     </div>
   </div>
@@ -8400,6 +8431,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20261102c-licencas-no-operador"></script>
+  <script src="app.js?v=20261109a-recuperacao-por-email"></script>
 </body>
 </html>

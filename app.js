@@ -1762,7 +1762,7 @@ const SECTION_MODALS={
   employees:['modal-employee'],
   payroll:['modal-ponto-manual','modal-banco-horas','modal-he-review'],
   escalas:['modal-corrido-perc','modal-bulk-refeicao'],
-  decimoterceiro:['modal-decimo-terceiro'],
+  decimoterceiro:['modal-decimo-terceiro','modal-dec13-import'],
   ferias:['modal-ferias-modulo'],
   rescisao:['modal-rescisao'],
   postos:['modal-posto'],
@@ -4516,6 +4516,8 @@ const LOG_TYPES={
   FERIAS_PAGAMENTO_MARCADO:{label:'Férias — pagamento marcado',cls:'ev-pagamento', icon:'fa-money-bill'},
   FERIAS_TERMO_ENVIADO:    {label:'Termo de férias enviado',  cls:'ev-doc',   icon:'fa-file-signature'},
   DEC_TERCEIRO_SAVED:      {label:'13º salário lançado',      cls:'ev-pagamento', icon:'fa-gift'},
+  DEC_TERCEIRO_IMPORTADO:  {label:'13º importado da contabilidade', cls:'ev-pagamento', icon:'fa-file-import'},
+  DEC_TERCEIRO_CONTAB_REMOVIDO:{label:'13º voltou ao cálculo do Kronos', cls:'ev-pagamento', icon:'fa-rotate-left'},
 
   // Holerites e recibos
   HOLERITE_ENVIADO_CONFERENCIA:     {label:'Holerite enviado p/ conferência', cls:'ev-doc', icon:'fa-paper-plane'},
@@ -6790,25 +6792,23 @@ function renderDecimoTerceiro(){
     // pra o bruto da lista bater com o do modal. #dsr-he-camada2
     const mediaAdic=(rec.mediaAdic!=null)?+rec.mediaAdic:(_mediaAdicionaisRescisao(emp.id,_refDecL)||0);
     const mediaDsr =(rec.mediaDsr!=null) ?+rec.mediaDsr :(_mediaDsrHERescisao(emp.id,_refDecL)||0);
-    const baseCalc=salBase+mediaAdic+mediaDsr;
-    const bruto=Math.round(baseCalc*mesesDir/12*100)/100;
-    const parc1=Math.round(bruto/2*100)/100;
-    const inss=calcINSS(bruto);
-    const irrf=calcIRRF(bruto,emp.dependentesIRRF||0,emp.pensaoAlimenticia||0,0,inss);  // 13o tributa o BRUTO CHEIO (exclusivo na fonte), nao metade. #fix-irrf13
-    const fgts=calcFGTS(bruto);
-    const parc2=Math.round((bruto/2-inss-irrf)*100)/100;
-    const liq=Math.round((bruto-inss-irrf)*100)/100;
+    // Cálculo do Kronos + o que veio da folha da contabilidade por cima, campo a
+    // campo (📥). Sem importação, é exatamente o cálculo de antes. #dec13-import
+    const v=_dec13ComContab(emp, _dec13Kronos(emp,mesesDir,salBase,mediaAdic,mediaDsr), rec.contab);
+    const {bruto,parc1,inss,irrf,fgts,parc2}=v, liq=v.liquido;
     totalBruto+=bruto; totalINSS+=inss; totalIRRF+=irrf; totalFGTS+=fgts; totalLiq+=liq;
     const status=rec.status||'pendente';
     const badge=status==='pago'?'<span class="badge badge-success">Pago</span>':status==='parcial'?'<span class="badge badge-warning">Parcial</span>':'<span class="badge badge-muted">Pendente</span>';
+    const mk=f=>v.daContab[f]?' <span title="Valor da folha da contabilidade" style="font-size:11px">📥</span>':'';
+    const seloContab=rec.contab?`<div style="font-size:10px;color:#00695C;margin-top:2px" title="Importado de ${esc(rec.contab.arquivo||'arquivo')} em ${rec.contab.importadoEm?formatDateBr(String(rec.contab.importadoEm).slice(0,10)):'—'}">📥 Contab.</div>`:'';
     return `<tr>
       <td>${i+1}</td><td>${emp.registro||'—'}</td><td>${emp.nome}</td>
       <td style="text-align:center">${mesesDir}/12</td>
-      <td>${fmtMoney(bruto)}</td><td>${fmtMoney(parc1)}</td>
-      <td style="color:#c0392b">(${fmtMoney(inss)})</td>
-      <td style="color:#c0392b">(${fmtMoney(irrf)})</td>
-      <td style="color:#1a3a6b">${fmtMoney(fgts)}</td>
-      <td>${fmtMoney(parc2)}</td><td>${badge}</td>
+      <td>${fmtMoney(bruto)}${mk('bruto')}</td><td>${fmtMoney(parc1)}${mk('parc1')}</td>
+      <td style="color:#c0392b">(${fmtMoney(inss)})${mk('inss')}</td>
+      <td style="color:#c0392b">(${fmtMoney(irrf)})${mk('irrf')}</td>
+      <td style="color:#1a3a6b">${fmtMoney(fgts)}${mk('fgts')}</td>
+      <td>${fmtMoney(parc2)}${mk('parc2')}</td><td>${badge}${seloContab}</td>
       <td><button class="btn btn-sm btn-outline-primary" onclick="openDecimoTerceiro('${emp.id}')"><i class="fa-solid fa-pen-to-square"></i></button></td>
     </tr>`;
   });
@@ -6847,8 +6847,41 @@ function openDecimoTerceiro(empId){
   const _mDsr =(rec.mediaDsr!=null) ?+rec.mediaDsr :_mediaDsrHERescisao(empId,_refDec);
   setVal('dec-modal-media-adic', (+_mAdic>0)?(+_mAdic).toFixed(2):'');
   setVal('dec-modal-media-dsr',  (+_mDsr>0) ?(+_mDsr).toFixed(2) :'');
+  _decModalContab = rec.contab || null;
+  _dec13BannerModal();
   _calcDecTercPreview(emp,mesesDir);
   document.getElementById('modal-decimo-terceiro').classList.remove('hidden');
+}
+
+// Valores da contabilidade do registro aberto no modal (null = só cálculo do Kronos).
+let _decModalContab = null;
+
+function _dec13BannerModal(){
+  const el=document.getElementById('dec-modal-contab'); if(!el) return;
+  const c=_decModalContab;
+  if(!c){ el.style.display='none'; el.innerHTML=''; return; }
+  const campos=_DEC13_CAMPOS_VALOR.filter(f=>_dec13Tem(c,f)).map(f=>_DEC13_ROTULO[f]).join(', ');
+  el.style.display='';
+  el.innerHTML=`<div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap">
+      <div style="flex:1 1 260px">📥 <strong>Valores da folha da contabilidade</strong> em: ${esc(campos||'—')}.<br>
+        <span style="font-size:12px">Arquivo <strong>${esc(c.arquivo||'—')}</strong>, importado em ${c.importadoEm?esc(new Date(c.importadoEm).toLocaleString('pt-BR')):'—'}${c.importadoPor?` por ${esc(c.importadoPor)}`:''}.
+        Os campos 📥 valem no lugar do cálculo do Kronos${_dec13Tem(c,'bruto')?'; as médias abaixo não alteram o bruto enquanto a importação valer':''}.</span></div>
+      <button type="button" class="btn btn-outline btn-sm" id="btn-dec-voltar-kronos" onclick="decVoltarCalculoKronos()" style="flex:0 0 auto">
+        <i class="fa-solid fa-rotate-left"></i> Voltar ao cálculo do Kronos</button>
+    </div>`;
+}
+
+// Descarta a importação DESTE colaborador/ano e grava de novo pelo cálculo do Kronos.
+async function decVoltarCalculoKronos(){
+  if(!canEditModule('decimoterceiro')){ toast('Sem permissão para alterar o 13º.','error'); return; }
+  if(!await drgConfirmar('Descartar os valores da contabilidade deste colaborador e voltar ao cálculo do Kronos?\nStatus, datas e observações ficam como estão.',
+    {titulo:'Voltar ao cálculo do Kronos', ok:'Voltar ao cálculo'})) return;
+  const nome=val('dec-modal-nome'), ano=val('dec-modal-ano');
+  _decModalContab=null;
+  _dec13BannerModal();
+  _calcDecTercPreview();
+  await saveDecimoTerceiro();
+  Auth.log('DEC_TERCEIRO_CONTAB_REMOVIDO',Auth.currentUser.username,`${nome} / ${ano}`);
 }
 
 function _calcDecTercPreview(emp,mesesDir){
@@ -6859,14 +6892,8 @@ function _calcDecTercPreview(emp,mesesDir){
   // reflexo do DSR sobre HE (Súmula 172/OJ 394). Campos editáveis, pré-preenchidos. #dsr-he-camada2
   const mediaAdic=parseFloat(val('dec-modal-media-adic')||0);
   const mediaDsr=parseFloat(val('dec-modal-media-dsr')||0);
-  const baseCalc=salBase+mediaAdic+mediaDsr;
-  const bruto=Math.round(baseCalc*mesesDir/12*100)/100;
-  const parc1=Math.round(bruto/2*100)/100;
-  const inss=calcINSS(bruto);
-  const irrf=calcIRRF(bruto,emp.dependentesIRRF||0,emp.pensaoAlimenticia||0,0,inss);  // 13o tributa o BRUTO CHEIO (exclusivo na fonte), nao metade. #fix-irrf13
-  const fgts=calcFGTS(bruto);
-  const parc2=Math.round((bruto/2-inss-irrf)*100)/100;
-  const liq=Math.round((bruto-inss-irrf)*100)/100;
+  const v=_dec13ComContab(emp, _dec13Kronos(emp,mesesDir,salBase,mediaAdic,mediaDsr), _decModalContab);
+  const {bruto,parc1,inss,irrf,fgts,parc2}=v, liq=v.liquido;
   setVal('dec-modal-bruto',bruto.toFixed(2));
   setVal('dec-modal-parc1',parc1.toFixed(2));
   setVal('dec-modal-inss',inss.toFixed(2));
@@ -6899,6 +6926,8 @@ async function saveDecimoTerceiro(){
     liquido:parseFloat(val('dec-modal-liquido')||0),
     updatedAt:new Date().toISOString()
   };
+  // A importação da contabilidade sobrevive a salvar o modal (status, datas, obs). #dec13-import
+  if(_decModalContab){ rec.contab=_decModalContab; rec.origem='contabilidade'; }
   const btn=document.querySelector('#modal-decimo-terceiro .btn-primary');
   setBtnLoading(btn,true,'');
   try {
@@ -6928,6 +6957,7 @@ function printDecimoTerceiro(){
     irrf:parseFloat(val('dec-modal-irrf')||0),
     fgts:parseFloat(val('dec-modal-fgts')||0),
     liquido:parseFloat(val('dec-modal-liquido')||0),
+    contab:_decModalContab||null,
   };
   _abrirJanelaExport(_recibo13HTML(emp,r),'print',`Recibo_13_${(emp.nome||'').replace(/\s+/g,'_')}`);
 }
@@ -6946,6 +6976,666 @@ function printDecimoTerceiroLista(){
   <h2>${_e('nomeEmpresa')} — 13º Salário ${ano}</h2>
   ${table.outerHTML}</body></html>`);
   w.document.close(); w.print();
+}
+
+// ============================================
+// 13º — IMPORTAR DA FOLHA DA CONTABILIDADE  #dec13-import
+// ============================================
+// Pedido do dono (25/11/2026): "quero ter a opção de importar estes valores da
+// planilha da contabilidade". O Kronos continua calculando o 13º; quando a folha
+// do contador chega, os números DELA passam a valer — campo a campo, marcados 📥
+// na lista, no modal e no recibo. O que a planilha não trouxer segue calculado
+// (ex.: veio só a 1ª parcela → 2ª = líquido do Kronos − 1ª parcela do contador).
+//
+// 🔒 Nada é gravado sem a tela de conferência: contabilidade × Kronos lado a
+// lado, diferença destacada, e só as linhas marcadas entram.
+// 🔒 Casamento: CPF → matrícula do Kronos → código do contador (PLR) → nome
+// ÚNICO. Nome ambíguo fica "não identificado" de propósito: casar errado aqui
+// é pôr o 13º de uma pessoa no recibo de outra.
+// 🔒 IA só por clique (a planilha leva CPF de dezenas de pessoas). #lgpd
+// 🔒 "Voltar ao cálculo do Kronos" desfaz por colaborador, no modal.
+
+// #dec13-import-ini — bloco PURO (sem DOM), testado por teste-dec13-import.js
+const _DEC13_CAMPOS_VALOR=['bruto','parc1','inss','irrf','fgts','parc2','liquido'];
+const _DEC13_ROTULO={bruto:'Total bruto', parc1:'1ª parcela', inss:'INSS', irrf:'IRRF', fgts:'FGTS',
+  parc2:'2ª parcela (líq.)', liquido:'Total líquido', nome:'Nome', cpf:'CPF', matricula:'Matrícula / código'};
+
+function _dec13Tem(c,f){ return !!c && c[f]!=null && c[f]!=='' && isFinite(+c[f]); }
+
+// Cálculo do Kronos — as MESMAS fórmulas que a lista e o modal sempre usaram.
+function _dec13Kronos(emp, mesesDir, salBase, mediaAdic, mediaDsr){
+  const baseCalc=(+salBase||0)+(+mediaAdic||0)+(+mediaDsr||0);
+  const bruto=Math.round(baseCalc*mesesDir/12*100)/100;
+  const parc1=Math.round(bruto/2*100)/100;
+  const inss=calcINSS(bruto);
+  const irrf=calcIRRF(bruto,emp.dependentesIRRF||0,emp.pensaoAlimenticia||0,0,inss);  // 13o tributa o BRUTO CHEIO (exclusivo na fonte), nao metade. #fix-irrf13
+  const fgts=calcFGTS(bruto);
+  const parc2=Math.round((bruto/2-inss-irrf)*100)/100;
+  const liquido=Math.round((bruto-inss-irrf)*100)/100;
+  return {bruto,parc1,inss,irrf,fgts,parc2,liquido};
+}
+
+// Sobrepõe os campos da contabilidade (c) ao cálculo do Kronos (k). Campo que a
+// contabilidade não mandou é derivado dos que ela mandou — nunca fica um INSS do
+// Kronos em cima de um bruto do contador. Sem `c`, devolve `k` intacto.
+function _dec13ComContab(emp, k, c){
+  const daContab={};
+  _DEC13_CAMPOS_VALOR.forEach(f=>{ if(_dec13Tem(c,f)) daContab[f]=true; });
+  if(!Object.keys(daContab).length) return {...k, daContab};
+  const tem=f=>!!daContab[f], r2=x=>Math.round(x*100)/100;
+  const bruto=tem('bruto') ? +c.bruto : k.bruto;
+  const mudou=Math.abs(bruto-k.bruto)>0.004;
+  const inss=tem('inss') ? +c.inss : (mudou ? calcINSS(bruto) : k.inss);
+  const irrf=tem('irrf') ? +c.irrf
+    : ((mudou||tem('inss')) ? calcIRRF(bruto,emp.dependentesIRRF||0,emp.pensaoAlimenticia||0,0,inss) : k.irrf);
+  const fgts=tem('fgts') ? +c.fgts : (mudou ? calcFGTS(bruto) : k.fgts);
+  const parc1=tem('parc1') ? +c.parc1 : (mudou ? r2(bruto/2) : k.parc1);
+  let liquido, parc2;
+  if(tem('liquido'))   liquido=+c.liquido;
+  else if(tem('parc2')) liquido=r2(parc1 + +c.parc2);
+  else                  liquido=r2(bruto-inss-irrf);
+  if(tem('parc2'))                       parc2=+c.parc2;
+  else if(tem('parc1')||tem('liquido'))  parc2=r2(liquido-parc1);
+  else                                   parc2=r2(bruto/2-inss-irrf);
+  return {bruto,parc1,inss,irrf,fgts,parc2,liquido,daContab};
+}
+
+// Cabeçalho de coluna → campo. "BASE INSS", "Alíq.", "Dependentes" etc. são
+// ignorados de propósito: base de INSS lida como INSS seria desconto inventado.
+function _dec13CampoDoCabecalho(cel){
+  const t=_plrNorm(cel);
+  if(!t) return '';
+  if(/\bBASE\b|ALIQ|PERCENT|DEPEND|ADMISS|CARGO|FUNCAO|SETOR|\bDATA\b|\bAVOS\b|\bMESES\b|\bQTD|\bSALARIO BASE\b|\bSAL BASE\b/.test(t)) return '';
+  if(/\bCPF\b/.test(t)) return 'cpf';
+  if(/\bFGTS\b/.test(t)) return 'fgts';
+  if(/\bINSS\b|PREVID/.test(t)) return 'inss';
+  if(/\bIRRF\b|\bIRF\b|\bIR\b|IMPOSTO DE RENDA/.test(t)) return 'irrf';
+  if(/\b1 ?A? ?PARC|PRIMEIRA|ADIANT/.test(t)) return 'parc1';
+  if(/\b2 ?A? ?PARC|SEGUNDA/.test(t)) return 'parc2';
+  if(/LIQ/.test(t)) return 'liquido';
+  if(/BRUTO|PROVENTO|VENCIMENTO|\b13 ?O? SALARIO\b|DECIMO|\bVALOR 13\b|\bTOTAL 13\b/.test(t)) return 'bruto';
+  if(/MATRIC|\bCOD|\bREG\b|REGISTRO|\bCHAPA\b/.test(t)) return 'matricula';
+  if(/NOME|EMPREGADO|COLABORADOR|FUNCIONARIO|TRABALHADOR/.test(t)) return 'nome';
+  return '';
+}
+
+// Acha a linha de cabeçalho nas primeiras 40: precisa de 1 identificador (nome,
+// CPF ou matrícula) e ao menos 1 valor. Fica com a que reconhece mais colunas.
+function _dec13AcharCabecalho(rows){
+  let melhor=null;
+  for(let i=0;i<Math.min(40,rows.length);i++){
+    const row=rows[i]||[], mapa={}, vistos={};
+    row.forEach((cel,j)=>{
+      const f=_dec13CampoDoCabecalho(cel);
+      if(f && !vistos[f]){ vistos[f]=1; mapa[j]=f; }
+    });
+    const ident=vistos.nome||vistos.cpf||vistos.matricula;
+    const nVal=_DEC13_CAMPOS_VALOR.filter(f=>vistos[f]).length;
+    if(!ident || !nVal) continue;
+    const score=Object.keys(mapa).length;
+    if(!melhor || score>melhor.score) melhor={linha:i, mapa, score};
+  }
+  return melhor;
+}
+
+// Célula → número. Aceita 1.234,56 · 1234.56 · R$ 1.234,56 · (141,35) · -141,35
+// e número de verdade (Excel). Desconto vem positivo: o sinal é da coluna.
+function _dec13Num(cel){
+  if(cel==null || cel==='') return null;
+  if(typeof cel==='number') return isFinite(cel) ? Math.round(Math.abs(cel)*100)/100 : null;
+  const t=String(cel).replace(/R\$|\s|\(|\)/g,'').replace(/^-/,'').replace(/-$/,'');
+  if(!/\d/.test(t) || /[^\d.,]/.test(t)) return null;
+  return Math.round(Math.abs(_plrValorBr(t))*100)/100;
+}
+
+// Excel guarda CPF como número e come o zero da frente (027... → 27...).
+function _dec13Cpf(cel){
+  const d=_plrDigitos(cel);
+  if(d.length>=9 && d.length<=11) return d.padStart(11,'0');
+  return '';
+}
+function _dec13Matricula(cel){
+  const d=String(cel==null?'':cel).trim();
+  return /^\d+$/.test(d) ? String(parseInt(d,10)) : d.toUpperCase();
+}
+
+function _dec13LinhasDaTabela(rows, linhaCab, mapa){
+  const itens=[], totaisArq={};
+  for(let i=linhaCab+1;i<rows.length;i++){
+    const row=rows[i]||[];
+    const it={cpf:'', codigo:'', nomeArq:'', valores:{}};
+    Object.keys(mapa).forEach(j=>{
+      const f=mapa[j], cel=row[j];
+      if(f==='cpf') it.cpf=_dec13Cpf(cel);
+      else if(f==='matricula') it.codigo=_dec13Matricula(cel);
+      else if(f==='nome') it.nomeArq=String(cel==null?'':cel).replace(/\s+/g,' ').trim();
+      else if(_DEC13_CAMPOS_VALOR.includes(f)){ const n=_dec13Num(cel); if(n!=null) it.valores[f]=n; }
+    });
+    const temValor=Object.keys(it.valores).length>0;
+    const nomeN=_plrNorm(it.nomeArq);
+    // Linha de total/soma do contador: guardada para conferência, nunca vira pessoa.
+    const ehTotal=/^(TOTAL|TOTAIS|SOMA|SUBTOTAL)\b/.test(nomeN)
+      || (!it.cpf && !it.codigo && !it.nomeArq && temValor && row.some(c=>/^(TOTAL|TOTAIS|SOMA)\b/.test(_plrNorm(c))));
+    if(ehTotal){ Object.assign(totaisArq, it.valores); continue; }
+    if(!(it.cpf || it.codigo || it.nomeArq) || !temValor) continue;
+    if(it.codigo && !it.cpf && !it.nomeArq && !/^\d+$/.test(it.codigo)) continue;
+    itens.push(it);
+  }
+  return {itens, totaisArq};
+}
+
+// Texto colado do Excel (TAB) ou CSV (; ou ,) → linhas×colunas.
+function _dec13TextoParaLinhas(txt){
+  const linhas=String(txt||'').split(/\r?\n/).filter(l=>l.trim()!=='');
+  const amostra=linhas.slice(0,30).join('\n');
+  const sep = amostra.includes('\t') ? '\t'
+    : ((amostra.match(/;/g)||[]).length>=linhas.slice(0,30).length ? ';'
+    : ((amostra.match(/,/g)||[]).length>=linhas.slice(0,30).length*2 && /"/.test(amostra) ? ',' : null));
+  if(!sep) return linhas.map(l=>[l]);
+  return linhas.map(l=>{
+    const out=[]; let cur='', q=false;
+    for(let i=0;i<l.length;i++){
+      const ch=l[i];
+      if(ch==='"'){ if(q && l[i+1]==='"'){ cur+='"'; i++; } else q=!q; }
+      else if(ch===sep && !q){ out.push(cur.trim()); cur=''; }
+      else cur+=ch;
+    }
+    out.push(cur.trim());
+    return out;
+  });
+}
+
+// Interpreta o que chegou. `entrada` = {rows} (planilha) ou {texto};
+// `mapaManual` = {linha, mapa} quando o dono corrigiu as colunas na tela;
+// `campoRelacao` = que valor a "relação de líquidos" (1 valor por CPF) traz.
+function _dec13Interpretar(entrada, campoRelacao, mapaManual){
+  const rows = entrada.rows || _dec13TextoParaLinhas(entrada.texto||'');
+  const cab = mapaManual || _dec13AcharCabecalho(rows);
+  if(cab){
+    const r=_dec13LinhasDaTabela(rows, cab.linha, cab.mapa);
+    if(r.itens.length) return {modo:'tabela', cabecalho:rows[cab.linha]||[], linhaCab:cab.linha, mapa:cab.mapa, ...r};
+  }
+  // Sem cabeçalho reconhecível: relação "código nome CPF valor" (mesmo leitor da PLR).
+  const texto = entrada.texto!=null ? entrada.texto : rows.map(r=>(r||[]).join(' ')).join('\n');
+  const p=_plrParse(texto);
+  const campo=_DEC13_CAMPOS_VALOR.includes(campoRelacao) ? campoRelacao : 'parc1';
+  const itens=p.linhas.filter(l=>l.valorArq>0).map(l=>({
+    cpf:l.cpf, codigo:_dec13Matricula(l.codigo), nomeArq:l.nomeArq, valores:{[campo]:Math.round(l.valorArq*100)/100}}));
+  if(itens.length) return {modo:'relacao', campo, itens, totaisArq:p.totalArq?{[campo]:p.totalArq}:{}};
+  return {modo:'nada', itens:[], totaisArq:{}};
+}
+
+// Casa cada item com o cadastro. Devolve {empId, matchPor, divergencia, duplicado}.
+function _dec13Casar(itens, emps){
+  const porCpf={}, porReg={}, porCod={}, porNome={};
+  const push=(m,k,e)=>{ if(!k) return; (m[k]=m[k]||[]).push(e); };
+  (emps||[]).forEach(e=>{
+    const c=_plrDigitos(e.cpf); if(c.length===11) push(porCpf,c,e);
+    if(e.registro!=null && String(e.registro).trim()!=='') push(porReg,_dec13Matricula(e.registro),e);
+    if(e.plrCodigoContabil) push(porCod,_dec13Matricula(e.plrCodigoContabil),e);
+    push(porNome,_plrNorm(e.nome),e);
+  });
+  const um=(m,k)=> (k && m[k] && m[k].length===1) ? m[k][0] : null;
+  const out=itens.map(it=>{
+    let emp=null, por='';
+    if(it.manualEmpId!=null){ emp=(emps||[]).find(e=>e.id===it.manualEmpId)||null; por=emp?'manual':''; }
+    else if(it.cpf && porCpf[it.cpf]){
+      // CPF do arquivo existe no cadastro: ele decide sozinho (ambíguo = não casa).
+      if((emp=um(porCpf,it.cpf))) por='CPF';
+    } else {
+      // CPF ausente, ou de ninguém no cadastro (cadastro sem CPF): tenta os outros.
+      if((emp=um(porReg,it.codigo))) por='matrícula';
+      else if((emp=um(porCod,it.codigo))) por='código do contador';
+      else if((emp=um(porNome,_plrNorm(it.nomeArq)))) por='nome';
+    }
+    const a=_plrNorm(it.nomeArq), b=emp?_plrNorm(emp.nome):'';
+    const cpfEmp=emp?_plrDigitos(emp.cpf):'';
+    return {...it, empId:emp?emp.id:'', empNome:emp?emp.nome:'', matchPor:por,
+      divergencia: !!(emp && ((a && b && !a.includes(b) && !b.includes(a))
+                            || (it.cpf && cpfEmp.length===11 && cpfEmp!==it.cpf)))};
+  });
+  const cont={}; out.forEach(r=>{ if(r.empId) cont[r.empId]=(cont[r.empId]||0)+1; });
+  out.forEach(r=>{ r.duplicado=!!(r.empId && cont[r.empId]>1); });
+  return out;
+}
+
+const _DEC13_SELO={
+  'pronto'     :{t:'✓ Pronto',            bg:'#E8F5E9', c:'#2e7d32'},
+  'por-nome'   :{t:'Casou só pelo nome',  bg:'#FFF8E1', c:'#8D6E00'},
+  'divergencia':{t:'Nome divergente',     bg:'#FFEBEE', c:'#c62828'},
+  'duplicado'  :{t:'Repetido no arquivo', bg:'#FFEBEE', c:'#c62828'},
+  'ja-pago'    :{t:'13º já marcado pago', bg:'#E3F2FD', c:'#1565C0'},
+  'nao-id'     :{t:'Não identificado',    bg:'#FFF3E0', c:'#E65100'},
+};
+// 'pronto' nasce marcado; o resto pede o clique do dono (é a confirmação dele).
+function _dec13Status(r){
+  if(!r.empId) return 'nao-id';
+  if(r.duplicado) return 'duplicado';
+  if(r.divergencia) return 'divergencia';
+  if(r.recStatus==='pago') return 'ja-pago';
+  if(r.matchPor==='nome') return 'por-nome';
+  return 'pronto';
+}
+// #dec13-import-fim
+
+let _dec13Imp={rows:null, arquivo:'', viaIA:false, pendenteIA:null, res:null, linhas:[], mapaManual:null, gravando:false};
+
+function _dec13AnoImport(){ return parseInt(val('dec13-ano')||val('dec-ano')||currentAno(),10); }
+
+function _dec13ValoresAtuais(emp, ano){
+  const rec=(State.decimoTerceiro||[]).find(r=>r.employeeId===emp.id&&r.ano===ano)||{};
+  const ref=`${ano}-12-31`;
+  const mediaAdic=(rec.mediaAdic!=null)?+rec.mediaAdic:(_mediaAdicionaisRescisao(emp.id,ref)||0);
+  const mediaDsr =(rec.mediaDsr!=null) ?+rec.mediaDsr :(_mediaDsrHERescisao(emp.id,ref)||0);
+  const meses=_avosDecimo(emp,ano);
+  return {rec, meses, mediaAdic, mediaDsr,
+    k:_dec13Kronos(emp, meses, parseFloat(emp.salarioBase||0), mediaAdic, mediaDsr)};
+}
+
+function openDec13Import(){
+  if(!canEditModule('decimoterceiro')){ toast('Seu perfil só pode consultar o 13º — importar exige permissão de edição.','error'); return; }
+  setVal('dec13-ano', val('dec-ano')||currentAno());
+  if(!_dec13Imp.res) _dec13MostrarConferencia(false);
+  drgMsgLimpa('dec13-msg');
+  document.getElementById('modal-dec13-import').classList.remove('hidden');
+}
+
+function dec13Descartar(){
+  _dec13Imp={rows:null, arquivo:'', viaIA:false, pendenteIA:null, res:null, linhas:[], mapaManual:null, gravando:false};
+  setVal('dec13-texto','');
+  const info=document.getElementById('dec13-arquivo-info'); if(info) info.textContent='';
+  const ia=document.getElementById('btn-dec13-ia'); if(ia) ia.style.display='none';
+  drgMsgLimpa('dec13-msg');
+  _dec13MostrarConferencia(false);
+}
+
+function dec13TextoEditado(){
+  // Colou/editou na caixa: a planilha carregada antes deixa de valer.
+  _dec13Imp.rows=null; _dec13Imp.mapaManual=null; _dec13Imp.viaIA=false;
+  if(!_dec13Imp.arquivo || !String(_dec13Imp.arquivo).startsWith('(colado')) _dec13Imp.arquivo='(colado na tela)';
+}
+
+function _dec13CarregarSheetJS(){
+  if(window.XLSX) return Promise.resolve(window.XLSX);
+  if(_dec13Imp.sheetProm) return _dec13Imp.sheetProm;
+  _dec13Imp.sheetProm=new Promise((resolve,reject)=>{
+    const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload=()=>resolve(window.XLSX);
+    s.onerror=()=>{ _dec13Imp.sheetProm=null; reject(new Error('Não consegui carregar o leitor de Excel (verifique a internet).')); };
+    document.head.appendChild(s);
+  });
+  return _dec13Imp.sheetProm;
+}
+
+async function dec13ArquivoEscolhido(ev){
+  const file=ev.target.files && ev.target.files[0];
+  ev.target.value='';
+  if(!file) return;
+  const lbl=document.getElementById('lbl-dec13-arquivo');
+  const lblHtml=lbl?lbl.innerHTML:'';
+  const info=document.getElementById('dec13-arquivo-info');
+  const ia=document.getElementById('btn-dec13-ia');
+  if(ia) ia.style.display='none';
+  drgMsgLimpa('dec13-msg');
+  const nome=file.name||'arquivo';
+  const ehPlanilha=/\.(xlsx|xlsm|xls|ods)$/i.test(nome);
+  const ehPdf=/\.pdf$/i.test(nome) || file.type==='application/pdf';
+  if(lbl) lbl.innerHTML=`⏳ Lendo ${ehPlanilha?'a planilha':ehPdf?'o PDF':'o arquivo'}... aguarde`;
+  _dec13Imp.pendenteIA=null; _dec13Imp.viaIA=false; _dec13Imp.mapaManual=null;
+  try{
+    if(ehPlanilha){
+      const XLSX=await _dec13CarregarSheetJS();
+      const wb=XLSX.read(await file.arrayBuffer(), {type:'array'});
+      // Fica com a aba cujo cabeçalho reconhece mais colunas (o contador às vezes
+      // manda um resumo na 1ª aba e a relação por empregado na 2ª).
+      let melhor=null;
+      wb.SheetNames.forEach(n=>{
+        const rows=XLSX.utils.sheet_to_json(wb.Sheets[n], {header:1, raw:true, defval:''});
+        const cab=_dec13AcharCabecalho(rows);
+        const score=cab?cab.score:0;
+        if(!melhor || score>melhor.score) melhor={nome:n, rows, score};
+      });
+      _dec13Imp.rows=melhor?melhor.rows:[];
+      setVal('dec13-texto','');
+      if(info) info.textContent=`📄 ${nome} — aba "${melhor?melhor.nome:'?'}", ${_dec13Imp.rows.length} linhas.`;
+    } else {
+      let texto;
+      if(ehPdf){
+        if(typeof DecompressionStream==='undefined')
+          throw new Error('Este navegador não lê PDF aqui. Abra o PDF, selecione tudo (Ctrl+A), copie e cole na caixa.');
+        texto=await _pdfParaTexto(await file.arrayBuffer());
+      } else texto=await file.text();
+      _dec13Imp.rows=null;
+      setVal('dec13-texto', texto);
+      if(info) info.textContent=`📄 ${nome}`;
+    }
+    _dec13Imp.arquivo=nome;
+    const ok=dec13Conferir();
+    if(!ok){ _dec13Imp.pendenteIA=file; if(ia) ia.style.display=''; }
+  }catch(e){
+    console.error('13º import arquivo',e);
+    drgMsg('dec13-msg','erro',(e&&e.message)||'Não consegui ler o arquivo.');
+  }finally{
+    if(lbl) lbl.innerHTML=lblHtml;
+  }
+}
+
+// Lê o que está carregado (planilha ou caixa de texto) e monta a conferência.
+// Devolve true se achou ao menos uma linha.
+function dec13Conferir(){
+  drgMsgLimpa('dec13-msg');
+  const entrada=_dec13Imp.rows ? {rows:_dec13Imp.rows} : {texto:val('dec13-texto')||''};
+  if(!entrada.rows && !String(entrada.texto).trim()){
+    drgMsg('dec13-msg','erro','Suba o arquivo da contabilidade ou cole a planilha na caixa.');
+    return false;
+  }
+  if(!entrada.rows && !_dec13Imp.arquivo) _dec13Imp.arquivo='(colado na tela)';
+  const res=_dec13Interpretar(entrada, val('dec13-campo-relacao')||'parc1', _dec13Imp.mapaManual);
+  _dec13Imp.res=res;
+  if(!res.itens.length){
+    _dec13MostrarConferencia(false);
+    drgMsg('dec13-msg','erro','Não reconheci nenhuma linha de colaborador com valor. Confira se a planilha tem cabeçalho (Nome/CPF/Matrícula e as colunas de valor) — ou use "Tentar ler com IA".');
+    return false;
+  }
+  _dec13Recasar(true);
+  _dec13MostrarConferencia(true);
+  return true;
+}
+
+function _dec13Recasar(resetSel){
+  const res=_dec13Imp.res; if(!res) return;
+  const ano=_dec13AnoImport();
+  const antigos={}; (_dec13Imp.linhas||[]).forEach((l,i)=>{ antigos[i]=l; });
+  // A escolha manual do colaborador mora no próprio item (res.itens[i].manualEmpId).
+  const linhas=_dec13Casar(res.itens, _filtrarEmpsPorEscopo(State.employees||[]));
+  linhas.forEach((l,i)=>{
+    const emp=l.empId ? State.employees.find(e=>e.id===l.empId) : null;
+    if(emp){
+      const atual=_dec13ValoresAtuais(emp, ano);
+      l.recStatus=atual.rec.status||'';
+      l.kronos=_dec13ComContab(emp, atual.k, atual.rec.contab);
+    } else { l.recStatus=''; l.kronos=null; }
+    l.status=_dec13Status(l);
+    const old=antigos[i];
+    l.selecionado = (resetSel || !old) ? (l.status==='pronto') : (!!old.selecionado && !!l.empId && !l.duplicado);
+  });
+  _dec13Imp.linhas=linhas;
+  _dec13RenderMapa();
+  _dec13RenderTabela();
+}
+
+function _dec13MostrarConferencia(mostrar){
+  const el=document.getElementById('dec13-passo-conferir'); if(el) el.style.display=mostrar?'':'none';
+  _dec13AtualizarBotao();
+}
+
+function _dec13RenderMapa(){
+  const box=document.getElementById('dec13-mapa'); if(!box) return;
+  const res=_dec13Imp.res;
+  if(!res || res.modo!=='tabela'){
+    box.innerHTML = res && res.modo==='relacao'
+      ? `<div style="font-size:12px;color:#555">Arquivo lido como <strong>relação de valores</strong> (um valor por CPF), gravado em <strong>${esc(_DEC13_ROTULO[res.campo])}</strong> — troque em "Se o arquivo traz um valor só" acima, se for outro.</div>`
+      : '';
+    return;
+  }
+  const opts=['', 'nome','cpf','matricula', ..._DEC13_CAMPOS_VALOR];
+  box.innerHTML=`<div style="font-size:12px;font-weight:600;color:#1a3a6b;margin-bottom:6px">Colunas da planilha → campos do Kronos <span style="font-weight:400;color:#777">(reconhecidas sozinhas; corrija se alguma estiver errada)</span></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:6px">
+    ${(res.cabecalho||[]).map((h,j)=>{
+      if(String(h==null?'':h).trim()==='') return '';
+      const f=res.mapa[j]||'';
+      return `<label style="font-size:11px;color:#555;display:flex;flex-direction:column;gap:2px;background:${f?'#E8F5E9':'#f5f5f5'};border-radius:6px;padding:4px 6px">
+        <span title="${esc(String(h))}" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(String(h))}</span>
+        <select onchange="dec13MapaMudou(${j},this.value)" style="font-size:12px;padding:2px">
+          ${opts.map(o=>`<option value="${o}" ${o===f?'selected':''}>${o?esc(_DEC13_ROTULO[o]):'— ignorar —'}</option>`).join('')}
+        </select></label>`;
+    }).join('')}</div>`;
+}
+
+function dec13MapaMudou(col, campo){
+  const res=_dec13Imp.res; if(!res || res.modo!=='tabela') return;
+  const mapa={...res.mapa};
+  // Um campo vale para UMA coluna: escolher de novo tira da anterior.
+  Object.keys(mapa).forEach(j=>{ if(campo && mapa[j]===campo) delete mapa[j]; });
+  if(campo) mapa[col]=campo; else delete mapa[col];
+  _dec13Imp.mapaManual={linha:res.linhaCab, mapa};
+  dec13Conferir();
+}
+
+function dec13CampoRelacaoMudou(){
+  if(_dec13Imp.res && _dec13Imp.res.modo==='relacao') dec13Conferir();
+}
+
+function _dec13CamposPresentes(){
+  const set={};
+  (_dec13Imp.linhas||[]).forEach(l=>Object.keys(l.valores||{}).forEach(f=>{ set[f]=1; }));
+  return _DEC13_CAMPOS_VALOR.filter(f=>set[f]);
+}
+
+function _dec13RenderTabela(){
+  const linhas=_dec13Imp.linhas||[];
+  const campos=_dec13CamposPresentes();
+  const thead=document.getElementById('dec13-thead');
+  const tbody=document.getElementById('dec13-tbody');
+  if(!thead||!tbody) return;
+  thead.innerHTML=`<tr style="background:#f8f9fc;position:sticky;top:0;z-index:1">
+    <th style="padding:8px;width:34px"></th>
+    <th style="padding:8px;text-align:left">No arquivo</th>
+    <th style="padding:8px;text-align:left">Colaborador no Kronos</th>
+    ${campos.map(f=>`<th style="padding:8px;text-align:right;white-space:nowrap">${esc(_DEC13_ROTULO[f])}</th>`).join('')}
+    <th style="padding:8px;text-align:center">Situação</th></tr>`;
+  const emps=_filtrarEmpsPorEscopo(State.employees||[]).slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+  tbody.innerHTML=linhas.map((l,i)=>{
+    const selo=_DEC13_SELO[l.status]||_DEC13_SELO['nao-id'];
+    const podeMarcar=!!l.empId && !l.duplicado;
+    const ident=[l.codigo?`Cód. ${esc(l.codigo)}`:'', l.cpf?esc(l.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/,'$1.$2.$3-$4')):''].filter(Boolean).join(' · ');
+    const colab = `<select onchange="dec13EscolherColab(${i},this.value)" style="font-size:12px;max-width:230px;padding:2px">
+        <option value="">— escolher —</option>
+        ${emps.map(e=>`<option value="${e.id}" ${e.id===l.empId?'selected':''}>${esc(e.nome||'')}${e.registro?` (${esc(String(e.registro))})`:''}</option>`).join('')}
+      </select>${l.matchPor?`<div style="font-size:10px;color:#888">casou por ${esc(l.matchPor)}</div>`:''}`;
+    const celulas=campos.map(f=>{
+      const v=l.valores[f];
+      if(v==null) return `<td style="padding:6px 8px;text-align:right;color:#bbb">—</td>`;
+      const k=l.kronos?l.kronos[f]:null;
+      const dif=(k!=null)?Math.round((v-k)*100)/100:null;
+      const corDif=(dif==null||Math.abs(dif)<0.01)?'#2e7d32':(Math.abs(dif)>=1?'#c62828':'#E65100');
+      return `<td style="padding:6px 8px;text-align:right;white-space:nowrap">
+        <div style="font-weight:600">${fmtMoney(v)}</div>
+        ${k!=null?`<div style="font-size:10px;color:${corDif}" title="Valor que o Kronos mostra hoje">Kronos ${fmtMoney(k)}${(dif!=null&&Math.abs(dif)>=0.01)?` (${dif>0?'+':''}${dif.toFixed(2).replace('.',',')})`:' ✓'}</div>`:''}</td>`;
+    }).join('');
+    return `<tr style="border-bottom:1px solid #eee;${l.selecionado?'':'opacity:.75'}">
+      <td style="padding:6px 8px;text-align:center"><input type="checkbox" ${l.selecionado?'checked':''} ${podeMarcar?'':'disabled'} onchange="dec13Marcar(${i},this.checked)" style="width:18px;height:18px"></td>
+      <td style="padding:6px 8px"><div>${esc(l.nomeArq||'—')}</div><div style="font-size:10px;color:#888">${ident}</div></td>
+      <td style="padding:6px 8px">${colab}</td>
+      ${celulas}
+      <td style="padding:6px 8px;text-align:center"><span style="display:inline-block;padding:3px 8px;border-radius:10px;font-size:11px;font-weight:600;background:${selo.bg};color:${selo.c};white-space:nowrap">${selo.t}</span></td>
+    </tr>`;
+  }).join('');
+  _dec13RenderResumo(campos);
+  _dec13AtualizarBotao();
+}
+
+function _dec13RenderResumo(campos){
+  const el=document.getElementById('dec13-resumo'); if(!el) return;
+  const linhas=_dec13Imp.linhas||[], res=_dec13Imp.res||{};
+  const n=linhas.length, sel=linhas.filter(l=>l.selecionado).length;
+  const naoId=linhas.filter(l=>!l.empId).length;
+  const atencao=linhas.filter(l=>l.empId && l.status!=='pronto').length;
+  const tot=campos.map(f=>{
+    const soma=Math.round(linhas.reduce((s,l)=>s+(+l.valores[f]||0),0)*100)/100;
+    const arq=res.totaisArq && res.totaisArq[f]!=null ? +res.totaisArq[f] : null;
+    const bate=(arq==null)?'':(Math.abs(arq-soma)<0.01
+      ? ` <span style="color:#2e7d32" title="Bate com o total do arquivo">✓ total do arquivo</span>`
+      : ` <span style="color:#c62828;font-weight:700" title="A soma das linhas não bate com o total do próprio arquivo — falta ou sobra linha">≠ arquivo ${fmtMoney(arq)}</span>`);
+    return `<span style="white-space:nowrap">${esc(_DEC13_ROTULO[f])}: <strong>${fmtMoney(soma)}</strong>${bate}</span>`;
+  }).join(' · ');
+  el.innerHTML=`<div><strong>${n}</strong> linha(s) lida(s) · <strong style="color:#2e7d32">${sel}</strong> marcada(s) para gravar`
+    +(naoId?` · <strong style="color:#E65100">${naoId}</strong> não identificada(s)`:'')
+    +(atencao?` · <strong style="color:#c62828">${atencao}</strong> pedem conferência (desmarcadas)`:'')
+    +(_dec13Imp.viaIA?` · <strong style="color:#6A1B9A">lido por IA — confira linha a linha</strong>`:'')
+    +`</div><div style="margin-top:4px;font-size:12px">${tot}</div>`;
+}
+
+function _dec13AtualizarBotao(){
+  const btn=document.getElementById('btn-dec13-gravar'); if(!btn || _dec13Imp.gravando) return;
+  const sel=(_dec13Imp.linhas||[]).filter(l=>l.selecionado).length;
+  const visivel=document.getElementById('dec13-passo-conferir');
+  btn.disabled=!(sel>0 && visivel && visivel.style.display!=='none');
+  btn.innerHTML=`<i class="fa-solid fa-file-import"></i> Gravar ${sel||''} no 13º ${_dec13AnoImport()}`;
+}
+
+function dec13Marcar(i, v){
+  const l=(_dec13Imp.linhas||[])[i]; if(!l) return;
+  l.selecionado=!!v && !!l.empId && !l.duplicado;
+  _dec13RenderTabela();
+}
+function dec13MarcarTodos(v){
+  (_dec13Imp.linhas||[]).forEach(l=>{ l.selecionado=!!v && !!l.empId && !l.duplicado && (v!=='prontos' || l.status==='pronto'); });
+  _dec13RenderTabela();
+}
+function dec13EscolherColab(i, empId){
+  const res=_dec13Imp.res; if(!res||!res.itens[i]) return;
+  // A escolha do dono vale até descartar a lista (fica no item, não na linha casada).
+  res.itens[i].manualEmpId = empId || null;
+  if(!empId) delete res.itens[i].manualEmpId;
+  _dec13Recasar(false);
+  const l=_dec13Imp.linhas[i];
+  if(l && l.empId && !l.duplicado) l.selecionado=true;   // escolher na mão = confirmar
+  _dec13RenderTabela();
+}
+
+function dec13AnoMudou(){ if(_dec13Imp.res) _dec13Recasar(false); else _dec13AtualizarBotao(); }
+
+// ── Plano B: IA (só por clique) ──
+const DEC13_IA_PROMPT = `Você é um sistema de leitura de FOLHA DE 13º SALÁRIO brasileira (relatório ou planilha da contabilidade). Extraia, por COLABORADOR, os valores com PRECISÃO MÁXIMA.
+
+Retorne SOMENTE um JSON válido, sem markdown, neste formato exato:
+{"linhas":[{"codigo":"145","nome":"FULANO DE TAL","cpf":"123.456.789-01","bruto":"1.840,72","parc1":"920,36","inss":"141,35","irrf":"0,00","fgts":"147,26","parc2":"779,01","liquido":"1.699,37"}]}
+
+REGRAS:
+- Uma entrada por colaborador. Copie o que está impresso, sem corrigir, sem somar, sem completar.
+- "bruto" = total bruto/proventos do 13º; "parc1" = 1ª parcela/adiantamento; "parc2" = 2ª parcela líquida; "liquido" = total líquido; "inss", "irrf", "fgts" = valores (positivos, sem parênteses).
+- Campo que o documento NÃO traz: use null. NUNCA calcule um campo a partir dos outros.
+- "cpf": exatamente como impresso; se não ler com certeza, use "". "codigo": matrícula/código à esquerda do nome, ou "".
+- Não inclua cabeçalho, linha de total, CNPJ, paginação ou rodapé.
+- Se não for uma folha/relação de 13º, devolva {"linhas":[]}.`;
+
+async function dec13LerComIA(){
+  const file=_dec13Imp.pendenteIA;
+  if(!file){ drgMsg('dec13-msg','erro','Suba o arquivo primeiro.'); return; }
+  if(file.size>8*1024*1024){ drgMsg('dec13-msg','erro','Arquivo grande demais para a IA (limite ~8 MB). Copie a planilha e cole na caixa.'); return; }
+  const btn=document.getElementById('btn-dec13-ia');
+  const htmlBtn=btn?btn.innerHTML:'';
+  if(btn){ btn.disabled=true; btn.innerHTML='⏳ Lendo com IA... aguarde ~30s'; }
+  drgMsgLimpa('dec13-msg');
+  try{
+    const ehPlanilha=/\.(xlsx|xlsm|xls|ods)$/i.test(file.name);
+    let mimeType, base64;
+    if(ehPlanilha){
+      // A IA não abre .xlsx: vai o CSV da planilha (mesmo conteúdo, em texto).
+      const XLSX=await _dec13CarregarSheetJS();
+      const wb=XLSX.read(await file.arrayBuffer(), {type:'array'});
+      const csv=wb.SheetNames.map(n=>XLSX.utils.sheet_to_csv(wb.Sheets[n],{FS:';'})).join('\n');
+      mimeType='text/plain'; base64=btoa(unescape(encodeURIComponent(csv)));
+    } else {
+      mimeType=file.type || (/\.pdf$/i.test(file.name)?'application/pdf':'text/plain');
+      base64=await fileToBase64(file);
+    }
+    const resp=await fetch(GEMINI_PROXY_URL,{method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({model:GEMINI_MODEL, prompt:DEC13_IA_PROMPT, mimeType, base64Data:base64})});
+    if(!resp.ok){
+      const err=await resp.json().catch(()=>({error:'Resposta inválida do servidor'}));
+      throw new Error((err.error&&err.error.message)||err.error||'Erro ao falar com a IA');
+    }
+    const data=await resp.json();
+    const text=(data.candidates&&data.candidates[0]&&data.candidates[0].content&&data.candidates[0].content.parts&&data.candidates[0].content.parts[0]&&data.candidates[0].content.parts[0].text)
+      || (data.content&&data.content[0]&&data.content[0].text) || '';
+    _registrarUsoIA('dec13-folha', data);
+    let parsed;
+    try{ parsed=_parseGeminiJson(text); }catch(e){ throw new Error('A IA respondeu num formato que não consegui ler. Copie a planilha e cole na caixa.'); }
+    const ls=Array.isArray(parsed&&parsed.linhas)?parsed.linhas:[];
+    // Vira uma "planilha" com cabeçalho e passa pelo MESMO caminho determinístico.
+    const cab=['Código','Nome','CPF','Total Bruto','1ª Parcela','INSS','IRRF','FGTS','2ª Parcela','Líquido'];
+    const rows=[cab, ...ls.map(l=>[l.codigo||'', l.nome||'', l.cpf||'', l.bruto, l.parc1, l.inss, l.irrf, l.fgts, l.parc2, l.liquido]
+      .map(x=>x==null?'':x))];
+    if(!ls.length) throw new Error('A IA não achou nenhum colaborador com valor neste arquivo.');
+    _dec13Imp.rows=rows; _dec13Imp.viaIA=true; _dec13Imp.mapaManual=null; _dec13Imp.pendenteIA=null;
+    if(btn) btn.style.display='none';
+    if(dec13Conferir()) drgMsg('dec13-msg','ok','Lido por IA — confira linha a linha antes de gravar.');
+  }catch(e){
+    console.error('13º IA',e);
+    drgMsg('dec13-msg','erro',(e&&e.message)||'Não consegui ler com IA.');
+  }finally{
+    if(btn){ btn.disabled=false; btn.innerHTML=htmlBtn; }
+  }
+}
+
+// Grava as linhas marcadas. Botão trava ANTES de qualquer await; no sucesso a
+// tela fecha sozinha; no erro volta clicável com a mensagem real. (Regra nº 1)
+async function dec13Gravar(){
+  const btn=document.getElementById('btn-dec13-gravar');
+  if(_dec13Imp.gravando || !btn || btn.disabled) return;
+  if(!canEditModule('decimoterceiro')){ drgMsg('dec13-msg','erro','Sem permissão para alterar o 13º.'); return; }
+  const ano=_dec13AnoImport();
+  const alvo=(_dec13Imp.linhas||[]).filter(l=>l.selecionado && l.empId && !l.duplicado);
+  if(!alvo.length){ drgMsg('dec13-msg','erro','Marque ao menos uma linha.'); return; }
+  _dec13Imp.gravando=true;
+  btn.disabled=true;
+  const htmlOrig=btn.innerHTML;
+  btn.innerHTML=`⏳ Gravando ${alvo.length}... aguarde`;
+  drgMsgLimpa('dec13-msg');
+  const agora=new Date().toISOString(), quem=(Auth.currentUser&&Auth.currentUser.username)||'';
+  const erros=[]; let ok=0;
+  try{
+    for(let i=0;i<alvo.length;i+=10){
+      const lote=alvo.slice(i,i+10);
+      btn.innerHTML=`⏳ Gravando ${Math.min(i+lote.length,alvo.length)} de ${alvo.length}... aguarde`;
+      await Promise.all(lote.map(async l=>{
+        const emp=State.employees.find(e=>e.id===l.empId);
+        if(!emp){ erros.push(`${l.nomeArq}: colaborador sumiu do cadastro`); return; }
+        try{
+          const at=_dec13ValoresAtuais(emp, ano), rec0=at.rec;
+          // Importação nova soma-se à anterior: a 2ª parcela de dezembro não
+          // apaga a 1ª parcela importada em novembro.
+          const contab={...(rec0.contab||{}), ...l.valores,
+            arquivo:_dec13Imp.arquivo||'', importadoEm:agora, importadoPor:quem, viaIA:!!_dec13Imp.viaIA};
+          const v=_dec13ComContab(emp, at.k, contab);
+          const rec={...rec0,
+            id:`${emp.id}_${ano}`, employeeId:emp.id, nomeEmp:emp.nome, ano,
+            mesesDireito:at.meses, status:rec0.status||'pendente', obs:rec0.obs||'',
+            parc1Data:rec0.parc1Data||'', parc2Data:rec0.parc2Data||'',
+            mediaAdic:at.mediaAdic, mediaDsr:at.mediaDsr,
+            bruto:v.bruto, parc1:v.parc1, parc2:v.parc2, inss:v.inss, irrf:v.irrf, fgts:v.fgts, liquido:v.liquido,
+            contab, origem:'contabilidade', updatedAt:agora};
+          await DB.save('decimoTerceiro', rec);
+          ok++;
+        }catch(e){ erros.push(`${emp.nome}: ${(e&&e.message)||'erro ao gravar'}`); }
+      }));
+    }
+    Auth.log('DEC_TERCEIRO_IMPORTADO', quem, `${ok} colaborador(es) / ${ano} / ${_dec13Imp.arquivo||'—'}${_dec13Imp.viaIA?' / via IA':''}${erros.length?` / ${erros.length} erro(s)`:''}`);
+    if(erros.length){
+      // Parte gravou: as que deram certo saem da lista; as outras ficam para tentar de novo.
+      throw new Error(`${ok} gravado(s), ${erros.length} com erro: ${erros.slice(0,3).join(' · ')}${erros.length>3?' …':''}`);
+    }
+    drgMsg('dec13-msg','ok',`${ok} colaborador(es) com o 13º ${ano} da contabilidade gravado(s).`);
+    btn.innerHTML=`✓ ${ok} gravado(s)`;
+    setTimeout(()=>{
+      dec13Descartar();
+      closeModal('modal-dec13-import');
+      if(String(val('dec-ano'))!==String(ano)) setVal('dec-ano', ano);
+      renderDecimoTerceiro();
+      _dec13Imp.gravando=false;
+      _dec13AtualizarBotao();
+    }, 1800);
+  }catch(e){
+    console.error('13º import gravar',e);
+    drgMsg('dec13-msg','erro',(e&&e.message)||'Não consegui gravar.');
+    _dec13Imp.gravando=false;
+    btn.innerHTML=htmlOrig;
+    if(ok) _dec13Recasar(false);   // recalcula "Kronos" com o que já entrou
+    _dec13AtualizarBotao();
+  }
 }
 
 // ============================================
@@ -20505,7 +21195,8 @@ function _recibo13HTML(emp, r){
   const corpo=_reciboCabecalhoHTML(`RECIBO DE 13º SALÁRIO — ${esc(String(r.ano||''))}`)
   + _reciboDadosColabHTML(emp, `
     <tr><td><strong>Meses Trabalhados:</strong> ${r.mesesDireito?esc(String(r.mesesDireito))+'/12':'—'}</td><td><strong>Status:</strong> ${esc(r.status||'—')}</td></tr>
-    ${(mediaAdic>0||mediaDsr>0)?`<tr><td colspan="2" style="font-size:11px;color:#555"><strong>Base de cálculo:</strong> Sal. Base ${fmtMoney(salBase)}${mediaAdic>0?` + Média adicionais variáveis ${fmtMoney(mediaAdic)}`:''}${mediaDsr>0?` + DSR s/ HE (Súm. 172) ${fmtMoney(mediaDsr)}`:''} = ${fmtMoney(salBase+mediaAdic+mediaDsr)} <span style="color:#1565C0">(Súmula 45/347 — médias habituais)</span></td></tr>`:''}`)
+    ${r.contab?`<tr><td colspan="2" style="font-size:11px;color:#00695C"><strong>Valores conforme a folha de 13º da contabilidade</strong>${r.contab.arquivo?` (${esc(r.contab.arquivo)})`:''}.</td></tr>`:''}
+    ${((mediaAdic>0||mediaDsr>0) && !(r.contab && r.contab.bruto!=null))?`<tr><td colspan="2" style="font-size:11px;color:#555"><strong>Base de cálculo:</strong> Sal. Base ${fmtMoney(salBase)}${mediaAdic>0?` + Média adicionais variáveis ${fmtMoney(mediaAdic)}`:''}${mediaDsr>0?` + DSR s/ HE (Súm. 172) ${fmtMoney(mediaDsr)}`:''} = ${fmtMoney(salBase+mediaAdic+mediaDsr)} <span style="color:#1565C0">(Súmula 45/347 — médias habituais)</span></td></tr>`:''}`)
   + `<table>
     <tr><th>PARCELA</th><th>VALOR</th><th>DATA PGTO</th></tr>
     <tr><td>1ª Parcela (50% s/ descontos)</td><td class="prov">${fmtMoney(+r.parc1||0)}</td><td>${r.parc1Data?formatDateBr(r.parc1Data):'—'}</td></tr>

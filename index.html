@@ -2194,6 +2194,7 @@
             <p>Cálculo e controle do décimo terceiro salário dos colaboradores</p>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-outline-primary btn-sm" onclick="openDec13Import()" title="Traz os valores do 13º da planilha/relatório da contabilidade (Excel, CSV, PDF ou colado). Confere linha a linha antes de gravar."><i class="fa-solid fa-file-import"></i> Importar da contabilidade</button>
             <button class="btn btn-outline-primary btn-sm" onclick="printDecimoTerceiroLista()"><i class="fa-solid fa-print"></i> Imprimir</button>
           </div>
         </div>
@@ -5106,7 +5107,11 @@
     <div class="modal-body">
       <input type="hidden" id="dec-modal-emp-id">
       <input type="hidden" id="dec-modal-ano">
-      <input type="hidden" id="dec-modal-meses-dir">
+      <!-- (o "Meses Trabalhados" visível abaixo É o dec-modal-meses-dir: havia um
+           hidden com o mesmo id antes dele e o campo da tela ficava em branco) -->
+
+      <!-- 📥 Valores vindos da folha da contabilidade (#dec13-import) -->
+      <div id="dec-modal-contab" style="display:none;background:#E0F2F1;color:#004D40;border:1px solid #80CBC4;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px"></div>
 
       <!-- Dados do colaborador -->
       <div class="form-row">
@@ -5213,6 +5218,91 @@
       <button class="btn btn-outline" onclick="printDecimoTerceiro()"><i class="fa-solid fa-print"></i> Imprimir Recibo</button>
       <button class="btn btn-outline" onclick="closeModal('modal-decimo-terceiro')">Cancelar</button>
       <button class="btn btn-primary" onclick="saveDecimoTerceiro()"><i class="fa-solid fa-floppy-disk"></i> Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: 13º — IMPORTAR DA CONTABILIDADE (#dec13-import) ===== -->
+<div class="modal-overlay hidden" id="modal-dec13-import" onclick="closeModal('modal-dec13-import', event)">
+  <div class="modal-dialog" style="max-width:1100px;width:96vw">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-file-import" style="color:#00695C"></i> 13º — Importar da contabilidade</h3>
+      <button class="modal-close" onclick="closeModal('modal-dec13-import')" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body" style="padding:0">
+
+      <!-- 1) Ano e o que o arquivo traz -->
+      <div style="padding:14px 20px;border-bottom:1px solid var(--border-color,#e0e0e0)">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;align-items:end">
+          <div class="form-group form-group-sm" style="margin:0">
+            <label>Ano do 13º</label>
+            <input type="number" id="dec13-ano" min="2020" max="2100" step="1" class="form-control" onchange="dec13AnoMudou()">
+          </div>
+          <div class="form-group form-group-sm" style="margin:0">
+            <label title="Usado só quando o arquivo é uma relação com UM valor por pessoa (ex.: Relação de Líquidos). Planilha com colunas nomeadas é reconhecida sozinha.">Se o arquivo traz um valor só, ele é a…</label>
+            <select id="dec13-campo-relacao" class="form-control" onchange="dec13CampoRelacaoMudou()">
+              <option value="parc1">1ª parcela (adiantamento)</option>
+              <option value="parc2">2ª parcela líquida</option>
+              <option value="liquido">Total líquido</option>
+              <option value="bruto">Total bruto</option>
+            </select>
+          </div>
+        </div>
+        <div style="margin-top:10px;font-size:12px;color:#004D40;background:#E0F2F1;border-radius:8px;padding:8px 10px">
+          <i class="fa-solid fa-circle-info"></i> Os valores da contabilidade passam a valer <strong>no lugar do cálculo do Kronos</strong>, campo a campo (📥 na lista e no recibo).
+          O que o arquivo não trouxer continua calculado. Nada é gravado antes da conferência abaixo, e no modal de cada colaborador há <strong>"Voltar ao cálculo do Kronos"</strong>.
+        </div>
+      </div>
+
+      <!-- 2) Arquivo ou colar -->
+      <div style="padding:14px 20px;border-bottom:1px solid var(--border-color,#e0e0e0)">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px">
+          <label class="btn btn-primary" id="lbl-dec13-arquivo" style="text-align:center;cursor:pointer;margin:0;background:#00695C;border-color:#00695C"
+            title="Excel (.xlsx/.xls), CSV, TXT ou PDF com texto. É lido aqui mesmo, no navegador.">
+            <i class="fa-solid fa-file-arrow-up"></i> Subir arquivo (Excel, CSV, PDF)
+            <input type="file" accept=".xlsx,.xlsm,.xls,.ods,.csv,.txt,.pdf" style="display:none" onchange="dec13ArquivoEscolhido(event)">
+          </label>
+          <button type="button" class="btn btn-outline" onclick="dec13Conferir()" data-noguard="1"><i class="fa-solid fa-list-check"></i> Conferir o que colei</button>
+          <button type="button" class="btn btn-outline" onclick="dec13Descartar()" data-noguard="1"><i class="fa-solid fa-eraser"></i> Descartar</button>
+          <!-- Plano B, só por clique: manda o arquivo (com CPFs) para a IA. #lgpd -->
+          <button type="button" class="btn btn-outline" id="btn-dec13-ia" onclick="dec13LerComIA()" data-noguard="1" style="display:none;color:#6A1B9A;border-color:#CE93D8"
+            title="Envia este arquivo para a IA ler (Gemini). Use só se o leitor normal não reconheceu. O resultado passa pela MESMA conferência.">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> Tentar ler com IA
+          </button>
+        </div>
+        <div id="dec13-arquivo-info" style="font-size:12px;color:#555;margin-top:6px"></div>
+        <details style="margin-top:8px">
+          <summary style="font-size:12px;color:#1a3a6b;cursor:pointer">…ou cole aqui (copiar do Excel com o cabeçalho, ou o texto do relatório)</summary>
+          <textarea id="dec13-texto" rows="5" spellcheck="false" oninput="dec13TextoEditado()"
+            style="width:100%;margin-top:6px;font-family:monospace;font-size:12px;padding:8px;border:1px solid #ddd;border-radius:8px"
+            placeholder="Matrícula&#9;Nome&#9;CPF&#9;Total Bruto&#9;1ª Parcela&#9;INSS&#9;IRRF&#9;2ª Parcela&#10;1&#9;FULANO DE TAL&#9;123.456.789-01&#9;1.840,72&#9;920,36&#9;141,35&#9;0,00&#9;779,01"></textarea>
+        </details>
+        <div id="dec13-msg" class="form-msg" style="margin-top:8px;font-size:14px;font-weight:600"></div>
+      </div>
+
+      <!-- 3) Conferência -->
+      <div id="dec13-passo-conferir" style="display:none">
+        <div style="padding:12px 20px;background:#f8f9fc;border-bottom:1px solid var(--border-color,#e0e0e0)">
+          <div id="dec13-mapa" style="margin-bottom:10px"></div>
+          <div id="dec13-resumo" style="font-size:13px;color:#555"></div>
+          <div style="margin-top:8px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px;max-width:520px">
+            <button type="button" class="btn btn-outline btn-sm" onclick="dec13MarcarTodos('prontos')" data-noguard="1"><i class="fa-solid fa-check"></i> Só os prontos</button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="dec13MarcarTodos(true)" data-noguard="1"><i class="fa-solid fa-check-double"></i> Marcar todos</button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="dec13MarcarTodos(false)" data-noguard="1"><i class="fa-solid fa-xmark"></i> Desmarcar</button>
+          </div>
+        </div>
+        <div style="overflow:auto;max-height:420px">
+          <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:820px">
+            <thead id="dec13-thead"></thead>
+            <tbody id="dec13-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px">
+      <button type="button" class="btn btn-outline" onclick="closeModal('modal-dec13-import')" data-noguard="1">Fechar</button>
+      <button type="button" class="btn btn-primary" id="btn-dec13-gravar" onclick="dec13Gravar()" disabled data-noguard="1"
+        style="background:#00695C;border-color:#00695C"><i class="fa-solid fa-file-import"></i> Gravar no 13º</button>
     </div>
   </div>
 </div>
@@ -8431,6 +8521,6 @@
 })();
 </script>
 
-  <script src="app.js?v=20261109b-recuperacao-por-email"></script>
+  <script src="app.js?v=20261125a-13-importar-contabilidade"></script>
 </body>
 </html>

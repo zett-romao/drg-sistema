@@ -40010,6 +40010,13 @@ async function init(){
       ['modal-employee','modal-pdf','modal-confirm','modal-user','modal-change-pass','modal-cct',
        'modal-ponto-manual','modal-relatorio-individual','modal-perfil']
         .forEach(id => document.getElementById(id)?.classList.add('hidden'));
+      // Regra "todo modal fecha com Esc": a lista acima cobria só 9 modais (o do
+      // 13º, por exemplo, ficava aberto). Agora fecha também o modal aberto que
+      // estiver POR CIMA (o último no DOM) — um por toque, como o X. A pergunta
+      // do drgConfirmar trata o próprio Esc antes e não chega aqui. #esc-modal
+      const abertos=[...document.querySelectorAll('.modal-overlay')]
+        .filter(m=>!m.classList.contains('hidden') && m.id && getComputedStyle(m).display!=='none');
+      if(abertos.length) closeModal(abertos[abertos.length-1].id);
     }
   });
 
